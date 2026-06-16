@@ -25,6 +25,19 @@ async def _override_db_session() -> None:
     app.dependency_overrides.clear()
 
 
+@pytest.fixture(autouse=True)
+async def _clean_db() -> None:
+    yield
+    async with TestSessionLocal() as session:
+        await session.execute(delete(Post))
+        await session.execute(delete(GlobalChat))
+        await session.execute(delete(GlobalNote))
+        await session.execute(delete(Profile))
+        await session.execute(delete(EmailCode))
+        await session.execute(delete(User))
+        await session.commit()
+
+
 @pytest.fixture(scope="session", autouse=True)
 async def _dispose_test_engine() -> None:
     yield
@@ -42,10 +55,3 @@ async def client() -> AsyncClient:
 async def db_session() -> AsyncSession:
     async with TestSessionLocal() as session:
         yield session
-        await session.execute(delete(Post))
-        await session.execute(delete(GlobalChat))
-        await session.execute(delete(GlobalNote))
-        await session.execute(delete(Profile))
-        await session.execute(delete(EmailCode))
-        await session.execute(delete(User))
-        await session.commit()
