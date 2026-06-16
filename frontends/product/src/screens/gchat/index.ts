@@ -1,1 +1,0 @@
-export { GChatScreen } from "./GChatScreen";

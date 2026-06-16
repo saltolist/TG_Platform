@@ -1,1 +1,0 @@
-export { NoteScreen } from "./NoteScreen";
