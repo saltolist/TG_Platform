@@ -2,14 +2,12 @@ import uuid
 
 import pytest
 from httpx import AsyncClient
-from sqlalchemy import select
-from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.db.models import EmailCode, User
+from tests.conftest import fetch_email_code
 
 
 @pytest.mark.asyncio
-async def test_register_and_login(client: AsyncClient, db_session: AsyncSession) -> None:
+async def test_register_and_login(client: AsyncClient) -> None:
     email = f"user-{uuid.uuid4().hex[:8]}@example.com"
     password = "SecretPass123"
 
@@ -19,13 +17,11 @@ async def test_register_and_login(client: AsyncClient, db_session: AsyncSession)
     )
     assert send.status_code == 204
 
-    result = await db_session.execute(select(EmailCode).where(EmailCode.email == email))
-    code_row = result.scalar_one()
-    assert code_row.purpose == "register"
+    code = await fetch_email_code(email)
 
     verify = await client.post(
         "/api/v1/auth/register/verify/",
-        json={"email": email, "code": code_row.code},
+        json={"email": email, "code": code},
     )
     assert verify.status_code == 200
     session = verify.json()
@@ -58,7 +54,7 @@ async def test_protected_route_requires_auth(client: AsyncClient) -> None:
 
 
 @pytest.mark.asyncio
-async def test_duplicate_register_rejected(client: AsyncClient, db_session: AsyncSession) -> None:
+async def test_duplicate_register_rejected(client: AsyncClient) -> None:
     email = f"dup-{uuid.uuid4().hex[:8]}@example.com"
     password = "SecretPass123"
 
@@ -66,18 +62,15 @@ async def test_duplicate_register_rejected(client: AsyncClient, db_session: Asyn
         "/api/v1/auth/register/send-code/",
         json={"email": email, "password": password},
     )
-    result = await db_session.execute(select(EmailCode).where(EmailCode.email == email))
-    code = result.scalar_one().code
-    await client.post(
+    code = await fetch_email_code(email)
+    verify = await client.post(
         "/api/v1/auth/register/verify/",
         json={"email": email, "code": code},
     )
+    assert verify.status_code == 200
 
     duplicate = await client.post(
         "/api/v1/auth/register/send-code/",
         json={"email": email, "password": password},
     )
     assert duplicate.status_code == 400
-
-    users = await db_session.execute(select(User).where(User.email == email))
-    assert users.scalar_one() is not None

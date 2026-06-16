@@ -1,6 +1,6 @@
 import pytest
 from httpx import ASGITransport, AsyncClient
-from sqlalchemy import delete
+from sqlalchemy import delete, select
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
 from sqlalchemy.pool import NullPool
 
@@ -51,7 +51,8 @@ async def client() -> AsyncClient:
         yield ac
 
 
-@pytest.fixture
-async def db_session() -> AsyncSession:
+async def fetch_email_code(email: str) -> str:
+    """Read a one-time code using a short-lived session (avoids fixture teardown conflicts)."""
     async with TestSessionLocal() as session:
-        yield session
+        result = await session.execute(select(EmailCode).where(EmailCode.email == email))
+        return result.scalar_one().code
