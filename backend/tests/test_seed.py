@@ -68,3 +68,15 @@ async def test_presentation_user_has_pages_profile(client: AsyncClient) -> None:
     assert channel.json().get("core", {}).get("topic")
     assert len(ai.json().get("llmModels", [])) >= 2
     assert telegram.json().get("channelStatus") == "connected"
+
+
+@pytest.mark.asyncio
+async def test_seeded_posts_match_frontend_contract(client: AsyncClient) -> None:
+    await _seed()
+    response = await client.get("/api/v1/posts/", headers=guest_auth_headers())
+    assert response.status_code == 200
+    from tests.contract_schemas import parse_posts_list
+
+    posts = parse_posts_list(response.json())
+    assert len(posts) >= 9
+    assert any(post.id == "21" for post in posts)

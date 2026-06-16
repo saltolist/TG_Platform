@@ -26,6 +26,7 @@ npm run check            # typecheck + lint + test + build
 cp .env.example .env     # заполнить секреты
 docker compose up --build
 # frontend → http://localhost:3000, API → http://localhost:8000/api/v1
+bash scripts/verify-phase1-docker.sh   # smoke-проверка Фазы 1
 ```
 
 ## Структура проекта

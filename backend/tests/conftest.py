@@ -1,3 +1,5 @@
+import uuid
+
 import pytest
 from httpx import ASGITransport, AsyncClient
 from sqlalchemy import delete, select
@@ -6,6 +8,7 @@ from sqlalchemy.pool import NullPool
 
 from app.core.config import settings
 from app.core.constants import PRESENTATION_GUEST_TOKEN
+from app.core.security import create_access_token, hash_password
 from app.db.models import EmailCode, GlobalChat, GlobalNote, Post, Profile, User
 from app.db.session import get_session
 from app.main import app
@@ -61,3 +64,54 @@ async def fetch_email_code(email: str) -> str:
 
 def guest_auth_headers() -> dict[str, str]:
     return {"Authorization": f"Bearer {PRESENTATION_GUEST_TOKEN}"}
+
+
+@pytest.fixture
+async def writer_user() -> User:
+    async with TestSessionLocal() as session:
+        user = User(
+            email=f"writer-{uuid.uuid4().hex[:8]}@example.com",
+            password_hash=hash_password("SecretPass123"),
+            is_seed=False,
+        )
+        session.add(user)
+        await session.commit()
+        await session.refresh(user)
+        return user
+
+
+@pytest.fixture
+def writer_auth_headers(writer_user: User) -> dict[str, str]:
+    token = create_access_token(str(writer_user.id))
+    return {"Authorization": f"Bearer {token}"}
+
+
+def sample_post(post_id: str, *, text: str = "Contract test post") -> dict:
+    return {
+        "id": post_id,
+        "status": "draft",
+        "rubric": None,
+        "text": text,
+        "notes": [],
+        "chats": [],
+    }
+
+
+def sample_global_chat(chat_id: str, *, title: str = "Contract chat") -> dict:
+    return {
+        "id": chat_id,
+        "title": title,
+        "preview": "Preview",
+        "date": "2026-06-17T10:00:00.000Z",
+        "history": [{"role": "user", "text": "Hello"}],
+    }
+
+
+def sample_global_note(note_id: str, *, title: str = "Contract note") -> dict:
+    return {
+        "id": note_id,
+        "title": title,
+        "ai": True,
+        "date": "2026-06-17T10:00:00.000Z",
+        "body": "Note body",
+    }

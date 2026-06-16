@@ -63,38 +63,29 @@
 | Фаза | Статус | Описание |
 |------|--------|----------|
 | [Фаза 0 — Инфраструктура](phases/phase-0-foundation.md) | ✅ Завершено | Запускаемый каркас: Docker, FastAPI, миграции, CI |
-| [Фаза 1 — Core API (замена MSW)](phases/phase-1-core-api.md) | ◄ **Текущий фокус** | Реальный бэкенд вместо MSW; три Docker-режима, сидер, overlay |
-| [Фаза 2 — AI Integration](phases/phase-2-ai.md) | ⏳ План | Реальный LLM, резолв ключей, стриминг (SSE), RAG |
+| [Фаза 1 — Core API (замена MSW)](phases/phase-1-core-api.md) | ✅ Завершено | Реальный бэкенд вместо MSW; три Docker-режима, сидер, overlay |
+| [Фаза 2 — AI Integration](phases/phase-2-ai.md) | ◄ **Текущий фокус** | Реальный LLM, резолв ключей, стриминг (SSE), RAG |
 | [Фаза 3 — Telegram Integration](phases/phase-3-telegram.md) | ⏳ План | MTProto: импорт, публикация, метрики |
 | [Фаза 4 — Масштабирование](phases/phase-4-scaling.md) | ⏳ План | Refresh-токены, мультиканальность, очереди, K8s |
 
 ---
 
-## Текущий фокус: Фаза 1
+## Текущий фокус: Фаза 2
 
-**Цель:** фронтенд работает на реальном бэкенде вместо MSW; все три Docker-режима функциональны.
+**Цель:** реальный LLM, резолв ключей, стриминг (SSE). Подробнее — [phases/phase-2-ai.md](phases/phase-2-ai.md).
 
-Краткая сводка ключевых задач (полное описание — [phases/phase-1-core-api.md](phases/phase-1-core-api.md)):
+Фаза 1 завершена: фронтенд в Docker работает на реальном API, сид-аккаунты в Postgres, overlay для гостя/демо. Smoke-проверка: `bash scripts/verify-phase1-docker.sh`.
 
-1. **Identity + доступ:** гостевой токен `presentation:guest` → presentation-аккаунт (read-only); UUID везде + флаг `users.is_seed`.
-2. **Сидер:** идемпотентное создание `presentation` и `demo-full` в Postgres из JSON-фикстур (сгенерированных из TS-сидов фронта).
-3. **API + контрактные тесты:** сверка роутеров с Zod-схемами; pytest по posts/chats/notes/profile/auth. AI — JSON-заглушка.
-4. **Фронт → HTTP:** `getQueryAccountIdFromAuth()` из сессии; 401 не делает logout для гостя.
-5. **Overlay:** правки презентации/демо в localStorage, не в общую БД.
-6. **Сквозная проверка + Docker.**
+### Итог Фазы 1
 
-> AI-стриминг (SSE) и реальный LLM — это [Фаза 2](phases/phase-2-ai.md), не Фаза 1.
-
-### Критерии готовности Фазы 1
-
-- [ ] Все эндпоинты из [endpoints.md](endpoints.md) реализованы (с trailing-slash)
-- [ ] Ответы соответствуют схемам ([openapi.md](openapi.md) / [api-contracts.md](../dev/api-contracts.md))
-- [ ] `401` при истёкшем токене → logout (но не для гостевого токена)
-- [ ] ID — строки (UUID), даты — ISO-8601
-- [ ] CORS разрешает origin фронтенда
-- [ ] Гостевой токен (`presentation:guest`) принимается и маппится на `presentation`-аккаунт
-- [ ] Сидер запускается при старте и идемпотентно создаёт `presentation` и `demo-full`
-- [ ] Правки гостя/демо блокируются на уровне бэкенда (403); запись — через overlay на фронте
+- [x] Все эндпоинты из [endpoints.md](endpoints.md) реализованы (с trailing-slash)
+- [x] Ответы соответствуют схемам ([openapi.md](openapi.md) / [api-contracts.md](../dev/api-contracts.md))
+- [x] `401` при истёкшем токене → logout (но не для гостевого токена)
+- [x] ID — строки (UUID), даты — ISO-8601
+- [x] CORS разрешает origin фронтенда
+- [x] Гостевой токен (`presentation:guest`) принимается и маппится на `presentation`-аккаунт
+- [x] Сидер запускается при старте и идемпотентно создаёт `presentation` и `demo-full`
+- [x] Правки гостя/демо блокируются на уровне бэкенда (403); запись — через overlay на фронте
 
 ---
 

@@ -11,7 +11,8 @@
 ### Фазы (подробно)
 
 - [Фаза 0 — Инфраструктура](phases/phase-0-foundation.md) ✅
-- [Фаза 1 — Core API (замена MSW)](phases/phase-1-core-api.md) ◄ текущий фокус
+- [Фаза 1 — Core API (замена MSW)](phases/phase-1-core-api.md) ✅
+- [Фаза 2 — AI Integration](phases/phase-2-ai.md) ◄ текущий фокус
 - [Фаза 2 — AI Integration](phases/phase-2-ai.md)
 - [Фаза 3 — Telegram Integration](phases/phase-3-telegram.md)
 - [Фаза 4 — Масштабирование](phases/phase-4-scaling.md)

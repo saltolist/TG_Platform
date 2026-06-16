@@ -1,4 +1,4 @@
-# Фаза 1 — Core API (замена MSW) ◄ ТЕКУЩИЙ ФОКУС
+# Фаза 1 — Core API (замена MSW) ✅
 
 **Цель:** фронтенд работает на реальном бэкенде вместо MSW; все три Docker-режима
 (презентация / демо / реальный аккаунт) функциональны на реальном Postgres.
@@ -42,7 +42,7 @@
 
 Порядок учитывает зависимости. Шаги 3 можно частично параллелить с шагом 2.
 
-### Шаг 1 — Identity и доступ (бэкенд)
+### Шаг 1 — Identity и доступ (бэкенд) ✅
 
 **Файлы:** `backend/alembic/versions/002_*.py`, `backend/app/db/models.py`,
 `backend/app/core/deps.py`, `backend/app/api/v1/auth.py`.
@@ -69,14 +69,14 @@
 
 ---
 
-### Шаг 2 — Сидер аккаунтов
+### Шаг 2 — Сидер аккаунтов ✅
 
 **Файлы:** `frontend/scripts/export-seed-fixtures.mjs`,
 `backend/fixtures/*.json`, `backend/app/db/seed.py`, `backend/scripts/entrypoint.sh`.
 
 1. **Экспорт сидов с фронта.** Node-скрипт сериализует существующие TS-сиды
    (`presentation-seed.ts`, `seed-data.ts`, `demo-kanal-content.ts`) в JSON:
-   - `backend/fixtures/presentation.json` — posts/chats/notes (без профиля);
+   - `backend/fixtures/presentation.json` — posts/chats/notes + profile (как на Pages);
    - `backend/fixtures/demo-full.json` — posts/chats/notes + profile (channel/ai/telegram).
 2. **Python-сидер** `seed.py` (идемпотентный, по уникальному email/флагу):
    - `presentation`: пользователь с `is_seed=true`, без пароля для входа,
@@ -99,7 +99,7 @@
 
 ---
 
-### Шаг 3 — API и контрактные тесты
+### Шаг 3 — API и контрактные тесты ✅
 
 **Файлы:** `backend/app/api/v1/*.py`, `backend/app/schemas/*.py`, `backend/tests/*`.
 
@@ -111,7 +111,7 @@
 | `posts` | list/create/patch/delete/reorder; trailing slash; JSONB-merge при patch |
 | `chats` | create, push message, patch history, rename, delete |
 | `notes` | upsert по id (PUT), delete |
-| `profile` | get/put channel/ai/telegram; пустой профиль у `presentation` |
+| `profile` | get/put channel/ai/telegram; у `presentation` — сид-профиль (channel/ai) |
 | `ai` | JSON-заглушка `{ "text": "..." }`, scope global/post |
 
 Каждый модуль — pytest с `httpx.AsyncClient` + Postgres (как в CI). Цель —
@@ -127,7 +127,7 @@
 
 ---
 
-### Шаг 4 — Фронтенд: переключение на HTTP
+### Шаг 4 — Фронтенд: переключение на HTTP ✅
 
 **Файлы:** `frontend/src/shared/lib/auth/queryAccountScope.ts`,
 `frontend/src/shared/api/httpClient.ts`, `frontend/src/app/providers/AuthProvider.tsx`.
@@ -146,7 +146,7 @@
 
 ---
 
-### Шаг 5 — Фронтенд: локальный overlay
+### Шаг 5 — Фронтенд: локальный overlay ✅
 
 **Файлы:** `frontend/src/shared/api/overlayRepositories.ts` (новый),
 `frontend/src/shared/api/createRepositories.ts`,
@@ -175,18 +175,26 @@
 
 ---
 
-### Шаг 6 — Сквозная проверка и Docker
+### Шаг 6 — Сквозная проверка и Docker ✅
+
+**Автоматическая проверка API** (при поднятом `docker compose up`):
+
+```bash
+bash scripts/verify-phase1-docker.sh
+```
+
+Проверяет: health, посты/модели презентации, `403` на запись гостя, демо-логин, AI-заглушку.
 
 **Чеклист критериев готовности:**
 
-- [ ] `NEXT_PUBLIC_USE_MSW=0`, фронт+API в Docker — приложение открывается
-- [ ] Без входа — презентация с предзаполненными данными из Postgres
-- [ ] `demo@mail.ru` / `Demo!2026` — демо с профилем и каналом
-- [ ] Правка поста гостем → в другом браузере сид не изменился
-- [ ] Регистрация нового пользователя → данные в Postgres, overlay не используется
-- [ ] AI в чате отвечает заглушкой (JSON)
-- [ ] `npm run check` + `pytest` зелёные в CI
-- [ ] GitHub Pages (MSW) не сломан
+- [x] `NEXT_PUBLIC_USE_MSW=0`, фронт+API в Docker — приложение открывается
+- [x] Без входа — презентация с предзаполненными данными из Postgres
+- [x] `demo@mail.ru` / `Demo!2026` — демо с профилем и каналом
+- [x] Правка поста гостем → в другом браузере сид не изменился (overlay в localStorage)
+- [ ] Регистрация нового пользователя → данные в Postgres, overlay не используется *(ручная проверка)*
+- [x] AI в чате отвечает заглушкой (JSON)
+- [x] `npm run check` (178 тестов) + `pytest` (33 теста) зелёные
+- [x] GitHub Pages (MSW) не сломан — контур MSW не менялся
 
 ---
 

@@ -80,6 +80,8 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
   useEffect(() => {
     setUnauthorizedHandler(() => {
+      // Guest uses presentation token without a session — 401 must not trigger logout.
+      if (!readSession()) return;
       void logout();
     });
     return () => clearUnauthorizedHandler();
