@@ -1,0 +1,83 @@
+/* Shared TG-style media grid (feed + post) */
+/* Extracted from globals.css */
+
+/* ════════════════════════════════
+   TG-style media block
+════════════════════════════════ */
+.tg-media {
+  display: grid;
+  gap: 2px;
+  border-radius: 12px;
+  overflow: hidden;
+  background: var(--bg4);
+}
+.tg-media.cols-1 { grid-template-columns: 1fr; }
+.tg-media.cols-2 { grid-template-columns: 1fr 1fr; }
+.tg-media.cols-3 { grid-template-columns: 1fr 1fr 1fr; }
+.tg-media.rows-2 { grid-auto-rows: 1fr; }
+.tg-media.layout-3 { grid-template-rows: 1fr 1fr; }
+.tg-media.layout-3 .span-2 { grid-column: span 2; }
+
+.tg-media-item {
+  position: relative;
+  background: var(--bg5, var(--bg4));
+  overflow: hidden;
+  min-height: 0;
+}
+.tg-media.cols-1 .tg-media-item { aspect-ratio: 16 / 10; }
+.tg-media.cols-2 .tg-media-item,
+.tg-media.cols-3 .tg-media-item { aspect-ratio: 1 / 1; }
+.tg-media.layout-3 .span-2 { aspect-ratio: 2 / 1; }
+.tg-media.single .tg-media-item { max-height: 460px; }
+
+.tg-media-img,
+.tg-media-video {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  display: block;
+  background: #000;
+}
+.tg-media-video { object-fit: contain; }
+
+.tg-media-doc {
+  display: flex; align-items: center; gap: 10px;
+  width: 100%; height: 100%;
+  padding: 12px 14px;
+  background: var(--bg4);
+}
+.tg-media-doc-icon {
+  width: 40px; height: 40px; flex-shrink: 0;
+  border-radius: 50%;
+  display: flex; align-items: center; justify-content: center;
+  background: var(--accent); color: #fff;
+  font-size: 18px;
+}
+.tg-media-doc-name {
+  flex: 1; min-width: 0;
+  font-size: 13px; color: var(--text);
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}
+
+.tg-media-remove {
+  position: absolute; top: 6px; right: 6px;
+  width: 24px; height: 24px;
+  padding: 0;
+  border: none; border-radius: 50%;
+  background: rgba(0,0,0,.55); color: #fff;
+  cursor: pointer;
+  display: none;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+  transition: background .12s;
+  z-index: 2;
+}
+.tg-media-remove-icon {
+  display: block;
+  width: 12px;
+  height: 12px;
+  flex-shrink: 0;
+}
+.tg-media-editable .tg-media-remove { display: inline-flex; }
+.tg-media-remove:hover { background: rgba(0,0,0,.75); }

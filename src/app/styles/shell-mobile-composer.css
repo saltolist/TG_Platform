@@ -1,0 +1,132 @@
+/* Mobile composer + no-zoom — импортировать ПОСЛЕ всех shell-*.css (см. layout.tsx). */
+
+@media (max-width: 760px) {
+  /* Scroll на всю ширину viewport; контент с тем же gutter, что композер */
+  .feed-scroll .composer-scroll-body,
+  .post-body .composer-scroll-body,
+  .gchat-messages .composer-scroll-body,
+  .post-comments-body .composer-scroll-body {
+    --scroll-pad-inline: var(--composer-gutter-inline);
+    padding-left: var(--scroll-pad-inline);
+    padding-right: var(--scroll-pad-inline);
+    box-sizing: border-box;
+  }
+
+  /* Единый shell композера (эталон: лента) */
+  #screen-feed .input-wrap,
+  #screen-gchat .input-wrap,
+  #screen-post .input-wrap,
+  #screen-home .input-wrap,
+  .post-comments-input-wrap {
+    --input-wrap-pad-top: var(--composer-gutter-inline);
+    --input-wrap-pad-bottom: var(--composer-gutter-inline);
+    padding: var(--composer-gutter-inline);
+    display: flex;
+    flex-direction: column;
+    align-items: stretch;
+    justify-content: center;
+    width: 100%;
+    max-width: none;
+    box-sizing: border-box;
+  }
+
+  /*
+   * input-wrap на всю ширину экрана; backdrop = ширина .input-box (inset по gutter).
+   * Scrollbar остаётся у правого края viewport, не под frosted-панелью.
+   */
+  #screen-feed .composer-backdrop,
+  #screen-gchat .composer-backdrop,
+  #screen-post .composer-backdrop,
+  .post-comments-input-wrap .composer-backdrop {
+    left: var(--composer-gutter-inline);
+    right: var(--composer-gutter-inline);
+    width: auto;
+    max-width: none;
+    transform: none;
+  }
+
+  #screen-feed .input-box,
+  #screen-gchat .input-box,
+  #screen-post .input-box,
+  #screen-home .input-box,
+  .post-comments-input-wrap .input-box {
+    width: 100%;
+    max-width: 100%;
+    box-sizing: border-box;
+  }
+
+  /* Главная: gutter только у input-wrap (как feed/post/gchat), без двойного inset */
+  .home-layout {
+    padding-left: 0;
+    padding-right: 0;
+  }
+
+  /* Карточки постов: телефонная ширина (270px) задаётся --feed-post-w на screen-wrap */
+  .post-body-inner .post-msg-block,
+  .post-body-inner > .post-msg-card {
+    width: var(--feed-post-w, 270px);
+    max-width: 100%;
+    margin-inline: auto;
+  }
+
+  .post-body-inner {
+    width: 100%;
+    max-width: 100%;
+    padding-left: 0;
+    padding-right: 0;
+    box-sizing: border-box;
+  }
+
+  /* iOS/Android: зум при font-size < 16px на самих полях ввода */
+  .page-header-search,
+  .page-header-compact-search-field input,
+  .notes-search-input,
+  .input-box textarea,
+  .composer-editor,
+  .post-msg-textarea,
+  .profile-input,
+  .profile-input-explicit,
+  .profile-textarea,
+  .profile-system-prompt-textarea,
+  .profile-model-key-input,
+  .telegram-input,
+  .telegram-api-hash-input,
+  .telegram-code-input,
+  .note-body-document-edit,
+  .note-body-line-edit {
+    font-size: 16px;
+  }
+  .composer-editor.is-empty::before {
+    font-size: 14px;
+  }
+
+  /* Полоса «Комментарии»: inset = horizontal padding карточки (12px на mobile) */
+  .post-card .post-comments-row,
+  .post-msg-card .post-comments-row {
+    --post-comments-inset-x: 12px;
+    margin-top: 8px;
+    padding-top: 8px;
+  }
+
+  /* P2: переключатель темы на mobile */
+  .profile-page .theme-switch {
+    display: flex;
+    width: 100%;
+    max-width: 100%;
+    box-sizing: border-box;
+  }
+  .profile-page .theme-switch-btn {
+    flex: 1 1 0;
+    min-width: 0;
+    padding: 8px 8px;
+    font-size: 12px;
+    justify-content: center;
+    gap: 4px;
+  }
+  .profile-page .theme-switch-btn > span:last-child {
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+}

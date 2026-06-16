@@ -1,0 +1,82 @@
+/* Chats catalog — scroll layout (card styles in shell-post.css) */
+
+.chats-page::-webkit-scrollbar,
+.chats-scroll::-webkit-scrollbar {
+  width: var(--sb-w);
+  height: var(--sb-w);
+}
+.chats-page::-webkit-scrollbar-track,
+.chats-scroll::-webkit-scrollbar-track {
+  background: transparent;
+}
+.chats-page::-webkit-scrollbar-thumb,
+.chats-scroll::-webkit-scrollbar-thumb {
+  background: var(--scroll-thumb);
+  border-radius: 999px;
+}
+.chats-page::-webkit-scrollbar-thumb:hover,
+.chats-scroll::-webkit-scrollbar-thumb:hover {
+  background: var(--scroll-thumb-hover);
+}
+.chats-page::-webkit-scrollbar-corner,
+.chats-scroll::-webkit-scrollbar-corner {
+  background: transparent;
+}
+.chats-page,
+.chats-scroll {
+  -webkit-overflow-scrolling: touch;
+  overscroll-behavior-y: contain;
+}
+
+.chats-scroll {
+  flex: 1;
+  min-height: 0;
+  width: 100%;
+  overflow-y: auto;
+  padding: 14px 0 20px;
+  display: flex;
+  justify-content: center;
+  scrollbar-width: thin;
+  scrollbar-color: var(--scroll-thumb) transparent;
+}
+
+.chats-scroll-inner {
+  width: min(var(--content-w), 100%);
+  flex: none;
+}
+
+.chats-scroll-inner .chat-card {
+  margin-bottom: 8px;
+}
+
+@media (max-width: 1200px) {
+  .chats-scroll {
+    padding-left: 0;
+    padding-right: 0;
+  }
+}
+
+@media (max-width: 760px) {
+  #screen-chats .chats-scroll-inner {
+    width: min(var(--composer-w), 100%);
+    max-width: none;
+    margin-left: auto;
+    margin-right: auto;
+    padding-left: 12px;
+    padding-right: 12px;
+    box-sizing: border-box;
+  }
+
+  #screen-chats .chats-scroll {
+    display: block;
+    padding: 14px 0 18px;
+  }
+
+  #screen-chats .chat-card {
+    width: 100%;
+    max-width: 100%;
+    margin-left: 0;
+    margin-right: 0;
+    box-sizing: border-box;
+  }
+}

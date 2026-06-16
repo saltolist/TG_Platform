@@ -1,0 +1,150 @@
+.app-dialog-backdrop {
+  position: fixed;
+  inset: 0;
+  z-index: var(--ui-z-modal);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: color-mix(in srgb, #000 48%, transparent);
+}
+
+.app-dialog {
+  width: min(400px, calc(100vw - 24px));
+  border-radius: 16px;
+  border: 1px solid var(--border2);
+  background: var(--bg2);
+  box-shadow: 0 20px 60px rgba(0, 0, 0, 0.45);
+  padding: 18px 16px 14px;
+}
+
+.app-dialog-title {
+  font-size: 15px;
+  font-weight: 700;
+  color: var(--text);
+  margin-bottom: 8px;
+}
+
+.app-dialog-message {
+  font-size: 14px;
+  line-height: 1.45;
+  color: var(--text2);
+  white-space: pre-wrap;
+}
+
+.app-dialog-actions {
+  margin-top: 16px;
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
+}
+
+.app-dialog-btn-danger {
+  background: var(--destructive);
+  color: var(--destructive-foreground, #fff);
+}
+
+.app-toast-host {
+  position: fixed;
+  top: calc(var(--hdr) + 12px);
+  left: var(--nav-w);
+  right: 0;
+  display: flex;
+  justify-content: center;
+  z-index: calc(var(--ui-z-modal) + 10);
+  max-width: none;
+  pointer-events: none;
+}
+
+.app-toast-host .app-toast {
+  max-width: min(420px, calc(100vw - var(--nav-w) - 32px));
+}
+
+.app-toast {
+  border-radius: 12px;
+  border: 1px solid var(--border2);
+  background: var(--bg2);
+  box-shadow: 0 12px 40px rgba(0, 0, 0, 0.35);
+  padding: 12px 14px;
+  font-size: 13px;
+  line-height: 1.4;
+  color: var(--text);
+  animation: app-toast-in 0.22s ease;
+}
+
+.app-toast--leaving {
+  animation: app-toast-out 0.45s ease forwards;
+}
+
+@keyframes app-toast-in {
+  from {
+    opacity: 0;
+    transform: translateY(-8px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+@keyframes app-toast-out {
+  from {
+    opacity: 1;
+    transform: translateY(0);
+  }
+  to {
+    opacity: 0;
+    transform: translateY(-6px);
+  }
+}
+
+.app-toast--error {
+  border-color: color-mix(in srgb, var(--destructive) 55%, var(--border2));
+}
+
+.app-error-fallback {
+  min-height: 50vh;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 12px;
+  padding: 32px 20px;
+  text-align: center;
+}
+
+.app-error-fallback-title {
+  font-size: 20px;
+  font-weight: 700;
+  color: var(--text);
+}
+
+.app-error-fallback-message {
+  max-width: 420px;
+  font-size: 14px;
+  line-height: 1.5;
+  color: var(--text2);
+}
+
+.app-error-fallback-actions {
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
+  justify-content: center;
+}
+
+.msw-boot-screen {
+  min-height: 100vh;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: var(--text2);
+  font-size: 14px;
+}
+
+.msw-error-screen {
+  min-height: 100vh;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 24px;
+}

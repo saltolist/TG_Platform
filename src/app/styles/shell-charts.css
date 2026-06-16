@@ -1,0 +1,597 @@
+/* M3.7 — charts widget (MultiSeriesTrendChart, ChartSeriesSelector) */
+
+.profile-checkbox-scope input[type="checkbox"] {
+  -webkit-appearance: none;
+  appearance: none;
+  box-sizing: border-box;
+  width: 18px;
+  height: 18px;
+  flex-shrink: 0;
+  margin: 0;
+  border: 1px solid var(--profile-control-border);
+  border-radius: var(--rs);
+  background: var(--profile-control-bg);
+  cursor: pointer;
+  vertical-align: middle;
+  position: relative;
+  transition: border-color 0.12s, background 0.12s, box-shadow 0.12s;
+}
+
+.profile-checkbox-scope input[type="checkbox"]::after {
+  content: "";
+  position: absolute;
+  left: 6px;
+  top: 2px;
+  width: 5px;
+  height: 10px;
+  border: solid var(--profile-control-fg);
+  border-width: 0 2px 2px 0;
+  transform: rotate(45deg) scale(0);
+  transform-origin: center;
+  transition: transform 0.12s, border-color 0.12s;
+  pointer-events: none;
+}
+
+.profile-checkbox-scope input[type="checkbox"]:checked::after {
+  transform: rotate(45deg) scale(1);
+}
+
+.profile-checkbox-scope input[type="checkbox"]:hover:not(:disabled) {
+  background: var(--profile-control-bg-hover);
+  border-color: var(--border2);
+}
+
+.profile-checkbox-scope input[type="checkbox"]:checked {
+  background: var(--profile-control-bg-active);
+  border-color: var(--control-border-active);
+}
+
+.profile-checkbox-scope input[type="checkbox"]:checked.profile-checkbox--suppress-hover:hover:not(:disabled),
+.profile-checkbox-scope input[type="checkbox"]:checked.profile-checkbox--suppress-hover:active:not(:disabled) {
+  background: var(--profile-control-bg-active);
+  border-color: color-mix(in srgb, var(--border2) 55%, #000 45%);
+}
+
+.profile-checkbox-scope input[type="checkbox"]:checked.profile-checkbox--suppress-hover:hover:not(:disabled)::after,
+.profile-checkbox-scope input[type="checkbox"]:checked.profile-checkbox--suppress-hover:active:not(:disabled)::after {
+  border-color: var(--profile-control-fg);
+}
+
+.profile-checkbox-scope input[type="checkbox"]:checked:hover:not(:disabled):not(.profile-checkbox--suppress-hover) {
+  background: var(--profile-control-bg-hover);
+  border-color: var(--border2);
+}
+
+.profile-checkbox-scope input[type="checkbox"]:checked:hover:not(:disabled):not(.profile-checkbox--suppress-hover)::after {
+  border-color: var(--border2);
+}
+
+.profile-checkbox-scope input[type="checkbox"]:focus-visible {
+  outline: none;
+  border-color: var(--control-border-active);
+  box-shadow: none;
+}
+
+.profile-checkbox-scope input[type="checkbox"]:disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
+}
+
+.chart-series-selector {
+  position: relative;
+  display: inline-flex;
+  flex: 0 0 auto;
+  min-width: 148px;
+  max-width: 260px;
+}
+
+.chart-series-selector-trigger {
+  display: flex;
+  align-items: center;
+  width: 100%;
+  height: 36px;
+  border: 1px solid var(--profile-control-border);
+  border-radius: var(--rs);
+  background: var(--profile-control-bg);
+  color: var(--text2);
+  box-shadow: var(--inset-edge);
+  font: 13px/1.2 var(--font);
+  padding: 0 34px 0 12px;
+  cursor: pointer;
+  text-align: left;
+  transition: background 0.15s, border-color 0.15s, color 0.15s;
+  background-image:
+    linear-gradient(45deg, transparent 50%, currentColor 50%),
+    linear-gradient(135deg, currentColor 50%, transparent 50%);
+  background-position:
+    calc(100% - 17px) 15px,
+    calc(100% - 12px) 15px;
+  background-size: 5px 5px, 5px 5px;
+  background-repeat: no-repeat;
+}
+
+.chart-series-selector-trigger:hover:not(:disabled),
+.chart-series-selector.is-open .chart-series-selector-trigger {
+  border-color: var(--control-border-active);
+  color: var(--text);
+}
+
+.chart-series-selector-trigger:disabled {
+  opacity: 0.55;
+  cursor: not-allowed;
+}
+
+.chart-series-selector-trigger-text {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.chart-series-selector-panel {
+  position: fixed;
+  z-index: var(--ui-z-dropdown);
+  display: grid;
+  gap: 2px;
+  max-height: min(320px, calc(100vh - 24px));
+  overflow: auto;
+  padding: 6px;
+  border: 1px solid var(--glass-border);
+  border-radius: var(--rs);
+  background: var(--glass-bg);
+  -webkit-backdrop-filter: var(--glass-filter);
+  backdrop-filter: var(--glass-filter);
+  box-shadow: var(--dropdown-shadow);
+  scrollbar-width: thin;
+  scrollbar-color: var(--scroll-thumb) transparent;
+}
+
+.chart-series-selector-panel::-webkit-scrollbar {
+  width: 5px;
+}
+
+.chart-series-selector-panel::-webkit-scrollbar-thumb {
+  background: var(--scroll-thumb);
+  border-radius: 3px;
+}
+
+.chart-series-selector-item {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+  padding: 7px 8px;
+  border-radius: calc(var(--rs) - 2px);
+  color: var(--text2);
+  cursor: pointer;
+}
+
+.chart-series-selector-item:hover {
+  background: var(--profile-control-bg-hover);
+}
+
+.chart-series-selector-item-label {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  line-height: 1.3;
+}
+
+.chart-series-selector-item input[type="checkbox"].chart-series-selector-checkbox {
+  border-color: var(--series-color, var(--profile-control-border));
+}
+
+.chart-series-selector-item input[type="checkbox"].chart-series-selector-checkbox::after {
+  border-color: var(--border2);
+  transition: transform 0.12s ease;
+}
+
+.chart-series-selector-item input[type="checkbox"].chart-series-selector-checkbox:checked {
+  border-color: var(--series-color, var(--control-border-active));
+}
+
+.chart-series-selector-item input[type="checkbox"].chart-series-selector-checkbox:checked::after {
+  border-color: var(--series-color, #3a3a3a);
+}
+
+.chart-series-selector-item:hover input[type="checkbox"].chart-series-selector-checkbox:not(:checked):not(:disabled):not(.profile-checkbox--suppress-hover) {
+  background: var(--profile-control-bg-hover);
+  border-color: var(--series-color, var(--border2));
+}
+
+.chart-series-selector-item:hover input[type="checkbox"].chart-series-selector-checkbox:not(:checked):not(:disabled):not(.profile-checkbox--suppress-hover)::after {
+  transform: rotate(45deg) scale(1);
+  border-color: var(--border2);
+}
+
+.chart-series-selector-item:hover input[type="checkbox"].chart-series-selector-checkbox:checked:not(:disabled):not(.profile-checkbox--suppress-hover) {
+  background: var(--profile-control-bg-hover);
+  border-color: var(--series-color, var(--border2));
+}
+
+.chart-series-selector-item:hover input[type="checkbox"].chart-series-selector-checkbox:checked:not(:disabled):not(.profile-checkbox--suppress-hover)::after {
+  border-color: var(--border2);
+}
+
+.chart-series-selector-item:hover input[type="checkbox"].chart-series-selector-checkbox:checked.profile-checkbox--suppress-hover:not(:disabled) {
+  background: var(--profile-control-bg-active);
+  border-color: var(--series-color, var(--control-border-active));
+}
+
+.chart-series-selector-item:hover input[type="checkbox"].chart-series-selector-checkbox:checked.profile-checkbox--suppress-hover:not(:disabled)::after {
+  border-color: var(--series-color, #3a3a3a);
+}
+
+.chart-series-selector-item:hover input[type="checkbox"].chart-series-selector-checkbox:not(:checked).profile-checkbox--suppress-hover:not(:disabled) {
+  background: var(--profile-control-bg);
+  border-color: var(--series-color, var(--profile-control-border));
+}
+
+.chart-series-selector-item:hover input[type="checkbox"].chart-series-selector-checkbox:not(:checked).profile-checkbox--suppress-hover:not(:disabled)::after {
+  transform: rotate(45deg) scale(0);
+}
+
+.chart-series-selector-item input[type="checkbox"].chart-series-selector-checkbox:focus-visible {
+  border-color: var(--series-color, var(--control-border-active));
+  box-shadow: none;
+}
+
+.chart-series-selector--profile {
+  width: 100%;
+  max-width: none;
+  min-width: 0;
+}
+
+.chart-series-selector--profile .model-picker-btn {
+  width: 100%;
+}
+
+.chart-series-selector-panel--profile {
+  max-height: min(320px, calc(100vh - 24px));
+  overflow: auto;
+  display: grid;
+  gap: 2px;
+  padding: 6px;
+}
+
+.trend-plot {
+  padding: 16px 34px 0;
+}
+
+.model-trend-plot {
+  --trend-y-label-inset: 44px;
+  --trend-plot-left-gutter: 56px;
+  padding-top: 0;
+  padding-left: var(--trend-plot-left-gutter);
+  overflow: visible;
+}
+
+.trend-plot--no-y-labels,
+.model-trend-plot.trend-plot--no-y-labels {
+  --trend-y-label-inset: 0;
+  --trend-plot-left-gutter: 34px;
+  padding-left: 34px;
+}
+
+.trend-chart-wrap {
+  position: relative;
+  overflow: visible;
+}
+
+.trend-chart {
+  display: block;
+  width: 100%;
+  height: 145px;
+  overflow: visible;
+}
+
+.model-trend-plot .trend-chart {
+  height: var(--model-trend-chart-height);
+}
+
+.trend-y-label {
+  position: absolute;
+  left: calc(-1 * var(--trend-y-label-inset, 44px));
+  transform: translateY(-50%);
+  transform-origin: right center;
+  color: var(--text3);
+  font-size: 10px;
+  line-height: 1;
+  white-space: nowrap;
+  pointer-events: none;
+}
+
+.trend-grid-line {
+  fill: none;
+  stroke: var(--border);
+  stroke-width: 1;
+  vector-effect: non-scaling-stroke;
+}
+
+.trend-line {
+  fill: none;
+  stroke: var(--accent);
+  stroke-width: 3;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+  vector-effect: non-scaling-stroke;
+}
+
+.model-trend-line {
+  opacity: 0.92;
+  transition: opacity 0.2s ease, stroke 0.2s ease, filter 0.2s ease;
+}
+
+.model-trend-line.is-highlighted {
+  opacity: 1;
+}
+
+.trend-html-dot {
+  position: absolute;
+  width: 12px;
+  height: 12px;
+  padding: 0;
+  border: none;
+  background: transparent;
+  transform: translate(-50%, -50%);
+  cursor: pointer;
+  pointer-events: auto;
+  z-index: 2;
+}
+
+.trend-html-dot-body {
+  position: absolute;
+  inset: 0;
+  transform-origin: center center;
+  transition: transform 0.16s ease;
+}
+
+.trend-html-dot-halo {
+  position: absolute;
+  inset: 0;
+  border-radius: 50%;
+  background: #fff;
+  box-shadow: none;
+}
+
+.trend-html-dot-core {
+  position: absolute;
+  left: 50%;
+  top: 50%;
+  width: 7.5px;
+  height: 7.5px;
+  border-radius: 50%;
+  transform: translate(-50%, -50%);
+  transition: background 0.2s ease, filter 0.2s ease;
+}
+
+.trend-html-dot:hover,
+.trend-html-dot:focus-visible,
+.trend-html-dot.is-cluster-active {
+  outline: none;
+  z-index: 5;
+}
+
+.trend-html-dot:hover .trend-html-dot-body,
+.trend-html-dot:focus-visible .trend-html-dot-body,
+.trend-html-dot.is-cluster-active .trend-html-dot-body {
+  transform: scale(1.5);
+}
+
+.trend-html-dot:hover .trend-html-dot-core,
+.trend-html-dot:focus-visible .trend-html-dot-core,
+.trend-html-dot.is-cluster-active .trend-html-dot-core {
+  background: color-mix(in srgb, var(--dot-color) 82%, #000) !important;
+  filter: saturate(1.28) contrast(1.14);
+}
+
+.trend-tooltip {
+  position: absolute;
+  left: 50%;
+  bottom: calc(100% + 10px);
+  min-width: 170px;
+  max-width: 220px;
+  transform: translate(-50%, 6px) scale(0.96);
+  transform-origin: bottom center;
+  opacity: 0;
+  pointer-events: none;
+  border: 1px solid var(--glass-border);
+  border-radius: var(--r);
+  background: var(--glass-bg);
+  color: var(--text2);
+  text-align: left;
+  padding: 9px 10px;
+  -webkit-backdrop-filter: var(--glass-filter);
+  backdrop-filter: var(--glass-filter);
+  box-shadow: var(--trend-tooltip-shadow);
+  transition: opacity 0.16s ease, transform 0.16s ease;
+}
+
+.trend-tooltip b,
+.trend-tooltip span,
+.trend-tooltip em {
+  display: block;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.trend-tooltip-head {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 10px;
+  margin-bottom: 6px;
+}
+
+.trend-tooltip-head b {
+  flex: 1;
+  min-width: 0;
+}
+
+.trend-tooltip-growth {
+  display: inline-flex;
+  align-items: baseline;
+  gap: 4px;
+  flex-shrink: 0;
+  margin-top: 0;
+  color: var(--text2);
+  font-size: 12px;
+  font-weight: 650;
+  white-space: nowrap;
+}
+
+.trend-tooltip b {
+  color: var(--text);
+  font-size: 12px;
+  font-weight: 650;
+}
+
+.trend-tooltip > span:not(.trend-tooltip-growth):not(.trend-tooltip-range):not(.trend-tooltip-percent) {
+  margin-top: 3px;
+  color: var(--text3);
+  font-size: 11px;
+}
+
+.trend-tooltip-period,
+.trend-tooltip-range {
+  margin-top: 3px;
+  color: var(--text3);
+  font-size: 11px;
+  white-space: normal;
+  line-height: 1.35;
+  overflow: visible;
+  text-overflow: clip;
+}
+
+.trend-tooltip-range {
+  margin-top: 5px;
+}
+
+.trend-tooltip em {
+  margin-top: 5px;
+  color: var(--text2);
+  font-size: 12px;
+  font-style: normal;
+}
+
+.trend-tooltip-metric {
+  margin-top: 5px;
+  margin-bottom: 6px;
+  color: var(--text2);
+  font-size: 12px;
+  font-style: normal;
+}
+
+.trend-tooltip-percent {
+  display: block;
+  margin-top: 5px;
+  color: var(--text2);
+  font-size: 12px;
+  font-weight: 400;
+  white-space: nowrap;
+}
+
+.trend-html-dot:hover .trend-tooltip,
+.trend-html-dot:focus-visible .trend-tooltip,
+.trend-html-dot.is-cluster-active .trend-tooltip {
+  opacity: 1;
+  transform: translate(-50%, 0) scale(1);
+}
+
+.trend-tooltip-strip {
+  position: absolute;
+  transform: translate(-50%, calc(-100% - 14px));
+  transform-origin: bottom center;
+  z-index: 6;
+  pointer-events: none;
+  overflow: visible;
+  width: max-content;
+  max-width: min(96vw, calc(5 * 220px + 4 * 8px));
+}
+
+.trend-tooltip-strip--fixed {
+  position: fixed;
+  top: auto;
+  z-index: 10060;
+  transform: none;
+}
+
+.trend-tooltip-strip-track {
+  display: grid;
+  gap: 8px;
+  align-content: end;
+  justify-content: center;
+  width: max-content;
+  max-width: min(96vw, calc(5 * 220px + 4 * 8px));
+  overflow: visible;
+  padding: 32px 28px 48px;
+}
+
+.trend-tooltip-strip--fixed .trend-tooltip-strip-track {
+  padding: 0;
+  position: relative;
+  isolation: isolate;
+}
+
+.trend-tooltip-card {
+  position: relative;
+  z-index: 1;
+  left: auto;
+  bottom: auto;
+  opacity: 1;
+  transform: none;
+  min-width: 0;
+  max-width: 220px;
+  text-align: left;
+  padding: 9px 10px;
+  border: 1px solid var(--glass-border);
+  border-radius: var(--r);
+  background: var(--glass-bg);
+  -webkit-backdrop-filter: var(--glass-filter);
+  backdrop-filter: var(--glass-filter);
+  box-shadow: var(--trend-tooltip-shadow);
+}
+
+.trend-tooltip-strip--fixed .trend-tooltip-card:nth-child(1) { z-index: 8; }
+.trend-tooltip-strip--fixed .trend-tooltip-card:nth-child(2) { z-index: 7; }
+.trend-tooltip-strip--fixed .trend-tooltip-card:nth-child(3) { z-index: 6; }
+.trend-tooltip-strip--fixed .trend-tooltip-card:nth-child(4) { z-index: 5; }
+.trend-tooltip-strip--fixed .trend-tooltip-card:nth-child(5) { z-index: 4; }
+.trend-tooltip-strip--fixed .trend-tooltip-card:nth-child(6) { z-index: 3; }
+.trend-tooltip-strip--fixed .trend-tooltip-card:nth-child(7) { z-index: 2; }
+.trend-tooltip-strip--fixed .trend-tooltip-card:nth-child(8) { z-index: 1; }
+
+.trend-tooltip-strip--fixed .trend-tooltip.trend-tooltip-card {
+  opacity: 1;
+  transform: none;
+}
+
+.trend-labels {
+  position: relative;
+  min-height: 18px;
+  margin-top: 8px;
+  color: var(--text3);
+  font-size: 11px;
+  overflow: visible;
+}
+
+.trend-labels span {
+  position: absolute;
+  top: 0;
+  transform: translateX(-50%);
+  text-align: center;
+  white-space: nowrap;
+  pointer-events: none;
+}
+
+.trend-labels--hourly {
+  min-height: 14px;
+  font-size: 9px;
+}
+
+.trend-labels--hourly span {
+  font-variant-numeric: tabular-nums;
+}

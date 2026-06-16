@@ -1,0 +1,1139 @@
+/* Notes screen styles */
+/* Extracted from globals.css */
+
+/* ── Note screen header: крошки доходят до «Назад» (как post без search) ── */
+@media (min-width: 761px) {
+  #screen-note .page-header {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    width: 100%;
+  }
+  #screen-note .page-header-center {
+    display: none;
+  }
+  #screen-note .page-header-right {
+    flex: 0 0 auto;
+    margin-left: auto;
+  }
+  #screen-note .page-header-left {
+    flex: 1 1 0;
+    min-width: 0;
+    overflow: hidden;
+  }
+  #screen-note .page-header-left .breadcrumb {
+    flex: 1 1 0;
+    width: 0;
+    min-width: 0;
+    max-width: 100%;
+    overflow: hidden;
+  }
+}
+@media (max-width: 760px) {
+  #screen-note .page-header-center {
+    display: none;
+  }
+  #screen-note .page-header-left {
+    flex: 1 1 0;
+    min-width: 0;
+    overflow: hidden;
+  }
+  #screen-note .page-header-left .breadcrumb {
+    flex: 1 1 0;
+    width: 0;
+    min-width: 0;
+    max-width: 100%;
+    overflow: hidden;
+  }
+}
+
+/* ── Note editor screen (legacy: header + .note-page siblings inside wrap) ── */
+.note-screen-wrap {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  flex: 1;
+  min-height: 0;
+  width: 100%;
+  overflow: visible;
+}
+.note-screen-wrap > .page-header {
+  flex-shrink: 0;
+}
+.note-screen-wrap > .note-page {
+  flex: 1;
+  min-height: 0;
+}
+
+/* ── Scrollbar + iOS scroll (notes scroll containers) ── */
+.notes-page::-webkit-scrollbar,
+.note-page::-webkit-scrollbar {
+  width: var(--sb-w);
+  height: var(--sb-w);
+}
+.notes-page::-webkit-scrollbar-track,
+.note-page::-webkit-scrollbar-track {
+  background: transparent;
+}
+.notes-page::-webkit-scrollbar-thumb,
+.note-page::-webkit-scrollbar-thumb {
+  background: var(--scroll-thumb);
+  border-radius: 999px;
+}
+.notes-page::-webkit-scrollbar-thumb:hover,
+.note-page::-webkit-scrollbar-thumb:hover {
+  background: var(--scroll-thumb-hover);
+}
+.notes-page::-webkit-scrollbar-corner,
+.note-page::-webkit-scrollbar-corner {
+  background: transparent;
+}
+.notes-page,
+.note-page {
+  -webkit-overflow-scrolling: touch;
+  overscroll-behavior-y: contain;
+}
+
+/* ════════════════════════════════
+   SCREEN: NOTE PAGE
+════════════════════════════════ */
+.note-page {
+  overflow-y: auto;
+  padding: 20px 24px 28px;
+  display: flex;
+  justify-content: center;
+  align-items: flex-start;
+  scrollbar-width: thin;
+  scrollbar-color: var(--scroll-thumb) transparent;
+}
+.note-layout {
+  width: min(var(--content-w), 100%);
+  flex: 0 0 auto;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  --note-body-line-height: 1.55;
+}
+.note-shell {
+  width: 100%;
+  flex: 0 0 auto;
+  background: var(--bg2);
+  border: 1px solid var(--border);
+  border-radius: var(--block-r);
+  box-shadow: 0 10px 30px rgba(0,0,0,.24);
+  overflow: hidden;
+}
+.note-shell-header {
+  padding: 18px 22px;
+  border-bottom: 1px solid var(--border);
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 14px;
+}
+.note-shell-content { padding: 20px 22px; }
+.note-title-row {
+  width: 100%;
+  padding: 0;
+  display: flex;
+  align-items: center;
+  min-height: 34px;
+}
+.note-title-block {
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  align-self: center;
+}
+.note-title-static,
+.note-title-edit {
+  font-size: 28px;
+  font-weight: 700;
+  color: var(--text);
+  line-height: 1.25;
+  white-space: normal;
+  word-break: normal;
+  overflow-wrap: break-word;
+  min-height: 35px;
+  text-align: left;
+  width: 100%;
+  max-width: 100%;
+  overflow: hidden;
+  box-sizing: border-box;
+  margin: 0;
+}
+.note-title-edit {
+  font-family: var(--font);
+  font-weight: 700;
+  letter-spacing: inherit;
+  background: transparent;
+  border: none;
+  outline: none;
+  padding: 0;
+  width: 100%;
+  resize: none;
+  overflow: hidden;
+  overflow-y: hidden;
+  min-height: 35px;
+  -webkit-appearance: none;
+  appearance: none;
+}
+.note-title-edit::placeholder {
+  color: var(--text3);
+  font-family: var(--font);
+  font-weight: 600;
+}
+.title-single-line { white-space: nowrap; }
+.title-multi-line { white-space: normal; }
+.note-title-static.title-single-line {
+  display: flex;
+  align-items: center;
+  min-height: 34px;
+}
+.note-title-edit.title-single-line {
+  height: 34px !important;
+  min-height: 34px;
+  line-height: 34px;
+  overflow: hidden;
+}
+.note-title-edit.title-multi-line {
+  line-height: 1.25;
+}
+.note-ctrl {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-shrink: 0;
+  align-self: center;
+}
+.note-header-plain-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+  width: 26px;
+  height: 26px;
+  padding: 0;
+  border: none;
+  border-radius: 8px;
+  background: transparent;
+  color: var(--text3);
+  cursor: pointer;
+  transition: color 0.12s, background 0.12s;
+}
+.note-header-plain-btn svg {
+  display: block;
+  width: 100%;
+  height: 100%;
+}
+.note-header-plain-btn--sm {
+  width: 22px;
+  height: 22px;
+}
+.note-header-plain-btn--mode {
+  width: 24px;
+  height: 24px;
+}
+.note-header-plain-btn--attach {
+  transform: translateY(1px);
+}
+.note-header-plain-btn:hover {
+  color: var(--text);
+  background: transparent;
+}
+.note-shell-header .btn.note-ai-toggle {
+  cursor: pointer;
+}
+.note-shell-header .btn.note-ai-toggle:hover:not(.on) {
+  background: var(--page-header-control-bg-hover);
+  color: var(--text);
+  border-color: var(--page-header-control-border);
+}
+.note-mode-btns { display: flex; gap: 6px; }
+.note-divider { border: none; border-top: 1px solid var(--border); margin: 0 0 14px; }
+.note-body-view { font-size: 15px; line-height: var(--note-body-line-height, 1.55); color: var(--text); white-space: pre-wrap; min-height: 500px; }
+.note-body-view--rich { white-space: pre-wrap; }
+.note-body-canvas { min-height: 500px; }
+.note-body-canvas.note-body-view {
+  cursor: default;
+  user-select: none;
+}
+.note-body-edit-canvas {
+  min-height: 500px;
+  cursor: text;
+  display: flex;
+  flex-direction: column;
+}
+.note-body-edit-canvas .note-body-document--edit {
+  flex: 1 1 auto;
+  min-height: 100%;
+  display: flex;
+  flex-direction: column;
+}
+.note-body-edit-canvas .note-body-document-edit-stack {
+  flex: 1 1 auto;
+  min-height: 100%;
+}
+.note-body-edit-canvas .note-body-document-edit--mirror {
+  min-height: 100%;
+}
+.note-body-empty { color: var(--text3); font-size: 15px; }
+.note-body-line {
+  width: 100%;
+  line-height: var(--note-body-line-height, 1.55);
+  min-height: 1lh;
+}
+.note-body-line--text {
+  display: block;
+  position: relative;
+}
+.note-body-line--embed {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 2px 8px;
+  position: relative;
+}
+.note-embed-image-grid {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: var(--note-embed-image-gap);
+  width: 100%;
+  max-width: calc(3 * var(--note-embed-image-max-w) + 2 * var(--note-embed-image-gap));
+  align-items: start;
+  position: relative;
+}
+/* Горизонтальная полоса «вставить перед строкой» вне потока — иначе она сдвигает текст и граница дропа дёргается. */
+.note-embed-drop-lead-abs {
+  position: absolute;
+  left: 0;
+  right: 0;
+  top: 0;
+  height: 0;
+  pointer-events: none;
+  z-index: 2;
+}
+.note-embed-drop-lead-abs .note-embed-drop-indicator--horizontal {
+  position: absolute;
+  left: 0;
+  right: 0;
+  top: 0;
+  width: 100% !important;
+  flex: none !important;
+  height: 3px;
+  margin: 0 !important;
+  transform: translateY(-50%);
+}
+.note-embed-grid-drop-lead-abs {
+  position: absolute;
+  left: 0;
+  right: 0;
+  top: 0;
+  height: 0;
+  pointer-events: none;
+  z-index: 2;
+}
+.note-embed-grid-drop-lead-abs .note-embed-drop-indicator--horizontal {
+  position: absolute;
+  left: 0;
+  right: 0;
+  top: 0;
+  width: 100% !important;
+  flex: none !important;
+  height: 3px;
+  margin: 0 !important;
+  transform: translateY(-50%);
+}
+.note-body-canvas--dragging .note-embed-image-grid .note-body-cell--embed,
+.note-body-canvas--dragging .note-embed-image-grid .note-embed-image-slot {
+  transition: none;
+}
+.note-body-canvas--dragging {
+  user-select: none;
+}
+.note-embed-drop-indicator {
+  pointer-events: none;
+  flex-shrink: 0;
+  box-sizing: border-box;
+  background: var(--accent);
+  border-radius: 2px;
+}
+.note-embed-drop-indicator--horizontal {
+  width: 100%;
+  flex: 0 0 auto;
+  height: 3px;
+  margin: 12px 0;
+}
+.note-embed-drop-indicator--vertical {
+  width: 3px;
+  min-height: 40px;
+  align-self: center;
+  margin: 0 8px;
+}
+.note-body-line--embed:not(.note-embed-image-grid) .note-embed-drop-indicator--vertical {
+  min-height: 56px;
+}
+.note-embed-drag-float {
+  position: fixed;
+  z-index: 10050;
+  pointer-events: none;
+  border-radius: var(--rs);
+  overflow: hidden;
+  box-shadow: 0 12px 40px rgba(0, 0, 0, 0.16);
+  border: 1px solid var(--border);
+  background: var(--panel-bg, var(--bg));
+}
+.note-embed-drag-float-inner {
+  width: 100%;
+  height: 100%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  box-sizing: border-box;
+  padding: 8px;
+}
+.note-embed-drag-float-img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  border-radius: calc(var(--rs) - 2px);
+}
+.note-embed-drag-float-code {
+  font-size: 14px;
+  color: var(--text);
+  word-break: break-all;
+  text-align: center;
+}
+.note-embed-drop-gap {
+  flex: 0 0 auto;
+  box-sizing: border-box;
+  border-radius: 4px;
+  pointer-events: none;
+  vertical-align: middle;
+  align-self: center;
+}
+.note-embed-drop-gap--flex {
+  display: inline-flex;
+  flex: 0 0 auto;
+  min-width: 0;
+  height: 1.6em;
+  margin: 0 2px;
+  opacity: 0;
+}
+.note-embed-drop-gap--flex.note-embed-drop-gap--active {
+  min-width: 44px;
+  opacity: 1;
+}
+.note-embed-image-grid .note-embed-image-slot--empty {
+  width: 100%;
+  min-width: 0;
+  aspect-ratio: 2 / 1;
+  height: auto;
+  box-sizing: border-box;
+  pointer-events: none;
+}
+/* Прозрачность без pointer-events:none — иначе ломается setPointerCapture на самой ячейке (fallback). */
+.note-body-cell--drag-lifted {
+  opacity: 0 !important;
+}
+.note-body-cell--drop-placeholder {
+  visibility: hidden;
+  pointer-events: none;
+}
+.note-body-canvas--dragging .note-embed-image-grid .note-body-cell--drop-placeholder {
+  visibility: visible !important;
+  width: 4px !important;
+  min-width: 4px !important;
+  max-width: 4px !important;
+  height: auto !important;
+  align-self: stretch;
+  min-height: 48px;
+  padding: 0 !important;
+  margin: 0 8px !important;
+  overflow: hidden !important;
+  background: var(--accent) !important;
+  border-radius: 2px !important;
+}
+.note-body-canvas--dragging .note-embed-image-grid .note-body-cell--drop-placeholder .note-inline-image,
+.note-body-canvas--dragging .note-embed-image-grid .note-body-cell--drop-placeholder .note-embed-chip {
+  display: none !important;
+}
+.note-embed-drop-gap--line {
+  display: block;
+  width: 100%;
+  flex: 0 0 100%;
+  max-height: 0;
+  min-height: 0;
+  margin: 0;
+  opacity: 0;
+  overflow: hidden;
+}
+.note-embed-drop-gap--line.note-embed-drop-gap--active {
+  min-height: 10px;
+  max-height: 28px;
+  margin: 6px 0;
+  opacity: 1;
+}
+.note-body-cell { display: inline-flex; align-items: baseline; max-width: 100%; }
+.note-body-line--text .note-body-cell--text {
+  display: block;
+  width: 100%;
+}
+.note-body-line--text .note-body-text,
+.note-body-line--text .note-body-line-edit {
+  display: block;
+  width: 100%;
+}
+.note-body-cell--embed {
+  position: relative;
+  flex: 0 0 auto;
+}
+.note-body-cell--embed-draggable {
+  cursor: grab;
+}
+.note-body-cell--embed-draggable:active { cursor: grabbing; }
+.note-body-cell--embed-draggable .note-inline-image {
+  pointer-events: none;
+  user-select: none;
+  -webkit-user-drag: none;
+}
+.note-body-cell--embed-draggable .note-embed-md {
+  pointer-events: none;
+  user-select: none;
+}
+.note-body-document {
+  width: 100%;
+  font-size: 15px;
+  line-height: var(--note-body-line-height, 1.55);
+  color: var(--text);
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+.note-body-document--view .note-body-doc-line--text {
+  display: block;
+  position: relative;
+}
+.note-body-document--view .note-body-doc-line--text .note-body-cell--text {
+  display: block;
+  width: 100%;
+  max-width: 100%;
+}
+.note-body-document--view .note-body-doc-line--text .note-body-text {
+  display: block;
+  width: 100%;
+}
+.note-body-document--view .note-body-doc-line--embed {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-start;
+  gap: 2px 8px;
+  position: relative;
+  margin: 0.35em 0;
+  line-height: 0;
+  min-height: 0;
+}
+.note-body-document--view .note-body-doc-line--embed .note-body-cell--embed {
+  display: block;
+  flex: 0 0 auto;
+}
+.note-body-document--view .note-body-doc-line--embed .note-embed-chip {
+  display: inline;
+  line-height: normal;
+}
+.note-body-document--view .note-body-line.note-embed-image-grid {
+  display: grid;
+  width: 100%;
+  margin: 0.35em 0;
+  line-height: 0;
+  min-height: 0;
+}
+.note-body-document--view .note-body-doc-line--embed .note-body-cell--embed:has(.note-inline-image) {
+  flex: 0 0 25%;
+  max-width: 25%;
+  box-sizing: border-box;
+}
+.note-body-document--view .note-body-doc-line--embed .note-inline-image {
+  display: block;
+  width: 100%;
+  max-width: 100%;
+  height: auto;
+  margin: 0;
+  border-radius: var(--rs);
+  border: 1px solid var(--border);
+}
+.note-embed-token,
+.note-embed-chip.note-embed-token {
+  color: var(--accent);
+}
+.note-body-document-edit-stack {
+  position: relative;
+  display: block;
+  width: 100%;
+  min-height: 1lh;
+}
+.note-body-document-edit-highlight {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  box-sizing: border-box;
+  font-family: var(--font);
+  font-size: 15px;
+  line-height: var(--note-body-line-height, 1.55);
+  letter-spacing: normal;
+  white-space: pre-wrap;
+  word-break: break-word;
+  color: var(--text);
+  overflow: hidden;
+}
+.note-body-document-edit {
+  display: block;
+  width: 100%;
+  min-width: 2ch;
+  min-height: 1lh;
+  box-sizing: border-box;
+  background: transparent;
+  border: none;
+  color: var(--text);
+  font-family: var(--font);
+  font-size: 15px;
+  line-height: var(--note-body-line-height, 1.55);
+  letter-spacing: normal;
+  padding: 0;
+  margin: 0;
+  resize: none;
+  overflow: hidden;
+  -webkit-appearance: none;
+  appearance: none;
+}
+.note-body-document-edit--mirror {
+  position: relative;
+  z-index: 1;
+  color: transparent;
+  caret-color: var(--text);
+  background: transparent;
+}
+.note-body-document-edit:focus { outline: none; }
+.note-body-text { white-space: inherit; }
+.note-embed-image-grid .note-body-cell--embed {
+  display: block;
+  position: relative;
+  width: 100%;
+  min-width: 0;
+  height: auto;
+  box-sizing: border-box;
+  overflow: hidden;
+}
+.note-embed-image-grid .note-inline-image {
+  display: block;
+  width: 100%;
+  height: auto;
+  aspect-ratio: 2 / 1;
+  object-fit: cover;
+  margin: 0;
+  border-radius: var(--rs);
+  border: 1px solid var(--border);
+}
+.note-embed-image-grid .note-embed-chip {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 100%;
+  aspect-ratio: 2 / 1;
+  box-sizing: border-box;
+  padding: 8px;
+}
+.note-body-line--embed:not(.note-embed-image-grid) .note-body-cell--embed:has(.note-inline-image) {
+  flex: 0 0 25%;
+  max-width: 25%;
+  box-sizing: border-box;
+}
+.note-body-line--embed:not(.note-embed-image-grid) .note-inline-image {
+  display: block;
+  width: 100%;
+  max-width: 100%;
+  height: auto;
+  margin: 2px 0;
+  border-radius: var(--rs);
+  border: 1px solid var(--border);
+  vertical-align: bottom;
+}
+.note-embed-chip {
+  display: inline-block;
+  color: var(--accent);
+  font-size: 14px;
+  line-height: normal;
+}
+.note-embed-chip a { color: inherit; text-decoration: none; }
+.note-embed-chip a:hover { text-decoration: underline; }
+.note-embed-chip--draggable { cursor: grab; }
+.note-embed-chip--draggable:active { cursor: grabbing; }
+.note-embed-md {
+  font-family: ui-monospace, "SF Mono", Menlo, monospace;
+  font-size: 14px;
+  color: var(--accent);
+  background: color-mix(in srgb, var(--accent) 10%, transparent);
+  padding: 1px 6px;
+  border-radius: 4px;
+}
+.note-files-hint {
+  margin: 0 0 8px;
+  font-size: 11px;
+  color: var(--text3);
+  line-height: 1.4;
+}
+.note-file-item--draggable { cursor: grab; }
+.note-file-item--draggable:active { cursor: grabbing; }
+.note-body-edit {
+  width: 100%;
+  background: transparent;
+  border: none;
+  border-radius: 0;
+  color: var(--text); font-family: var(--font);
+  font-size: 14px; line-height: 1.8;
+  padding: 0;
+  resize: none;
+  min-height: 500px;
+  overflow: hidden;
+  outline: none;
+  transition: none;
+}
+.note-files {
+  margin-top: 14px;
+  display: flex; flex-direction: column; gap: 8px;
+}
+.note-files-label {
+  font-size: 11px; letter-spacing: .06em; text-transform: uppercase; color: var(--text3); font-weight: 600;
+}
+.note-file-item {
+  display: flex; align-items: center; gap: 8px;
+  background: var(--bg2); border: 1px solid var(--border); border-radius: var(--rs);
+  padding: 8px 10px; font-size: 12px; color: var(--text2);
+}
+.note-file-item-icon {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+  width: 16px;
+  height: 16px;
+  color: var(--text3);
+}
+.note-file-item-icon--attach {
+  font-size: 14px;
+  line-height: 1;
+}
+.note-file-item b { color: var(--text); font-weight: 500; }
+a.note-file-item {
+  text-decoration: none;
+  color: var(--text2);
+  transition: border-color .15s, background .15s;
+}
+a.note-file-item:hover {
+  border-color: var(--accent);
+  background: var(--bg3);
+}
+.note-timestamps {
+  font-size: 11px; color: var(--text3);
+  margin-top: 10px; padding: 0 4px;
+}
+
+/* ════════════════════════════════
+   SCREEN: NOTES LIST
+════════════════════════════════ */
+.notes-page {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  overflow-y: auto;
+  align-items: center;
+  min-height: 0;
+}
+.notes-toolbar {
+  width: min(var(--content-w), 100%);
+  padding: 12px 0 0; flex-shrink: 0;
+}
+/* Глобальные / локальные заметки — переключатель в шапке (.page-header-search-tools-row) */
+.notes-search {
+  width: 100%; background: transparent; border: none;
+  border-radius: var(--r); color: var(--text); font-family: var(--font);
+  font-size: 14px; padding: 8px 14px; outline: none; transition: border-color .15s;
+}
+.notes-filter-row {
+  width: min(var(--content-w), 100%);
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 14px 0 0;
+  flex-shrink: 0;
+}
+.notes-new-note-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  margin-left: auto;
+}
+.notes-new-note-btn-icon {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+  line-height: 0;
+}
+.notes-filter-tab-select {
+  flex-shrink: 0;
+}
+button.filter-tab.filter-tab--dropdown {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 5px 12px;
+  padding-right: 10px;
+  cursor: pointer;
+}
+button.filter-tab.filter-tab--dropdown.notes-new-note-btn {
+  padding-right: 12px;
+  margin-left: auto;
+}
+.filter-tab--dropdown-label {
+  min-width: 0;
+  white-space: nowrap;
+}
+.filter-tab-chevron {
+  flex-shrink: 0;
+  opacity: 0.72;
+}
+.filter-tab {
+  padding: 5px 12px; border-radius: 20px; font-size: 12px; cursor: pointer;
+  border: 1px solid var(--border2); background: var(--bg4); color: var(--text2);
+  transition: color 0.15s, border-color 0.15s, background 0.15s;
+}
+button.filter-tab {
+  font-family: var(--font);
+  font-weight: inherit;
+  line-height: inherit;
+  appearance: none;
+  -webkit-appearance: none;
+}
+.filter-tab:hover {
+  border-color: var(--text);
+  color: var(--text);
+}
+.filter-tab.active {
+  background: var(--bg4);
+  border-color: var(--control-border-active);
+  color: var(--text);
+}
+.filter-tab.active:hover {
+  border-color: var(--text);
+  color: var(--text);
+}
+.filter-spacer { flex: 1; }
+.notes-grid-page {
+  width: min(var(--content-w), 100%);
+  flex: none;
+  padding: 14px 0 20px;
+  box-sizing: border-box;
+}
+.notes-grid-layout {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 14px;
+}
+.note-card-page {
+  background: var(--bg2); border: 1px solid var(--border); border-radius: var(--post-card-r);
+  padding: 16px; cursor: pointer; transition: border-color .15s;
+  display: flex; flex-direction: column; gap: 8px;
+  height: 200px;
+  box-shadow: var(--content-card-shadow);
+  container-type: inline-size;
+}
+.note-card-page:hover { border-color: var(--border2); }
+.note-card-page-head {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  min-width: 0;
+}
+.note-card-page-head .note-card-name,
+.note-card-page-head .note-card-title {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  margin-bottom: 0;
+}
+.note-card-name { font-size: 13px; font-weight: 500; color: var(--text); }
+.note-card-preview {
+  flex: 1;
+  font-size: 12px; color: var(--text3); line-height: 1.5; overflow: hidden;
+  display: -webkit-box; -webkit-line-clamp: 6; -webkit-box-orient: vertical;
+}
+/* Как чекбокс в профиле (22px), вместо галочки — иконка мозга */
+.note-ai-toggle {
+  --note-ai-toggle-size: 22px;
+  --note-ai-toggle-icon: 15px;
+  box-sizing: border-box;
+  width: var(--note-ai-toggle-size);
+  height: var(--note-ai-toggle-size);
+  min-width: var(--note-ai-toggle-size);
+  min-height: var(--note-ai-toggle-size);
+  max-width: var(--note-ai-toggle-size);
+  max-height: var(--note-ai-toggle-size);
+  flex-shrink: 0;
+  padding: 0;
+  margin: 0;
+  border: 1px solid var(--profile-control-border);
+  border-radius: var(--rs);
+  background: var(--profile-control-bg);
+  -webkit-backdrop-filter: var(--profile-control-blur);
+  backdrop-filter: var(--profile-control-blur);
+  position: relative;
+  overflow: hidden;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  color: var(--profile-control-fg-muted);
+  transition: border-color 0.12s, background 0.12s, box-shadow 0.12s, color 0.12s;
+}
+.note-ai-toggle::after {
+  content: "";
+  position: absolute;
+  left: 50%;
+  top: 50%;
+  width: 20px;
+  height: 1px;
+  border-radius: 1px;
+  background: currentColor;
+  pointer-events: none;
+  transform: translate(-50%, -50%) rotate(45deg);
+  opacity: 0;
+  transition: opacity 0.12s ease;
+}
+.note-ai-toggle .model-icon {
+  position: absolute;
+  left: 50%;
+  top: 50%;
+  width: var(--note-ai-toggle-icon);
+  height: var(--note-ai-toggle-icon);
+  display: block;
+  flex: none;
+  pointer-events: none;
+  transform: translate(-50%, -50%);
+}
+.note-ai-toggle.off {
+  color: var(--text3);
+  border-color: color-mix(in srgb, var(--border2) 72%, var(--profile-control-border));
+}
+.note-ai-toggle.off::after {
+  opacity: 1;
+}
+.note-card-context-control:hover:not(:disabled) .note-ai-toggle.off:not(.note-ai-toggle--suppress-hover),
+.note-ai-toggle.off:hover:not(.note-ai-toggle--suppress-hover) {
+  background: var(--profile-control-bg-hover);
+  border-color: var(--control-border-active);
+}
+.note-card-context-control:hover:not(:disabled) .note-ai-toggle.off:not(.note-ai-toggle--suppress-hover)::after,
+.note-ai-toggle.off:hover:not(.note-ai-toggle--suppress-hover)::after {
+  opacity: 0;
+}
+/* Выкл. после клика по вкл.: чуть темнее обводка, пока курсор на кнопке */
+.note-card-context-control--suppress-hover:hover:not(:disabled) .note-ai-toggle.off,
+.note-card-context-control--suppress-hover:active:not(:disabled) .note-ai-toggle.off,
+.note-ai-toggle.off.note-ai-toggle--suppress-hover:hover,
+.note-ai-toggle.off.note-ai-toggle--suppress-hover:active {
+  background: var(--profile-control-bg);
+  border-color: color-mix(
+    in srgb,
+    var(--control-border-active) 38%,
+    color-mix(in srgb, var(--border2) 72%, var(--profile-control-border))
+  );
+}
+.note-ai-toggle.note-ai-toggle--suppress-hover {
+  transition: none;
+}
+.note-ai-toggle.note-ai-toggle--suppress-hover::after {
+  transition: none;
+}
+.note-ai-toggle.on {
+  background: var(--profile-control-bg-active);
+  border-color: var(--control-border-active);
+  color: var(--profile-control-fg);
+}
+/* Вкл.: hover-превью (тусклый мозг + штрих) — как :checked:hover:not(.profile-checkbox--suppress-hover) */
+.note-card-context-control:hover:not(:disabled) .note-ai-toggle.on:not(.note-ai-toggle--suppress-hover),
+.note-ai-toggle.on:hover:not(.note-ai-toggle--suppress-hover) {
+  background: var(--profile-control-bg-hover);
+  border-color: var(--control-border-active);
+  color: var(--text3);
+}
+.note-card-context-control:hover:not(:disabled) .note-ai-toggle.on:not(.note-ai-toggle--suppress-hover)::after,
+.note-ai-toggle.on:hover:not(.note-ai-toggle--suppress-hover)::after {
+  opacity: 1;
+}
+/* Вкл. после клика по выкл.: тёмная обводка, пока курсор на кнопке */
+.note-card-context-control--suppress-hover:hover:not(:disabled) .note-ai-toggle.on,
+.note-card-context-control--suppress-hover:active:not(:disabled) .note-ai-toggle.on,
+.note-ai-toggle.on.note-ai-toggle--suppress-hover:hover,
+.note-ai-toggle.on.note-ai-toggle--suppress-hover:active {
+  background: var(--profile-control-bg-active);
+  border-color: color-mix(in srgb, var(--border2) 55%, #000 45%);
+  color: var(--profile-control-fg);
+}
+.note-card-context-control--suppress-hover:hover:not(:disabled) .note-ai-toggle.on::after,
+.note-card-context-control--suppress-hover:active:not(:disabled) .note-ai-toggle.on::after,
+.note-ai-toggle.on.note-ai-toggle--suppress-hover:hover::after,
+.note-ai-toggle.on.note-ai-toggle--suppress-hover:active::after {
+  opacity: 0;
+}
+.note-card-page:hover:has(.note-ai-toggle--suppress-hover),
+.note-card:hover:has(.note-ai-toggle--suppress-hover),
+.note-card-page:hover:has(.note-card-context-control--suppress-hover),
+.note-card:hover:has(.note-card-context-control--suppress-hover) {
+  border-color: var(--border);
+}
+/* ── Responsive (extracted from globals.css) ── */
+@media (max-width: 1200px) {
+  .notes-grid-layout {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+}
+
+@media (max-width: 760px) {
+  .notes-grid-layout {
+    grid-template-columns: 1fr;
+  }
+
+  /* Notes catalog: same column as post subpages */
+  #screen-notes .notes-grid-page {
+    width: 100%;
+    max-width: none;
+    margin-left: 0;
+    margin-right: 0;
+    padding-left: 0;
+    padding-right: 0;
+    padding-bottom: 18px;
+    box-sizing: border-box;
+  }
+
+  #screen-notes .notes-grid-page .notes-grid--screen.visible {
+    display: flex;
+    width: 100%;
+    padding: 0;
+    justify-content: center;
+    box-sizing: border-box;
+  }
+
+  #screen-notes .notes-grid--screen .notes-grid-inner {
+    width: min(var(--composer-w), 100%);
+    max-width: none;
+    padding-left: 12px;
+    padding-right: 12px;
+    flex-direction: column;
+    flex-wrap: nowrap;
+    gap: 12px;
+    box-sizing: border-box;
+  }
+
+  #screen-notes .notes-grid--screen .notes-grid-inner .note-card,
+  #screen-notes .note-card-page {
+    width: 100%;
+    max-width: 100%;
+    margin-left: 0;
+    margin-right: 0;
+    box-sizing: border-box;
+  }
+
+  #screen-notes .notes-grid--screen .notes-grid-inner > .empty {
+    width: 100%;
+    max-width: 100%;
+    margin-left: 0;
+    margin-right: 0;
+    box-sizing: border-box;
+  }
+
+  #screen-notes .notes-grid-layout > .empty {
+    width: 100%;
+    max-width: 100%;
+    box-sizing: border-box;
+  }
+
+  .notes-page {
+    align-items: stretch;
+  }
+
+  .note-file-item {
+    align-items: flex-start;
+  }
+
+  .note-card-footer-pg {
+    gap: 8px;
+  }
+
+  #screen-feed .page-header-center,
+  #screen-chats .page-header-center,
+  #screen-notes .page-header-center {
+    width: auto;
+    max-width: min(var(--page-header-search-w), calc(100vw - 200px));
+    flex: 1 1 auto;
+    min-width: 0;
+  }
+
+  .note-page {
+    --note-body-inset: 0;
+    padding: 16px max(12px, var(--content-card-shadow-gutter)) 18px;
+  }
+
+  .note-shell {
+    border-radius: var(--block-r);
+  }
+
+  .note-shell-header {
+    grid-template-columns: minmax(0, 1fr) auto;
+    align-items: center;
+    gap: 8px;
+    padding: 12px 14px;
+  }
+
+  .note-title-row:has(.title-multi-line) {
+    align-items: flex-start;
+  }
+
+  .note-title-edit.title-multi-line {
+    line-height: 1.32;
+    padding-top: 3px;
+    padding-bottom: 0;
+    box-sizing: border-box;
+  }
+
+  .note-shell-content {
+    padding: 16px 14px;
+  }
+
+  .note-title-static,
+  .note-title-edit {
+    font-size: 22px;
+  }
+
+  .note-ctrl {
+    flex-shrink: 0;
+    flex-wrap: wrap;
+    justify-content: flex-end;
+    gap: 9px;
+    max-width: 100%;
+  }
+
+  .note-shell-header .btn.btn-ghost.btn-sm {
+    padding-left: 10px;
+    padding-right: 10px;
+    font-size: 12px;
+  }
+
+  .note-body-view,
+  .note-body-edit,
+  .note-body-canvas,
+  .note-body-edit-canvas {
+    min-height: 240px;
+  }
+}
