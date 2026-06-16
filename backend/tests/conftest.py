@@ -1,20 +1,17 @@
-import subprocess
-from pathlib import Path
-
 import pytest
 from httpx import ASGITransport, AsyncClient
 from sqlalchemy import delete
 
 from app.db.models import EmailCode, GlobalChat, GlobalNote, Post, Profile, User
-from app.db.session import SessionLocal
+from app.db.session import SessionLocal, engine
 from app.main import app
-
-BACKEND_ROOT = Path(__file__).resolve().parents[1]
 
 
 @pytest.fixture(scope="session", autouse=True)
-def apply_migrations() -> None:
-    subprocess.run(["alembic", "upgrade", "head"], check=True, cwd=BACKEND_ROOT)
+async def _engine_lifecycle() -> None:
+    """Keep a single event loop for the global async engine (pytest-asyncio session scope)."""
+    yield
+    await engine.dispose()
 
 
 @pytest.fixture
