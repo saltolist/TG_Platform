@@ -67,7 +67,7 @@ app → screens → widgets → features → entities → shared
 
 ```bash
 npm install         # единый install для всех workspaces
-npm run dev         # продуктовый фронтенд (apps/web) → http://localhost:3020
+npm run dev         # продуктовый фронтенд (apps/product) → http://localhost:3020
 npm run dev:demo    # презентационный (apps/presentation) → http://localhost:3021
 npm run check       # typecheck + lint + test + build во всех workspaces
 ```
@@ -79,7 +79,7 @@ npm run check       # typecheck + lint + test + build во всех workspaces
 ```bash
 cp .env.example .env
 docker compose up --build
-# web → http://localhost:3000, API → http://localhost:8000/api/v1
+# product → http://localhost:3000, API → http://localhost:8000/api/v1
 ```
 
 > **Demo (GitHub Pages, MSW):** https://saltolist.github.io/TG_Platform/

@@ -11,7 +11,7 @@
   overflow: hidden;
 }
 
-/* M3: analytics stat/mini-metric cards; DOM not yet in web/src */
+/* M3: analytics stat/mini-metric cards; DOM not yet in product/src */
 .glass-surface,
 .stat-card,
 .analytics-card,
@@ -524,7 +524,7 @@
   color: inherit;
 }
 
-/* M3: ModelPicker dropdown for analytics/profile; DOM not yet in web/src */
+/* M3: ModelPicker dropdown for analytics/profile; DOM not yet in product/src */
 /* ModelPicker dropdown в стиле селекторов шапки (используем точечно) */
 .model-picker-dropdown.model-picker-dropdown--page-header {
   display: flex;

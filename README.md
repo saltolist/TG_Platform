@@ -8,7 +8,7 @@ CMS для Telegram-каналов с AI-ассистентом.
 Монорепо из двух фронтендов и бэкенда:
 
 - **`apps/presentation/`** — презентационный фронтенд (витрина на MSW, деплоится на GitHub Pages).
-- **`apps/web/`** — продуктовый фронтенд (подключается к реальному бэкенду, работает в Docker).
+- **`apps/product/`** — продуктовый фронтенд (подключается к реальному бэкенду, работает в Docker).
 - **`backend/`** — бэкенд продукта (FastAPI + PostgreSQL + MinIO).
 
 ## Быстрый старт
@@ -27,7 +27,7 @@ npm run check            # typecheck + lint + test + build во всех workspa
 ```bash
 cp .env.example .env     # заполнить секреты
 docker compose up --build
-# web → http://localhost:3000, API → http://localhost:8000/api/v1
+# product → http://localhost:3000, API → http://localhost:8000/api/v1
 ```
 
 ## Структура проекта
@@ -36,7 +36,7 @@ docker compose up --build
 TG_Platform/
 ├── apps/
 │   ├── presentation/     ← витрина (GitHub Pages, MSW) — Next.js, FSD
-│   └── web/              ← продуктовый клиент (Docker) — Next.js, FSD
+│   └── product/          ← продуктовый клиент (Docker) — Next.js, FSD
 │       └── src/
 │           ├── app/      ← App Router, провайдеры, глобальные стили
 │           ├── screens/  ← страницы (FSD: screen layer)

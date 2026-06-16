@@ -5,7 +5,7 @@
 | Контур | Что деплоится | Куда | Данные |
 |--------|---------------|------|--------|
 | **Демо** | `apps/presentation/` | GitHub Pages | MSW-моки |
-| **Продукт** | `apps/web/` + `backend/` | Docker (VPS / self-host) | реальный backend |
+| **Продукт** | `apps/product/` + `backend/` | Docker (VPS / self-host) | реальный backend |
 
 ---
 
@@ -46,10 +46,10 @@ npx serve apps/presentation/out -p 3022   # → http://localhost:3022/TG_Platfor
 ```bash
 cp .env.example .env       # секреты: JWT_SECRET, пароли БД и т.д.
 docker compose up --build
-# web → http://localhost:3000, API → http://localhost:8000/api/v1
+# product → http://localhost:3000, API → http://localhost:8000/api/v1
 ```
 
-Сервисы: `postgres`, `minio`, `backend` (FastAPI), `web` (Next.js standalone). См. [`docker-compose.yml`](../../docker-compose.yml).
+Сервисы: `postgres`, `minio`, `backend` (FastAPI), `product` (Next.js standalone). См. [`docker-compose.yml`](../../docker-compose.yml).
 
 ### Переменные окружения продукта
 
@@ -78,7 +78,7 @@ MSW включается через `NEXT_PUBLIC_USE_MSW=1` (витрина). В
 Обновление service worker файла после обновления MSW (в нужном workspace):
 
 ```bash
-cd apps/web && npx msw init public/
+cd apps/product && npx msw init public/
 ```
 
 ← [Назад к документации разработчика](README.md)

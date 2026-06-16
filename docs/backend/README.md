@@ -13,7 +13,7 @@
 TG Platform разворачивается через **Docker Compose**:
 
 ```
-web (Next.js server) → backend (FastAPI) → postgres
+product (Next.js server) → backend (FastAPI) → postgres
                                           → minio (S3)
                                           → Telegram / LLM API
 ```
@@ -23,7 +23,7 @@ web (Next.js server) → backend (FastAPI) → postgres
 ```bash
 cp .env.example .env      # заполнить секреты
 docker compose up --build
-# web → http://localhost:3000, API → http://localhost:8000/api/v1
+# product → http://localhost:3000, API → http://localhost:8000/api/v1
 ```
 
 > **GitHub Pages** (https://saltolist.github.io/TG_Platform/) — это демо с MSW-моками, без бэкенда. Подробнее — в [roadmap.md](roadmap.md).

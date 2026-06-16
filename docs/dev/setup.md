@@ -11,7 +11,7 @@
 # Из корня репозитория — единый install для всех workspaces
 npm install
 
-# Продуктовый фронтенд (apps/web)
+# Продуктовый фронтенд (apps/product)
 npm run dev          # → http://localhost:3020
 
 # Презентационный фронтенд (apps/presentation, витрина)
@@ -21,14 +21,14 @@ npm run dev:demo     # → http://localhost:3021
 В dev-режиме используется **MSW (Mock Service Worker)** — все API-запросы перехватываются и обрабатываются локально. Бэкенд не нужен.
 
 > `apps/presentation/` — витрина на MSW (деплой на GitHub Pages).  
-> `apps/web/` — продуктовый клиент, подключается к реальному бэкенду в Docker.
+> `apps/product/` — продуктовый клиент, подключается к реальному бэкенду в Docker.
 
 ## Запуск всего продукта (Docker)
 
 ```bash
 cp .env.example .env       # заполнить секреты (JWT_SECRET и т.д.)
 docker compose up --build
-# web → http://localhost:3000, API → http://localhost:8000/api/v1
+# product → http://localhost:3000, API → http://localhost:8000/api/v1
 ```
 
 См. [deploy.md](deploy.md) и [backend/roadmap.md](../backend/roadmap.md).
@@ -85,7 +85,7 @@ TG_Platform/
 ├── docs/                  ← документация (вы здесь)
 ├── apps/
 │   ├── presentation/      ← витрина (GitHub Pages, MSW)
-│   └── web/               ← продуктовый фронтенд (Docker)
+│   └── product/           ← продуктовый фронтенд (Docker)
 │       ├── public/        ← статика, MSW service worker
 │       ├── scripts/       ← build-скрипты
 │       ├── src/           ← Next.js (FSD)

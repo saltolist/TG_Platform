@@ -6,11 +6,11 @@
     "apps/*"
   ],
   "scripts": {
-    "dev": "npm run dev -w tg-platform-web",
+    "dev": "npm run dev -w tg-platform-product",
     "dev:demo": "npm run dev -w tg-platform-presentation",
-    "build": "npm run build -w tg-platform-web",
+    "build": "npm run build -w tg-platform-product",
     "build:demo": "GITHUB_PAGES=true NEXT_PUBLIC_BASE_PATH=/TG_Platform NEXT_PUBLIC_USE_MSW=1 npm run build -w tg-platform-presentation",
-    "start": "npm run start -w tg-platform-web",
+    "start": "npm run start -w tg-platform-product",
     "check": "npm run check --workspaces --if-present"
   },
   "overrides": {

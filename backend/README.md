@@ -1,6 +1,6 @@
 # TG Platform — Backend
 
-FastAPI + PostgreSQL + MinIO. Реализует API для продуктового фронтенда (`apps/web`).
+FastAPI + PostgreSQL + MinIO. Реализует API для продуктового фронтенда (`apps/product`).
 
 ## Стек
 
