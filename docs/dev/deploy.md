@@ -4,8 +4,8 @@
 
 | Контур | Что деплоится | Куда | Данные |
 |--------|---------------|------|--------|
-| **Демо** | `apps/presentation/` | GitHub Pages | MSW-моки |
-| **Продукт** | `apps/product/` + `backend/` | Docker (VPS / self-host) | реальный backend |
+| **Демо** | `frontends/presentation/` | GitHub Pages | MSW-моки |
+| **Продукт** | `frontends/product/` + `backend/` | Docker (VPS / self-host) | реальный backend |
 
 ---
 
@@ -13,7 +13,7 @@
 
 **Live:** https://saltolist.github.io/TG_Platform/
 
-Деплой автоматический: при пуше в `main` workflow [`.github/workflows/deploy-pages.yml`](../../.github/workflows/deploy-pages.yml) собирает `apps/presentation` как статический экспорт и публикует `apps/presentation/out`.
+Деплой автоматический: при пуше в `main` workflow [`.github/workflows/deploy-pages.yml`](../../.github/workflows/deploy-pages.yml) собирает `frontends/presentation` как статический экспорт и публикует `frontends/presentation/out`.
 
 ### Настройка (один раз)
 
@@ -32,7 +32,7 @@
 
 ```bash
 npm run build:demo
-npx serve apps/presentation/out -p 3022   # → http://localhost:3022/TG_Platform/
+npx serve frontends/presentation/out -p 3022   # → http://localhost:3022/TG_Platform/
 ```
 
 > Без `GITHUB_PAGES=true` production-сборка использует `output: "standalone"` (Docker), а не статический экспорт.
@@ -78,7 +78,7 @@ MSW включается через `NEXT_PUBLIC_USE_MSW=1` (витрина). В
 Обновление service worker файла после обновления MSW (в нужном workspace):
 
 ```bash
-cd apps/product && npx msw init public/
+cd frontends/product && npx msw init public/
 ```
 
 ← [Назад к документации разработчика](README.md)

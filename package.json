@@ -3,7 +3,7 @@
   "version": "0.1.0",
   "private": true,
   "workspaces": [
-    "apps/*"
+    "frontends/*"
   ],
   "scripts": {
     "dev": "npm run dev -w tg-platform-product",
