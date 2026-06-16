@@ -2,6 +2,7 @@
 
 import ProfileEyeIcon from "@/widgets/profile-settings/ui/ProfileEyeIcon";
 import type { TelegramProfileConfig } from "@/shared/types";
+import { formatStoredDate } from "@/shared/lib/helpers";
 
 type Props = {
   cfg: TelegramProfileConfig;
@@ -102,7 +103,7 @@ export default function TelegramOmnibotSection({
           </div>
           <div>
             <div className="profile-label">Последняя активность</div>
-            <div className="profile-val">{cfg.botLastActivity}</div>
+            <div className="profile-val">{formatStoredDate(cfg.botLastActivity) || "—"}</div>
           </div>
           <div>
             <div className="profile-label">Сообщений</div>

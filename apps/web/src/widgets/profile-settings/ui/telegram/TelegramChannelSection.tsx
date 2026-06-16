@@ -1,6 +1,7 @@
 "use client";
 
 import type { TelegramProfileConfig } from "@/shared/types";
+import { formatStoredDate } from "@/shared/lib/helpers";
 
 type Props = {
   cfg: TelegramProfileConfig;
@@ -74,7 +75,7 @@ export default function TelegramChannelSection({
           </div>
           <div>
             <div className="profile-label">Последняя синхронизация</div>
-            <div className="profile-val">{cfg.lastSync}</div>
+            <div className="profile-val">{formatStoredDate(cfg.lastSync) || "—"}</div>
           </div>
           <div>
             <div className="profile-label">Импортировано постов</div>
