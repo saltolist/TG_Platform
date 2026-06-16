@@ -63,12 +63,23 @@ app → screens → widgets → features → entities → shared
 
 ## Быстрый старт
 
+**Фронтенды (dev, моки):**
+
 ```bash
-cd web
-npm install
-npm run dev        # http://localhost:3020
-npm run typecheck  # проверка типов
-npm run test       # юнит-тесты
+npm install         # единый install для всех workspaces
+npm run dev         # продуктовый фронтенд (apps/web) → http://localhost:3020
+npm run dev:demo    # презентационный (apps/presentation) → http://localhost:3021
+npm run check       # typecheck + lint + test + build во всех workspaces
 ```
 
 > В dev-режиме используется MSW (Mock Service Worker) — бэкенд не нужен.
+
+**Весь продукт (Docker):**
+
+```bash
+cp .env.example .env
+docker compose up --build
+# web → http://localhost:3000, API → http://localhost:8000/api/v1
+```
+
+> **Demo (GitHub Pages, MSW):** https://saltolist.github.io/TG_Platform/

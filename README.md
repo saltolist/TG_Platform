@@ -5,41 +5,52 @@ CMS для Telegram-каналов с AI-ассистентом.
 
 **Demo (GitHub Pages, MSW):** https://saltolist.github.io/TG_Platform/ — см. [deploy.md](./docs/dev/deploy.md).
 
+Монорепо из двух фронтендов и бэкенда:
+
+- **`apps/presentation/`** — презентационный фронтенд (витрина на MSW, деплоится на GitHub Pages).
+- **`apps/web/`** — продуктовый фронтенд (подключается к реальному бэкенду, работает в Docker).
+- **`backend/`** — бэкенд продукта (FastAPI + PostgreSQL + MinIO).
+
 ## Быстрый старт
 
+**Только фронтенды (dev, MSW):**
+
 ```bash
-npm install
-npm run dev        # http://localhost:3020 (в сети: http://<ваш-LAN-IP>:3020)
-npm run check      # typecheck + lint + test + build
+npm install              # единый install для всех workspaces
+npm run dev              # продуктовый фронтенд → http://localhost:3020
+npm run dev:demo         # презентационный фронтенд → http://localhost:3021
+npm run check            # typecheck + lint + test + build во всех workspaces
 ```
 
-> В dev-режиме используется MSW (Mock Service Worker) — бэкенд не нужен.
-
-**Preview как на GitHub Pages** (basePath `/TG_Platform`, MSW):
+**Весь продукт (Docker):**
 
 ```bash
-NEXT_PUBLIC_BASE_PATH=/TG_Platform NEXT_PUBLIC_USE_MSW=1 npm run build
-npx serve out -p 3021   # → http://localhost:3021/TG_Platform/
+cp .env.example .env     # заполнить секреты
+docker compose up --build
+# web → http://localhost:3000, API → http://localhost:8000/api/v1
 ```
 
 ## Структура проекта
 
 ```
 TG_Platform/
-├── src/
-│   ├── app/          ← Next.js App Router, провайдеры, глобальные стили
-│   ├── screens/      ← страницы (FSD: screen layer)
-│   ├── widgets/      ← крупные составные блоки UI
-│   ├── features/     ← пользовательские сценарии
-│   ├── entities/     ← бизнес-сущности (Post, Channel, Chat…)
-│   ├── shared/       ← утилиты, UI-kit, хуки, константы
-│   └── test/         ← тестовые фикстуры и helpers
+├── apps/
+│   ├── presentation/     ← витрина (GitHub Pages, MSW) — Next.js, FSD
+│   └── web/              ← продуктовый клиент (Docker) — Next.js, FSD
+│       └── src/
+│           ├── app/      ← App Router, провайдеры, глобальные стили
+│           ├── screens/  ← страницы (FSD: screen layer)
+│           ├── widgets/  ← крупные составные блоки UI
+│           ├── features/ ← пользовательские сценарии
+│           ├── entities/ ← бизнес-сущности (Post, Channel, Chat…)
+│           └── shared/   ← утилиты, UI-kit, хуки, константы
+├── backend/             ← FastAPI + PostgreSQL + MinIO
 ├── docs/
-│   ├── user/         ← документация для пользователей
-│   ├── dev/          ← архитектура, ADR, деплой, тестирование
-│   └── backend/      ← API эндпоинты, OpenAPI, roadmap
-├── e2e/              ← Playwright smoke-тесты
-└── scripts/          ← вспомогательные скрипты сборки
+│   ├── user/            ← документация для пользователей
+│   ├── dev/             ← архитектура, ADR, деплой, тестирование
+│   └── backend/         ← API эндпоинты, OpenAPI, roadmap
+├── docker-compose.yml   ← весь продукт
+└── package.json         ← npm workspaces
 ```
 
 ## Стек

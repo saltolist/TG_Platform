@@ -8,3 +8,17 @@ playwright-report/
 .env
 .env.local
 next-env.d.ts
+
+# Python / backend
+__pycache__/
+*.py[cod]
+.venv/
+venv/
+*.egg-info/
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+
+# Docker / data volumes
+postgres-data/
+minio-data/

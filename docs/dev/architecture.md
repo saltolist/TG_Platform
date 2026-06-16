@@ -65,12 +65,17 @@ type RepositoryBundle = {
 - **`createSeedRepositories()`** — in-memory данные, используется для онбординга и тестирования
 - **`createHttpRepositories()`** — реальные HTTP-запросы через `apiRequest`
 
-В dev-режиме HTTP-запросы перехватываются **MSW**, что позволяет использовать `createHttpRepositories()` и в моке.
+В dev-режиме (и в Pages-демо) HTTP-запросы перехватываются **MSW**, что позволяет использовать `createHttpRepositories()` и в моке.
 
-Переключение реализации — один флаг в `shared/config/dataSource.ts`:
+Переключение реализации — флаг в `shared/config/dataSource.ts`:
 ```typescript
-export const USE_MSW = process.env.NEXT_PUBLIC_DATA_SOURCE === "msw";
+export const USE_MSW =
+  process.env.NEXT_PUBLIC_USE_MSW === "1" ||
+  (process.env.NEXT_PUBLIC_USE_MSW !== "0" && process.env.NODE_ENV === "development");
 ```
+
+- `NEXT_PUBLIC_USE_MSW=1` — моки (по умолчанию в dev и в Pages-демо)
+- `NEXT_PUBLIC_USE_MSW=0` + `NEXT_PUBLIC_API_BASE_URL` — реальный бэкенд (Docker-продукт)
 
 ---
 

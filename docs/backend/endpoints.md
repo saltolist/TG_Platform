@@ -10,50 +10,68 @@
 
 ## Аутентификация
 
-### `POST /api/v1/auth/register`
-Регистрация нового пользователя.
+Регистрация — двухшаговая (email-код): `send-code` → `verify`. Восстановление пароля — аналогично.
 
-**Body:**
-```json
-{
-  "email": "user@example.com",
-  "password": "string"
-}
-```
-**Response `200`:**
+Объект сессии (`AuthSession`), возвращается при успешном входе/регистрации:
 ```json
 {
   "token": "jwt-string",
-  "userId": "uuid"
+  "accountId": "uuid",
+  "email": "user@example.com",
+  "createdAt": "2026-06-16T19:00:00.000Z"
 }
 ```
 
----
+> Если на бэкенде не настроен SMTP, код подтверждения пишется в логи (dev-режим).
 
 ### `POST /api/v1/auth/login`
 Вход по email и паролю.
 
-**Body:**
-```json
-{
-  "email": "user@example.com",
-  "password": "string"
-}
-```
-**Response `200`:**
-```json
-{
-  "token": "jwt-string",
-  "userId": "uuid"
-}
-```
+**Body:** `{ "email": "user@example.com", "password": "string" }`  
+**Response `200`:** `AuthSession`  
+**Response `401`:** `{ "error": "Неверный email или пароль" }`
 
 ---
 
 ### `POST /api/v1/auth/logout`
-Инвалидация токена.
+Завершение сессии (stateless JWT — клиент удаляет токен).
 
 **Response `204`:** No Content
+
+---
+
+### `POST /api/v1/auth/register/send-code`
+Запрос кода подтверждения на email.
+
+**Body:** `{ "email": "user@example.com", "password": "string" }`  
+**Response `204`:** No Content  
+**Response `400`:** `{ "error": "Пользователь с таким email уже существует" }`
+
+---
+
+### `POST /api/v1/auth/register/verify`
+Подтверждение кода и создание пользователя.
+
+**Body:** `{ "email": "user@example.com", "code": "123456" }`  
+**Response `200`:** `AuthSession`  
+**Response `400`:** `{ "error": "Неверный код" }`
+
+---
+
+### `POST /api/v1/auth/forgot-password/send-code`
+Запрос кода для сброса пароля. Возвращает `204` независимо от существования email (не раскрывает наличие пользователя).
+
+**Body:** `{ "email": "user@example.com" }`  
+**Response `204`:** No Content
+
+---
+
+### `POST /api/v1/auth/forgot-password/reset`
+Сброс пароля по коду.
+
+**Body:** `{ "email": "user@example.com", "code": "123456", "password": "new-password" }`  
+**Response `204`:** No Content  
+**Response `400`:** `{ "error": "Неверный код" }`
 
 ---
 

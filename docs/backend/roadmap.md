@@ -1,126 +1,182 @@
 # Backend Roadmap
 
-## Обзор
+## Что такое TG Platform
 
-Бэкенд реализуется поэтапно. Каждая фаза полностью совместима с уже готовым фронтендом — переключение происходит через переменную `NEXT_PUBLIC_DATA_SOURCE=http`.
+**TG Platform — это самостоятельный продукт, разворачиваемый через Docker:**
+
+```
+┌─────────────────────────── docker-compose ───────────────────────────┐
+│  web (Next.js server)  ──►  backend (FastAPI)  ──►  postgres          │
+│                                     │              └► minio (S3)       │
+│                                     └────────────►  Telegram / LLM API │
+└───────────────────────────────────────────────────────────────────────┘
+```
+
+Фронтенд из этого репозитория — **полноценный клиент продукта** (Next.js в server-режиме внутри контейнера).
+
+**GitHub Pages** (https://saltolist.github.io/TG_Platform/) — это **витрина/демо**: тот же фронтенд, собранный как статический экспорт с MSW-моками, без бэкенда. Демо служит презентацией возможностей UI.
+
+| Контур | Где | Данные | Назначение |
+|--------|-----|--------|------------|
+| **Продукт** | Docker (self-host / VPS) | реальный backend + Postgres | рабочая платформа |
+| **Демо** | GitHub Pages | MSW-моки в браузере | презентация UI |
 
 ---
 
-## Фаза 1 — Core API (MVP)
+## Технологические решения
 
-**Цель:** минимальный рабочий бэкенд, достаточный для замены MSW.
+| Компонент | Выбор | Примечание |
+|-----------|-------|-----------|
+| Backend runtime | **Python + FastAPI** | лучшая экосистема для LLM и Telethon |
+| База данных | **PostgreSQL** | вложенные `notes[]`/`chats[]`/`comments[]` в JSONB |
+| ORM | **SQLAlchemy 2.0 (async)** | + asyncpg |
+| Миграции | **Alembic** | (MVP допускает `create_all`) |
+| Хранилище медиа | **MinIO** (S3-совместимое) | миграция на AWS S3 без изменений кода |
+| Аутентификация | **JWT access-токен** | email + пароль, bcrypt; refresh — позже |
+| AI-ключи | **BYOK** | ключи пользователя в БД (шифрование at-rest — задача фазы 2) |
+| Telegram | **MTProto (Telethon)** | полный импорт истории + публикация + метрики |
+| Фронтенд в Docker | **Next.js server (standalone)** | не статический экспорт |
+| Оркестрация | **Docker Compose** | Kubernetes — на масштабировании |
 
-### Приоритет: Критический
+### Изоляция данных
+Мультипользовательский режим: каждая сущность принадлежит `user_id`, все запросы фильтруются по текущему пользователю из JWT.
 
-| Задача | Эндпоинты | Зависимости |
-|--------|-----------|-------------|
-| Аутентификация | `POST /auth/login`, `POST /auth/register`, `POST /auth/logout` | JWT, хранилище пользователей |
-| CRUD постов | `GET/POST /posts`, `PATCH/DELETE /posts/:id`, `PUT /posts/reorder` | БД постов |
-| CRUD чатов | `GET/POST /global-chats`, `POST /global-chats/:id/messages`, `PATCH/DELETE /global-chats/:id` | БД чатов |
-| CRUD заметок | `GET /global-notes`, `PUT /global-notes/:id`, `DELETE /global-notes/:id` | БД заметок |
-| Профиль | `GET/PUT /profile/channel`, `GET/PUT /profile/ai`, `GET/PUT /profile/telegram` | БД профилей |
+### Совместимость с контрактами
+Бэкенд обязан строго соответствовать:
+- [endpoints.md](endpoints.md) — список эндпоинтов
+- [openapi.md](openapi.md) — схемы
+- [../dev/api-contracts.md](../dev/api-contracts.md) — Zod-схемы фронтенда
 
-### Технические требования Фазы 1
+**Важно:** фронтенд использует `trailingSlash: true` — все пути приходят со слешем на конце (`/api/v1/posts/`, `/api/v1/posts/{id}/`). Бэкенд должен отвечать на такие пути без редиректов.
 
-- Все ID — UUID v4 (строки)
-- Все даты — ISO-8601 в UTC
-- JWT авторизация, Bearer-токен
-- `401` при истёкшем/невалидном токене
-- Пост хранит `notes[]` и `chats[]` как вложенные объекты (либо отдельные таблицы с join)
+---
+
+## Фаза 0 — Инфраструктура (foundation)
+
+**Цель:** запускаемый каркас продукта.
+
+- [x] `docker-compose.yml`: postgres, minio, backend, web
+- [x] FastAPI-скелет: config, async-БД, JWT, CORS, health-check
+- [x] Dockerfile бэкенда и фронтенда (Next.js standalone)
+- [x] `next.config.ts`: статический экспорт только для Pages, standalone для Docker
+- [ ] Alembic-миграции (сейчас `create_all` на старте)
+- [ ] CI: сборка и тесты бэкенда
+
+---
+
+## Фаза 1 — Core API (замена MSW) ◄ ТЕКУЩИЙ ФОКУС
+
+**Цель:** фронтенд работает на реальном бэкенде вместо MSW.
+
+### Приоритет: критический
+
+| Задача | Эндпоинты | Статус |
+|--------|-----------|--------|
+| Аутентификация | `POST /auth/register`, `/auth/login`, `/auth/logout` | ⏳ |
+| CRUD постов | `GET/POST /posts`, `PATCH/DELETE /posts/:id`, `PUT /posts/reorder` | ⏳ |
+| CRUD чатов | `GET/POST /global-chats`, `POST /global-chats/:id/messages`, `PATCH/DELETE /global-chats/:id` | ⏳ |
+| CRUD заметок | `GET /global-notes`, `PUT/DELETE /global-notes/:id` | ⏳ |
+| Профиль | `GET/PUT /profile/{channel,ai,telegram}` | ⏳ |
+| AI-заглушка | `POST /ai/reply` (placeholder-ответ) | ⏳ |
+
+### Технические требования
+- ID — UUID-строки, **генерируются клиентом** и приходят в теле
+- Даты — ISO-8601 (UTC)
+- JWT Bearer; `401` при невалидном/истёкшем токене
+- Вложенные `notes[]`/`chats[]`/`comments[]` хранятся в JSONB
+- Единый формат ошибок `{ "error": "..." }`
+
+### Критерий готовности
+Фронтенд, собранный с `NEXT_PUBLIC_USE_MSW=0` и `NEXT_PUBLIC_API_BASE_URL=<backend>`, полностью функционален.
 
 ---
 
 ## Фаза 2 — AI Integration
 
-**Цель:** подключить реальные AI-модели вместо мок-ответов.
+**Цель:** реальные AI-ответы вместо заглушки.
 
-### Эндпоинты
+- [ ] Базовый LLM-reply через одну активную модель (BYOK из `AiProfileConfig.llmModels`)
+- [ ] **Стриминг ответа** (SSE) — потребует правок фронтенда
+- [ ] Системный промпт из `AiProfileConfig.systemPrompt` + контекст канала (`ChannelProfileConfig`)
+- [ ] `scope: "post"` — добавление контекста поста в промпт
+- [ ] **Шифрование API-ключей at-rest** (Fernet/KMS)
+- [ ] Web-search модели (Perplexity/Tavily)
+- [ ] Multi-response (несколько вариантов от разных моделей)
+- [ ] Vision / image-generation модели
+- [ ] RAG-индексирование заметок (orchestrator / ragReasoner)
 
-```
-POST /api/v1/ai/reply
-  Body: { text: string, scope: "global" | "post" }
-  Response: { text: string }
-```
-
-### Задачи
-
-- [ ] Интеграция с OpenAI / Anthropic API (LLM)
-- [ ] Интеграция с Perplexity / Tavily (веб-поиск)
-- [ ] Поддержка `scope: "post"` — передача контекста поста в промпт
-- [ ] Multi-response — несколько вариантов от разных моделей
-- [ ] Системный промпт из `AiProfileConfig.systemPrompt`
-- [ ] Учёт профиля канала (`ChannelProfileConfig`) в системном промпте
-
-### Поток запроса (Фаза 2)
-
+### Поток запроса
 ```
 Клиент → POST /ai/reply { text, scope }
-  → Сервер читает AiProfileConfig пользователя
-  → Сервер читает ChannelProfileConfig (если scope=post, добавляет контекст)
-  → Запрос к LLM API
-  → Если включён WebSearch → запрос к Search API → добавить в промпт
-  → Response { text }
+  → читаем AiProfileConfig (активные модели, ключи)
+  → читаем ChannelProfileConfig (tone, rules, rubrics)
+  → [scope=post] добавляем контекст поста
+  → запрос к LLM (+ web-search если включён)
+  → стрим ответа (SSE) → { text }
 ```
 
 ---
 
 ## Фаза 3 — Telegram Integration
 
-**Цель:** реальная публикация и синхронизация.
+**Цель:** реальная публикация и синхронизация канала.
 
-### Задачи
-
-- [ ] Авторизация через Telegram API (MTProto / Telethon)
-- [ ] Синхронизация истории постов из канала
-- [ ] Webhook/polling для новых постов
-- [ ] Публикация поста в канал (`POST /posts/:id/publish`)
-- [ ] Планировщик публикаций
+- [ ] Авторизация через MTProto (Telethon): apiId/apiHash/phone/code → session
+- [ ] Хранение Telethon-сессии (привязка к `TelegramProfileConfig`)
+- [ ] Импорт истории постов канала (`POST /telegram/import`)
+- [ ] Публикация поста (`POST /posts/:id/publish`)
+- [ ] Планировщик публикаций (`POST /posts/:id/schedule`)
 - [ ] Синхронизация метрик (просмотры, реакции, репосты)
-- [ ] Интеграция с Telegram Bot API
+- [ ] Опционально: Telegram Bot API для уведомлений
 
-### Дополнительные эндпоинты (Фаза 3)
-
+### Дополнительные эндпоинты
 ```
 POST /api/v1/posts/:id/publish
-POST /api/v1/posts/:id/schedule  { scheduledAt: string (ISO-8601) }
-GET  /api/v1/analytics/top-posts
-GET  /api/v1/analytics/overview
+POST /api/v1/posts/:id/schedule  { scheduledAt: ISO-8601 }
 POST /api/v1/telegram/import
+GET  /api/v1/analytics/overview
+GET  /api/v1/analytics/top-posts
 ```
 
 ---
 
-## Фаза 4 — Улучшения и масштабирование
+## Фаза 4 — Масштабирование
 
-- [ ] Поддержка нескольких каналов (мультиканальность)
-- [ ] Омниканальный чат — агрегация всех каналов
-- [ ] RAG-индексирование заметок
-- [ ] Совместная работа (несколько пользователей на один канал)
-- [ ] Медиа-хранилище (S3 / объектное хранилище)
+- [ ] Refresh-токены, опциональный OAuth (Google/GitHub)
+- [ ] Мультиканальность (несколько каналов на пользователя)
+- [ ] Омниканальный чат — агрегация каналов
+- [ ] Совместная работа (несколько пользователей на канал)
+- [ ] Очередь задач (Celery/ARQ + Redis) для импорта/публикации/AI
 - [ ] Вебхуки для уведомлений
+- [ ] Переход на Kubernetes при необходимости
 
 ---
 
-## Рекомендуемый стек бэкенда
+## Структура бэкенда
 
-| Компонент | Варианты |
-|-----------|----------|
-| Runtime | Python (FastAPI) / Node.js (Fastify) / Go |
-| База данных | PostgreSQL (рекомендуется) |
-| ORM | SQLAlchemy / Prisma / GORM |
-| Очередь задач | Redis + Celery / BullMQ |
-| AI | OpenAI SDK / LangChain |
-| Хранилище медиа | S3-совместимое (MinIO, AWS S3) |
-| Деплой | Docker Compose / Kubernetes |
+```
+backend/
+├── app/
+│   ├── main.py            ← FastAPI, CORS, lifespan, роутеры
+│   ├── core/              ← config, security (JWT/bcrypt), deps
+│   ├── db/                ← engine, session, ORM-модели
+│   ├── schemas/           ← Pydantic-схемы (зеркало Zod фронтенда)
+│   ├── api/v1/            ← роутеры: auth, posts, chats, notes, profile, ai
+│   └── services/          ← бизнес-логика (ai, telegram — позже)
+├── tests/
+├── requirements.txt
+├── Dockerfile
+└── .env.example
+```
 
 ---
 
-## Критерии готовности бэкенда к подключению
+## Критерии готовности к подключению фронтенда
 
-- [ ] Все эндпоинты из [endpoints.md](endpoints.md) реализованы
-- [ ] Ответы соответствуют Zod-схемам (см. [api-contracts.md](../dev/api-contracts.md))
-- [ ] `401` возвращается при истёкшем токене
-- [ ] ID — строки (UUID)
-- [ ] Даты — ISO-8601 строки
+- [ ] Все эндпоинты из [endpoints.md](endpoints.md) реализованы (с trailing-slash)
+- [ ] Ответы соответствуют схемам ([openapi.md](openapi.md) / [api-contracts.md](../dev/api-contracts.md))
+- [ ] `401` при истёкшем токене → фронтенд делает logout
+- [ ] ID — строки (UUID), даты — ISO-8601
+- [ ] CORS разрешает origin фронтенда
 
 ← [Назад к backend](README.md)

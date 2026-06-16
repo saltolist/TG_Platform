@@ -1,0 +1,11 @@
+**/node_modules
+**/.next
+**/out
+**/.git
+**/.DS_Store
+**/test-results
+**/playwright-report
+**/*.tsbuildinfo
+backend
+docs
+.github

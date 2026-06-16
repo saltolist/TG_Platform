@@ -26,6 +26,22 @@ components:
         error:
           type: string
 
+    AuthSession:
+      type: object
+      required: [token, accountId, email, createdAt]
+      properties:
+        token:
+          type: string
+        accountId:
+          type: string
+          format: uuid
+        email:
+          type: string
+          format: email
+        createdAt:
+          type: string
+          format: date-time
+
     PostStatus:
       type: string
       enum: [published, scheduled, draft]
@@ -375,32 +391,6 @@ security:
   - bearerAuth: []
 
 paths:
-  /auth/register:
-    post:
-      tags: [Auth]
-      security: []
-      summary: Регистрация
-      requestBody:
-        required: true
-        content:
-          application/json:
-            schema:
-              type: object
-              required: [email, password]
-              properties:
-                email: { type: string, format: email }
-                password: { type: string }
-      responses:
-        "200":
-          description: Успешная регистрация
-          content:
-            application/json:
-              schema:
-                type: object
-                properties:
-                  token: { type: string }
-                  userId: { type: string }
-
   /auth/login:
     post:
       tags: [Auth]
@@ -421,11 +411,7 @@ paths:
           description: Успешный вход
           content:
             application/json:
-              schema:
-                type: object
-                properties:
-                  token: { type: string }
-                  userId: { type: string }
+              schema: { $ref: "#/components/schemas/AuthSession" }
         "401":
           description: Неверные credentials
           content:
@@ -439,6 +425,97 @@ paths:
       responses:
         "204":
           description: Успешный выход
+
+  /auth/register/send-code:
+    post:
+      tags: [Auth]
+      security: []
+      summary: Запрос кода регистрации
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [email, password]
+              properties:
+                email: { type: string, format: email }
+                password: { type: string }
+      responses:
+        "204":
+          description: Код отправлен
+        "400":
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Error" }
+
+  /auth/register/verify:
+    post:
+      tags: [Auth]
+      security: []
+      summary: Подтверждение регистрации
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [email, code]
+              properties:
+                email: { type: string, format: email }
+                code: { type: string }
+      responses:
+        "200":
+          description: Пользователь создан
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/AuthSession" }
+        "400":
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Error" }
+
+  /auth/forgot-password/send-code:
+    post:
+      tags: [Auth]
+      security: []
+      summary: Запрос кода сброса пароля
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [email]
+              properties:
+                email: { type: string, format: email }
+      responses:
+        "204":
+          description: Код отправлен (если email существует)
+
+  /auth/forgot-password/reset:
+    post:
+      tags: [Auth]
+      security: []
+      summary: Сброс пароля по коду
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [email, code, password]
+              properties:
+                email: { type: string, format: email }
+                code: { type: string }
+                password: { type: string }
+      responses:
+        "204":
+          description: Пароль обновлён
+        "400":
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Error" }
 
   /posts:
     get:

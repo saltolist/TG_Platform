@@ -4,6 +4,9 @@ import os from "os";
 const basePath = process.env.NEXT_PUBLIC_BASE_PATH || "";
 const devPort = process.env.PORT || "3020";
 
+/** Static export only for the GitHub Pages demo; Docker uses a Next.js server (standalone). */
+const isStaticExport = process.env.GITHUB_PAGES === "true";
+
 /** LAN IPv4 — иначе Next.js блокирует /_next/* при открытии с телефона/другого ПК. */
 function getLanDevOrigins(): string[] {
   try {
@@ -30,7 +33,9 @@ const allowedDevOrigins = [
 ];
 
 const nextConfig: NextConfig = {
-  ...(process.env.NODE_ENV === "production" ? { output: "export" as const } : {}),
+  ...(process.env.NODE_ENV === "production"
+    ? { output: isStaticExport ? ("export" as const) : ("standalone" as const) }
+    : {}),
   trailingSlash: true,
   basePath,
   assetPrefix: basePath ? `${basePath}/` : undefined,
