@@ -19,6 +19,7 @@ import {
 } from "@/app/model/store/composer/helpers";
 import { selectAiProfileConfig, useProfileDraftStore } from "@/app/model/store/profile-draft-store";
 import { useRepositories } from "@/app/providers/RepositoryProvider";
+import { isPresentationAccount } from "@/shared/lib/auth/queryAccountScope";
 import { useCreateGlobalChat, usePushGlobalChatMessage } from "@/entities/chat";
 import { useAddLocalChat, usePushLocalChatMessage } from "@/entities/post";
 import { routes } from "@/shared/lib/routes";
@@ -75,7 +76,9 @@ export function ComposerProvider({ children }: { children: ReactNode }) {
     (scope: ComposerScope) => {
       const cfg = aiProfileRef.current;
       if (!cfg) return false;
-      const message = getChatSendValidationMessage(cfg, scope, getTarget(scope).llmId);
+      const message = getChatSendValidationMessage(cfg, scope, getTarget(scope).llmId, {
+        requireOrchestrator: !isPresentationAccount(),
+      });
       if (!message) return true;
       showToast({ message, variant: "error" });
       return false;

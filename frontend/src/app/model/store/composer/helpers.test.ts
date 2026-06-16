@@ -134,6 +134,27 @@ describe("chat send validation", () => {
     expect(getChatSendValidationMessage(cfg, "gchat", "llm-1")).toBe("Добавьте модель оркестратора.");
   });
 
+  it("skips orchestrator in presentation mode when LLM is ready", () => {
+    const cfg = {
+      ...initialAiProfileConfig,
+      orchestratorModels: [],
+      multiResponseEnabled: false,
+      llmModels: [
+        {
+          id: "llm-1",
+          provider: "OpenAI",
+          model: "gpt-4o",
+          apiKey: "",
+          active: true,
+          includeInMulti: false,
+        },
+      ],
+    };
+    expect(
+      getChatSendValidationMessage(cfg, "gchat", "llm-1", { requireOrchestrator: false }),
+    ).toBeNull();
+  });
+
   it("prioritizes LLM message before orchestrator", () => {
     const cfg = {
       ...initialAiProfileConfig,

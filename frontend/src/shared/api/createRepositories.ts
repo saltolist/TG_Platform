@@ -1,10 +1,11 @@
 import { API_MODE, USE_MSW } from "@/shared/config/dataSource";
 import { createHttpRepositories, createMswRepositories } from "@/shared/api/httpRepositories";
+import { createOverlayRepositories } from "@/shared/api/overlayRepositories";
 import type { RepositoryBundle } from "@/shared/api/repositories";
 import { createSeedRepositories } from "@/shared/api/seedRepositories";
 
 export function createRepositories(): RepositoryBundle {
-  if (API_MODE) return createHttpRepositories();
+  if (API_MODE) return createOverlayRepositories(createHttpRepositories());
   if (USE_MSW) return createMswRepositories();
   return createSeedRepositories();
 }

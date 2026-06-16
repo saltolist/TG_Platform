@@ -60,11 +60,12 @@ export function getChatSendValidationMessage(
   cfg: AiProfileConfig,
   scope: ComposerScope,
   targetLlmId: string,
+  options?: { requireOrchestrator?: boolean },
 ): string | null {
-  return (
-    getLlmSendValidationMessage(cfg, scope, targetLlmId) ??
-    getOrchestratorSendValidationMessage(cfg)
-  );
+  const llmMessage = getLlmSendValidationMessage(cfg, scope, targetLlmId);
+  if (llmMessage) return llmMessage;
+  if (options?.requireOrchestrator === false) return null;
+  return getOrchestratorSendValidationMessage(cfg);
 }
 
 export function hasLlmForComposerScope(
