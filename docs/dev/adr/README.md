@@ -13,6 +13,7 @@
 | [004](004-iso8601-dates.md) | ISO-8601 даты в модельном слое | ✅ Принято |
 | [005](005-assistant-repository.md) | AssistantRepository для изоляции AI-логики | ✅ Принято |
 | [006](006-global-401-handler.md) | Глобальный обработчик 401 в httpClient | ✅ Принято |
+| [007](007-runtime-modes-keys-overlay.md) | Режимы работы, резолв ключей AI и локальный overlay | 📝 Предложено |
 
 ## Формат ADR
 
