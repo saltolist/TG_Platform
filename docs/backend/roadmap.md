@@ -30,7 +30,7 @@
 | Backend runtime | **Python + FastAPI** | лучшая экосистема для LLM и Telethon |
 | База данных | **PostgreSQL** | вложенные `notes[]`/`chats[]`/`comments[]` в JSONB |
 | ORM | **SQLAlchemy 2.0 (async)** | + asyncpg |
-| Миграции | **Alembic** | (MVP допускает `create_all`) |
+| Миграции | **Alembic** | `alembic upgrade head` при старте контейнера |
 | Хранилище медиа | **MinIO** (S3-совместимое) | миграция на AWS S3 без изменений кода |
 | Аутентификация | **JWT access-токен** | email + пароль, bcrypt; refresh — позже |
 | AI-ключи | **BYOK** | ключи пользователя в БД (шифрование at-rest — задача фазы 2) |
@@ -51,7 +51,7 @@
 
 ---
 
-## Фаза 0 — Инфраструктура (foundation)
+## Фаза 0 — Инфраструктура (foundation) ✅
 
 **Цель:** запускаемый каркас продукта.
 
@@ -59,8 +59,8 @@
 - [x] FastAPI-скелет: config, async-БД, JWT, CORS, health-check
 - [x] Dockerfile бэкенда и фронтенда (Next.js standalone)
 - [x] `next.config.ts`: статический экспорт только для Pages, standalone для Docker
-- [ ] Alembic-миграции (сейчас `create_all` на старте)
-- [ ] CI: сборка и тесты бэкенда
+- [x] Alembic-миграции (`alembic upgrade head`, initial schema `001_initial`)
+- [x] CI: postgres + migrations + pytest (health, auth, security)
 
 ---
 

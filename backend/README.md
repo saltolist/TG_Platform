@@ -24,9 +24,31 @@ docker compose up --build
 ```bash
 cd backend
 python -m venv .venv && source .venv/bin/activate
-pip install -r requirements.txt
+pip install -r requirements-dev.txt
 cp .env.example .env          # укажите DATABASE_URL до запущенного Postgres
+alembic upgrade head          # применить миграции
 uvicorn app.main:app --reload --port 8000
+```
+
+## Миграции (Alembic)
+
+```bash
+cd backend
+alembic upgrade head              # применить все миграции
+alembic revision --autogenerate -m "описание"   # новая миграция после изменения models.py
+alembic downgrade -1              # откат на одну миграцию
+```
+
+В Docker миграции применяются автоматически через `scripts/entrypoint.sh` перед стартом uvicorn.
+
+## Тесты
+
+```bash
+cd backend
+pip install -r requirements-dev.txt
+# Postgres должен быть доступен (см. DATABASE_URL в .env)
+alembic upgrade head
+pytest -v
 ```
 
 ## Структура

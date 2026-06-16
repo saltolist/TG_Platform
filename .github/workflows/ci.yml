@@ -22,6 +22,25 @@ jobs:
 
   backend:
     runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:16-alpine
+        env:
+          POSTGRES_USER: tg
+          POSTGRES_PASSWORD: tg
+          POSTGRES_DB: tg_test
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U tg -d tg_test"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+
+    env:
+      DATABASE_URL: postgresql+asyncpg://tg:tg@localhost:5432/tg_test
+      JWT_SECRET: ci-test-secret
+
     steps:
       - uses: actions/checkout@v4
 
@@ -29,12 +48,16 @@ jobs:
         with:
           python-version: "3.12"
 
-      - name: Install backend deps
+      - name: Install backend dependencies
         working-directory: backend
         run: |
           python -m pip install --upgrade pip
-          pip install -r requirements.txt
+          pip install -r requirements-dev.txt
 
-      - name: Compile check
+      - name: Run migrations
         working-directory: backend
-        run: python -m compileall app
+        run: alembic upgrade head
+
+      - name: Run tests
+        working-directory: backend
+        run: pytest -v

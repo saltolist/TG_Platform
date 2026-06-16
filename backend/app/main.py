@@ -10,7 +10,6 @@ from starlette.exceptions import HTTPException as StarletteHTTPException
 
 from app.api.v1.router import api_router
 from app.core.config import settings
-from app.db.models import Base
 from app.db.session import engine
 
 logging.basicConfig(level=logging.INFO)
@@ -18,9 +17,7 @@ logging.basicConfig(level=logging.INFO)
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    # MVP: auto-create tables. Replaced by Alembic migrations later.
-    async with engine.begin() as conn:
-        await conn.run_sync(Base.metadata.create_all)
+    # Schema is managed by Alembic (see scripts/entrypoint.sh and `alembic upgrade head`).
     yield
     await engine.dispose()
 
