@@ -1,71 +1,79 @@
-# TG Platform — Web
+# TG Platform
 
-Единая точка входа для web-версии TG Platform: продуктовая документация, UX-спецификация и **Next.js клиент**.
-
-**Сейчас:** M3 widgets ~85%, M4 features + screens ~75%. **GitHub Pages demo (MSW):** https://saltolist.github.io/my/ — см. [deploy.md](./docs/engineering/deploy.md). **Чеклист:** [m3-m5-gate-checklist.md](./docs/engineering/m3-m5-gate-checklist.md). Roadmap — [08-roadmap.md](./docs/product/08-roadmap.md).
-
-## Структура
-
-```
-web/
-├── src/                  ← Next.js app (active codebase)
-├── docs/
-│   ├── product/          ← модель, roadmap
-│   ├── ux/               ← pages, flows, wireframes, components, design-tokens
-│   ├── engineering/      ← stack, data-model, API, testing, deploy
-│   ├── glossary.md
-│   └── doc-maintenance.md
-├── e2e/                  ← Playwright smoke tests
-└── README.md
-```
+CMS для Telegram-каналов с AI-ассистентом.  
+Платформа позволяет авторам планировать, создавать и анализировать публикации, вести AI-диалоги в контексте конкретных постов и канала в целом, управлять базой знаний и отслеживать аналитику канала.
 
 ## Быстрый старт
 
 ```bash
-cd Docs_TG_Platform/web
 npm install
-npm run dev    # http://localhost:3020 (в сети: http://<ваш-LAN-IP>:3020)
-npm run check  # typecheck + lint + test + build
+npm run dev        # http://localhost:3020 (в сети: http://<ваш-LAN-IP>:3020)
+npm run check      # typecheck + lint + test + build
 ```
 
-**Preview как на GitHub Pages** (basePath `/my`, MSW):
+> В dev-режиме используется MSW (Mock Service Worker) — бэкенд не нужен.
+
+**Preview со статическим экспортом (basePath `/my`, MSW):**
 
 ```bash
 NEXT_PUBLIC_BASE_PATH=/my NEXT_PUBLIC_USE_MSW=1 npm run build
 npx serve out -p 3021   # → http://localhost:3021/my/
 ```
 
-## Карта документации
+## Структура проекта
+
+```
+TG_Platform/
+├── src/
+│   ├── app/          ← Next.js App Router, провайдеры, глобальные стили
+│   ├── screens/      ← страницы (FSD: screen layer)
+│   ├── widgets/      ← крупные составные блоки UI
+│   ├── features/     ← пользовательские сценарии
+│   ├── entities/     ← бизнес-сущности (Post, Channel, Chat…)
+│   ├── shared/       ← утилиты, UI-kit, хуки, константы
+│   └── test/         ← тестовые фикстуры и helpers
+├── docs/
+│   ├── user/         ← документация для пользователей
+│   ├── dev/          ← архитектура, ADR, деплой, тестирование
+│   └── backend/      ← API эндпоинты, OpenAPI, roadmap
+├── e2e/              ← Playwright smoke-тесты
+└── scripts/          ← вспомогательные скрипты сборки
+```
+
+## Стек
+
+
+| Категория    | Технология                            |
+| ------------ | ------------------------------------- |
+| Framework    | Next.js 16 (App Router)               |
+| UI           | React 19, Tailwind CSS v4, shadcn v4  |
+| Server state | TanStack Query v5                     |
+| UI state     | Zustand v5                            |
+| Validation   | Zod v4                                |
+| Mock API     | MSW v2                                |
+| Testing      | Vitest + Testing Library + Playwright |
+| Language     | TypeScript 5 (strict)                 |
+
+
+## Архитектура
+
+Проект следует **Feature-Sliced Design (FSD)**:
+
+```
+app → screens → widgets → features → entities → shared
+```
+
+Каждый слой зависит только от нижележащих. Подробнее — в [docs/dev/architecture.md](./docs/dev/architecture.md).
+
+## Документация
 
 → [docs/README.md](./docs/README.md)
 
-## Статус
 
-| Слой | Статус |
-|------|--------|
-| Продукт (`docs/product/`) | complete |
-| UX (`docs/ux/`) | complete — sync с `web-legacy` |
-| Engineering (`docs/engineering/`) | complete |
-| Код (`src/`) | M3 🟡 / M4 🟡 — see [parity.md](./docs/ux/parity.md) |
+| Раздел                           | Что внутри                                                   |
+| -------------------------------- | ------------------------------------------------------------ |
+| [docs/user/](./docs/user/)       | Онбординг, фичи, FAQ для пользователей                       |
+| [docs/dev/](./docs/dev/)         | Старт, архитектура, ADR, API-контракты, тестирование, деплой |
+| [docs/backend/](./docs/backend/) | Эндпоинты, OpenAPI, roadmap бэкенда                          |
 
-## Legacy-клиенты (вне `web/`)
 
-| Путь | Роль |
-|------|------|
-| [`../web-legacy/`](../web-legacy/) | **reference UI** (read-only) |
-| [`../frontend-v2/`](../frontend-v2/) | earlier reference scaffold |
-| [`../frontend/`](../frontend/) | клиент v1 |
-
-## Принципы
-
-1. **UX из legacy** — [pages.md](./docs/ux/pages.md), wireframes
-2. **Стек** — Next.js 16, FSD, MSW, TanStack Query — [stack.md](./docs/engineering/stack.md)
-3. **Визуал** — legacy semantic CSS + `tokens.css`; Tailwind для layout
-4. **Local-first** — [local-first.md](./docs/engineering/local-first.md)
-
-## Быстрые ссылки
-
-- [Glossary](./docs/glossary.md)
-- [Parity tracker](./docs/ux/parity.md)
-- [Navigation flows](./docs/ux/flows.md)
-- [Data model](./docs/engineering/data-model.md)
