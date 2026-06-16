@@ -8,11 +8,19 @@ type AiModelSnapshot = {
   includeInMulti: boolean;
 };
 
-export function normalizeAiProfileConfig(cfg: AiProfileConfig): AiProfileConfig {
+export function normalizeAiProfileConfig(
+  cfg: Partial<AiProfileConfig> | null | undefined,
+): AiProfileConfig {
   return {
-    ...cfg,
-    visionModels: cfg.visionModels ?? [],
-    imageGenerationModels: cfg.imageGenerationModels ?? [],
+    llmModels: cfg?.llmModels ?? [],
+    webSearchModels: cfg?.webSearchModels ?? [],
+    visionModels: cfg?.visionModels ?? [],
+    imageGenerationModels: cfg?.imageGenerationModels ?? [],
+    orchestratorModels: cfg?.orchestratorModels ?? [],
+    webReasonerModels: cfg?.webReasonerModels ?? [],
+    ragReasonerModels: cfg?.ragReasonerModels ?? [],
+    multiResponseEnabled: !!cfg?.multiResponseEnabled,
+    systemPrompt: cfg?.systemPrompt ?? "",
   };
 }
 
@@ -38,6 +46,7 @@ export function updateExclusiveModel(
 }
 
 export function snapshotAiConfig(cfg: AiProfileConfig) {
+  const normalized = normalizeAiProfileConfig(cfg);
   const modelSnapshot = (m: LlmModel): AiModelSnapshot => ({
     provider: m.provider || "",
     model: m.model || "",
@@ -47,13 +56,13 @@ export function snapshotAiConfig(cfg: AiProfileConfig) {
   });
 
   return JSON.stringify({
-    llmModels: cfg.llmModels.map(modelSnapshot),
-    webSearchModels: cfg.webSearchModels.map(modelSnapshot),
-    visionModels: cfg.visionModels.map(modelSnapshot),
-    imageGenerationModels: cfg.imageGenerationModels.map(modelSnapshot),
-    orchestratorModels: normalizeExclusiveModels(cfg.orchestratorModels).map(modelSnapshot),
-    webReasonerModels: normalizeExclusiveModels(cfg.webReasonerModels).map(modelSnapshot),
-    ragReasonerModels: normalizeExclusiveModels(cfg.ragReasonerModels).map(modelSnapshot),
-    multiResponseEnabled: !!cfg.multiResponseEnabled,
+    llmModels: normalized.llmModels.map(modelSnapshot),
+    webSearchModels: normalized.webSearchModels.map(modelSnapshot),
+    visionModels: normalized.visionModels.map(modelSnapshot),
+    imageGenerationModels: normalized.imageGenerationModels.map(modelSnapshot),
+    orchestratorModels: normalizeExclusiveModels(normalized.orchestratorModels).map(modelSnapshot),
+    webReasonerModels: normalizeExclusiveModels(normalized.webReasonerModels).map(modelSnapshot),
+    ragReasonerModels: normalizeExclusiveModels(normalized.ragReasonerModels).map(modelSnapshot),
+    multiResponseEnabled: !!normalized.multiResponseEnabled,
   });
 }

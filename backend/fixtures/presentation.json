@@ -1,0 +1,387 @@
+{
+  "posts": [
+    {
+      "id": "21",
+      "status": "published",
+      "date": "2026-06-10T10:00:00.000Z",
+      "rubric": "Обзор",
+      "metrics": {
+        "views": "1 240",
+        "reposts": 8,
+        "reactions": [
+          {
+            "emoji": "👋",
+            "count": 42
+          },
+          {
+            "emoji": "✨",
+            "count": 18
+          }
+        ]
+      },
+      "text": "Добро пожаловать в TG Platform — рабочее пространство для автора Telegram-канала.\n\nЗдесь вы ведёте ленту, планируете публикации, собираете заметки и общаетесь с ИИ в контексте канала. Всё в одном интерфейсе: без переключения между десятком сервисов.\n\nЭто демо-канал «Презентация»: посты ниже показывают, как устроена платформа. Нажмите «Войти» внизу слева, чтобы создать свой аккаунт или войти в демо.",
+      "media": [
+        {
+          "name": "IMG_2101.jpg",
+          "url": "data:image/svg+xml;charset=utf-8,%3Csvg%20xmlns%3D'http%3A%2F%2Fwww.w3.org%2F2000%2Fsvg'%20viewBox%3D'0%200%20600%20600'%3E%0A%20%20%20%20%3Crect%20width%3D'600'%20height%3D'600'%20fill%3D'%231a2030'%2F%3E%0A%20%20%20%20%3Crect%20x%3D'48'%20y%3D'72'%20width%3D'120'%20height%3D'456'%20rx%3D'18'%20fill%3D'%23252d42'%20stroke%3D'%233d4a66'%20stroke-width%3D'2'%2F%3E%0A%20%20%20%20%3Crect%20x%3D'68'%20y%3D'104'%20width%3D'80'%20height%3D'12'%20rx%3D'6'%20fill%3D'%235b8ff9'%20opacity%3D'0.9'%2F%3E%0A%20%20%20%20%3Crect%20x%3D'68'%20y%3D'132'%20width%3D'64'%20height%3D'8'%20rx%3D'4'%20fill%3D'%234a5568'%2F%3E%0A%20%20%20%20%3Crect%20x%3D'68'%20y%3D'152'%20width%3D'72'%20height%3D'8'%20rx%3D'4'%20fill%3D'%234a5568'%2F%3E%0A%20%20%20%20%3Crect%20x%3D'68'%20y%3D'172'%20width%3D'56'%20height%3D'8'%20rx%3D'4'%20fill%3D'%234a5568'%2F%3E%0A%20%20%20%20%3Crect%20x%3D'192'%20y%3D'72'%20width%3D'360'%20height%3D'200'%20rx%3D'20'%20fill%3D'%232a3348'%20stroke%3D'%233d4a66'%20stroke-width%3D'2'%2F%3E%0A%20%20%20%20%3Crect%20x%3D'220'%20y%3D'108'%20width%3D'180'%20height%3D'14'%20rx%3D'7'%20fill%3D'%236eb5ff'%20opacity%3D'0.85'%2F%3E%0A%20%20%20%20%3Crect%20x%3D'220'%20y%3D'136'%20width%3D'280'%20height%3D'10'%20rx%3D'5'%20fill%3D'%234a5568'%2F%3E%0A%20%20%20%20%3Crect%20x%3D'220'%20y%3D'158'%20width%3D'240'%20height%3D'10'%20rx%3D'5'%20fill%3D'%234a5568'%2F%3E%0A%20%20%20%20%3Crect%20x%3D'192'%20y%3D'296'%20width%3D'360'%20height%3D'232'%20rx%3D'20'%20fill%3D'%232a3348'%20stroke%3D'%233d4a66'%20stroke-width%3D'2'%2F%3E%0A%20%20%20%20%3Crect%20x%3D'220'%20y%3D'332'%20width%3D'120'%20height%3D'80'%20rx%3D'12'%20fill%3D'%233d4f6e'%2F%3E%0A%20%20%20%20%3Crect%20x%3D'356'%20y%3D'332'%20width%3D'120'%20height%3D'80'%20rx%3D'12'%20fill%3D'%233d5a4a'%2F%3E%0A%20%20%20%20%3Crect%20x%3D'220'%20y%3D'428'%20width%3D'256'%20height%3D'12'%20rx%3D'6'%20fill%3D'%235b8ff9'%20opacity%3D'0.5'%2F%3E%0A%20%20%20%20%3Ccircle%20cx%3D'300'%20cy%3D'300'%20r%3D'88'%20fill%3D'none'%20stroke%3D'%235b8ff9'%20stroke-width%3D'3'%20opacity%3D'0.25'%2F%3E%3C%2Fsvg%3E",
+          "type": "image/svg+xml"
+        }
+      ],
+      "notes": [],
+      "comments": [],
+      "chats": []
+    },
+    {
+      "id": "22",
+      "status": "published",
+      "date": "2026-06-11T11:15:00.000Z",
+      "rubric": "Лента",
+      "metrics": {
+        "views": "980",
+        "reposts": 5,
+        "reactions": [
+          {
+            "emoji": "📰",
+            "count": 31
+          }
+        ]
+      },
+      "text": "Лента — центр работы с контентом канала.\n\n✦ Опубликованные посты сгруппированы по дням\n✦ Черновики и отложенные публикации — отдельные секции\n✦ Композер внизу: текст, медиа и быстрая отправка в черновик\n✦ Клик по посту открывает чат, заметки и комментарии\n\nПосле подключения своего Telegram-канала в настройках сюда подтягиваются реальные публикации.",
+      "media": [
+        {
+          "name": "IMG_2102.jpg",
+          "url": "data:image/svg+xml;charset=utf-8,%3Csvg%20xmlns%3D'http%3A%2F%2Fwww.w3.org%2F2000%2Fsvg'%20viewBox%3D'0%200%20600%20600'%3E%0A%20%20%20%20%3Crect%20width%3D'600'%20height%3D'600'%20fill%3D'%23f4f6fa'%2F%3E%0A%20%20%20%20%3Crect%20x%3D'80'%20y%3D'88'%20width%3D'440'%20height%3D'56'%20rx%3D'12'%20fill%3D'%23fff'%20stroke%3D'%23dde3ee'%20stroke-width%3D'2'%2F%3E%0A%20%20%20%20%3Crect%20x%3D'104'%20y%3D'108'%20width%3D'120'%20height%3D'10'%20rx%3D'5'%20fill%3D'%23c5d0e0'%2F%3E%0A%20%20%20%20%3Crect%20x%3D'104'%20y%3D'124'%20width%3D'200'%20height%3D'8'%20rx%3D'4'%20fill%3D'%23e2e8f0'%2F%3E%0A%20%20%20%20%3Crect%20x%3D'80'%20y%3D'164'%20width%3D'440'%20height%3D'120'%20rx%3D'16'%20fill%3D'%23fff'%20stroke%3D'%23dde3ee'%20stroke-width%3D'2'%2F%3E%0A%20%20%20%20%3Crect%20x%3D'80'%20y%3D'164'%20width%3D'440'%20height%3D'72'%20rx%3D'16'%20fill%3D'%23d4e4ff'%2F%3E%0A%20%20%20%20%3Crect%20x%3D'104'%20y%3D'252'%20width%3D'160'%20height%3D'10'%20rx%3D'5'%20fill%3D'%238aa4c8'%2F%3E%0A%20%20%20%20%3Crect%20x%3D'104'%20y%3D'268'%20width%3D'280'%20height%3D'8'%20rx%3D'4'%20fill%3D'%23c5d0e0'%2F%3E%0A%20%20%20%20%3Crect%20x%3D'80'%20y%3D'304'%20width%3D'440'%20height%3D'120'%20rx%3D'16'%20fill%3D'%23fff'%20stroke%3D'%23dde3ee'%20stroke-width%3D'2'%2F%3E%0A%20%20%20%20%3Crect%20x%3D'80'%20y%3D'304'%20width%3D'218'%20height%3D'120'%20rx%3D'16'%20fill%3D'%23c8f0d8'%2F%3E%0A%20%20%20%20%3Crect%20x%3D'302'%20y%3D'304'%20width%3D'218'%20height%3D'120'%20rx%3D'16'%20fill%3D'%23ffe4c8'%2F%3E%0A%20%20%20%20%3Crect%20x%3D'104'%20y%3D'392'%20width%3D'140'%20height%3D'10'%20rx%3D'5'%20fill%3D'%238aa4c8'%2F%3E%0A%20%20%20%20%3Crect%20x%3D'80'%20y%3D'444'%20width%3D'440'%20height%3D'72'%20rx%3D'16'%20fill%3D'%23fff'%20stroke%3D'%23dde3ee'%20stroke-width%3D'2'%2F%3E%0A%20%20%20%20%3Crect%20x%3D'104'%20y%3D'472'%20width%3D'320'%20height%3D'10'%20rx%3D'5'%20fill%3D'%23c5d0e0'%2F%3E%3C%2Fsvg%3E",
+          "type": "image/svg+xml"
+        },
+        {
+          "name": "IMG_2103.jpg",
+          "url": "data:image/svg+xml;charset=utf-8,%3Csvg%20xmlns%3D'http%3A%2F%2Fwww.w3.org%2F2000%2Fsvg'%20viewBox%3D'0%200%20600%20600'%3E%0A%20%20%20%20%3Crect%20width%3D'600'%20height%3D'600'%20fill%3D'%23eef1f6'%2F%3E%0A%20%20%20%20%3Ctext%20x%3D'300'%20y%3D'118'%20text-anchor%3D'middle'%20fill%3D'%238b95a8'%20font-family%3D'Inter%2Csans-serif'%20font-size%3D'18'%20font-weight%3D'600'%20letter-spacing%3D'3'%3E%D0%9B%D0%95%D0%9D%D0%A2%D0%90%3C%2Ftext%3E%0A%20%20%20%20%3Crect%20x%3D'100'%20y%3D'148'%20width%3D'400'%20height%3D'88'%20rx%3D'14'%20fill%3D'%23fff'%20stroke%3D'%235b8ff9'%20stroke-width%3D'2'%2F%3E%0A%20%20%20%20%3Crect%20x%3D'124'%20y%3D'172'%20width%3D'24'%20height%3D'24'%20rx%3D'6'%20fill%3D'%235b8ff9'%20opacity%3D'0.2'%2F%3E%0A%20%20%20%20%3Cpath%20d%3D'M132%20184l6%206%2010-12'%20stroke%3D'%235b8ff9'%20stroke-width%3D'2.5'%20fill%3D'none'%20stroke-linecap%3D'round'%2F%3E%0A%20%20%20%20%3Crect%20x%3D'160'%20y%3D'176'%20width%3D'180'%20height%3D'12'%20rx%3D'6'%20fill%3D'%233d4a66'%2F%3E%0A%20%20%20%20%3Crect%20x%3D'160'%20y%3D'198'%20width%3D'120'%20height%3D'8'%20rx%3D'4'%20fill%3D'%23c5d0e0'%2F%3E%0A%20%20%20%20%3Crect%20x%3D'100'%20y%3D'260'%20width%3D'400'%20height%3D'88'%20rx%3D'14'%20fill%3D'%23fff'%20stroke%3D'%23f39c12'%20stroke-width%3D'2'%2F%3E%0A%20%20%20%20%3Ccircle%20cx%3D'136'%20cy%3D'304'%20r%3D'14'%20fill%3D'%23f39c12'%20opacity%3D'0.2'%2F%3E%0A%20%20%20%20%3Ccircle%20cx%3D'136'%20cy%3D'304'%20r%3D'8'%20fill%3D'none'%20stroke%3D'%23f39c12'%20stroke-width%3D'2'%2F%3E%0A%20%20%20%20%3Cpath%20d%3D'M136%20300v5l3%202'%20stroke%3D'%23f39c12'%20stroke-width%3D'2'%20stroke-linecap%3D'round'%2F%3E%0A%20%20%20%20%3Crect%20x%3D'160'%20y%3D'288'%20width%3D'160'%20height%3D'12'%20rx%3D'6'%20fill%3D'%233d4a66'%2F%3E%0A%20%20%20%20%3Crect%20x%3D'160'%20y%3D'310'%20width%3D'100'%20height%3D'8'%20rx%3D'4'%20fill%3D'%23c5d0e0'%2F%3E%0A%20%20%20%20%3Crect%20x%3D'100'%20y%3D'372'%20width%3D'400'%20height%3D'88'%20rx%3D'14'%20fill%3D'%23fff'%20stroke%3D'%2395a5a6'%20stroke-width%3D'2'%20stroke-dasharray%3D'8%206'%2F%3E%0A%20%20%20%20%3Crect%20x%3D'124'%20y%3D'396'%20width%3D'24'%20height%3D'24'%20rx%3D'6'%20fill%3D'%2395a5a6'%20opacity%3D'0.25'%2F%3E%0A%20%20%20%20%3Crect%20x%3D'160'%20y%3D'400'%20width%3D'170'%20height%3D'12'%20rx%3D'6'%20fill%3D'%236b7280'%2F%3E%0A%20%20%20%20%3Crect%20x%3D'160'%20y%3D'422'%20width%3D'130'%20height%3D'8'%20rx%3D'4'%20fill%3D'%23c5d0e0'%2F%3E%3C%2Fsvg%3E",
+          "type": "image/svg+xml"
+        }
+      ],
+      "notes": [],
+      "comments": [],
+      "chats": []
+    },
+    {
+      "id": "23",
+      "status": "published",
+      "date": "2026-06-12T10:30:00.000Z",
+      "rubric": "ИИ",
+      "metrics": {
+        "views": "860",
+        "reposts": 4,
+        "reactions": [
+          {
+            "emoji": "🤖",
+            "count": 27
+          }
+        ]
+      },
+      "text": "Заметки и чаты с ИИ помогают готовить контент осознанно.\n\nЗаметки бывают глобальными (для всего канала) и локальными (привязаны к посту). Чаты — глобальные обсуждения и локальные диалоги внутри поста.\n\nИИ видит базу знаний канала, системный промпт и выбранные модели из настроек. Вы сами решаете, какие заметки включать в контекст.",
+      "media": [
+        {
+          "name": "IMG_2104.jpg",
+          "url": "data:image/svg+xml;charset=utf-8,%3Csvg%20xmlns%3D'http%3A%2F%2Fwww.w3.org%2F2000%2Fsvg'%20viewBox%3D'0%200%20600%20600'%3E%0A%20%20%20%20%3Crect%20width%3D'600'%20height%3D'600'%20fill%3D'%231e2433'%2F%3E%0A%20%20%20%20%3Crect%20x%3D'140'%20y%3D'100'%20width%3D'320'%20height%3D'400'%20rx%3D'16'%20fill%3D'%232d3548'%20stroke%3D'%234a5568'%20stroke-width%3D'2'%20transform%3D'rotate(-6%20300%20300)'%2F%3E%0A%20%20%20%20%3Crect%20x%3D'120'%20y%3D'120'%20width%3D'320'%20height%3D'400'%20rx%3D'16'%20fill%3D'%23343d52'%20stroke%3D'%235b8ff9'%20stroke-width%3D'2'%20transform%3D'rotate(3%20300%20300)'%2F%3E%0A%20%20%20%20%3Crect%20x%3D'100'%20y%3D'140'%20width%3D'320'%20height%3D'400'%20rx%3D'16'%20fill%3D'%233d4760'%2F%3E%0A%20%20%20%20%3Crect%20x%3D'136'%20y%3D'188'%20width%3D'200'%20height%3D'14'%20rx%3D'7'%20fill%3D'%236eb5ff'%2F%3E%0A%20%20%20%20%3Crect%20x%3D'136'%20y%3D'220'%20width%3D'248'%20height%3D'8'%20rx%3D'4'%20fill%3D'%235a6478'%2F%3E%0A%20%20%20%20%3Crect%20x%3D'136'%20y%3D'240'%20width%3D'220'%20height%3D'8'%20rx%3D'4'%20fill%3D'%235a6478'%2F%3E%0A%20%20%20%20%3Crect%20x%3D'136'%20y%3D'260'%20width%3D'236'%20height%3D'8'%20rx%3D'4'%20fill%3D'%235a6478'%2F%3E%0A%20%20%20%20%3Crect%20x%3D'136'%20y%3D'300'%20width%3D'120'%20height%3D'36'%20rx%3D'8'%20fill%3D'%235b8ff9'%20opacity%3D'0.25'%20stroke%3D'%235b8ff9'%20stroke-width%3D'1.5'%2F%3E%0A%20%20%20%20%3Ctext%20x%3D'196'%20y%3D'324'%20text-anchor%3D'middle'%20fill%3D'%238ec0ff'%20font-family%3D'Inter%2Csans-serif'%20font-size%3D'14'%20font-weight%3D'600'%3EAI%3C%2Ftext%3E%0A%20%20%20%20%3Ccircle%20cx%3D'400'%20cy%3D'460'%20r%3D'48'%20fill%3D'%235b8ff9'%20opacity%3D'0.15'%2F%3E%3C%2Fsvg%3E",
+          "type": "image/svg+xml"
+        },
+        {
+          "name": "IMG_2105.jpg",
+          "url": "data:image/svg+xml;charset=utf-8,%3Csvg%20xmlns%3D'http%3A%2F%2Fwww.w3.org%2F2000%2Fsvg'%20viewBox%3D'0%200%20600%20600'%3E%0A%20%20%20%20%3Crect%20width%3D'600'%20height%3D'600'%20fill%3D'%2312182a'%2F%3E%0A%20%20%20%20%3Crect%20x%3D'72'%20y%3D'140'%20width%3D'280'%20height%3D'88'%20rx%3D'20'%20fill%3D'%232a3550'%2F%3E%0A%20%20%20%20%3Crect%20x%3D'96'%20y%3D'168'%20width%3D'200'%20height%3D'10'%20rx%3D'5'%20fill%3D'%238b9bb8'%2F%3E%0A%20%20%20%20%3Crect%20x%3D'96'%20y%3D'188'%20width%3D'160'%20height%3D'8'%20rx%3D'4'%20fill%3D'%235a6478'%2F%3E%0A%20%20%20%20%3Crect%20x%3D'248'%20y%3D'260'%20width%3D'280'%20height%3D'120'%20rx%3D'20'%20fill%3D'%231e3a5f'%20stroke%3D'%235b8ff9'%20stroke-width%3D'2'%2F%3E%0A%20%20%20%20%3Crect%20x%3D'272'%20y%3D'288'%20width%3D'220'%20height%3D'10'%20rx%3D'5'%20fill%3D'%238ec0ff'%2F%3E%0A%20%20%20%20%3Crect%20x%3D'272'%20y%3D'308'%20width%3D'180'%20height%3D'8'%20rx%3D'4'%20fill%3D'%236b8cb8'%2F%3E%0A%20%20%20%20%3Crect%20x%3D'272'%20y%3D'324'%20width%3D'200'%20height%3D'8'%20rx%3D'4'%20fill%3D'%236b8cb8'%2F%3E%0A%20%20%20%20%3Ccircle%20cx%3D'300'%20cy%3D'96'%20r%3D'36'%20fill%3D'%235b8ff9'%20opacity%3D'0.2'%2F%3E%0A%20%20%20%20%3Cpath%20d%3D'M288%2088h24M300%2076v24'%20stroke%3D'%235b8ff9'%20stroke-width%3D'3'%20stroke-linecap%3D'round'%2F%3E%0A%20%20%20%20%3Ccircle%20cx%3D'120'%20cy%3D'420'%20r%3D'6'%20fill%3D'%235b8ff9'%20opacity%3D'0.6'%2F%3E%0A%20%20%20%20%3Ccircle%20cx%3D'148'%20cy%3D'420'%20r%3D'6'%20fill%3D'%235b8ff9'%20opacity%3D'0.4'%2F%3E%0A%20%20%20%20%3Ccircle%20cx%3D'176'%20cy%3D'420'%20r%3D'6'%20fill%3D'%235b8ff9'%20opacity%3D'0.25'%2F%3E%3C%2Fsvg%3E",
+          "type": "image/svg+xml"
+        }
+      ],
+      "notes": [],
+      "comments": [],
+      "chats": []
+    },
+    {
+      "id": "24",
+      "status": "published",
+      "date": "2026-06-12T14:00:00.000Z",
+      "rubric": "Аналитика",
+      "metrics": {
+        "views": "720",
+        "reposts": 3,
+        "reactions": [
+          {
+            "emoji": "📊",
+            "count": 19
+          }
+        ]
+      },
+      "text": "Аналитика и настройки закрывают цикл «планирую → публикую → смотрю результат».\n\nВ разделе аналитики — динамика канала, тепловая карта активности и топ постов. В профиле — подключение Telegram, ИИ-движок, база знаний канала и метрики использования моделей.\n\nСоздайте аккаунт через «Войти», подключите канал и начните с чистого листа — или войдите в полное демо с готовым наполнением.",
+      "media": [
+        {
+          "name": "IMG_2107.jpg",
+          "url": "data:image/svg+xml;charset=utf-8,%3Csvg%20xmlns%3D'http%3A%2F%2Fwww.w3.org%2F2000%2Fsvg'%20viewBox%3D'0%200%20600%20600'%3E%0A%20%20%20%20%3Cdefs%3E%0A%20%20%20%20%20%20%3ClinearGradient%20id%3D'cg'%20x1%3D'0'%20y1%3D'0'%20x2%3D'0'%20y2%3D'1'%3E%0A%20%20%20%20%20%20%20%20%3Cstop%20offset%3D'0'%20stop-color%3D'%235b8ff9'%20stop-opacity%3D'0.35'%2F%3E%0A%20%20%20%20%20%20%20%20%3Cstop%20offset%3D'1'%20stop-color%3D'%235b8ff9'%20stop-opacity%3D'0'%2F%3E%0A%20%20%20%20%20%20%3C%2FlinearGradient%3E%0A%20%20%20%20%3C%2Fdefs%3E%0A%20%20%20%20%3Crect%20width%3D'600'%20height%3D'600'%20fill%3D'%230f1419'%2F%3E%0A%20%20%20%20%3Crect%20x%3D'80'%20y%3D'100'%20width%3D'440'%20height%3D'400'%20rx%3D'20'%20fill%3D'%231a222d'%20stroke%3D'%232d3748'%20stroke-width%3D'2'%2F%3E%0A%20%20%20%20%3Cline%20x1%3D'120'%20y1%3D'440'%20x2%3D'480'%20y2%3D'440'%20stroke%3D'%233d4a5c'%20stroke-width%3D'2'%2F%3E%0A%20%20%20%20%3Cline%20x1%3D'120'%20y1%3D'140'%20x2%3D'120'%20y2%3D'440'%20stroke%3D'%233d4a5c'%20stroke-width%3D'2'%2F%3E%0A%20%20%20%20%3Cpolyline%20points%3D'140%2C380%20200%2C340%20260%2C360%20320%2C280%20380%2C240%20440%2C180'%20fill%3D'none'%20stroke%3D'%235b8ff9'%20stroke-width%3D'4'%20stroke-linecap%3D'round'%20stroke-linejoin%3D'round'%2F%3E%0A%20%20%20%20%3Cpolygon%20points%3D'140%2C380%20200%2C340%20260%2C360%20320%2C280%20380%2C240%20440%2C180%20440%2C440%20140%2C440'%20fill%3D'url(%23cg)'%2F%3E%0A%20%20%20%20%3Ccircle%20cx%3D'440'%20cy%3D'180'%20r%3D'10'%20fill%3D'%235b8ff9'%2F%3E%0A%20%20%20%20%3Crect%20x%3D'140'%20y%3D'468'%20width%3D'48'%20height%3D'8'%20rx%3D'4'%20fill%3D'%234a5568'%2F%3E%0A%20%20%20%20%3Crect%20x%3D'220'%20y%3D'468'%20width%3D'48'%20height%3D'8'%20rx%3D'4'%20fill%3D'%234a5568'%2F%3E%0A%20%20%20%20%3Crect%20x%3D'300'%20y%3D'468'%20width%3D'48'%20height%3D'8'%20rx%3D'4'%20fill%3D'%234a5568'%2F%3E%0A%20%20%20%20%3Crect%20x%3D'380'%20y%3D'468'%20width%3D'48'%20height%3D'8'%20rx%3D'4'%20fill%3D'%234a5568'%2F%3E%3C%2Fsvg%3E",
+          "type": "image/svg+xml"
+        },
+        {
+          "name": "IMG_2108.jpg",
+          "url": "data:image/svg+xml;charset=utf-8,%3Csvg%20xmlns%3D'http%3A%2F%2Fwww.w3.org%2F2000%2Fsvg'%20viewBox%3D'0%200%20600%20600'%3E%0A%20%20%20%20%3Crect%20width%3D'600'%20height%3D'600'%20fill%3D'%23141820'%2F%3E%0A%20%20%20%20%3Crect%20x%3D'100'%20y%3D'120'%20width%3D'400'%20height%3D'360'%20rx%3D'16'%20fill%3D'%231e2530'%20stroke%3D'%232d3748'%20stroke-width%3D'2'%2F%3E%0A%20%20%20%20%3Cg%20transform%3D'translate(130%2C160)'%3E%0A%20%20%20%20%20%20%3Crect%20x%3D'0'%20y%3D'0'%20width%3D'40'%20height%3D'40'%20rx%3D'6'%20fill%3D'hsl(212%2C70%25%2C40%25)'%20opacity%3D'0.6'%2F%3E%3Crect%20x%3D'48'%20y%3D'0'%20width%3D'40'%20height%3D'40'%20rx%3D'6'%20fill%3D'hsl(230%2C70%25%2C47.5%25)'%20opacity%3D'0.75'%2F%3E%3Crect%20x%3D'96'%20y%3D'0'%20width%3D'40'%20height%3D'40'%20rx%3D'6'%20fill%3D'hsl(254%2C70%25%2C57.5%25)'%20opacity%3D'0.95'%2F%3E%3Crect%20x%3D'144'%20y%3D'0'%20width%3D'40'%20height%3D'40'%20rx%3D'6'%20fill%3D'hsl(224%2C70%25%2C45%25)'%20opacity%3D'0.7'%2F%3E%3Crect%20x%3D'192'%20y%3D'0'%20width%3D'40'%20height%3D'40'%20rx%3D'6'%20fill%3D'hsl(242%2C70%25%2C52.5%25)'%20opacity%3D'0.85'%2F%3E%3Crect%20x%3D'240'%20y%3D'0'%20width%3D'40'%20height%3D'40'%20rx%3D'6'%20fill%3D'hsl(218%2C70%25%2C42.5%25)'%20opacity%3D'0.65'%2F%3E%3Crect%20x%3D'288'%20y%3D'0'%20width%3D'40'%20height%3D'40'%20rx%3D'6'%20fill%3D'hsl(251%2C70%25%2C56.25%25)'%20opacity%3D'0.925'%2F%3E%3Crect%20x%3D'0'%20y%3D'48'%20width%3D'40'%20height%3D'40'%20rx%3D'6'%20fill%3D'hsl(233%2C70%25%2C48.75%25)'%20opacity%3D'0.775'%2F%3E%3Crect%20x%3D'48'%20y%3D'48'%20width%3D'40'%20height%3D'40'%20rx%3D'6'%20fill%3D'hsl(215%2C70%25%2C41.25%25)'%20opacity%3D'0.625'%2F%3E%3Crect%20x%3D'96'%20y%3D'48'%20width%3D'40'%20height%3D'40'%20rx%3D'6'%20fill%3D'hsl(239%2C70%25%2C51.25%25)'%20opacity%3D'0.825'%2F%3E%3Crect%20x%3D'144'%20y%3D'48'%20width%3D'40'%20height%3D'40'%20rx%3D'6'%20fill%3D'hsl(227%2C70%25%2C46.25%25)'%20opacity%3D'0.725'%2F%3E%3Crect%20x%3D'192'%20y%3D'48'%20width%3D'40'%20height%3D'40'%20rx%3D'6'%20fill%3D'hsl(248%2C70%25%2C55%25)'%20opacity%3D'0.9'%2F%3E%3Crect%20x%3D'240'%20y%3D'48'%20width%3D'40'%20height%3D'40'%20rx%3D'6'%20fill%3D'hsl(221%2C70%25%2C43.75%25)'%20opacity%3D'0.675'%2F%3E%3Crect%20x%3D'288'%20y%3D'48'%20width%3D'40'%20height%3D'40'%20rx%3D'6'%20fill%3D'hsl(257%2C70%25%2C58.75%25)'%20opacity%3D'0.975'%2F%3E%3Crect%20x%3D'0'%20y%3D'96'%20width%3D'40'%20height%3D'40'%20rx%3D'6'%20fill%3D'hsl(230%2C70%25%2C47.5%25)'%20opacity%3D'0.75'%2F%3E%3Crect%20x%3D'48'%20y%3D'96'%20width%3D'40'%20height%3D'40'%20rx%3D'6'%20fill%3D'hsl(236%2C70%25%2C50%25)'%20opacity%3D'0.8'%2F%3E%3Crect%20x%3D'96'%20y%3D'96'%20width%3D'40'%20height%3D'40'%20rx%3D'6'%20fill%3D'hsl(245%2C70%25%2C53.75%25)'%20opacity%3D'0.875'%2F%3E%3Crect%20x%3D'144'%20y%3D'96'%20width%3D'40'%20height%3D'40'%20rx%3D'6'%20fill%3D'hsl(224%2C70%25%2C45%25)'%20opacity%3D'0.7'%2F%3E%3Crect%20x%3D'192'%20y%3D'96'%20width%3D'40'%20height%3D'40'%20rx%3D'6'%20fill%3D'hsl(254%2C70%25%2C57.5%25)'%20opacity%3D'0.95'%2F%3E%3Crect%20x%3D'240'%20y%3D'96'%20width%3D'40'%20height%3D'40'%20rx%3D'6'%20fill%3D'hsl(218%2C70%25%2C42.5%25)'%20opacity%3D'0.65'%2F%3E%3Crect%20x%3D'288'%20y%3D'96'%20width%3D'40'%20height%3D'40'%20rx%3D'6'%20fill%3D'hsl(242%2C70%25%2C52.5%25)'%20opacity%3D'0.85'%2F%3E%3Crect%20x%3D'0'%20y%3D'144'%20width%3D'40'%20height%3D'40'%20rx%3D'6'%20fill%3D'hsl(233%2C70%25%2C48.75%25)'%20opacity%3D'0.775'%2F%3E%3Crect%20x%3D'48'%20y%3D'144'%20width%3D'40'%20height%3D'40'%20rx%3D'6'%20fill%3D'hsl(251%2C70%25%2C56.25%25)'%20opacity%3D'0.925'%2F%3E%3Crect%20x%3D'96'%20y%3D'144'%20width%3D'40'%20height%3D'40'%20rx%3D'6'%20fill%3D'hsl(227%2C70%25%2C46.25%25)'%20opacity%3D'0.725'%2F%3E%3Crect%20x%3D'144'%20y%3D'144'%20width%3D'40'%20height%3D'40'%20rx%3D'6'%20fill%3D'hsl(236%2C70%25%2C50%25)'%20opacity%3D'0.8'%2F%3E%3Crect%20x%3D'192'%20y%3D'144'%20width%3D'40'%20height%3D'40'%20rx%3D'6'%20fill%3D'hsl(248%2C70%25%2C55%25)'%20opacity%3D'0.9'%2F%3E%3Crect%20x%3D'240'%20y%3D'144'%20width%3D'40'%20height%3D'40'%20rx%3D'6'%20fill%3D'hsl(221%2C70%25%2C43.75%25)'%20opacity%3D'0.675'%2F%3E%3Crect%20x%3D'288'%20y%3D'144'%20width%3D'40'%20height%3D'40'%20rx%3D'6'%20fill%3D'hsl(242%2C70%25%2C52.5%25)'%20opacity%3D'0.85'%2F%3E%0A%20%20%20%20%3C%2Fg%3E%0A%20%20%20%20%3Crect%20x%3D'130'%20y%3D'500'%20width%3D'80'%20height%3D'10'%20rx%3D'5'%20fill%3D'%234a5568'%2F%3E%0A%20%20%20%20%3Crect%20x%3D'360'%20y%3D'500'%20width%3D'120'%20height%3D'10'%20rx%3D'5'%20fill%3D'%235b8ff9'%20opacity%3D'0.6'%2F%3E%3C%2Fsvg%3E",
+          "type": "image/svg+xml"
+        }
+      ],
+      "notes": [],
+      "comments": [],
+      "chats": []
+    },
+    {
+      "id": "25",
+      "status": "scheduled",
+      "date": "2026-06-14T12:00:00.000Z",
+      "rubric": "Планирование",
+      "text": "Посты можно откладывать — не обязательно публиковать сразу.\n\nОтложенная публикация удобна, когда текст уже готов, а выходить он должен в конкретный день и час: утренний дайджест, вечерний разбор, пост к событию.\n\nВ ленте такие посты живут в отдельной секции «Отложенные» — их видно до выхода, можно отредактировать или перенести время.",
+      "media": [
+        {
+          "name": "IMG_2111.jpg",
+          "url": "data:image/svg+xml;charset=utf-8,%3Csvg%20xmlns%3D'http%3A%2F%2Fwww.w3.org%2F2000%2Fsvg'%20viewBox%3D'0%200%20600%20600'%3E%0A%20%20%20%20%3Crect%20width%3D'600'%20height%3D'600'%20fill%3D'%231a2535'%2F%3E%0A%20%20%20%20%3Ccircle%20cx%3D'300'%20cy%3D'280'%20r%3D'140'%20fill%3D'%23243044'%20stroke%3D'%23f39c12'%20stroke-width%3D'6'%2F%3E%0A%20%20%20%20%3Ccircle%20cx%3D'300'%20cy%3D'280'%20r%3D'8'%20fill%3D'%23f39c12'%2F%3E%0A%20%20%20%20%3Cline%20x1%3D'300'%20y1%3D'280'%20x2%3D'300'%20y2%3D'180'%20stroke%3D'%23fff'%20stroke-width%3D'6'%20stroke-linecap%3D'round'%2F%3E%0A%20%20%20%20%3Cline%20x1%3D'300'%20y1%3D'280'%20x2%3D'370'%20y2%3D'310'%20stroke%3D'%23f39c12'%20stroke-width%3D'5'%20stroke-linecap%3D'round'%2F%3E%0A%20%20%20%20%3Crect%20x%3D'180'%20y%3D'460'%20width%3D'240'%20height%3D'72'%20rx%3D'16'%20fill%3D'%232a3848'%20stroke%3D'%23f39c12'%20stroke-width%3D'2'%2F%3E%0A%20%20%20%20%3Ctext%20x%3D'300'%20y%3D'506'%20text-anchor%3D'middle'%20fill%3D'%23f39c12'%20font-family%3D'Inter%2Csans-serif'%20font-size%3D'28'%20font-weight%3D'700'%3E14%20%D0%B8%D1%8E%D0%BD%20%C2%B7%2012%3A00%3C%2Ftext%3E%3C%2Fsvg%3E",
+          "type": "image/svg+xml"
+        }
+      ],
+      "notes": [],
+      "comments": [],
+      "chats": []
+    },
+    {
+      "id": "26",
+      "status": "scheduled",
+      "date": "2026-06-17T18:00:00.000Z",
+      "rubric": "Планирование",
+      "text": "Как устроено откладывание в TG Platform:\n\n1. Создайте пост или откройте черновик\n2. В меню поста выберите «Отложить» и укажите дату с временем\n3. Пост попадёт в секцию отложенных — с иконкой часов и меткой времени\n4. В нужный момент публикация уйдёт в канал (после подключения Telegram)\n\nТак же можно перенести уже отложенный пост или вернуть его в черновик.",
+      "media": [
+        {
+          "name": "IMG_2112.jpg",
+          "url": "data:image/svg+xml;charset=utf-8,%3Csvg%20xmlns%3D'http%3A%2F%2Fwww.w3.org%2F2000%2Fsvg'%20viewBox%3D'0%200%20600%20600'%3E%0A%20%20%20%20%3Crect%20width%3D'600'%20height%3D'600'%20fill%3D'%23f8f9fc'%2F%3E%0A%20%20%20%20%3Crect%20x%3D'100'%20y%3D'80'%20width%3D'400'%20height%3D'440'%20rx%3D'20'%20fill%3D'%23fff'%20stroke%3D'%23dde3ee'%20stroke-width%3D'2'%2F%3E%0A%20%20%20%20%3Crect%20x%3D'100'%20y%3D'80'%20width%3D'400'%20height%3D'64'%20rx%3D'20'%20fill%3D'%235b8ff9'%2F%3E%0A%20%20%20%20%3Crect%20x%3D'100'%20y%3D'120'%20width%3D'400'%20height%3D'24'%20fill%3D'%235b8ff9'%2F%3E%0A%20%20%20%20%3Ctext%20x%3D'300'%20y%3D'122'%20text-anchor%3D'middle'%20fill%3D'%23fff'%20font-family%3D'Inter%2Csans-serif'%20font-size%3D'22'%20font-weight%3D'700'%3E%D0%98%D0%AE%D0%9D%D0%AC%3C%2Ftext%3E%0A%20%20%20%20%3Cg%20fill%3D'%23e8edf5'%3E%0A%20%20%20%20%20%20%3Crect%20x%3D'128'%20y%3D'168'%20width%3D'40'%20height%3D'40'%20rx%3D'8'%20fill%3D'%23eef2f8'%2F%3E%3Crect%20x%3D'176'%20y%3D'168'%20width%3D'40'%20height%3D'40'%20rx%3D'8'%20fill%3D'%23eef2f8'%2F%3E%3Crect%20x%3D'224'%20y%3D'168'%20width%3D'40'%20height%3D'40'%20rx%3D'8'%20fill%3D'%23eef2f8'%2F%3E%3Crect%20x%3D'272'%20y%3D'168'%20width%3D'40'%20height%3D'40'%20rx%3D'8'%20fill%3D'%23eef2f8'%2F%3E%3Crect%20x%3D'320'%20y%3D'168'%20width%3D'40'%20height%3D'40'%20rx%3D'8'%20fill%3D'%23eef2f8'%2F%3E%3Crect%20x%3D'368'%20y%3D'168'%20width%3D'40'%20height%3D'40'%20rx%3D'8'%20fill%3D'%23eef2f8'%2F%3E%3Crect%20x%3D'416'%20y%3D'168'%20width%3D'40'%20height%3D'40'%20rx%3D'8'%20fill%3D'%23eef2f8'%2F%3E%3Crect%20x%3D'128'%20y%3D'220'%20width%3D'40'%20height%3D'40'%20rx%3D'8'%20fill%3D'%23eef2f8'%2F%3E%3Crect%20x%3D'176'%20y%3D'220'%20width%3D'40'%20height%3D'40'%20rx%3D'8'%20fill%3D'%23eef2f8'%2F%3E%3Crect%20x%3D'224'%20y%3D'220'%20width%3D'40'%20height%3D'40'%20rx%3D'8'%20fill%3D'%23eef2f8'%2F%3E%3Crect%20x%3D'272'%20y%3D'220'%20width%3D'40'%20height%3D'40'%20rx%3D'8'%20fill%3D'%23eef2f8'%2F%3E%3Crect%20x%3D'320'%20y%3D'220'%20width%3D'40'%20height%3D'40'%20rx%3D'8'%20fill%3D'%23eef2f8'%2F%3E%3Crect%20x%3D'368'%20y%3D'220'%20width%3D'40'%20height%3D'40'%20rx%3D'8'%20fill%3D'%23eef2f8'%2F%3E%3Crect%20x%3D'416'%20y%3D'220'%20width%3D'40'%20height%3D'40'%20rx%3D'8'%20fill%3D'%235b8ff9'%2F%3E%3Crect%20x%3D'128'%20y%3D'272'%20width%3D'40'%20height%3D'40'%20rx%3D'8'%20fill%3D'%23eef2f8'%2F%3E%3Crect%20x%3D'176'%20y%3D'272'%20width%3D'40'%20height%3D'40'%20rx%3D'8'%20fill%3D'%23eef2f8'%2F%3E%3Crect%20x%3D'224'%20y%3D'272'%20width%3D'40'%20height%3D'40'%20rx%3D'8'%20fill%3D'%235b8ff9'%2F%3E%3Crect%20x%3D'272'%20y%3D'272'%20width%3D'40'%20height%3D'40'%20rx%3D'8'%20fill%3D'%23eef2f8'%2F%3E%3Crect%20x%3D'320'%20y%3D'272'%20width%3D'40'%20height%3D'40'%20rx%3D'8'%20fill%3D'%23eef2f8'%2F%3E%3Crect%20x%3D'368'%20y%3D'272'%20width%3D'40'%20height%3D'40'%20rx%3D'8'%20fill%3D'%23eef2f8'%2F%3E%3Crect%20x%3D'416'%20y%3D'272'%20width%3D'40'%20height%3D'40'%20rx%3D'8'%20fill%3D'%23eef2f8'%2F%3E%3Crect%20x%3D'128'%20y%3D'324'%20width%3D'40'%20height%3D'40'%20rx%3D'8'%20fill%3D'%23eef2f8'%2F%3E%3Crect%20x%3D'176'%20y%3D'324'%20width%3D'40'%20height%3D'40'%20rx%3D'8'%20fill%3D'%23eef2f8'%2F%3E%3Crect%20x%3D'224'%20y%3D'324'%20width%3D'40'%20height%3D'40'%20rx%3D'8'%20fill%3D'%23eef2f8'%2F%3E%3Crect%20x%3D'272'%20y%3D'324'%20width%3D'40'%20height%3D'40'%20rx%3D'8'%20fill%3D'%23eef2f8'%2F%3E%3Crect%20x%3D'320'%20y%3D'324'%20width%3D'40'%20height%3D'40'%20rx%3D'8'%20fill%3D'%23eef2f8'%2F%3E%3Crect%20x%3D'368'%20y%3D'324'%20width%3D'40'%20height%3D'40'%20rx%3D'8'%20fill%3D'%23eef2f8'%2F%3E%3Crect%20x%3D'416'%20y%3D'324'%20width%3D'40'%20height%3D'40'%20rx%3D'8'%20fill%3D'%23eef2f8'%2F%3E%0A%20%20%20%20%3C%2Fg%3E%0A%20%20%20%20%3Ccircle%20cx%3D'320'%20cy%3D'376'%20r%3D'6'%20fill%3D'%23fff'%2F%3E%0A%20%20%20%20%3Ccircle%20cx%3D'464'%20cy%3D'428'%20r%3D'6'%20fill%3D'%23fff'%2F%3E%3C%2Fsvg%3E",
+          "type": "image/svg+xml"
+        },
+        {
+          "name": "IMG_2113.jpg",
+          "url": "data:image/svg+xml;charset=utf-8,%3Csvg%20xmlns%3D'http%3A%2F%2Fwww.w3.org%2F2000%2Fsvg'%20viewBox%3D'0%200%20600%20600'%3E%0A%20%20%20%20%3Crect%20width%3D'600'%20height%3D'600'%20fill%3D'%23eef2f8'%2F%3E%0A%20%20%20%20%3Crect%20x%3D'88'%20y%3D'120'%20width%3D'160'%20height%3D'100'%20rx%3D'14'%20fill%3D'%23fff'%20stroke%3D'%2395a5a6'%20stroke-width%3D'2'%20stroke-dasharray%3D'6%204'%2F%3E%0A%20%20%20%20%3Ctext%20x%3D'168'%20y%3D'178'%20text-anchor%3D'middle'%20fill%3D'%236b7280'%20font-family%3D'Inter%2Csans-serif'%20font-size%3D'14'%20font-weight%3D'600'%3E%D0%A7%D0%B5%D1%80%D0%BD%D0%BE%D0%B2%D0%B8%D0%BA%3C%2Ftext%3E%0A%20%20%20%20%3Cpath%20d%3D'M260%20170h60'%20stroke%3D'%235b8ff9'%20stroke-width%3D'3'%20marker-end%3D'url(%23arr)'%2F%3E%0A%20%20%20%20%3Cdefs%3E%3Cmarker%20id%3D'arr'%20markerWidth%3D'8'%20markerHeight%3D'8'%20refX%3D'6'%20refY%3D'4'%20orient%3D'auto'%3E%3Cpath%20d%3D'M0%2C0%20L8%2C4%20L0%2C8'%20fill%3D'%235b8ff9'%2F%3E%3C%2Fmarker%3E%3C%2Fdefs%3E%0A%20%20%20%20%3Crect%20x%3D'332'%20y%3D'120'%20width%3D'180'%20height%3D'100'%20rx%3D'14'%20fill%3D'%23fff3e0'%20stroke%3D'%23f39c12'%20stroke-width%3D'2'%2F%3E%0A%20%20%20%20%3Ccircle%20cx%3D'372'%20cy%3D'160'%20r%3D'14'%20fill%3D'%23f39c12'%20opacity%3D'0.2'%2F%3E%0A%20%20%20%20%3Cpath%20d%3D'M372%20152v10l6%204'%20stroke%3D'%23f39c12'%20stroke-width%3D'2'%20stroke-linecap%3D'round'%2F%3E%0A%20%20%20%20%3Ctext%20x%3D'422'%20y%3D'178'%20text-anchor%3D'middle'%20fill%3D'%23c87d0a'%20font-family%3D'Inter%2Csans-serif'%20font-size%3D'14'%20font-weight%3D'600'%3E%D0%9E%D1%82%D0%BB%D0%BE%D0%B6%D0%B8%D1%82%D1%8C%3C%2Ftext%3E%0A%20%20%20%20%3Cpath%20d%3D'M300%20250v40'%20stroke%3D'%235b8ff9'%20stroke-width%3D'3'%2F%3E%0A%20%20%20%20%3Cpath%20d%3D'M280%20270l20%2020%2020-20'%20stroke%3D'%235b8ff9'%20stroke-width%3D'3'%20fill%3D'none'%20stroke-linecap%3D'round'%2F%3E%0A%20%20%20%20%3Crect%20x%3D'160'%20y%3D'310'%20width%3D'280'%20height%3D'120'%20rx%3D'16'%20fill%3D'%23fff'%20stroke%3D'%23f39c12'%20stroke-width%3D'2'%2F%3E%0A%20%20%20%20%3Crect%20x%3D'188'%20y%3D'342'%20width%3D'224'%20height%3D'12'%20rx%3D'6'%20fill%3D'%233d4a66'%2F%3E%0A%20%20%20%20%3Crect%20x%3D'188'%20y%3D'364'%20width%3D'160'%20height%3D'8'%20rx%3D'4'%20fill%3D'%23f39c12'%20opacity%3D'0.5'%2F%3E%0A%20%20%20%20%3Ctext%20x%3D'300'%20y%3D'400'%20text-anchor%3D'middle'%20fill%3D'%23f39c12'%20font-family%3D'Inter%2Csans-serif'%20font-size%3D'16'%20font-weight%3D'600'%3E17%20%D0%B8%D1%8E%D0%BD%20%C2%B7%2018%3A00%3C%2Ftext%3E%3C%2Fsvg%3E",
+          "type": "image/svg+xml"
+        }
+      ],
+      "notes": [],
+      "comments": [],
+      "chats": []
+    },
+    {
+      "id": "27",
+      "status": "draft",
+      "created": "2026-06-12T00:00:00.000Z",
+      "rubric": "Черновики",
+      "text": "Черновики — место для незавершённых идей.\n\nТекст можно дописывать сколько угодно, прикреплять медиа и не бояться случайной публикации. Черновик не виден подписчикам, пока вы сами не опубликуете или не отложите его.\n\nСоздать черновик: напишите в композере внизу ленты и нажмите «В черновик» — карточка появится в секции «Черновики».",
+      "media": [
+        {
+          "name": "IMG_2114.jpg",
+          "url": "data:image/svg+xml;charset=utf-8,%3Csvg%20xmlns%3D'http%3A%2F%2Fwww.w3.org%2F2000%2Fsvg'%20viewBox%3D'0%200%20600%20600'%3E%0A%20%20%20%20%3Crect%20width%3D'600'%20height%3D'600'%20fill%3D'%23eef1f6'%2F%3E%0A%20%20%20%20%3Crect%20x%3D'80'%20y%3D'72'%20width%3D'440'%20height%3D'340'%20rx%3D'16'%20fill%3D'%23fff'%20stroke%3D'%23dde3ee'%20stroke-width%3D'2'%2F%3E%0A%20%20%20%20%3Crect%20x%3D'80'%20y%3D'72'%20width%3D'440'%20height%3D'96'%20rx%3D'16'%20fill%3D'%23d4e4ff'%2F%3E%0A%20%20%20%20%3Crect%20x%3D'104'%20y%3D'188'%20width%3D'280'%20height%3D'14'%20rx%3D'7'%20fill%3D'%233d4a66'%2F%3E%0A%20%20%20%20%3Crect%20x%3D'104'%20y%3D'214'%20width%3D'360'%20height%3D'10'%20rx%3D'5'%20fill%3D'%23c5d0e0'%2F%3E%0A%20%20%20%20%3Crect%20x%3D'104'%20y%3D'234'%20width%3D'320'%20height%3D'10'%20rx%3D'5'%20fill%3D'%23c5d0e0'%2F%3E%0A%20%20%20%20%3Crect%20x%3D'104'%20y%3D'254'%20width%3D'240'%20height%3D'10'%20rx%3D'5'%20fill%3D'%23d1d5db'%2F%3E%0A%20%20%20%20%3Crect%20x%3D'104'%20y%3D'280'%20width%3D'3'%20height%3D'28'%20rx%3D'1.5'%20fill%3D'%235b8ff9'%2F%3E%0A%20%20%20%20%3Ctext%20x%3D'120'%20y%3D'302'%20fill%3D'%2395a5a6'%20font-family%3D'Inter%2Csans-serif'%20font-size%3D'14'%20font-style%3D'italic'%3E%D0%B4%D0%BE%D0%BF%D0%B8%D1%81%D0%B0%D1%82%D1%8C%20%D0%BC%D1%8B%D1%81%D0%BB%D1%8C%E2%80%A6%3C%2Ftext%3E%0A%20%20%20%20%3Ctext%20x%3D'104'%20y%3D'348'%20fill%3D'%2395a5a6'%20font-family%3D'Inter%2Csans-serif'%20font-size%3D'13'%20font-weight%3D'500'%3E%E2%9C%8E%20%D0%A7%D0%B5%D1%80%D0%BD%D0%BE%D0%B2%D0%B8%D0%BA%3C%2Ftext%3E%0A%20%20%20%20%3Crect%20x%3D'80'%20y%3D'428'%20width%3D'440'%20height%3D'72'%20rx%3D'14'%20fill%3D'%23fff'%20stroke%3D'%23dde3ee'%20stroke-width%3D'2'%2F%3E%0A%20%20%20%20%3Crect%20x%3D'104'%20y%3D'452'%20width%3D'36'%20height%3D'36'%20rx%3D'8'%20fill%3D'%23eef2f8'%20stroke%3D'%23c5d0e0'%20stroke-width%3D'1.5'%2F%3E%0A%20%20%20%20%3Cpath%20d%3D'M116%20464h20M122%20458v20'%20stroke%3D'%236b7280'%20stroke-width%3D'2'%20stroke-linecap%3D'round'%2F%3E%0A%20%20%20%20%3Crect%20x%3D'300'%20y%3D'456'%20width%3D'100'%20height%3D'32'%20rx%3D'8'%20fill%3D'%23eef2f8'%20stroke%3D'%23c5d0e0'%20stroke-width%3D'1.5'%2F%3E%0A%20%20%20%20%3Ctext%20x%3D'350'%20y%3D'478'%20text-anchor%3D'middle'%20fill%3D'%236b7280'%20font-family%3D'Inter%2Csans-serif'%20font-size%3D'14'%20font-weight%3D'600'%3E%D0%9E%D1%82%D0%BC%D0%B5%D0%BD%D0%B0%3C%2Ftext%3E%0A%20%20%20%20%3Crect%20x%3D'412'%20y%3D'456'%20width%3D'84'%20height%3D'32'%20rx%3D'8'%20fill%3D'%235b8ff9'%2F%3E%0A%20%20%20%20%3Ctext%20x%3D'454'%20y%3D'478'%20text-anchor%3D'middle'%20fill%3D'%23fff'%20font-family%3D'Inter%2Csans-serif'%20font-size%3D'14'%20font-weight%3D'600'%3E%D0%A1%D0%BE%D1%85%D1%80%D0%B0%D0%BD%D0%B8%D1%82%D1%8C%3C%2Ftext%3E%3C%2Fsvg%3E",
+          "type": "image/svg+xml"
+        }
+      ],
+      "notes": [],
+      "comments": [],
+      "chats": []
+    },
+    {
+      "id": "28",
+      "status": "draft",
+      "created": "2026-06-12T00:00:00.000Z",
+      "rubric": "Черновики",
+      "text": "Черновики в ленте можно менять местами перетаскиванием.\n\nСверху по центру карточки — ручка из шести точек (сетка 3×2). Зажмите её и потяните черновик вверх или вниз: порядок в секции «Черновики» обновится. Так удобно выстраивать очередь публикаций или контент-план.\n\nТянуть нужно именно за ручку — клик по тексту по-прежнему открывает пост.",
+      "media": [
+        {
+          "name": "IMG_2115.jpg",
+          "url": "data:image/svg+xml;charset=utf-8,%3Csvg%20xmlns%3D'http%3A%2F%2Fwww.w3.org%2F2000%2Fsvg'%20viewBox%3D'0%200%20600%20600'%3E%0A%20%20%20%20%3Crect%20width%3D'600'%20height%3D'600'%20fill%3D'%23252b38'%2F%3E%0A%20%20%20%20%3Crect%20x%3D'100'%20y%3D'140'%20width%3D'400'%20height%3D'280'%20rx%3D'16'%20fill%3D'%23343d4f'%20stroke%3D'%235b8ff9'%20stroke-width%3D'2'%2F%3E%0A%20%20%20%20%3Crect%20x%3D'268'%20y%3D'118'%20width%3D'64'%20height%3D'36'%20rx%3D'10'%20fill%3D'%232a3348'%20stroke%3D'%235b8ff9'%20stroke-width%3D'2'%2F%3E%0A%20%20%20%20%3Cg%20fill%3D'%238ec0ff'%3E%0A%20%20%20%20%20%20%3Ccircle%20cx%3D'286'%20cy%3D'130'%20r%3D'4'%2F%3E%3Ccircle%20cx%3D'300'%20cy%3D'130'%20r%3D'4'%2F%3E%3Ccircle%20cx%3D'314'%20cy%3D'130'%20r%3D'4'%2F%3E%0A%20%20%20%20%20%20%3Ccircle%20cx%3D'286'%20cy%3D'142'%20r%3D'4'%2F%3E%3Ccircle%20cx%3D'300'%20cy%3D'142'%20r%3D'4'%2F%3E%3Ccircle%20cx%3D'314'%20cy%3D'142'%20r%3D'4'%2F%3E%0A%20%20%20%20%3C%2Fg%3E%0A%20%20%20%20%3Crect%20x%3D'136'%20y%3D'200'%20width%3D'220'%20height%3D'14'%20rx%3D'7'%20fill%3D'%23a8b4c8'%2F%3E%0A%20%20%20%20%3Crect%20x%3D'136'%20y%3D'226'%20width%3D'300'%20height%3D'8'%20rx%3D'4'%20fill%3D'%235a6478'%2F%3E%0A%20%20%20%20%3Crect%20x%3D'136'%20y%3D'246'%20width%3D'260'%20height%3D'8'%20rx%3D'4'%20fill%3D'%235a6478'%2F%3E%0A%20%20%20%20%3Crect%20x%3D'136'%20y%3D'266'%20width%3D'200'%20height%3D'8'%20rx%3D'4'%20fill%3D'%235a6478'%2F%3E%0A%20%20%20%20%3Cpath%20d%3D'M300%2088v24'%20stroke%3D'%235b8ff9'%20stroke-width%3D'3'%20stroke-linecap%3D'round'%2F%3E%0A%20%20%20%20%3Cpath%20d%3D'M300%20460v28'%20stroke%3D'%235b8ff9'%20stroke-width%3D'4'%20stroke-linecap%3D'round'%20opacity%3D'0.7'%2F%3E%0A%20%20%20%20%3Cpolygon%20points%3D'300%2C496%20288%2C472%20312%2C472'%20fill%3D'%235b8ff9'%20opacity%3D'0.7'%2F%3E%0A%20%20%20%20%3Cellipse%20cx%3D'300'%20cy%3D'108'%20rx%3D'22'%20ry%3D'14'%20fill%3D'none'%20stroke%3D'%235b8ff9'%20stroke-width%3D'2'%20opacity%3D'0.5'%2F%3E%3C%2Fsvg%3E",
+          "type": "image/svg+xml"
+        },
+        {
+          "name": "IMG_2116.jpg",
+          "url": "data:image/svg+xml;charset=utf-8,%3Csvg%20xmlns%3D'http%3A%2F%2Fwww.w3.org%2F2000%2Fsvg'%20viewBox%3D'0%200%20600%20600'%3E%0A%20%20%20%20%3Crect%20width%3D'600'%20height%3D'600'%20fill%3D'%23eef1f6'%2F%3E%0A%20%20%20%20%3Crect%20x%3D'100'%20y%3D'100'%20width%3D'400'%20height%3D'88'%20rx%3D'14'%20fill%3D'%23fff'%20stroke%3D'%23dde3ee'%20stroke-width%3D'2'%2F%3E%0A%20%20%20%20%3Cg%20fill%3D'%239ca3af'%3E%0A%20%20%20%20%20%20%3Ccircle%20cx%3D'286'%20cy%3D'118'%20r%3D'4'%2F%3E%3Ccircle%20cx%3D'300'%20cy%3D'118'%20r%3D'4'%2F%3E%3Ccircle%20cx%3D'314'%20cy%3D'118'%20r%3D'4'%2F%3E%0A%20%20%20%20%20%20%3Ccircle%20cx%3D'286'%20cy%3D'130'%20r%3D'4'%2F%3E%3Ccircle%20cx%3D'300'%20cy%3D'130'%20r%3D'4'%2F%3E%3Ccircle%20cx%3D'314'%20cy%3D'130'%20r%3D'4'%2F%3E%0A%20%20%20%20%3C%2Fg%3E%0A%20%20%20%20%3Crect%20x%3D'128'%20y%3D'148'%20width%3D'160'%20height%3D'10'%20rx%3D'5'%20fill%3D'%239ca3af'%2F%3E%0A%20%20%20%20%3Cpath%20d%3D'M300%20200v28'%20stroke%3D'%235b8ff9'%20stroke-width%3D'3'%2F%3E%0A%20%20%20%20%3Cpolygon%20points%3D'300%2C236%20288%2C216%20312%2C216'%20fill%3D'%235b8ff9'%2F%3E%0A%20%20%20%20%3Crect%20x%3D'100'%20y%3D'248'%20width%3D'400'%20height%3D'88'%20rx%3D'14'%20fill%3D'%23fff'%20stroke%3D'%235b8ff9'%20stroke-width%3D'2'%2F%3E%0A%20%20%20%20%3Cg%20fill%3D'%235b8ff9'%3E%0A%20%20%20%20%20%20%3Ccircle%20cx%3D'286'%20cy%3D'266'%20r%3D'4'%2F%3E%3Ccircle%20cx%3D'300'%20cy%3D'266'%20r%3D'4'%2F%3E%3Ccircle%20cx%3D'314'%20cy%3D'266'%20r%3D'4'%2F%3E%0A%20%20%20%20%20%20%3Ccircle%20cx%3D'286'%20cy%3D'278'%20r%3D'4'%2F%3E%3Ccircle%20cx%3D'300'%20cy%3D'278'%20r%3D'4'%2F%3E%3Ccircle%20cx%3D'314'%20cy%3D'278'%20r%3D'4'%2F%3E%0A%20%20%20%20%3C%2Fg%3E%0A%20%20%20%20%3Crect%20x%3D'128'%20y%3D'296'%20width%3D'190'%20height%3D'10'%20rx%3D'5'%20fill%3D'%233d4a66'%2F%3E%0A%20%20%20%20%3Cpath%20d%3D'M300%20348v28'%20stroke%3D'%235b8ff9'%20stroke-width%3D'3'%2F%3E%0A%20%20%20%20%3Cpolygon%20points%3D'300%2C384%20288%2C364%20312%2C364'%20fill%3D'%235b8ff9'%2F%3E%0A%20%20%20%20%3Crect%20x%3D'100'%20y%3D'396'%20width%3D'400'%20height%3D'88'%20rx%3D'14'%20fill%3D'%23fff'%20stroke%3D'%23dde3ee'%20stroke-width%3D'2'%2F%3E%0A%20%20%20%20%3Cg%20fill%3D'%239ca3af'%3E%0A%20%20%20%20%20%20%3Ccircle%20cx%3D'286'%20cy%3D'414'%20r%3D'4'%2F%3E%3Ccircle%20cx%3D'300'%20cy%3D'414'%20r%3D'4'%2F%3E%3Ccircle%20cx%3D'314'%20cy%3D'414'%20r%3D'4'%2F%3E%0A%20%20%20%20%20%20%3Ccircle%20cx%3D'286'%20cy%3D'426'%20r%3D'4'%2F%3E%3Ccircle%20cx%3D'300'%20cy%3D'426'%20r%3D'4'%2F%3E%3Ccircle%20cx%3D'314'%20cy%3D'426'%20r%3D'4'%2F%3E%0A%20%20%20%20%3C%2Fg%3E%0A%20%20%20%20%3Crect%20x%3D'128'%20y%3D'444'%20width%3D'150'%20height%3D'10'%20rx%3D'5'%20fill%3D'%239ca3af'%2F%3E%3C%2Fsvg%3E",
+          "type": "image/svg+xml"
+        }
+      ],
+      "notes": [],
+      "comments": [],
+      "chats": []
+    },
+    {
+      "id": "29",
+      "status": "draft",
+      "created": "2026-06-12T00:00:00.000Z",
+      "rubric": "Контент-план",
+      "text": "Так можно собирать контент-план прямо в ленте.\n\nДержите в черновиках заготовки на неделю: темы, тезисы, черновые тексты. Когда материал готов — публикуйте сразу или откладывайте на нужный день.\n\nЧерновик → правки → отложенная публикация → аналитика после выхода. Весь цикл в одном интерфейсе, без таблиц и сторонних сервисов.",
+      "notes": [],
+      "comments": [],
+      "chats": []
+    }
+  ],
+  "globalChats": [
+    {
+      "id": "pc1",
+      "title": "Что умеет TG Platform?",
+      "preview": "Кратко перечисли возможности платформы для автора канала",
+      "date": "2026-06-12T00:00:00.000Z",
+      "history": [
+        {
+          "role": "user",
+          "text": "Кратко перечисли возможности платформы для автора канала"
+        },
+        {
+          "role": "ai",
+          "llmLabel": "OpenAI / gpt-4o",
+          "text": "TG Platform объединяет ленту постов, планирование публикаций, заметки, чаты с ИИ, аналитику канала и настройки Telegram + ИИ-движка. Всё заточено под ежедневную работу автора, а не под разовую генерацию текста."
+        }
+      ]
+    },
+    {
+      "id": "pc2",
+      "title": "Как перейти к своему аккаунту?",
+      "preview": "Я смотрю демо — что делать дальше?",
+      "date": "2026-06-12T00:00:00.000Z",
+      "history": [
+        {
+          "role": "user",
+          "text": "Я смотрю демо — что делать дальше?"
+        },
+        {
+          "role": "ai",
+          "llmLabel": "OpenAI / gpt-4o",
+          "text": "Нажмите «Войти» внизу бокового меню. Можно зарегистрировать новый аккаунт или войти в полное демо (demo@mail.ru). После входа подключите свой Telegram-канал в настройках профиля."
+        }
+      ]
+    }
+  ],
+  "globalNotes": [
+    {
+      "id": "pn1",
+      "title": "С чего начать на платформе",
+      "ai": true,
+      "date": "2026-06-12T00:00:00.000Z",
+      "body": "1. Изучите ленту и боковое меню\n2. Откройте заметки и чаты — там примеры работы с ИИ\n3. Загляните в аналитику\n4. Нажмите «Войти» и зарегистрируйте аккаунт\n5. В профиле подключите Telegram-канал"
+    },
+    {
+      "id": "pn2",
+      "title": "Навигация и разделы",
+      "ai": false,
+      "date": "2026-06-12T00:00:00.000Z",
+      "body": "Главная — быстрый глобальный чат. Лента — посты канала. Чаты и заметки — личное рабочее пространство. Аналитика — метрики канала. Профиль доступен после входа."
+    },
+    {
+      "id": "pn3",
+      "title": "ИИ-движок в двух словах",
+      "ai": true,
+      "date": "2026-06-12T00:00:00.000Z",
+      "body": "В настройках профиля задаются LLM, веб-поиск, оркестраторы и системный промпт. База знаний канала — на отдельной вкладке. Каждый аккаунт настраивает ИИ под себя."
+    }
+  ],
+  "profile": {
+    "channel": {
+      "core": {
+        "topic": "Платформа TG Platform для авторов Telegram-каналов",
+        "audience": "Авторы каналов, которые хотят понять возможности продукта до регистрации: лента, заметки, чаты с ИИ, аналитика и подключение Telegram",
+        "promise": "Краткий обзор того, как платформа помогает вести канал в одном рабочем пространстве — без обязательства сразу подключать свой канал",
+        "angle": "Демо-канал «Презентация» показывает интерфейс и сценарии работы; после входа можно подключить свой Telegram или войти в полное демо",
+        "author": "Команда TG Platform. Это не реальный авторский канал — материалы объясняют разделы продукта и типовые сценарии использования."
+      },
+      "voice": {
+        "tone": "Спокойный, понятный, без жаргона и без давления",
+        "format": "Короткие абзацы, списки с одним видом эмодзи, выводы можно выделять жирным",
+        "phrases": "Обращение на «вы»; без «народ», «ребят» и агрессивных продаж"
+      },
+      "rules": {
+        "must": "Объяснять разделы платформы на примерах из интерфейса",
+        "avoid": "Обещания доходности, финансовые советы, кликбейт"
+      },
+      "rubrics": [
+        {
+          "id": "rubric-overview",
+          "title": "Обзор",
+          "description": "Что умеет платформа и с чего начать."
+        },
+        {
+          "id": "rubric-workflow",
+          "title": "Рабочий процесс",
+          "description": "Лента, заметки, чаты и аналитика в одном месте."
+        },
+        {
+          "id": "rubric-planning",
+          "title": "Планирование",
+          "description": "Черновики и отложенные публикации."
+        }
+      ]
+    },
+    "ai": {
+      "llmModels": [
+        {
+          "id": "llm-presentation-openai",
+          "provider": "OpenAI",
+          "model": "gpt-4o",
+          "apiKey": "sk-openai-demo",
+          "active": true,
+          "includeInMulti": true
+        },
+        {
+          "id": "llm-presentation-claude",
+          "provider": "Anthropic",
+          "model": "claude-3-7-sonnet",
+          "apiKey": "sk-anthropic-demo",
+          "active": true,
+          "includeInMulti": false
+        }
+      ],
+      "webSearchModels": [
+        {
+          "id": "web-presentation-tavily",
+          "provider": "Tavily",
+          "model": "search-v1",
+          "apiKey": "tvly-demo",
+          "active": true,
+          "includeInMulti": true
+        },
+        {
+          "id": "web-presentation-exa",
+          "provider": "Exa",
+          "model": "exa-neural",
+          "apiKey": "exa-demo",
+          "active": true,
+          "includeInMulti": false
+        },
+        {
+          "id": "web-presentation-responses",
+          "provider": "OpenAI",
+          "model": "responses-api-web-search",
+          "apiKey": "sk-openai-demo",
+          "active": true,
+          "includeInMulti": false
+        }
+      ],
+      "visionModels": [],
+      "imageGenerationModels": [],
+      "orchestratorModels": [],
+      "webReasonerModels": [],
+      "ragReasonerModels": [],
+      "multiResponseEnabled": false,
+      "systemPrompt": "Ты помощник на демо-канале «Презентация». Кратко объясняй возможности TG Platform и подсказывай нажать «Войти», чтобы создать свой аккаунт."
+    },
+    "telegram": {
+      "authStatus": "connected",
+      "authStep": "connected",
+      "apiId": "",
+      "apiHash": "",
+      "phone": "",
+      "sessionName": "",
+      "channel": "@prezentaciya",
+      "channelTitle": "Презентация",
+      "channelStatus": "connected",
+      "syncMode": "history-and-live",
+      "lastSync": "2026-06-16T12:40:00.000Z",
+      "importedPosts": 9,
+      "botApiToken": "",
+      "botStatus": "idle",
+      "botUsername": "",
+      "botLastActivity": "—",
+      "botMessageCount": 0
+    }
+  }
+}

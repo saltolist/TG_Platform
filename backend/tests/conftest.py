@@ -5,6 +5,7 @@ from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_asyn
 from sqlalchemy.pool import NullPool
 
 from app.core.config import settings
+from app.core.constants import PRESENTATION_GUEST_TOKEN
 from app.db.models import EmailCode, GlobalChat, GlobalNote, Post, Profile, User
 from app.db.session import get_session
 from app.main import app
@@ -56,3 +57,7 @@ async def fetch_email_code(email: str) -> str:
     async with TestSessionLocal() as session:
         result = await session.execute(select(EmailCode).where(EmailCode.email == email))
         return result.scalar_one().code
+
+
+def guest_auth_headers() -> dict[str, str]:
+    return {"Authorization": f"Bearer {PRESENTATION_GUEST_TOKEN}"}

@@ -4,23 +4,13 @@ from typing import Any
 from fastapi import APIRouter, HTTPException, Response, status
 from sqlalchemy import func, select
 
-from app.core.deps import CurrentUser, DbSession
+from app.core.deps import CurrentUser, CurrentWriter, DbSession
 from app.db.models import Post
+from app.db.resolve import get_owned_post
 from app.schemas.requests import ReorderRequest
 from app.schemas.resources import PostIn
 
 router = APIRouter(prefix="/posts", tags=["Posts"])
-
-
-async def _get_owned(session: DbSession, user_id: uuid.UUID, post_id: str) -> Post:
-    try:
-        pid = uuid.UUID(post_id)
-    except ValueError:
-        raise HTTPException(status_code=404, detail="Post not found")
-    post = await session.get(Post, pid)
-    if post is None or post.user_id != user_id:
-        raise HTTPException(status_code=404, detail="Post not found")
-    return post
 
 
 @router.get("/")
@@ -32,7 +22,7 @@ async def list_posts(user: CurrentUser, session: DbSession) -> list[dict[str, An
 
 
 @router.post("/", status_code=status.HTTP_201_CREATED)
-async def create_post(payload: PostIn, user: CurrentUser, session: DbSession) -> dict[str, Any]:
+async def create_post(payload: PostIn, user: CurrentWriter, session: DbSession) -> dict[str, Any]:
     try:
         post_id = uuid.UUID(payload.id)
     except ValueError:
@@ -49,7 +39,7 @@ async def create_post(payload: PostIn, user: CurrentUser, session: DbSession) ->
 
 @router.put("/reorder/")
 async def reorder_posts(
-    payload: ReorderRequest, user: CurrentUser, session: DbSession
+    payload: ReorderRequest, user: CurrentWriter, session: DbSession
 ) -> list[dict[str, Any]]:
     result = await session.execute(select(Post).where(Post.user_id == user.id))
     by_id = {str(post.id): post for post in result.scalars().all()}
@@ -69,9 +59,9 @@ async def reorder_posts(
 
 @router.patch("/{post_id}/")
 async def update_post(
-    post_id: str, patch: dict[str, Any], user: CurrentUser, session: DbSession
+    post_id: str, patch: dict[str, Any], user: CurrentWriter, session: DbSession
 ) -> dict[str, Any]:
-    post = await _get_owned(session, user.id, post_id)
+    post = await get_owned_post(session, user.id, post_id)
     merged = {**post.data, **patch}
     merged["id"] = post.data.get("id", str(post.id))
     post.data = merged
@@ -80,8 +70,8 @@ async def update_post(
 
 
 @router.delete("/{post_id}/", status_code=status.HTTP_204_NO_CONTENT)
-async def delete_post(post_id: str, user: CurrentUser, session: DbSession) -> Response:
-    post = await _get_owned(session, user.id, post_id)
+async def delete_post(post_id: str, user: CurrentWriter, session: DbSession) -> Response:
+    post = await get_owned_post(session, user.id, post_id)
     await session.delete(post)
     await session.commit()
     return Response(status_code=status.HTTP_204_NO_CONTENT)

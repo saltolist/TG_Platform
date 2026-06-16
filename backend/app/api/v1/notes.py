@@ -4,8 +4,10 @@ from typing import Any
 from fastapi import APIRouter, HTTPException, Response, status
 from sqlalchemy import select
 
-from app.core.deps import CurrentUser, DbSession
+from app.core.deps import CurrentUser, CurrentWriter, DbSession
 from app.db.models import GlobalNote
+from app.db.resolve import get_owned_note
+from app.db.seed_ids import seed_entity_uuid
 from app.schemas.resources import GlobalNoteIn
 
 router = APIRouter(prefix="/global-notes", tags=["GlobalNotes"])
@@ -21,17 +23,25 @@ async def list_notes(user: CurrentUser, session: DbSession) -> list[dict[str, An
 
 @router.put("/{note_id}/")
 async def upsert_note(
-    note_id: str, payload: GlobalNoteIn, user: CurrentUser, session: DbSession
+    note_id: str, payload: GlobalNoteIn, user: CurrentWriter, session: DbSession
 ) -> dict[str, Any]:
     if payload.id != note_id:
         raise HTTPException(status_code=422, detail="id в теле не совпадает с id в пути")
+    data = payload.model_dump()
     try:
         nid = uuid.UUID(note_id)
     except ValueError:
-        raise HTTPException(status_code=400, detail="Невалидный id заметки")
+        nid = seed_entity_uuid("global_note", note_id)
 
-    data = payload.model_dump()
     note = await session.get(GlobalNote, nid)
+    if note is None:
+        result = await session.execute(
+            select(GlobalNote).where(
+                GlobalNote.user_id == user.id, GlobalNote.data["id"].astext == note_id
+            )
+        )
+        note = result.scalar_one_or_none()
+
     if note is None:
         session.add(GlobalNote(id=nid, user_id=user.id, data=data))
     elif note.user_id != user.id:
@@ -43,14 +53,8 @@ async def upsert_note(
 
 
 @router.delete("/{note_id}/", status_code=status.HTTP_204_NO_CONTENT)
-async def delete_note(note_id: str, user: CurrentUser, session: DbSession) -> Response:
-    try:
-        nid = uuid.UUID(note_id)
-    except ValueError:
-        raise HTTPException(status_code=404, detail="Note not found")
-    note = await session.get(GlobalNote, nid)
-    if note is None or note.user_id != user.id:
-        raise HTTPException(status_code=404, detail="Note not found")
+async def delete_note(note_id: str, user: CurrentWriter, session: DbSession) -> Response:
+    note = await get_owned_note(session, user.id, note_id)
     await session.delete(note)
     await session.commit()
     return Response(status_code=status.HTTP_204_NO_CONTENT)
