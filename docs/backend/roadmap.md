@@ -37,13 +37,14 @@
 | Миграции | **Alembic** | `alembic upgrade head` при старте контейнера |
 | Хранилище медиа | **MinIO** (S3-совместимое) | миграция на AWS S3 без изменений кода |
 | Аутентификация | **JWT access-токен** | email + пароль, bcrypt; refresh — позже |
-| AI-ключи | **BYOK** | ключи пользователя в БД (шифрование at-rest — задача фазы 2) |
+| Идентификация аккаунтов | **UUID везде** | сид-аккаунты помечаются флагом `users.is_seed` |
+| AI-ключи | **BYOK + env** | профиль (реальные), `env:<NAME>` (демо), env-fallback (презентация) |
 | Telegram | **MTProto (Telethon)** | полный импорт истории + публикация + метрики |
 | Фронтенд в Docker | **Next.js server (standalone)** | не статический экспорт |
 | Оркестрация | **Docker Compose** | Kubernetes — на масштабировании |
 
 ### Изоляция данных
-Мультипользовательский режим: каждая сущность принадлежит `user_id`, все запросы фильтруются по текущему пользователю из JWT.
+Мультипользовательский режим: каждая сущность принадлежит `user_id`, все запросы фильтруются по текущему пользователю из JWT. Сид-аккаунты (`presentation`, `demo-full`) помечены `is_seed=true`; их правки не пишутся в общую БД, а живут в локальном overlay на фронте.
 
 ### Совместимость с контрактами
 Бэкенд обязан строго соответствовать:
@@ -55,131 +56,45 @@
 
 ---
 
-## Фаза 0 — Инфраструктура (foundation) ✅
+## Фазы
 
-**Цель:** запускаемый каркас продукта.
+Каждая фаза описана в отдельном подробном файле в [phases/](phases/).
 
-- [x] `docker-compose.yml`: postgres, minio, backend, frontend
-- [x] FastAPI-скелет: config, async-БД, JWT, CORS, health-check
-- [x] Dockerfile бэкенда и фронтенда (Next.js standalone)
-- [x] `next.config.ts`: статический экспорт только для Pages, standalone для Docker
-- [x] Alembic-миграции (`alembic upgrade head`, initial schema `001_initial`)
-- [x] CI: postgres + migrations + pytest (health, auth, security)
-
----
-
-## Фаза 1 — Core API (замена MSW) ◄ ТЕКУЩИЙ ФОКУС
-
-**Цель:** фронтенд работает на реальном бэкенде вместо MSW, все три Docker-режима функциональны.
-
-### Приоритет: критический
-
-| Задача | Эндпоинты / компонент | Статус |
-|--------|-----------------------|--------|
-| Аутентификация | `POST /auth/register`, `/auth/login`, `/auth/logout` | ⏳ |
-| CRUD постов | `GET/POST /posts`, `PATCH/DELETE /posts/:id`, `PUT /posts/reorder` | ⏳ |
-| CRUD чатов | `GET/POST /global-chats`, `POST /global-chats/:id/messages`, `PATCH/DELETE /global-chats/:id` | ⏳ |
-| CRUD заметок | `GET /global-notes`, `PUT/DELETE /global-notes/:id` | ⏳ |
-| Профиль | `GET/PUT /profile/{channel,ai,telegram}` | ⏳ |
-| AI-заглушка | `POST /ai/reply` (placeholder-ответ в потоковом формате SSE) | ⏳ |
-| **Гостевой токен** | `PRESENTATION_GUEST_TOKEN` → маппинг на `presentation`-аккаунт в `deps.py` | ⏳ |
-| **Сидер аккаунтов** | Идемпотентный скрипт при старте: создаёт `presentation` и `demo-full` с постами/чатами/заметками/профилем | ⏳ |
-| **Локальный overlay (фронтенд)** | Декоратор репозитория: чтения = Postgres + overlay, записи = localStorage (для `presentation` и `demo-full`) | ⏳ |
-
-### Технические требования
-- ID — UUID-строки, **генерируются клиентом** и приходят в теле
-- Даты — ISO-8601 (UTC)
-- JWT Bearer; `401` при невалидном/истёкшем токене
-- Вложенные `notes[]`/`chats[]`/`comments[]` хранятся в JSONB
-- Единый формат ошибок `{ "error": "..." }`
-- Гостевой токен не является валидным JWT — обрабатывается отдельно до JWT-декода
-
-### Критерий готовности
-- Фронтенд с `NEXT_PUBLIC_USE_MSW=0` и `NEXT_PUBLIC_API_BASE_URL=<backend>` полностью функционален.
-- Без входа открывается презентационный режим с предзаполненными данными.
-- Вход `demo@mail.ru` / `Demo!2026` открывает демо-аккаунт с профилем и каналом.
-- Правки в презентации/демо не затрагивают общую БД.
+| Фаза | Статус | Описание |
+|------|--------|----------|
+| [Фаза 0 — Инфраструктура](phases/phase-0-foundation.md) | ✅ Завершено | Запускаемый каркас: Docker, FastAPI, миграции, CI |
+| [Фаза 1 — Core API (замена MSW)](phases/phase-1-core-api.md) | ◄ **Текущий фокус** | Реальный бэкенд вместо MSW; три Docker-режима, сидер, overlay |
+| [Фаза 2 — AI Integration](phases/phase-2-ai.md) | ⏳ План | Реальный LLM, резолв ключей, стриминг (SSE), RAG |
+| [Фаза 3 — Telegram Integration](phases/phase-3-telegram.md) | ⏳ План | MTProto: импорт, публикация, метрики |
+| [Фаза 4 — Масштабирование](phases/phase-4-scaling.md) | ⏳ План | Refresh-токены, мультиканальность, очереди, K8s |
 
 ---
 
-## Фаза 2 — AI Integration
+## Текущий фокус: Фаза 1
 
-**Цель:** реальные AI-ответы вместо заглушки; резолв ключей по режиму аккаунта.
+**Цель:** фронтенд работает на реальном бэкенде вместо MSW; все три Docker-режима функциональны.
 
-### Резолв ключей и модели
+Краткая сводка ключевых задач (полное описание — [phases/phase-1-core-api.md](phases/phase-1-core-api.md)):
 
-- [ ] **Резолв ключа** по порядку: реальный ключ в профиле (BYOK) → ссылка `env:<NAME>` (демо) → env-fallback по `provider` (презентация/демо) → нет ключа (реальный аккаунт — AI не работает; презентация/демо — заглушка)
-- [ ] **Предзаполнение моделей демо-аккаунта:** в сидере — ссылки `env:<NAME>` для провайдеров, ключи которых заданы в env; если env-ключей нет — заглушечные модели (паритет с MSW-демо сейчас)
-- [ ] Конфиг ключей провайдеров в `core/config.py` (`OPENAI_API_KEY`, `ANTHROPIC_API_KEY` и др.)
-- [ ] **Шифрование ключей at-rest** в Postgres (Fernet/KMS) — для BYOK реальных аккаунтов
+1. **Identity + доступ:** гостевой токен `presentation:guest` → presentation-аккаунт (read-only); UUID везде + флаг `users.is_seed`.
+2. **Сидер:** идемпотентное создание `presentation` и `demo-full` в Postgres из JSON-фикстур (сгенерированных из TS-сидов фронта).
+3. **API + контрактные тесты:** сверка роутеров с Zod-схемами; pytest по posts/chats/notes/profile/auth. AI — JSON-заглушка.
+4. **Фронт → HTTP:** `getQueryAccountIdFromAuth()` из сессии; 401 не делает logout для гостя.
+5. **Overlay:** правки презентации/демо в localStorage, не в общую БД.
+6. **Сквозная проверка + Docker.**
 
-### LLM-интеграция
+> AI-стриминг (SSE) и реальный LLM — это [Фаза 2](phases/phase-2-ai.md), не Фаза 1.
 
-- [ ] Базовый LLM-reply через одну активную модель
-- [ ] **Стриминг ответа (SSE)** — `POST /ai/reply/` → `text/event-stream`; правки фронтенда (`AssistantRepository` + чат-UI)
-- [ ] Системный промпт из `AiProfileConfig.systemPrompt` + контекст канала (`ChannelProfileConfig`)
-- [ ] `scope: "post"` — контекст поста в промпт
-- [ ] Web-search модели (Perplexity/Tavily)
-- [ ] Multi-response (несколько вариантов от разных моделей)
-- [ ] Vision / image-generation модели
+### Критерии готовности Фазы 1
 
-### RAG
-
-- [ ] Флаг `RAG_ENABLED` в env; при выключенном флаге retrieval пропускается
-- [ ] Миграция Alembic: расширение `pgvector`, таблица эмбеддингов (образ `pgvector/pgvector:pg16`)
-- [ ] Индексирование глобальных заметок и заметок постов при upsert
-- [ ] Retrieval top-k → добавляется в промпт
-- [ ] Активен только при наличии пригодной реальной LLM-модели (env-ключ или BYOK)
-- [ ] RAG-orchestrator / ragReasoner (расширенная логика)
-
-### Поток запроса
-```
-Клиент → POST /ai/reply { text, scope }
-  → резолв ключа (BYOK / env:<NAME> / env-fallback / нет)
-  → читаем AiProfileConfig (активные модели)
-  → читаем ChannelProfileConfig (tone, rules, rubrics)
-  → [scope=post] добавляем контекст поста
-  → [RAG_ENABLED + модель] retrieval из заметок
-  → запрос к LLM (+ web-search если включён)
-  → стрим ответа (SSE) → { text }
-  → нет ключа + реальный аккаунт → 422 (AI недоступен)
-  → нет ключа + презентация/демо → заглушка (SSE-формат)
-```
-
----
-
-## Фаза 3 — Telegram Integration
-
-**Цель:** реальная публикация и синхронизация канала.
-
-- [ ] Авторизация через MTProto (Telethon): apiId/apiHash/phone/code → session
-- [ ] Хранение Telethon-сессии (привязка к `TelegramProfileConfig`)
-- [ ] Импорт истории постов канала (`POST /telegram/import`)
-- [ ] Публикация поста (`POST /posts/:id/publish`)
-- [ ] Планировщик публикаций (`POST /posts/:id/schedule`)
-- [ ] Синхронизация метрик (просмотры, реакции, репосты)
-- [ ] Опционально: Telegram Bot API для уведомлений
-
-### Дополнительные эндпоинты
-```
-POST /api/v1/posts/:id/publish
-POST /api/v1/posts/:id/schedule  { scheduledAt: ISO-8601 }
-POST /api/v1/telegram/import
-GET  /api/v1/analytics/overview
-GET  /api/v1/analytics/top-posts
-```
-
----
-
-## Фаза 4 — Масштабирование
-
-- [ ] Refresh-токены, опциональный OAuth (Google/GitHub)
-- [ ] Мультиканальность (несколько каналов на пользователя)
-- [ ] Омниканальный чат — агрегация каналов
-- [ ] Совместная работа (несколько пользователей на канал)
-- [ ] Очередь задач (Celery/ARQ + Redis) для импорта/публикации/AI
-- [ ] Вебхуки для уведомлений
-- [ ] Переход на Kubernetes при необходимости
+- [ ] Все эндпоинты из [endpoints.md](endpoints.md) реализованы (с trailing-slash)
+- [ ] Ответы соответствуют схемам ([openapi.md](openapi.md) / [api-contracts.md](../dev/api-contracts.md))
+- [ ] `401` при истёкшем токене → logout (но не для гостевого токена)
+- [ ] ID — строки (UUID), даты — ISO-8601
+- [ ] CORS разрешает origin фронтенда
+- [ ] Гостевой токен (`presentation:guest`) принимается и маппится на `presentation`-аккаунт
+- [ ] Сидер запускается при старте и идемпотентно создаёт `presentation` и `demo-full`
+- [ ] Правки гостя/демо блокируются на уровне бэкенда (403); запись — через overlay на фронте
 
 ---
 
@@ -190,10 +105,11 @@ backend/
 ├── app/
 │   ├── main.py            ← FastAPI, CORS, lifespan, роутеры
 │   ├── core/              ← config, security (JWT/bcrypt), deps
-│   ├── db/                ← engine, session, ORM-модели
+│   ├── db/                ← engine, session, ORM-модели, seed (Фаза 1)
 │   ├── schemas/           ← Pydantic-схемы (зеркало Zod фронтенда)
 │   ├── api/v1/            ← роутеры: auth, posts, chats, notes, profile, ai
 │   └── services/          ← бизнес-логика (ai, telegram — позже)
+├── fixtures/              ← JSON-сиды presentation / demo-full (Фаза 1)
 ├── tests/
 ├── requirements.txt
 ├── Dockerfile
@@ -201,18 +117,5 @@ backend/
 ```
 
 ---
-
-## Критерии готовности к подключению фронтенда (Фаза 1)
-
-- [ ] Все эндпоинты из [endpoints.md](endpoints.md) реализованы (с trailing-slash)
-- [ ] Ответы соответствуют схемам ([openapi.md](openapi.md) / [api-contracts.md](../dev/api-contracts.md))
-- [ ] `401` при истёкшем токене → фронтенд делает logout
-- [ ] ID — строки (UUID), даты — ISO-8601
-- [ ] CORS разрешает origin фронтенда
-- [ ] Гостевой токен (`PRESENTATION_GUEST_TOKEN`) принимается и маппится на `presentation`-аккаунт
-- [ ] Сидер запускается при старте и идемпотентно создаёт `presentation` и `demo-full`
-- [ ] Правки гостя/демо блокируются на уровне бэкенда (403); запись — через overlay на фронте
-
-Подробнее о режимах: [docs/dev/runtime-modes.md](../dev/runtime-modes.md)
 
 ← [Назад к backend](README.md)
