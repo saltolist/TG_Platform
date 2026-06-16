@@ -1,5 +1,34 @@
 # Деплой / CI/CD
 
+## GitHub Pages (демо)
+
+**Live:** https://saltolist.github.io/TG_Platform/
+
+Деплой автоматический: при пуше в `main` workflow [`.github/workflows/deploy-pages.yml`](../../.github/workflows/deploy-pages.yml) собирает статический экспорт и публикует папку `out/`.
+
+### Настройка (один раз)
+
+1. GitHub → **Settings → Pages → Build and deployment**
+2. **Source:** GitHub Actions
+
+После первого успешного workflow сайт доступен по ссылке выше.
+
+### Переменные сборки для Pages
+
+| Переменная | Значение | Описание |
+|-----------|----------|----------|
+| `NEXT_PUBLIC_BASE_PATH` | `/TG_Platform` | Base path project site (имя репозитория) |
+| `NEXT_PUBLIC_USE_MSW` | `1` | Мок API без бэкенда |
+
+### Локальный preview как на Pages
+
+```bash
+NEXT_PUBLIC_BASE_PATH=/TG_Platform NEXT_PUBLIC_USE_MSW=1 npm run build
+npx serve out -p 3021   # → http://localhost:3021/TG_Platform/
+```
+
+---
+
 ## Сборка
 
 ```bash
@@ -7,41 +36,26 @@ npm run build
 ```
 
 Выполняет:
-1. `next build` — создаёт оптимизированную продакшн-сборку
-2. `node scripts/copy-404.mjs` — копирует кастомную 404-страницу для статического экспорта
-
-Артефакты сборки — в папке `.next/`.
+1. `next build` — статический экспорт в `out/` (в production)
+2. `node scripts/copy-404.mjs` — копирует `index.html` → `404.html` для SPA-роутинга на GitHub Pages
 
 ## Переменные окружения для продакшна
 
 | Переменная | Значение | Описание |
 |-----------|----------|----------|
 | `NEXT_PUBLIC_API_BASE_URL` | `https://api.your-domain.com` | URL продакшн-бэкенда |
-| `NEXT_PUBLIC_DATA_SOURCE` | `http` | Использовать реальный API |
+| `NEXT_PUBLIC_USE_MSW` | `0` | Отключить моки, использовать реальный API |
+| `NEXT_PUBLIC_BASE_PATH` | `/TG_Platform` или пусто | Base path для GitHub Pages / корневого домена |
 
-> **Важно:** не устанавливайте `NEXT_PUBLIC_DATA_SOURCE=msw` в продакшне — это включит мок API.
+> **Важно:** не устанавливайте `NEXT_PUBLIC_USE_MSW=1` в продакшне с реальным API — это включит мок.
 
-## Запуск продакшн-сборки
-
-```bash
-npm run start
-# → http://localhost:3000
-```
-
-## Развёртывание на Vercel (рекомендуется)
+## Развёртывание на Vercel
 
 1. Подключите репозиторий к [Vercel](https://vercel.com).
 2. Установите переменные окружения в настройках проекта.
 3. Vercel автоматически запускает `npm run build` при каждом пуше в `main`.
 
-Настройки Vercel:
-```json
-{
-  "framework": "nextjs",
-  "buildCommand": "npm run build",
-  "outputDirectory": ".next"
-}
-```
+> Для Vercel не задавайте `NEXT_PUBLIC_BASE_PATH` (или оставьте пустым).
 
 ## Развёртывание на VPS / Docker
 
@@ -51,7 +65,7 @@ WORKDIR /app
 COPY package*.json ./
 RUN npm ci
 COPY . .
-ENV NEXT_PUBLIC_DATA_SOURCE=http
+ENV NEXT_PUBLIC_USE_MSW=0
 ENV NEXT_PUBLIC_API_BASE_URL=https://api.your-domain.com
 RUN npm run build
 
@@ -66,38 +80,21 @@ EXPOSE 3000
 CMD ["npm", "start"]
 ```
 
-## CI Pipeline (рекомендуемый)
+## CI Pipeline
 
-```yaml
-# .github/workflows/ci.yml
-name: CI
+Workflow [`.github/workflows/ci.yml`](../../.github/workflows/ci.yml) запускается на push/PR в `main`:
 
-on:
-  push:
-    branches: [main]
-  pull_request:
-
-jobs:
-  check:
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-node@v4
-        with:
-          node-version: 20
-          cache: npm
-          cache-dependency-path: web/package-lock.json
-      - working-directory: web
-        run: npm ci
-      - working-directory: web
-        run: npm run check   # typecheck + lint + test + build
+```bash
+npm run check   # typecheck + lint + test + build
 ```
 
 ## MSW Service Worker
 
-В продакшн-режиме MSW не загружается. Public-файл `mockServiceWorker.js` присутствует в сборке, но не активируется при `NEXT_PUBLIC_DATA_SOURCE=http`.
+MSW включается через `NEXT_PUBLIC_USE_MSW=1` (используется на GitHub Pages demo).  
+В продакшне с реальным API установите `NEXT_PUBLIC_USE_MSW=0`.
 
 Обновление service worker файла после обновления MSW:
+
 ```bash
 npx msw init public/
 ```

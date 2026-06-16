@@ -3,6 +3,8 @@
 CMS для Telegram-каналов с AI-ассистентом.  
 Платформа позволяет авторам планировать, создавать и анализировать публикации, вести AI-диалоги в контексте конкретных постов и канала в целом, управлять базой знаний и отслеживать аналитику канала.
 
+**Demo (GitHub Pages, MSW):** https://saltolist.github.io/TG_Platform/ — см. [deploy.md](./docs/dev/deploy.md).
+
 ## Быстрый старт
 
 ```bash
@@ -13,11 +15,11 @@ npm run check      # typecheck + lint + test + build
 
 > В dev-режиме используется MSW (Mock Service Worker) — бэкенд не нужен.
 
-**Preview со статическим экспортом (basePath `/my`, MSW):**
+**Preview как на GitHub Pages** (basePath `/TG_Platform`, MSW):
 
 ```bash
-NEXT_PUBLIC_BASE_PATH=/my NEXT_PUBLIC_USE_MSW=1 npm run build
-npx serve out -p 3021   # → http://localhost:3021/my/
+NEXT_PUBLIC_BASE_PATH=/TG_Platform NEXT_PUBLIC_USE_MSW=1 npm run build
+npx serve out -p 3021   # → http://localhost:3021/TG_Platform/
 ```
 
 ## Структура проекта
