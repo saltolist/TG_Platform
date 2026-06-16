@@ -43,10 +43,10 @@ services:
     ports:
       - "8000:8000"
 
-  product:
+  frontend:
     build:
       context: .
-      dockerfile: frontends/product/Dockerfile
+      dockerfile: frontend/Dockerfile
       args:
         NEXT_PUBLIC_API_BASE_URL: ${PUBLIC_API_URL:-http://localhost:8000}
         NEXT_PUBLIC_USE_MSW: "0"

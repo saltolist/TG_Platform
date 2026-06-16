@@ -3,14 +3,13 @@
   "version": "0.1.0",
   "private": true,
   "workspaces": [
-    "frontends/*"
+    "frontend"
   ],
   "scripts": {
-    "dev": "npm run dev -w tg-platform-product",
-    "dev:demo": "npm run dev -w tg-platform-presentation",
-    "build": "npm run build -w tg-platform-product",
-    "build:demo": "GITHUB_PAGES=true NEXT_PUBLIC_BASE_PATH=/TG_Platform NEXT_PUBLIC_USE_MSW=1 npm run build -w tg-platform-presentation",
-    "start": "npm run start -w tg-platform-product",
+    "dev": "npm run dev -w tg-platform-frontend",
+    "build": "npm run build -w tg-platform-frontend",
+    "build:demo": "GITHUB_PAGES=true NEXT_PUBLIC_BASE_PATH=/TG_Platform NEXT_PUBLIC_USE_MSW=1 npm run build -w tg-platform-frontend",
+    "start": "npm run start -w tg-platform-frontend",
     "check": "npm run check --workspaces --if-present"
   },
   "overrides": {

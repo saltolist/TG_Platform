@@ -6,7 +6,7 @@
 
 ```
 ┌─────────────────────────── docker-compose ───────────────────────────┐
-│  product (Next.js server)  ──►  backend (FastAPI)  ──►  postgres          │
+│  frontend (Next.js server) ──►  backend (FastAPI)  ──►  postgres          │
 │                                     │              └► minio (S3)       │
 │                                     └────────────►  Telegram / LLM API │
 └───────────────────────────────────────────────────────────────────────┘
@@ -55,7 +55,7 @@
 
 **Цель:** запускаемый каркас продукта.
 
-- [x] `docker-compose.yml`: postgres, minio, backend, product
+- [x] `docker-compose.yml`: postgres, minio, backend, frontend
 - [x] FastAPI-скелет: config, async-БД, JWT, CORS, health-check
 - [x] Dockerfile бэкенда и фронтенда (Next.js standalone)
 - [x] `next.config.ts`: статический экспорт только для Pages, standalone для Docker

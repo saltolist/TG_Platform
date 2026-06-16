@@ -27,16 +27,12 @@ jobs:
 
       - run: npm ci
 
-      - name: Build presentation (static export)
-        run: npm run build -w tg-platform-presentation
-        env:
-          GITHUB_PAGES: "true"
-          NEXT_PUBLIC_BASE_PATH: /TG_Platform
-          NEXT_PUBLIC_USE_MSW: "1"
+      - name: Build demo (static export)
+        run: npm run build:demo
 
       - uses: actions/upload-pages-artifact@v3
         with:
-          path: frontends/presentation/out
+          path: frontend/out
 
   deploy:
     needs: build

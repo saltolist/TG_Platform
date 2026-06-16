@@ -1,11 +1,11 @@
 # Деплой / CI/CD
 
-Два контура развёртывания:
+Два контура развёртывания — **один фронтенд**, разные env при сборке:
 
-| Контур | Что деплоится | Куда | Данные |
-|--------|---------------|------|--------|
-| **Демо** | `frontends/presentation/` | GitHub Pages | MSW-моки |
-| **Продукт** | `frontends/product/` + `backend/` | Docker (VPS / self-host) | реальный backend |
+| Контур | Сборка | Куда | Данные |
+|--------|--------|------|--------|
+| **Демо** | `npm run build:demo` | GitHub Pages | MSW-моки |
+| **Продукт** | `npm run build` (в Docker) | Docker (VPS / self-host) | реальный backend |
 
 ---
 
@@ -13,7 +13,7 @@
 
 **Live:** https://saltolist.github.io/TG_Platform/
 
-Деплой автоматический: при пуше в `main` workflow [`.github/workflows/deploy-pages.yml`](../../.github/workflows/deploy-pages.yml) собирает `frontends/presentation` как статический экспорт и публикует `frontends/presentation/out`.
+Деплой автоматический: при пуше в `main` workflow [`.github/workflows/deploy-pages.yml`](../../.github/workflows/deploy-pages.yml) собирает `frontend/` как статический экспорт и публикует `frontend/out`.
 
 ### Настройка (один раз)
 
@@ -32,7 +32,7 @@
 
 ```bash
 npm run build:demo
-npx serve frontends/presentation/out -p 3022   # → http://localhost:3022/TG_Platform/
+npx serve frontend/out -p 3022   # → http://localhost:3022/TG_Platform/
 ```
 
 > Без `GITHUB_PAGES=true` production-сборка использует `output: "standalone"` (Docker), а не статический экспорт.
@@ -46,10 +46,10 @@ npx serve frontends/presentation/out -p 3022   # → http://localhost:3022/TG_Pl
 ```bash
 cp .env.example .env       # секреты: JWT_SECRET, пароли БД и т.д.
 docker compose up --build
-# product → http://localhost:3000, API → http://localhost:8000/api/v1
+# frontend → http://localhost:3000, API → http://localhost:8000/api/v1
 ```
 
-Сервисы: `postgres`, `minio`, `backend` (FastAPI), `product` (Next.js standalone). См. [`docker-compose.yml`](../../docker-compose.yml).
+Сервисы: `postgres`, `minio`, `backend` (FastAPI), `frontend` (Next.js standalone). См. [`docker-compose.yml`](../../docker-compose.yml).
 
 ### Переменные окружения продукта
 
@@ -69,16 +69,16 @@ docker compose up --build
 Workflow [`.github/workflows/ci.yml`](../../.github/workflows/ci.yml) на push/PR в `main`:
 
 - **frontend:** `npm run check --workspaces --if-present` (typecheck + lint + test + build)
-- **backend:** установка зависимостей + `python -m compileall app`
+- **backend:** установка зависимостей + `pytest`
 
 ## MSW Service Worker
 
-MSW включается через `NEXT_PUBLIC_USE_MSW=1` (витрина). В продукте — `0`.
+MSW включается через `NEXT_PUBLIC_USE_MSW=1` (демо). В продукте — `0`.
 
-Обновление service worker файла после обновления MSW (в нужном workspace):
+Обновление service worker файла после обновления MSW:
 
 ```bash
-cd frontends/product && npx msw init public/
+cd frontend && npx msw init public/
 ```
 
 ← [Назад к документации разработчика](README.md)
