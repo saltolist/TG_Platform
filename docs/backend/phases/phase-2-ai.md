@@ -22,6 +22,7 @@
 | Стриминг | SSE (`text/event-stream`); меняет контракт `AssistantRepository` и чат-UI |
 | RAG | По флагу `RAG_ENABLED` + наличие пригодной реальной модели |
 | Безопасность ключей | Реальные ключи не уходят на фронт; BYOK шифруется at-rest |
+| LLM-провайдеры (шаг 3) | **OpenAI** и **DeepSeek** — оба через OpenAI-compatible `chat/completions`; остальные (Anthropic, Perplexity, …) — шаг 6 |
 
 ---
 
@@ -31,12 +32,14 @@
 
 **Файлы:** `backend/app/core/config.py`, `backend/app/services/ai/keys.py` (новый).
 
-1. В `config.py` добавить ключи провайдеров: `OPENAI_API_KEY`, `ANTHROPIC_API_KEY`,
-   и т.д. (пустые по умолчанию).
+1. В `config.py` добавить env-ключи провайдеров (пустые по умолчанию). На шаге 3
+   обязательны: `OPENAI_API_KEY`, `DEEPSEEK_API_KEY`; остальные (`ANTHROPIC_API_KEY`,
+   …) — по мере подключения в шаге 6.
 2. Сервис резолва ключа для активной модели по порядку:
    1. **реальный ключ в профиле** (BYOK — реальный аккаунт или введённый демо-юзером) → как есть;
    2. **ссылка `env:<NAME>`** (демо) → значение из env;
-   3. **пусто + презентация/демо** → fallback на env-ключ по полю `provider`;
+   3. **пусто + презентация/демо** → fallback на env-ключ по полю `provider`
+      (`OpenAI` → `OPENAI_API_KEY`, `DeepSeek` → `DEEPSEEK_API_KEY`, …);
    4. **ничего**: презентация/демо → режим заглушки; реальный аккаунт → AI недоступен.
 3. Резолв и вызов LLM — целиком на бэкенде; реальные ключи наружу не отдаются.
 
@@ -50,7 +53,7 @@
 **Файлы:** `backend/app/db/seed.py`, `backend/fixtures/demo-full.json`.
 
 1. При сиде `demo-full` заполнять `AiProfileConfig.llmModels` ссылками
-   `env:<NAME>` для тех провайдеров, чьи ключи заданы в env.
+   `env:<NAME>` для провайдеров с ключами в env (как минимум OpenAI и DeepSeek).
 2. Если в env нет ни одного ключа — заполнить заглушечные модели (паритет с
    текущим MSW-демо).
 3. Идемпотентность: повторный сид обновляет модели согласно текущему env.
@@ -64,7 +67,8 @@
 **Спецификация сборки:** [Сборка контекста для AI-чатов](../../dev/ai-context-assembly.md)
 (system prompt, summary bundle, rolling summary, primer, окно диалога, ветки, RAG).
 
-**Файлы:** `backend/app/services/ai/context.py` (новый), `backend/app/services/ai/llm.py` (новый),
+**Файлы:** `backend/app/services/ai/context.py` (новый),
+`backend/app/services/ai/llm.py` (новый), `backend/app/services/ai/providers.py` (новый),
 `backend/app/api/v1/ai.py`, фронт: `frontend/src/shared/api/httpClient.ts`,
 `frontend/src/shared/api/repositories.ts`, `httpRepositories.ts`,
 `seedRepositories.ts`, чат-UI.
@@ -72,7 +76,15 @@
 **Бэкенд:**
 1. Сервис сборки контекста: `flattenVisibleWithPaths` → primer (bundle + rolling summary) →
    окно диалога активной ветки; `scope: "post"` добавляет данные поста в bundle.
-2. LLM-клиент (старт с одного OpenAI-совместимого провайдера через `httpx`).
+2. LLM-клиент через `httpx`: общий код для **OpenAI-compatible** `POST …/v1/chat/completions`
+   (стриминг). Реестр провайдеров на шаге 3:
+   | `provider` в профиле | `base_url` | env-fallback |
+   |---------------------|------------|--------------|
+   | `OpenAI` | `https://api.openai.com` | `OPENAI_API_KEY` |
+   | `DeepSeek` | `https://api.deepseek.com` | `DEEPSEEK_API_KEY` |
+
+   Один HTTP-клиент, разные `base_url` + ключ; BYOK из профиля подставляется для обоих.
+   Неподдерживаемый `provider` → `422` с понятной ошибкой (не заглушка).
 3. `POST /ai/reply/` → `text/event-stream`; чанки `data: {"text":"..."}\n\n`.
 4. Нет ключа: презентация/демо → стрим-заглушка; реальный аккаунт → `422`.
 
@@ -82,7 +94,8 @@
    `getXReply` остаётся обёрткой. MSW/seed имитируют поток (чанкуют заглушку).
 7. Чат-UI (глобальный + пост) — дописывание токенов по мере прихода.
 
-**Тесты:** формат SSE; заглушка в SSE-формате; `422` для реального без ключа.
+**Тесты:** формат SSE; заглушка в SSE-формате; `422` для реального без ключа;
+интеграционные тесты с моком HTTP для OpenAI и DeepSeek (разные `base_url`, один контракт).
 
 ---
 
@@ -120,6 +133,7 @@
 
 ### Шаг 6 — Расширенные возможности (по приоритету)
 
+- [ ] Дополнительные LLM-провайдеры (Anthropic Messages API, Google Gemini, …)
 - [ ] Web-search модели (Perplexity/Tavily)
 - [ ] Multi-response (несколько вариантов от разных моделей)
 - [ ] Vision / image-generation модели
@@ -146,6 +160,7 @@
 ## Критерий завершения фазы
 
 - Реальный AI-ответ при наличии пригодного ключа (любой режим), стриминг работает.
+- Работают модели с `provider: "OpenAI"` и `provider: "DeepSeek"` (BYOK и env).
 - Сборка контекста соответствует [ai-context-assembly.md](../../dev/ai-context-assembly.md)
   (primer, bundle-версии, rolling summary, активная ветка).
 - Презентация/демо без env-ключей → заглушка; реальный аккаунт без ключа → `422`.
