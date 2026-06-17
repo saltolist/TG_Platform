@@ -23,6 +23,7 @@
 | RAG | По флагу `RAG_ENABLED` + наличие пригодной реальной модели |
 | Безопасность ключей | Реальные ключи не уходят на фронт; BYOK шифруется at-rest |
 | LLM-провайдеры (шаг 3) | **OpenAI** и **DeepSeek** — оба через OpenAI-compatible `chat/completions`; остальные (Anthropic, Perplexity, …) — шаг 6 |
+| Презентация, модели в композере | Без LLM env — фиксированный stub; с LLM env — 2 топовые × провайдер; web — только при web env, иначе «Нет» |
 
 ---
 
@@ -48,17 +49,41 @@
 
 ---
 
-### Шаг 2 — Предзаполнение моделей демо (обновление сидера)
+### Шаг 2 — Предзаполнение моделей в сидере (демо и презентация)
 
-**Файлы:** `backend/app/db/seed.py`, `backend/fixtures/demo-full.json`.
+**Файлы:** `backend/app/db/seed.py`, `backend/app/services/ai/model_catalog.py` (новый),
+`backend/fixtures/demo-full.json`, `backend/fixtures/presentation.json` (stub fallback).
 
-1. При сиде `demo-full` заполнять `AiProfileConfig.llmModels` ссылками
-   `env:<NAME>` для провайдеров с ключами в env (как минимум OpenAI и DeepSeek).
-2. Если в env нет ни одного ключа — заполнить заглушечные модели (паритет с
-   текущим MSW-демо).
+#### Аккаунт `demo-full`
+
+1. При сиде заполнять `AiProfileConfig.llmModels` ссылками `env:<NAME>` для провайдеров
+   с ключами в env (как минимум OpenAI и DeepSeek).
+2. Если в env нет ни одного ключа — заглушечные модели (паритет с текущим MSW-демо).
 3. Идемпотентность: повторный сид обновляет модели согласно текущему env.
 
-**Тесты:** env с ключом → демо-модель ссылается на него; env пустой → заглушки.
+#### Аккаунт `presentation` (отдельные правила)
+
+Сидер пересобирает AI-профиль по env; детали — в
+[режимах работы](../../dev/runtime-modes.md#ai-модели-в-композере-только-презентация).
+
+| Условие | `llmModels` | `webSearchModels` | AI-ответ |
+|---------|-------------|-------------------|----------|
+| Нет **LLM**-ключей в env | Фиксированный stub из `presentation.json` | Как в stub | Заглушка |
+| Есть ≥1 **LLM**-ключ | 2 топовые модели × провайдер с ключом | Пусто, если нет web-ключей; иначе 2 топовые × web-провайдер | Реальный LLM |
+
+- Учитываются только **LLM** env-переменные (`OPENAI_API_KEY`, `DEEPSEEK_API_KEY`, …);
+  web-ключи без LLM-ключа режим не меняют.
+- Имена моделей — **первые две** из каталога провайдера (`model_catalog.py`, зеркало
+  `LLM_PROVIDER_MODELS` / `WEB_SEARCH_PROVIDER_MODELS` на фронте).
+- В профиле презентации ключи не хранятся — резолв **напрямую** с env по `provider` при
+  запросе (см. шаг 1).
+- `orchestratorModels` остаётся пустым; оркестратор для презентации не требуется.
+
+**Тесты:**
+
+- `demo-full`: env с ключом → модель с `env:<NAME>`; env пустой → заглушки.
+- `presentation`: нет LLM-ключей → stub из JSON; только `DEEPSEEK_API_KEY` → две модели
+  DeepSeek, `webSearchModels` пустой; LLM + `TAVILY_API_KEY` → LLM + две Tavily web-модели.
 
 ---
 
