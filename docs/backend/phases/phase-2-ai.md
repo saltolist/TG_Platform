@@ -3,7 +3,9 @@
 **Цель:** реальные AI-ответы вместо заглушки; резолв ключей по режиму аккаунта;
 стриминг (SSE); опциональный RAG.
 
-См. также: [Режимы работы](../../dev/runtime-modes.md), [ADR-007](../../dev/adr/007-runtime-modes-keys-overlay.md), [ADR-005 — AssistantRepository](../../dev/adr/005-assistant-repository.md).
+См. также: [Сборка контекста для AI-чатов](../../dev/ai-context-assembly.md),
+[Режимы работы](../../dev/runtime-modes.md), [ADR-007](../../dev/adr/007-runtime-modes-keys-overlay.md),
+[ADR-005 — AssistantRepository](../../dev/adr/005-assistant-repository.md).
 
 > Предусловие: [Фаза 1](phase-1-core-api.md) завершена — есть сид-аккаунты,
 > профиль с моделями, рабочий `POST /ai/reply/` (пока заглушка JSON).
@@ -57,26 +59,28 @@
 
 ---
 
-### Шаг 3 — LLM-клиент и стриминг (SSE)
+### Шаг 3 — Сборка контекста и LLM-клиент (SSE)
 
-**Файлы:** `backend/app/services/ai/llm.py` (новый), `backend/app/api/v1/ai.py`,
-фронт: `frontend/src/shared/api/httpClient.ts`,
+**Спецификация сборки:** [Сборка контекста для AI-чатов](../../dev/ai-context-assembly.md)
+(system prompt, summary bundle, rolling summary, primer, окно диалога, ветки, RAG).
+
+**Файлы:** `backend/app/services/ai/context.py` (новый), `backend/app/services/ai/llm.py` (новый),
+`backend/app/api/v1/ai.py`, фронт: `frontend/src/shared/api/httpClient.ts`,
 `frontend/src/shared/api/repositories.ts`, `httpRepositories.ts`,
 `seedRepositories.ts`, чат-UI.
 
 **Бэкенд:**
-1. LLM-клиент (старт с одного OpenAI-совместимого провайдера через `httpx`).
-2. `POST /ai/reply/` → `text/event-stream`; чанки `data: {"text":"..."}\n\n`.
-3. Системный промпт из `AiProfileConfig.systemPrompt` + контекст канала
-   (`ChannelProfileConfig`: tone, rules, rubrics).
-4. `scope: "post"` → добавить контекст поста в промпт.
-5. Нет ключа: презентация/демо → стрим-заглушка; реальный аккаунт → `422`.
+1. Сервис сборки контекста: `flattenVisibleWithPaths` → primer (bundle + rolling summary) →
+   окно диалога активной ветки; `scope: "post"` добавляет данные поста в bundle.
+2. LLM-клиент (старт с одного OpenAI-совместимого провайдера через `httpx`).
+3. `POST /ai/reply/` → `text/event-stream`; чанки `data: {"text":"..."}\n\n`.
+4. Нет ключа: презентация/демо → стрим-заглушка; реальный аккаунт → `422`.
 
 **Фронтенд:**
-6. `apiStream()` в `httpClient.ts` (fetch + ReadableStream reader).
-7. `AssistantRepository` — стриминговый метод (`onToken`/async-iterator);
+5. `apiStream()` в `httpClient.ts` (fetch + ReadableStream reader).
+6. `AssistantRepository` — стриминговый метод (`onToken`/async-iterator);
    `getXReply` остаётся обёрткой. MSW/seed имитируют поток (чанкуют заглушку).
-8. Чат-UI (глобальный + пост) — дописывание токенов по мере прихода.
+7. Чат-UI (глобальный + пост) — дописывание токенов по мере прихода.
 
 **Тесты:** формат SSE; заглушка в SSE-формате; `422` для реального без ключа.
 
@@ -91,7 +95,8 @@
 2. Образ БД → `pgvector/pgvector:pg16`; миграция: расширение `vector` + таблица
    эмбеддингов.
 3. Индексирование **глобальных заметок и заметок постов** при upsert.
-4. Retrieval top-k → добавляется в промпт перед запросом к LLM.
+4. Retrieval top-k → дописывается к последнему `user`-сообщению (см.
+   [сборку контекста](../../dev/ai-context-assembly.md#3-rag-заметки-и-веб)).
 5. Активен только при наличии пригодной реальной модели (env-ключ для
    презентации/демо, BYOK для реального).
 
@@ -125,12 +130,11 @@
 ## Поток запроса
 
 ```
-Клиент → POST /ai/reply/ { text, scope }
+Клиент → POST /ai/reply/ { text, scope, chatId, postId? }
   → резолв ключа (BYOK / env:<NAME> / env-fallback / нет)
-  → читаем AiProfileConfig (активные модели)
-  → читаем ChannelProfileConfig (tone, rules, rubrics)
-  → [scope=post] добавляем контекст поста
-  → [RAG_ENABLED + модель] retrieval из заметок → в промпт
+  → сборка контекста (см. ai-context-assembly.md):
+      systemPrompt → primer (bundle + rolling summary) → окно активной ветки
+  → [RAG_ENABLED + модель] retrieval из заметок → к последнему user
   → запрос к LLM (+ web-search если включён)
   → стрим ответа (SSE) → data: { "text": "..." }
   ── нет ключа + реальный аккаунт → 422 (AI недоступен)
@@ -142,6 +146,8 @@
 ## Критерий завершения фазы
 
 - Реальный AI-ответ при наличии пригодного ключа (любой режим), стриминг работает.
+- Сборка контекста соответствует [ai-context-assembly.md](../../dev/ai-context-assembly.md)
+  (primer, bundle-версии, rolling summary, активная ветка).
 - Презентация/демо без env-ключей → заглушка; реальный аккаунт без ключа → `422`.
 - RAG включается/выключается флагом и корректно влияет на промпт.
 - BYOK-ключи зашифрованы в БД.

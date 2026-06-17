@@ -94,6 +94,7 @@ export const USE_MSW =
 - Реальный AI включается env-ключами провайдеров; резолв ключей и вызов LLM —
   только на бэкенде, реальные ключи не уходят на фронтенд.
 - Ответы стримятся (SSE); RAG — по флагу `RAG_ENABLED` и наличию реальной модели.
+- Сборка промпта (bundle, rolling summary, ветки) — [Сборка контекста для AI-чатов](ai-context-assembly.md).
 
 Подробнее: [Режимы работы](runtime-modes.md), [ADR-007](adr/007-runtime-modes-keys-overlay.md).
 

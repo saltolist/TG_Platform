@@ -6,6 +6,8 @@
 См. также: [Режимы работы](../../dev/runtime-modes.md), [ADR-007](../../dev/adr/007-runtime-modes-keys-overlay.md), [endpoints.md](../endpoints.md).
 
 > **Важно:** AI в этой фазе — **заглушка в формате JSON** (`{ "text": "..." }`).
+> Сборка контекста (bundle, primer, RAG) — [Фаза 2](phase-2-ai.md), спецификация:
+> [ai-context-assembly.md](../../dev/ai-context-assembly.md).
 > Реальный LLM и стриминг (SSE) — это [Фаза 2](phase-2-ai.md). Чат-UI не трогаем.
 
 ---

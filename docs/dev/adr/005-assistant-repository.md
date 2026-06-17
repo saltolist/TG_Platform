@@ -49,6 +49,8 @@ interface AssistantRepository {
 
 - `composer-store` полностью декуплен от источника AI-ответов
 - Переключение на реальный AI API — без изменения кода стора
+- Сборка контекста (bundle, primer, RAG) — на бэкенде; см.
+  [Сборка контекста для AI-чатов](../ai-context-assembly.md)
 - MSW-задержка реалистична и изолирована в слое мока
 - `assistantReplies.ts` тестируется независимо
 

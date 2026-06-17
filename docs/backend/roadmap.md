@@ -64,7 +64,7 @@
 |------|--------|----------|
 | [Фаза 0 — Инфраструктура](phases/phase-0-foundation.md) | ✅ Завершено | Запускаемый каркас: Docker, FastAPI, миграции, CI |
 | [Фаза 1 — Core API (замена MSW)](phases/phase-1-core-api.md) | ✅ Завершено | Реальный бэкенд вместо MSW; три Docker-режима, сидер, overlay |
-| [Фаза 2 — AI Integration](phases/phase-2-ai.md) | ◄ **Текущий фокус** | Реальный LLM, резолв ключей, стриминг (SSE), RAG |
+| [Фаза 2 — AI Integration](phases/phase-2-ai.md) | ◄ **Текущий фокус** | Реальный LLM, резолв ключей, стриминг (SSE), RAG; [сборка контекста](../dev/ai-context-assembly.md) |
 | [Фаза 3 — Telegram Integration](phases/phase-3-telegram.md) | ⏳ План | MTProto: импорт, публикация, метрики |
 | [Фаза 4 — Масштабирование](phases/phase-4-scaling.md) | ⏳ План | Refresh-токены, мультиканальность, очереди, K8s |
 
@@ -72,7 +72,9 @@
 
 ## Текущий фокус: Фаза 2
 
-**Цель:** реальный LLM, резолв ключей, стриминг (SSE). Подробнее — [phases/phase-2-ai.md](phases/phase-2-ai.md).
+**Цель:** реальный LLM, резолв ключей, стриминг (SSE). Подробнее —
+[phases/phase-2-ai.md](phases/phase-2-ai.md); сборка промпта —
+[ai-context-assembly.md](../dev/ai-context-assembly.md).
 
 Фаза 1 завершена: фронтенд в Docker работает на реальном API, сид-аккаунты в Postgres, overlay для гостя/демо. Smoke-проверка: `bash scripts/verify-phase1-docker.sh`.
 

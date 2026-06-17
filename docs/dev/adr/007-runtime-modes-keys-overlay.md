@@ -92,6 +92,7 @@ Postgres, свои ключи, без overlay и без заглушек.
 - Контракт ключей: значения вида `env:<NAME>` — зарезервированный формат ссылки.
 
 ## Связанные документы
+- [Сборка контекста для AI-чатов](../ai-context-assembly.md)
 - [Режимы работы](../runtime-modes.md)
 - [ADR-005 — AssistantRepository](005-assistant-repository.md)
 - [ADR-006 — Глобальный 401](006-global-401-handler.md)

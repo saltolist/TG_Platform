@@ -133,6 +133,9 @@ type ChatMessage = {
 }
 ```
 
+> Ветки (`userBranches`, `activeUserBranch`) в промпт попадает только **активная линия**.
+> Сборка контекста на бэкенде — [Сборка контекста для AI-чатов](ai-context-assembly.md).
+
 ---
 
 ## Эндпоинты
@@ -181,6 +184,9 @@ type ChatMessage = {
 | Метод | Путь | Описание | Тело | Ответ |
 |-------|------|----------|------|-------|
 | `POST` | `/api/v1/ai/reply` | Получить ответ AI | `{ text: string, scope: "global" \| "post" }` | `{ text: string }` |
+
+> Клиент передаёт только текст и scope; bundle, саммари, RAG и ветки обрабатывает бэкенд.
+> См. [Сборка контекста для AI-чатов](ai-context-assembly.md).
 
 ### Auth
 
