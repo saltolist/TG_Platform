@@ -1,5 +1,7 @@
 from functools import lru_cache
+from typing import Any
 
+from pydantic import field_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
@@ -33,6 +35,22 @@ class Settings(BaseSettings):
     s3_access_key: str = ""
     s3_secret_key: str = ""
     s3_bucket: str = "tg-media"
+
+    # AI provider keys (Phase 2) — empty by default; presentation/demo use stubs
+    openai_api_key: str = ""
+    deepseek_api_key: str = ""
+    rag_enabled: bool = False
+
+    @field_validator("rag_enabled", mode="before")
+    @classmethod
+    def _parse_rag_enabled(cls, value: Any) -> bool:
+        if isinstance(value, bool):
+            return value
+        if isinstance(value, (int, float)):
+            return bool(value)
+        if isinstance(value, str):
+            return value.strip().lower() in {"1", "true", "yes", "on"}
+        return False
 
     @property
     def cors_origins_list(self) -> list[str]:
