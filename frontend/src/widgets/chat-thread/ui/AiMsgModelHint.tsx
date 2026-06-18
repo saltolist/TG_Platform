@@ -7,9 +7,11 @@ import { BrainIcon } from "@/shared/ui/model-picker";
 
 type Props = {
   modelTitle: string;
+  /** В правом тулбаре (single-mode): размер как у action-кнопок. */
+  toolbar?: boolean;
 };
 
-export default function AiMsgModelHint({ modelTitle }: Props) {
+export default function AiMsgModelHint({ modelTitle, toolbar = false }: Props) {
   const anchorRef = useRef<HTMLSpanElement>(null);
   const [open, setOpen] = useState(false);
   const [pos, setPos] = useState<{ top: number; left: number } | null>(null);
@@ -45,7 +47,9 @@ export default function AiMsgModelHint({ modelTitle }: Props) {
     <>
       <span
         ref={anchorRef}
-        className={`msg-ai-variant-model${trimmed ? "" : " msg-ai-variant-model--empty"}`}
+        className={`msg-ai-variant-model${toolbar ? " msg-ai-variant-model--toolbar" : ""}${
+          trimmed ? "" : " msg-ai-variant-model--empty"
+        }`}
         role="img"
         tabIndex={trimmed ? 0 : undefined}
         aria-label={trimmed ? `Модель: ${trimmed}` : "Модель"}

@@ -31,6 +31,8 @@ export default function ChatAiMessage({
   isStreaming = false,
 }: Props) {
   const showTyping = isStreaming && !plainAi.trim();
+  const showMultiStreamingNav = isStreaming && showVariantNav && !!ctx;
+  const showFooter = !isStreaming || showMultiStreamingNav;
 
   return (
     <div className="msg-row ai">
@@ -40,7 +42,7 @@ export default function ChatAiMessage({
         ) : (
           <div className="msg-text" dangerouslySetInnerHTML={{ __html: textHtml }} />
         )}
-        {!isStreaming ? (
+        {showFooter ? (
           <div className="ai-msg-footer">
             <div className="ai-msg-footer-left">
               {showVariantNav && ctx ? (
@@ -53,7 +55,13 @@ export default function ChatAiMessage({
                 />
               ) : null}
             </div>
-            <AiMessageToolbar plainText={plainAi} onDelete={onDelete} />
+            {!isStreaming ? (
+              <AiMessageToolbar
+                plainText={plainAi}
+                modelTitle={showVariantNav ? undefined : modelTitle}
+                onDelete={onDelete}
+              />
+            ) : null}
           </div>
         ) : null}
       </div>

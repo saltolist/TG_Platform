@@ -1,7 +1,6 @@
 import {
   buildMultiResponsePairs,
   formatWebSearchComposerLabel,
-  VARIANT_TAILS,
 } from "@/shared/config/composer";
 import { getApiErrorMessage } from "@/shared/api/getApiErrorMessage";
 import { isAbortError } from "@/shared/lib/isAbortError";
@@ -185,16 +184,34 @@ export function applyStreamingAiText(message: ChatMessage, text: string): ChatMe
   return { ...message, text, streaming: true };
 }
 
+export function applyStreamingAiVariantText(
+  message: ChatMessage,
+  variantKey: string,
+  text: string,
+): ChatMessage {
+  if (message.mode === "multi" && message.variants?.length) {
+    return {
+      ...message,
+      streaming: true,
+      variants: message.variants.map((variant) =>
+        variant.key === variantKey ? { ...variant, text } : variant,
+      ),
+    };
+  }
+  return applyStreamingAiText(message, text);
+}
+
 export function buildAiReplyMessage(
   cfg: AiProfileConfig,
   baseReply: string,
   scope: ComposerScope,
   target: { llmId: string; webId: string },
+  variantTexts?: Record<string, string>,
 ): ChatMessage {
   if (cfg.multiResponseEnabled) {
     const pairs = buildMultiResponsePairs(cfg.llmModels, cfg.webSearchModels);
     if (pairs.length > 0) {
-      const variants: AiVariant[] = pairs.map((pair, idx) => {
+      const variants: AiVariant[] = pairs.map((pair) => {
         const llmModel = cfg.llmModels.find((m) => m.id === pair.llmId);
         const webModel = pair.webId
           ? cfg.webSearchModels.find((m) => m.id === pair.webId)
@@ -209,7 +226,7 @@ export function buildAiReplyMessage(
           label,
           llmCaption: llmCap,
           webCaption: webCap || undefined,
-          text: `${baseReply}\n\n— ${label}\n${VARIANT_TAILS[idx % VARIANT_TAILS.length]}`,
+          text: variantTexts?.[pair.id] ?? baseReply,
         };
       });
       return { role: "ai", variants, selectedVariant: 0, mode: "multi" };
@@ -220,7 +237,7 @@ export function buildAiReplyMessage(
   const label = target.webId ? `${llm} + ${web}` : llm;
   return {
     role: "ai",
-    text: `${baseReply}\n\n— ${label}\n${VARIANT_TAILS[0]}`,
+    text: baseReply,
     mode: "single",
     targetLabel: label,
     llmLabel: llm,

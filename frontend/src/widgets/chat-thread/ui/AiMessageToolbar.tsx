@@ -2,6 +2,7 @@
 
 import { useCallback, useEffect, useRef, useState } from "react";
 import { ContextMenu, type CtxMenuItem } from "@/shared/ui/context-menu";
+import AiMsgModelHint from "@/widgets/chat-thread/ui/AiMsgModelHint";
 function IcCopy() {
   return (
     <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.75" aria-hidden>
@@ -100,9 +101,12 @@ function readAloud(text: string) {
 
 export default function AiMessageToolbar({
   plainText,
+  modelTitle,
   onDelete,
 }: {
   plainText: string;
+  /** Подсказка с провайдером/моделью (иконка мозга слева в тулбаре). */
+  modelTitle?: string;
   /** Удалить сообщение из истории чата (пункт меню «Удалить»). */
   onDelete?: () => void;
 }) {
@@ -152,6 +156,7 @@ export default function AiMessageToolbar({
 
   return (
     <div className="ai-msg-toolbar">
+      {modelTitle?.trim() ? <AiMsgModelHint modelTitle={modelTitle} toolbar /> : null}
       <button
         type="button"
         className={`ai-msg-action-btn${copied ? " on" : ""}`}

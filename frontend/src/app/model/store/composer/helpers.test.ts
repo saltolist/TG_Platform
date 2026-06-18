@@ -1,6 +1,8 @@
 import { describe, expect, it } from "vitest";
 
 import {
+  applyStreamingAiText,
+  applyStreamingAiVariantText,
   buildAiReplyMessage,
   completeAssistantReply,
   EMPTY_AI_REPLY_FALLBACK,
@@ -10,6 +12,7 @@ import {
   resolveLlmTarget,
 } from "@/app/model/store/composer/helpers";
 import { initialAiProfileConfig } from "@/shared/data/seed-data";
+import { buildMultiResponsePairs } from "@/shared/config/composer";
 import type { AiProfileConfig } from "@/shared/types";
 
 function multiCfg(overrides?: Partial<AiProfileConfig>): AiProfileConfig {
@@ -69,7 +72,34 @@ describe("buildAiReplyMessage", () => {
     expect(reply.mode).toBe("multi");
     expect(reply.variants?.length).toBeGreaterThanOrEqual(2);
     expect(reply.selectedVariant).toBe(0);
-    expect(reply.variants?.[0]?.text).toContain("Ответ");
+    expect(reply.variants?.[0]?.text).toBe("Ответ");
+    expect(reply.variants?.[0]?.text).not.toContain("Фокус:");
+  });
+
+  it("builds multi-variant reply with per-variant texts", () => {
+    const cfg = multiCfg();
+    const pairs = buildMultiResponsePairs(cfg.llmModels, cfg.webSearchModels);
+    const variantTexts = Object.fromEntries(
+      pairs.map((pair, idx) => [pair.id, idx === 0 ? "Ошибка ключа" : "Нормальный ответ"]),
+    );
+    const reply = buildAiReplyMessage(
+      cfg,
+      "",
+      "gchat",
+      { llmId: "llm-1", webId: "web-1" },
+      variantTexts,
+    );
+
+    expect(reply.variants?.[0]?.text).toBe("Ошибка ключа");
+    expect(reply.variants?.[1]?.text).toBe("Нормальный ответ");
+  });
+
+  it("applyStreamingAiVariantText updates only one variant", () => {
+    const message = buildAiReplyMessage(multiCfg(), "", "gchat", { llmId: "llm-1", webId: "" });
+    const updated = applyStreamingAiVariantText(message, message.variants![0]!.key, "Часть 1");
+
+    expect(updated.variants?.[0]?.text).toBe("Часть 1");
+    expect(updated.variants?.[1]?.text).toBe("");
   });
 
   it("builds single reply when multiResponseEnabled is off", () => {
@@ -77,7 +107,8 @@ describe("buildAiReplyMessage", () => {
     const reply = buildAiReplyMessage(cfg, "Ответ", "gchat", { llmId: "llm-1", webId: "web-1" });
 
     expect(reply.mode).toBe("single");
-    expect(reply.text).toContain("Ответ");
+    expect(reply.text).toBe("Ответ");
+    expect(reply.llmLabel).toContain("OpenAI");
     expect(reply.variants).toBeUndefined();
   });
 });

@@ -24,7 +24,8 @@ export function useComposerModelTarget(scope: ComposerScope) {
     if (llmOptions.length === 0) return;
     const valid = target.llmId && llmOptions.some((model) => model.id === target.llmId);
     if (valid) return;
-    setLlmId(scope, llmOptions[0]!.id);
+    const defaultLlm = llmOptions.find((model) => model.active) ?? llmOptions[0]!;
+    setLlmId(scope, defaultLlm.id);
   }, [llmOptions, scope, setLlmId, target.llmId]);
 
   const webOptionsAll = useMemo(
@@ -37,7 +38,8 @@ export function useComposerModelTarget(scope: ComposerScope) {
   useEffect(() => {
     const webIdValid = target.webId && webOptions.some((m) => m.id === target.webId);
     if (webIdValid || webOptions.length === 0) return;
-    setWebId(scope, webOptions[0]!.id);
+    const defaultWeb = webOptions.find((model) => model.active) ?? webOptions[0]!;
+    setWebId(scope, defaultWeb.id);
   }, [scope, setWebId, target.webId, webOptions]);
 
   const webValue =

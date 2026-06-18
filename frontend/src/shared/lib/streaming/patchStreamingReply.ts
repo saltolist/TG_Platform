@@ -4,13 +4,19 @@ import { queryKeys } from "@/shared/api/queryKeys";
 import { getQueryAccountIdFromAuth } from "@/shared/lib/auth/queryAccountScope";
 import { isOverlayAccount } from "@/shared/lib/overlay/isOverlayAccount";
 import { mutateOverlay } from "@/shared/lib/overlay/overlayStorage";
-import { applyStreamingAiText } from "@/app/model/store/composer/helpers";
+import { applyStreamingAiText, applyStreamingAiVariantText } from "@/app/model/store/composer/helpers";
 import { updateLastVisibleAiMessage } from "@/shared/lib/chatPaths";
 import type { ChatMessage, GlobalChat, Post } from "@/shared/types";
 
-function applyAccumulatedAiText(history: ChatMessage[], accumulated: string): ChatMessage[] {
+function applyAccumulatedAiText(
+  history: ChatMessage[],
+  accumulated: string,
+  variantKey?: string,
+): ChatMessage[] {
   return updateLastVisibleAiMessage(history, (message) =>
-    applyStreamingAiText(message, accumulated),
+    variantKey
+      ? applyStreamingAiVariantText(message, variantKey, accumulated)
+      : applyStreamingAiText(message, accumulated),
   );
 }
 
@@ -19,11 +25,12 @@ export function patchGlobalChatStreamingText(
   chatId: string,
   accumulated: string,
   accountId = getQueryAccountIdFromAuth(),
+  variantKey?: string,
 ): void {
   queryClient.setQueryData<GlobalChat[]>(queryKeys.globalChats.list(accountId), (prev) =>
     prev?.map((chat) =>
       chat.id === chatId
-        ? { ...chat, history: applyAccumulatedAiText(chat.history, accumulated) }
+        ? { ...chat, history: applyAccumulatedAiText(chat.history, accumulated, variantKey) }
         : chat,
     ),
   );
@@ -35,7 +42,7 @@ export function patchGlobalChatStreamingText(
     if (!current) return;
     overlay.globalChats.upserts[chatId] = {
       ...current,
-      history: applyAccumulatedAiText(current.history, accumulated),
+      history: applyAccumulatedAiText(current.history, accumulated, variantKey),
     };
   }, accountId);
 }
@@ -46,12 +53,13 @@ export function patchPostChatStreamingText(
   chatId: string,
   accumulated: string,
   accountId = getQueryAccountIdFromAuth(),
+  variantKey?: string,
 ): void {
   const patchPost = (post: Post): Post => ({
     ...post,
     chats: post.chats.map((chat) =>
       chat.id === chatId
-        ? { ...chat, history: applyAccumulatedAiText(chat.history, accumulated) }
+        ? { ...chat, history: applyAccumulatedAiText(chat.history, accumulated, variantKey) }
         : chat,
     ),
   });

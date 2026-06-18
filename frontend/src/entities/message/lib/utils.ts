@@ -3,6 +3,18 @@ import type { ChatMessage } from "@/shared/types";
 export const USER_EDIT_MIN_W = 200;
 export const USER_EDIT_MAX_W = 400;
 
+/** Убрать устаревший хвост «— provider / model» и «Фокус: …» из текста ответа. */
+export function stripAssistantDisplaySuffix(text: string): string {
+  const marker = "\n\n— ";
+  const index = text.lastIndexOf(marker);
+  if (index < 0) return text;
+  return text.slice(0, index).trimEnd();
+}
+
+function displayAssistantText(raw: string): string {
+  return stripAssistantDisplaySuffix(raw);
+}
+
 export function assistantPlainText(message: ChatMessage): string {
   if (message.role !== "ai") return "";
   if (Array.isArray(message.variants) && message.variants.length > 0) {
@@ -10,9 +22,9 @@ export function assistantPlainText(message: ChatMessage): string {
       Math.max(Number(message.selectedVariant) || 0, 0),
       message.variants.length - 1,
     );
-    return message.variants[selectedIdx]?.text ?? "";
+    return displayAssistantText(message.variants[selectedIdx]?.text ?? "");
   }
-  return message.text ?? "";
+  return displayAssistantText(message.text ?? "");
 }
 
 export function modelTooltipText(message: ChatMessage): string {
@@ -89,7 +101,7 @@ export function messageTextHtml(message: ChatMessage, userShown: string): string
       Math.max(Number(message.selectedVariant) || 0, 0),
       message.variants.length - 1,
     );
-    return (message.variants[selectedIdx]?.text || "").replace(/\n/g, "<br>");
+    return displayAssistantText(message.variants[selectedIdx]?.text || "").replace(/\n/g, "<br>");
   }
-  return (message.text ?? "").replace(/\n/g, "<br>");
+  return displayAssistantText(message.text ?? "").replace(/\n/g, "<br>");
 }

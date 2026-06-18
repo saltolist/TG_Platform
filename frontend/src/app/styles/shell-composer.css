@@ -878,6 +878,16 @@
 .msg-ai-variant-model--empty::after {
   display: none;
 }
+.msg-ai-variant-model--toolbar {
+  width: 30px;
+  height: 30px;
+  min-width: 30px;
+  border-radius: var(--rs);
+  cursor: pointer;
+}
+.msg-ai-variant-model--toolbar:hover {
+  background: var(--bg4);
+}
 .msg-user-branch-count {
   font-size: 12px;
   font-weight: 600;
