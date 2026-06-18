@@ -1,5 +1,5 @@
 import uuid
-
+from collections.abc import AsyncIterator
 from typing import Any, Mapping
 
 from fastapi import APIRouter, HTTPException
@@ -11,11 +11,15 @@ from app.db.models import Profile
 from app.db.resolve import get_owned_chat, get_owned_post
 from app.schemas.requests import AiReplyRequest
 from app.services.ai import resolve_model_api_key
+from app.services.ai.bundle import build_summary_bundle, bundle_fingerprint
+from app.services.ai.chat_history import filter_alternating_roles, linearize_for_llm
 from app.services.ai.context import assemble_reply_messages
+from app.services.ai.context_meta import refresh_context_meta_after_reply, persist_chat_meta
 from app.services.ai.keys import KeyResolution, KeySource, get_account_mode
 from app.services.ai.llm import stream_llm_sse
+from app.services.ai.orchestrator import resolve_orchestrator_llm
 from app.services.ai.providers import get_provider_spec
-from app.services.ai.sse import stream_stub_reply
+from app.services.ai.sse import format_sse_meta, parse_sse_text_chunk, stream_stub_reply
 
 router = APIRouter(prefix="/ai", tags=["AI"])
 
@@ -107,6 +111,33 @@ def _extract_chat_meta(data: Mapping[str, Any] | None) -> dict[str, Any]:
     return {key: data[key] for key in _CHAT_META_KEYS if key in data}
 
 
+def _valid_pairs_with_assistant_reply(
+    history: list[Mapping[str, Any]] | None,
+    user_text: str,
+    assistant_text: str,
+) -> list[tuple[str, str]]:
+    raw_pairs = linearize_for_llm(list(history or []))
+    valid_pairs = filter_alternating_roles(raw_pairs)
+
+    trimmed_user_text = user_text.strip()
+    if trimmed_user_text:
+        if not valid_pairs or valid_pairs[-1][0] != "user":
+            valid_pairs.append(("user", trimmed_user_text))
+        elif valid_pairs[-1][1] != trimmed_user_text:
+            valid_pairs.append(("user", trimmed_user_text))
+
+    assistant_reply = assistant_text.strip()
+    if assistant_reply:
+        if valid_pairs and valid_pairs[-1][0] == "user":
+            valid_pairs.append(("assistant", assistant_reply))
+        elif not valid_pairs or valid_pairs[-1][0] != "assistant":
+            valid_pairs.append(("assistant", assistant_reply))
+        elif valid_pairs[-1][0] == "assistant":
+            valid_pairs[-1] = ("assistant", assistant_reply)
+
+    return valid_pairs
+
+
 async def _load_owned_post_data(
     session: DbSession,
     user_id: uuid.UUID,
@@ -151,7 +182,125 @@ async def _load_reply_context(
             history = list(chat.data.get("history") or [])
             chat_meta = _extract_chat_meta(chat.data)
 
+    if isinstance(payload.chat_meta, Mapping):
+        chat_meta = {**chat_meta, **dict(payload.chat_meta)}
+
     return history, post_data, chat_meta
+
+
+async def _finalize_context_meta(
+    *,
+    session: DbSession,
+    user: CurrentUser,
+    payload: AiReplyRequest,
+    history: list[Mapping[str, Any]] | None,
+    post_data: Mapping[str, Any] | None,
+    chat_meta: dict[str, Any],
+    channel_profile: Mapping[str, Any],
+    telegram_profile: Mapping[str, Any],
+    assistant_text: str,
+    ai_profile: dict[str, Any],
+) -> dict[str, Any]:
+    post = post_data if payload.scope == "post" else None
+    current_bundle = build_summary_bundle(
+        channel_profile,
+        telegram=telegram_profile,
+        post=post,
+    )
+    fingerprint = bundle_fingerprint(channel_profile, post=post)
+    valid_pairs = _valid_pairs_with_assistant_reply(history, payload.text, assistant_text)
+
+    summary_llm = resolve_orchestrator_llm(user, ai_profile)
+
+    updated_meta = await refresh_context_meta_after_reply(
+        chat_meta,
+        valid_pairs=valid_pairs,
+        current_bundle=current_bundle,
+        current_fingerprint=fingerprint,
+        llm=summary_llm,
+    )
+    await persist_chat_meta(session, user.id, payload, updated_meta)
+    await session.commit()
+    return updated_meta
+
+
+async def _stream_reply_with_meta(
+    *,
+    session: DbSession,
+    user: CurrentUser,
+    payload: AiReplyRequest,
+    history: list[Mapping[str, Any]] | None,
+    post_data: Mapping[str, Any] | None,
+    chat_meta: dict[str, Any],
+    channel_profile: Mapping[str, Any],
+    telegram_profile: Mapping[str, Any],
+    ai_profile: dict[str, Any],
+    messages: list[dict[str, str]],
+    spec: Any,
+    model_id: str,
+    api_key: str,
+) -> AsyncIterator[str]:
+    accumulated: list[str] = []
+    async for event in stream_llm_sse(
+        spec=spec,
+        model=model_id,
+        api_key=api_key,
+        messages=messages,
+    ):
+        chunk = parse_sse_text_chunk(event)
+        if chunk:
+            accumulated.append(chunk)
+        yield event
+
+    assistant_text = "".join(accumulated)
+    updated_meta = await _finalize_context_meta(
+        session=session,
+        user=user,
+        payload=payload,
+        history=history,
+        post_data=post_data,
+        chat_meta=chat_meta,
+        channel_profile=channel_profile,
+        telegram_profile=telegram_profile,
+        assistant_text=assistant_text,
+        ai_profile=ai_profile,
+    )
+    yield format_sse_meta(updated_meta)
+
+
+async def _stream_stub_with_meta(
+    *,
+    session: DbSession,
+    user: CurrentUser,
+    payload: AiReplyRequest,
+    history: list[Mapping[str, Any]] | None,
+    post_data: Mapping[str, Any] | None,
+    chat_meta: dict[str, Any],
+    channel_profile: Mapping[str, Any],
+    telegram_profile: Mapping[str, Any],
+    ai_profile: dict[str, Any],
+) -> AsyncIterator[str]:
+    accumulated: list[str] = []
+    async for event in stream_stub_reply(payload.text, scope=payload.scope):
+        chunk = parse_sse_text_chunk(event)
+        if chunk:
+            accumulated.append(chunk)
+        yield event
+
+    assistant_text = "".join(accumulated)
+    updated_meta = await _finalize_context_meta(
+        session=session,
+        user=user,
+        payload=payload,
+        history=history,
+        post_data=post_data,
+        chat_meta=chat_meta,
+        channel_profile=channel_profile,
+        telegram_profile=telegram_profile,
+        assistant_text=assistant_text,
+        ai_profile=ai_profile,
+    )
+    yield format_sse_meta(updated_meta)
 
 
 @router.post("/reply/")
@@ -180,7 +329,17 @@ async def ai_reply(
 
     if resolution.use_stub:
         return StreamingResponse(
-            stream_stub_reply(payload.text, scope=payload.scope),
+            _stream_stub_with_meta(
+                session=session,
+                user=user,
+                payload=payload,
+                history=history,
+                post_data=post_data,
+                chat_meta=chat_meta,
+                channel_profile=channel_profile,
+                telegram_profile=telegram_profile,
+                ai_profile=ai_profile,
+            ),
             media_type="text/event-stream",
             headers=_SSE_HEADERS,
         )
@@ -206,11 +365,20 @@ async def ai_reply(
         chat_meta=chat_meta,
     )
     return StreamingResponse(
-        stream_llm_sse(
-            spec=spec,
-            model=model_id,
-            api_key=resolution.api_key,
+        _stream_reply_with_meta(
+            session=session,
+            user=user,
+            payload=payload,
+            history=history,
+            post_data=post_data,
+            chat_meta=chat_meta,
+            channel_profile=channel_profile,
+            telegram_profile=telegram_profile,
+            ai_profile=ai_profile,
             messages=messages,
+            spec=spec,
+            model_id=model_id,
+            api_key=resolution.api_key,
         ),
         media_type="text/event-stream",
         headers=_SSE_HEADERS,

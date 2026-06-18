@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { chatContextMetaSchema } from "./chatContextMeta";
 
 export const postStatusSchema = z.enum(["published", "scheduled", "draft"]);
 
@@ -76,7 +77,7 @@ export const chatMessageSchema: z.ZodType<{
   }),
 );
 
-export const localChatSchema = z.object({
+export const localChatSchema = chatContextMetaSchema.extend({
   id: z.string(),
   title: z.string(),
   preview: z.string(),

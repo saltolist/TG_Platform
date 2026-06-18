@@ -1,9 +1,10 @@
 import { z } from "zod";
 import { chatMessageSchema } from "./post";
+import { chatContextMetaSchema } from "./chatContextMeta";
 
 export const globalChatKindSchema = z.enum(["default", "omnichannel"]);
 
-export const globalChatSchema = z.object({
+export const globalChatSchema = chatContextMetaSchema.extend({
   id: z.string(),
   kind: globalChatKindSchema.optional(),
   title: z.string(),

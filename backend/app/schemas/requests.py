@@ -22,6 +22,7 @@ class AiReplyRequest(BaseModel):
     post_id: str | None = Field(default=None, validation_alias="postId")
     post_chat_id: str | None = Field(default=None, validation_alias="postChatId")
     history: list[dict[str, Any]] | None = None
+    chat_meta: dict[str, Any] | None = Field(default=None, validation_alias="chatMeta")
     llm_id: str | None = Field(default=None, validation_alias="llmId")
     api_key: str | None = Field(default=None, validation_alias="apiKey")
     provider: str | None = None

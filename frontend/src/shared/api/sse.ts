@@ -9,7 +9,22 @@ export function extractSseText(eventBlock: string): string | null {
     if (!line.startsWith("data: ")) continue;
     try {
       const data = JSON.parse(line.slice(6)) as { text?: string };
-      return data.text ?? "";
+      if (typeof data.text !== "string") return null;
+      return data.text;
+    } catch {
+      return null;
+    }
+  }
+  return null;
+}
+
+export function extractSseMeta(eventBlock: string): Record<string, unknown> | null {
+  for (const line of eventBlock.split("\n")) {
+    if (!line.startsWith("data: ")) continue;
+    try {
+      const data = JSON.parse(line.slice(6)) as { meta?: Record<string, unknown> };
+      if (!data.meta || typeof data.meta !== "object") return null;
+      return data.meta;
     } catch {
       return null;
     }
@@ -30,21 +45,34 @@ export function yieldToRenderer(): Promise<void> {
 
 export type ConsumeSseOptions = {
   paintBetweenChunks?: boolean;
+  onMeta?: (meta: Record<string, unknown>) => void;
+};
+
+export type ConsumeSseResult = {
+  text: string;
+  meta: Record<string, unknown> | null;
 };
 
 export async function consumeSseTextStream(
   body: ReadableStream<Uint8Array>,
   onChunk: (text: string) => void,
   options: ConsumeSseOptions = {},
-): Promise<string> {
+): Promise<ConsumeSseResult> {
   const paintBetweenChunks = options.paintBetweenChunks ?? true;
   const reader = body.getReader();
   const decoder = new TextDecoder();
   let buffer = "";
   let full = "";
+  let meta: Record<string, unknown> | null = null;
 
   const flushEvents = async (events: string[]) => {
     for (const event of events) {
+      const metaChunk = extractSseMeta(event);
+      if (metaChunk) {
+        meta = metaChunk;
+        options.onMeta?.(metaChunk);
+        continue;
+      }
       const chunk = extractSseText(event);
       if (chunk == null || chunk === "") continue;
       full += chunk;
@@ -69,7 +97,7 @@ export async function consumeSseTextStream(
     await flushEvents([buffer]);
   }
 
-  return full;
+  return { text: full, meta };
 }
 
 export function* chunkTextForStream(text: string, size = 24): Generator<string> {

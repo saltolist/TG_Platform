@@ -14,6 +14,7 @@ import {
   postsListSchema,
   postSchema,
 } from "@/shared/api/schemas";
+import { chatContextMetaSchema } from "@/shared/api/schemas/chatContextMeta";
 import type {
   AiProfileConfig,
   ChannelProfileConfig,
@@ -38,11 +39,20 @@ function streamAiReply(
   if (options?.postId) body.postId = options.postId;
   if (options?.postChatId) body.postChatId = options.postChatId;
   if (Array.isArray(options?.history)) body.history = options.history;
+  if (options?.chatMeta) body.chatMeta = options.chatMeta;
   return apiStream(apiV1Path("ai/reply"), {
     method: "POST",
     body,
     signal: options?.signal,
     onChunk,
+  }).then((result) => {
+    if (result.meta) {
+      const parsed = chatContextMetaSchema.safeParse(result.meta);
+      if (parsed.success) {
+        options?.onMeta?.(parsed.data);
+      }
+    }
+    return result.text;
   });
 }
 

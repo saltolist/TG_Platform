@@ -5,16 +5,19 @@ from __future__ import annotations
 from typing import Any, Mapping
 
 from app.services.ai.bundle import build_summary_bundle, bundle_fingerprint
+from app.services.ai.bundle_profile import (
+    PRIMER_ACK_FLOATING,
+    bundle_text_for_primer,
+    ensure_bundle_profile,
+    get_floating_bundle_injections,
+)
 from app.services.ai.chat_history import (
     count_user_turns,
     filter_alternating_roles,
     linearize_for_llm,
 )
-from app.services.ai.context_config import (
-    PRIMER_ACK,
-    PROMPT_WINDOW,
-    SUMMARY_BUNDLE_CATCHUP_MESSAGES,
-)
+from app.services.ai.context_config import PRIMER_ACK, PROMPT_WINDOW
+from app.services.ai.context_meta import annotate_user_turns
 
 DEFAULT_SYSTEM_PROMPT = (
     "Ты AI-ассистент TG Platform. Помогай автору Telegram-канала с текстами, "
@@ -33,53 +36,38 @@ def build_primer_user_content(bundle_text: str, rolling_summary: str = "") -> st
     return "\n".join(parts)
 
 
-def resolve_stub_bundle_text(
-    *,
-    profile_meta: Mapping[str, Any] | None,
-    current_bundle: str,
-    current_fingerprint: str,
-    user_turn_count: int,
-) -> str:
-    """Pick bundle generation for primer (catch-up versioning)."""
-    meta = profile_meta if isinstance(profile_meta, Mapping) else {}
-    generations = meta.get("generations")
-    if not isinstance(generations, list) or not generations:
-        return current_bundle
-
-    valid_generations = [item for item in generations if isinstance(item, Mapping)]
-    if not valid_generations:
-        return current_bundle
-
-    stub_id = meta.get("stub_generation_id")
-    stub: Mapping[str, Any] | None = None
-    if isinstance(stub_id, str):
-        stub = next((item for item in valid_generations if item.get("id") == stub_id), None)
-    if stub is None:
-        stub = valid_generations[0]
-
-    matured = stub
-    for generation in sorted(
-        valid_generations,
-        key=lambda item: int(item.get("anchor_user_turn") or 0),
-    ):
-        anchor = int(generation.get("anchor_user_turn") or 0)
-        if anchor + SUMMARY_BUNDLE_CATCHUP_MESSAGES <= user_turn_count:
-            matured = generation
-
-    text = str(matured.get("text") or "").strip()
-    if text:
-        return text
-
-    if current_fingerprint == str(stub.get("fingerprint") or ""):
-        return current_bundle
-
-    return str(stub.get("text") or current_bundle)
+def build_floating_bundle_user_content(bundle_text: str) -> str:
+    return f"{PRIMER_USER_TAG}:\n{bundle_text.strip()}"
 
 
 def take_prompt_window(pairs: list[tuple[str, str]], *, window_size: int = PROMPT_WINDOW) -> list[tuple[str, str]]:
     if window_size <= 0:
         return []
     return pairs[-window_size:]
+
+
+def build_dialog_messages(
+    window_pairs: list[tuple[str, str]],
+    *,
+    valid_pairs: list[tuple[str, str]],
+    floating_bundles: dict[int, str],
+) -> list[dict[str, str]]:
+    annotated = annotate_user_turns(valid_pairs)
+    window_len = len(window_pairs)
+    window_annotated = annotated[-window_len:] if window_len else []
+
+    messages: list[dict[str, str]] = []
+    for user_turn, role, content in window_annotated:
+        if role == "user" and user_turn is not None and user_turn in floating_bundles:
+            messages.append(
+                {
+                    "role": "user",
+                    "content": build_floating_bundle_user_content(floating_bundles[user_turn]),
+                }
+            )
+            messages.append({"role": "assistant", "content": PRIMER_ACK_FLOATING})
+        messages.append({"role": role, "content": content})
+    return messages
 
 
 def assemble_reply_messages(
@@ -118,19 +106,40 @@ def assemble_reply_messages(
     window_pairs = take_prompt_window(valid_pairs)
 
     rolling_summary = ""
+    bundle_profile: dict[str, Any] = {}
     if isinstance(chat_meta, Mapping):
         rolling_summary = str(chat_meta.get("rolling_summary") or "").strip()
+        bundle_profile = ensure_bundle_profile(
+            chat_meta.get("rolling_summary_profile"),
+            current_bundle=current_bundle,
+            current_fingerprint=fingerprint,
+            user_turn_count=user_turn_count,
+        )
+    else:
+        bundle_profile = ensure_bundle_profile(
+            None,
+            current_bundle=current_bundle,
+            current_fingerprint=fingerprint,
+            user_turn_count=user_turn_count,
+        )
 
-    profile_meta = (
-        chat_meta.get("rolling_summary_profile")
-        if isinstance(chat_meta, Mapping)
-        else None
-    )
-    bundle_for_primer = resolve_stub_bundle_text(
-        profile_meta=profile_meta if isinstance(profile_meta, Mapping) else None,
+    primer_stub_id = str(bundle_profile.get("stub_generation_id") or "")
+    bundle_for_primer = bundle_text_for_primer(
+        bundle_profile,
         current_bundle=current_bundle,
-        current_fingerprint=fingerprint,
         user_turn_count=user_turn_count,
+    )
+
+    window_user_turns = {
+        user_turn
+        for user_turn, role, _ in annotate_user_turns(valid_pairs)[-len(window_pairs) :]
+        if role == "user" and user_turn is not None
+    }
+    floating_bundles = get_floating_bundle_injections(
+        bundle_profile,
+        primer_stub_id=primer_stub_id,
+        user_turn_count=user_turn_count,
+        window_user_turns=window_user_turns,
     )
 
     messages: list[dict[str, str]] = [
@@ -138,9 +147,13 @@ def assemble_reply_messages(
         {"role": "user", "content": build_primer_user_content(bundle_for_primer, rolling_summary)},
         {"role": "assistant", "content": PRIMER_ACK},
     ]
-
-    for role, content in window_pairs:
-        messages.append({"role": role, "content": content})
+    messages.extend(
+        build_dialog_messages(
+            window_pairs,
+            valid_pairs=valid_pairs,
+            floating_bundles=floating_bundles,
+        )
+    )
 
     return messages
 

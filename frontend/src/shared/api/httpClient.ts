@@ -87,7 +87,10 @@ export async function apiRequest<T>(path: string, options: RequestOptions = {}):
   return JSON.parse(text) as T;
 }
 
-export async function apiStream(path: string, options: StreamRequestOptions): Promise<string> {
+export async function apiStream(
+  path: string,
+  options: StreamRequestOptions,
+): Promise<{ text: string; meta: Record<string, unknown> | null }> {
   const { onChunk, ...requestOptions } = options;
   const { method = "POST", body, signal, headers, url } = await prepareApiFetch(path, requestOptions);
 

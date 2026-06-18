@@ -87,6 +87,47 @@ async def stream_chat_completion_tokens(
             await client.aclose()
 
 
+async def complete_chat_completion(
+    *,
+    spec: ProviderSpec,
+    model: str,
+    api_key: str,
+    messages: list[dict[str, str]],
+    client: httpx.AsyncClient | None = None,
+) -> str:
+    """Non-streaming chat completion (rolling summary, etc.)."""
+    url = chat_completions_url(spec)
+    headers = {
+        "Authorization": f"Bearer {api_key}",
+        "Content-Type": "application/json",
+    }
+    body = {
+        "model": model,
+        "messages": messages,
+        "stream": False,
+    }
+
+    owns_client = client is None
+    if client is None:
+        client = httpx.AsyncClient(timeout=_HTTP_TIMEOUT)
+
+    try:
+        response = await client.post(url, headers=headers, json=body)
+        response.raise_for_status()
+        data = response.json()
+        choices = data.get("choices")
+        if not isinstance(choices, list) or not choices:
+            return ""
+        message = choices[0].get("message") if isinstance(choices[0], dict) else None
+        if not isinstance(message, dict):
+            return ""
+        content = message.get("content")
+        return content if isinstance(content, str) else ""
+    finally:
+        if owns_client:
+            await client.aclose()
+
+
 async def stream_llm_sse(
     *,
     spec: ProviderSpec,

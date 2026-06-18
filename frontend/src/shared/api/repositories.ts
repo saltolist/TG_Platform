@@ -44,6 +44,8 @@ export interface ProfileRepository {
   updateTelegram(config: TelegramProfileConfig): Promise<TelegramProfileConfig>;
 }
 
+import type { ChatContextMeta } from "@/shared/api/schemas/chatContextMeta";
+
 export type AssistantStreamOptions = {
   llmId?: string;
   provider?: string;
@@ -54,6 +56,8 @@ export type AssistantStreamOptions = {
   postId?: string;
   postChatId?: string;
   history?: ChatMessage[];
+  chatMeta?: ChatContextMeta;
+  onMeta?: (meta: ChatContextMeta) => void;
 };
 
 export interface AssistantRepository {

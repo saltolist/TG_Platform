@@ -37,6 +37,11 @@ import { randomId } from "@/shared/lib/randomId";
 import { showToast } from "@/shared/ui/toast";
 import { isAbortError } from "@/shared/lib/isAbortError";
 import { patchGlobalChatStreamingText, patchPostChatStreamingText } from "@/shared/lib/streaming/patchStreamingReply";
+import {
+  patchGlobalChatContextMeta,
+  patchPostChatContextMeta,
+} from "@/shared/lib/streaming/patchChatContextMeta";
+import { extractChatContextMeta } from "@/shared/api/schemas/chatContextMeta";
 import { updateLastVisibleAiMessage } from "@/shared/lib/chatPaths";
 import { queryKeys } from "@/shared/api/queryKeys";
 import type { AssistantRepository } from "@/shared/api/repositories";
@@ -62,18 +67,39 @@ export type ComposerContextValue = {
 
 const ComposerContext = createContext<ComposerContextValue | null>(null);
 
+function readGlobalChat(
+  queryClient: ReturnType<typeof useQueryClient>,
+  accountId: string,
+  chatId: string,
+): GlobalChat | null {
+  const fromDetail = queryClient.getQueryData<GlobalChat>(
+    queryKeys.globalChats.detail(accountId, chatId),
+  );
+  if (fromDetail) return fromDetail;
+
+  const list = queryClient.getQueryData<GlobalChat[]>(queryKeys.globalChats.list(accountId));
+  return list?.find((chat) => chat.id === chatId) ?? null;
+}
+
 function readGlobalChatHistory(
   queryClient: ReturnType<typeof useQueryClient>,
   accountId: string,
   chatId: string,
 ): ChatMessage[] {
-  const fromDetail = queryClient.getQueryData<GlobalChat>(
-    queryKeys.globalChats.detail(accountId, chatId),
-  );
-  if (fromDetail) return fromDetail.history ?? [];
+  return readGlobalChat(queryClient, accountId, chatId)?.history ?? [];
+}
 
-  const list = queryClient.getQueryData<GlobalChat[]>(queryKeys.globalChats.list(accountId));
-  return list?.find((chat) => chat.id === chatId)?.history ?? [];
+function readPostChat(
+  queryClient: ReturnType<typeof useQueryClient>,
+  accountId: string,
+  postId: string,
+  chatId: string,
+): LocalChat | null {
+  const fromDetail = queryClient.getQueryData<Post>(queryKeys.posts.detail(accountId, postId));
+  const post =
+    fromDetail ??
+    queryClient.getQueryData<Post[]>(queryKeys.posts.list(accountId))?.find((item) => item.id === postId);
+  return post?.chats?.find((item) => item.id === chatId) ?? null;
 }
 
 function readPostChatHistory(
@@ -82,12 +108,7 @@ function readPostChatHistory(
   postId: string,
   chatId: string,
 ): ChatMessage[] {
-  const fromDetail = queryClient.getQueryData<Post>(queryKeys.posts.detail(accountId, postId));
-  const post =
-    fromDetail ??
-    queryClient.getQueryData<Post[]>(queryKeys.posts.list(accountId))?.find((item) => item.id === postId);
-  const chat = post?.chats?.find((item) => item.id === chatId);
-  return chat?.history ?? [];
+  return readPostChat(queryClient, accountId, postId, chatId)?.history ?? [];
 }
 
 async function streamGlobalAssistantReply(params: {
@@ -100,6 +121,7 @@ async function streamGlobalAssistantReply(params: {
   signal?: AbortSignal;
 }): Promise<string> {
   const { queryClient, accountId, chatId, assistant, userText, llmTarget, signal } = params;
+  const chat = readGlobalChat(queryClient, accountId, chatId);
   let accumulated = "";
   try {
     return await assistant.streamGlobalChatReply(
@@ -111,7 +133,9 @@ async function streamGlobalAssistantReply(params: {
       {
         ...llmTarget,
         chatId,
-        history: readGlobalChatHistory(queryClient, accountId, chatId),
+        history: chat?.history ?? [],
+        chatMeta: extractChatContextMeta(chat ?? undefined),
+        onMeta: (meta) => patchGlobalChatContextMeta(queryClient, chatId, meta, accountId),
         signal,
       },
     );
@@ -132,6 +156,7 @@ async function streamPostAssistantReply(params: {
   signal?: AbortSignal;
 }): Promise<string> {
   const { queryClient, accountId, postId, chatId, assistant, userText, llmTarget, signal } = params;
+  const chat = readPostChat(queryClient, accountId, postId, chatId);
   let accumulated = "";
   try {
     return await assistant.streamPostChatReply(
@@ -144,7 +169,9 @@ async function streamPostAssistantReply(params: {
         ...llmTarget,
         postId,
         postChatId: chatId,
-        history: readPostChatHistory(queryClient, accountId, postId, chatId),
+        history: chat?.history ?? [],
+        chatMeta: extractChatContextMeta(chat ?? undefined),
+        onMeta: (meta) => patchPostChatContextMeta(queryClient, postId, chatId, meta, accountId),
         signal,
       },
     );
