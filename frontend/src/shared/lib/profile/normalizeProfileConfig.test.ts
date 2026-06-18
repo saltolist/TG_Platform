@@ -16,6 +16,6 @@ describe("normalizeProfileConfig", () => {
     const cfg = normalizeTelegramProfileConfig({});
     expect(cfg.authStatus).toBe("idle");
     expect(cfg.botApiToken).toBe("");
-    expect(cfg.channel).toBe("@demochannel");
+    expect(cfg.channel).toBe("");
   });
 });

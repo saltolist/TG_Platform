@@ -50,8 +50,7 @@ export function createEmptyTelegramProfile(): TelegramProfileConfig {
     apiHash: "",
     phone: "",
     sessionName: "",
-    /** Prefilled for onboarding; channel block appears after phone code is confirmed. */
-    channel: DEMO_CHANNEL_HANDLE,
+    channel: "",
     channelTitle: "",
     channelStatus: "idle",
     syncMode: "history-and-live",
@@ -66,12 +65,16 @@ export function createEmptyTelegramProfile(): TelegramProfileConfig {
 }
 
 export function createEmptyAccountStore(): MswStore {
+  const telegramProfile = createEmptyTelegramProfile();
+  /** GitHub Pages / MSW: prefilled handle for onboarding after phone code. */
+  telegramProfile.channel = DEMO_CHANNEL_HANDLE;
+
   return {
     posts: [],
     globalChats: [],
     globalNotes: [],
     channelProfile: createEmptyChannelProfile(),
     aiProfile: emptyAiProfile(),
-    telegramProfile: createEmptyTelegramProfile(),
+    telegramProfile,
   };
 }

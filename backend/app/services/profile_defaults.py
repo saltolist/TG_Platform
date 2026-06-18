@@ -4,8 +4,6 @@ from __future__ import annotations
 
 from typing import Any
 
-DEMO_CHANNEL_HANDLE = "@demochannel"
-
 
 def empty_channel_profile() -> dict[str, Any]:
     return {
@@ -44,7 +42,7 @@ def empty_telegram_profile() -> dict[str, Any]:
         "apiHash": "",
         "phone": "",
         "sessionName": "",
-        "channel": DEMO_CHANNEL_HANDLE,
+        "channel": "",
         "channelTitle": "",
         "channelStatus": "idle",
         "syncMode": "history-and-live",

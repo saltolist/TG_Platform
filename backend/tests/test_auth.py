@@ -34,6 +34,15 @@ async def test_register_and_login(client: AsyncClient) -> None:
     assert channel.status_code == 200
     assert channel.json()["rubrics"] == []
 
+    telegram = await client.get(
+        "/api/v1/profile/telegram/",
+        headers={"Authorization": f"Bearer {session['token']}"},
+    )
+    assert telegram.status_code == 200
+    assert telegram.json()["channel"] == ""
+    assert telegram.json()["channelStatus"] == "idle"
+    assert telegram.json()["authStatus"] == "idle"
+
     login = await client.post(
         "/api/v1/auth/login/",
         json={"email": email, "password": password},
