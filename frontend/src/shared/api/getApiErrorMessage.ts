@@ -1,8 +1,28 @@
 import { ApiError } from "@/shared/api/httpClient";
 
+type ValidationDetail = {
+  loc?: (string | number)[];
+  msg?: string;
+  type?: string;
+};
+
+function validationDetailMessage(details: ValidationDetail[]): string | null {
+  for (const detail of details) {
+    const field = detail.loc?.find((part) => typeof part === "string" && part !== "body");
+    if (field === "email") return "Укажите корректный email";
+    if (field === "password") return "Укажите пароль";
+    if (field === "code") return "Укажите код из письма";
+  }
+  return null;
+}
+
 export function getApiErrorMessage(error: unknown, fallback: string): string {
   if (error instanceof ApiError) {
-    const body = error.body as { error?: string } | undefined;
+    const body = error.body as { error?: string; details?: ValidationDetail[] } | undefined;
+    if (body?.details?.length) {
+      const detailMessage = validationDetailMessage(body.details);
+      if (detailMessage) return detailMessage;
+    }
     if (body?.error) return body.error;
   }
   if (error instanceof Error && error.message) return error.message;

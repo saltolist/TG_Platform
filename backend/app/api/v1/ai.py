@@ -27,22 +27,51 @@ def _pick_llm_model(ai_profile: dict[str, Any], llm_id: str | None) -> dict[str,
         for model in models:
             if model.get("id") == llm_id:
                 return model
+        for model in models:
+            if model.get("active"):
+                return model
+        return models[0] if models else None
     for model in models:
         if model.get("active"):
             return model
     return models[0] if models else None
 
 
-def _resolve_reply_key(
-    user: CurrentUser,
+def _resolve_llm_model_for_reply(
     ai_profile: dict[str, Any],
     llm_id: str | None,
+    provider: str | None,
+    model_name: str | None,
+) -> dict[str, Any] | None:
+    """Resolve model from Postgres profile, with client overlay overrides."""
+    profile_model = _pick_llm_model(ai_profile, llm_id)
+    provider_name = (provider or "").strip()
+    llm_model = (model_name or "").strip()
+
+    if provider_name and llm_model:
+        base = dict(profile_model or {})
+        return {
+            **base,
+            "id": llm_id or base.get("id", "client"),
+            "provider": provider_name,
+            "model": llm_model,
+            "active": True,
+        }
+
+    return profile_model
+
+
+def _resolve_reply_key(
+    user: CurrentUser,
+    model: dict[str, Any] | None,
+    override_api_key: str | None = None,
 ) -> KeyResolution:
     settings = get_settings()
-    model = _pick_llm_model(ai_profile, llm_id)
     if model is None:
         mode = get_account_mode(user)
         return KeyResolution(api_key=None, source=KeySource.NONE, account_mode=mode)
+    if override_api_key and override_api_key.strip():
+        model = {**model, "apiKey": override_api_key.strip()}
     return resolve_model_api_key(model, user, settings)
 
 
@@ -70,8 +99,13 @@ async def ai_reply(
 ) -> StreamingResponse:
     profile = await session.get(Profile, user.id)
     ai_profile = profile.ai if profile and profile.ai else {}
-    model = _pick_llm_model(ai_profile, payload.llm_id)
-    resolution = _resolve_reply_key(user, ai_profile, payload.llm_id)
+    model = _resolve_llm_model_for_reply(
+        ai_profile,
+        payload.llm_id,
+        payload.provider,
+        payload.llm_model,
+    )
+    resolution = _resolve_reply_key(user, model, payload.api_key)
 
     if resolution.unavailable:
         raise HTTPException(status_code=422, detail="AI недоступен: укажите API ключ модели")

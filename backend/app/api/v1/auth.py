@@ -7,7 +7,7 @@ from app.core.config import settings
 from app.core.constants import DEMO_EMAIL
 from app.core.deps import DbSession
 from app.core.security import create_access_token, hash_password, verify_password
-from app.db.models import EmailCode, User
+from app.db.models import EmailCode, Profile, User
 from app.schemas.auth import (
     AuthSession,
     ForgotPasswordResetDto,
@@ -17,6 +17,7 @@ from app.schemas.auth import (
     RegisterVerifyDto,
 )
 from app.services.email import generate_code, send_code
+from app.services.profile_defaults import empty_profile_payload
 
 router = APIRouter(prefix="/auth", tags=["Auth"])
 
@@ -113,6 +114,16 @@ async def register_verify(dto: RegisterVerifyDto, session: DbSession) -> AuthSes
 
     user = User(email=email, password_hash=record.password_hash or "")
     session.add(user)
+    await session.flush()
+    defaults = empty_profile_payload()
+    session.add(
+        Profile(
+            user_id=user.id,
+            channel=defaults["channel"],
+            ai=defaults["ai"],
+            telegram=defaults["telegram"],
+        )
+    )
     await session.delete(record)
     await session.commit()
     await session.refresh(user)

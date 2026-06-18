@@ -3,11 +3,57 @@ import {
   formatWebSearchComposerLabel,
   VARIANT_TAILS,
 } from "@/shared/config/composer";
+import { getApiErrorMessage } from "@/shared/api/getApiErrorMessage";
 import type { AiProfileConfig, AiVariant, ChatMessage, ComposerScope, LlmModel } from "@/shared/types";
 
 export function resolveLlmLabel(cfg: AiProfileConfig, id: string): string {
   const model = cfg.llmModels.find((m) => m.id === id);
   return model ? `${model.provider} / ${model.model || "модель"}` : "LLM не выбрана";
+}
+
+export const EMPTY_AI_REPLY_FALLBACK =
+  "Не удалось получить ответ от модели. Проверьте API ключ и настройки провайдера.";
+
+export async function completeAssistantReply(
+  stream: () => Promise<string>,
+  onError?: (message: string) => void,
+): Promise<string> {
+  try {
+    const text = await stream();
+    const trimmed = text.trim();
+    if (!trimmed) {
+      onError?.(EMPTY_AI_REPLY_FALLBACK);
+      return EMPTY_AI_REPLY_FALLBACK;
+    }
+    return text;
+  } catch (error) {
+    const message = getApiErrorMessage(error, EMPTY_AI_REPLY_FALLBACK);
+    onError?.(message);
+    return message;
+  }
+}
+
+export function resolveLlmApiKey(cfg: AiProfileConfig, llmId: string): string | undefined {
+  return resolveLlmTarget(cfg, llmId).apiKey;
+}
+
+export function resolveLlmTarget(
+  cfg: AiProfileConfig,
+  llmId: string,
+): { llmId: string; provider?: string; model?: string; apiKey?: string } {
+  const selected = llmId
+    ? cfg.llmModels.find((item) => item.id === llmId)
+    : cfg.llmModels.find((item) => item.active) ?? cfg.llmModels[0];
+  if (!selected) return { llmId };
+  const provider = selected.provider?.trim();
+  const model = selected.model?.trim();
+  const apiKey = selected.apiKey?.trim();
+  return {
+    llmId: selected.id,
+    provider: provider || undefined,
+    model: model || undefined,
+    apiKey: apiKey || undefined,
+  };
 }
 
 export function resolveWebLabel(cfg: AiProfileConfig, id: string): string {

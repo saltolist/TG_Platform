@@ -7,6 +7,7 @@ from collections.abc import AsyncIterator
 from typing import Any
 
 import pytest
+import httpx
 from httpx import AsyncClient
 
 from app.core.config import Settings
@@ -15,6 +16,7 @@ from app.services.ai.llm import (
     build_reply_messages,
     parse_openai_stream_line,
     stream_chat_completion_tokens,
+    stream_llm_sse,
 )
 from app.services.ai.providers import chat_completions_url, get_provider_spec
 from app.services.ai.sse import format_sse_data
@@ -226,3 +228,187 @@ async def test_ai_reply_llm_stream_with_mocked_http(
 
     assert response.status_code == 200
     assert parse_sse_text(response.text) == "Mock LLM"
+
+
+@pytest.mark.asyncio
+async def test_ai_reply_request_api_key_overrides_profile_for_demo(
+    client: AsyncClient,
+    presentation_user: User,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    captured: dict[str, object] = {}
+
+    async def fake_stream_llm_sse(**kwargs: object) -> AsyncIterator[str]:
+        captured.update(kwargs)
+        yield format_sse_data("BYOK")
+
+    settings = Settings(openai_api_key="", deepseek_api_key="")
+    monkeypatch.setattr("app.api.v1.ai.stream_llm_sse", fake_stream_llm_sse)
+    monkeypatch.setattr("app.api.v1.ai.get_settings", lambda: settings)
+    monkeypatch.setattr("app.services.ai.keys.get_settings", lambda: settings)
+
+    async with TestSessionLocal() as session:
+        profile = await session.get(Profile, presentation_user.id)
+        if profile is None:
+            profile = Profile(user_id=presentation_user.id, ai={})
+            session.add(profile)
+        profile.ai = {
+            "systemPrompt": "Test",
+            "llmModels": [
+                {
+                    "id": "ds-demo",
+                    "provider": "DeepSeek",
+                    "model": "deepseek-chat",
+                    "apiKey": "env:DEEPSEEK_API_KEY",
+                    "active": True,
+                }
+            ],
+        }
+        await session.commit()
+
+    response = await client.post(
+        "/api/v1/ai/reply/",
+        headers=guest_auth_headers(),
+        json={
+            "text": "Hello",
+            "scope": "global",
+            "llmId": "ds-demo",
+            "apiKey": "sk-user-deepseek",
+        },
+    )
+
+    assert response.status_code == 200
+    assert parse_sse_text(response.text) == "BYOK"
+    assert captured["api_key"] == "sk-user-deepseek"
+
+
+@pytest.mark.asyncio
+async def test_ai_reply_uses_client_provider_when_overlay_differs_from_db(
+    client: AsyncClient,
+    presentation_user: User,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    captured: dict[str, object] = {}
+
+    async def fake_stream_llm_sse(**kwargs: object) -> AsyncIterator[str]:
+        captured.update(kwargs)
+        yield format_sse_data("DeepSeek OK")
+
+    settings = Settings(openai_api_key="", deepseek_api_key="")
+    monkeypatch.setattr("app.api.v1.ai.stream_llm_sse", fake_stream_llm_sse)
+    monkeypatch.setattr("app.api.v1.ai.get_settings", lambda: settings)
+    monkeypatch.setattr("app.services.ai.keys.get_settings", lambda: settings)
+
+    async with TestSessionLocal() as session:
+        profile = await session.get(Profile, presentation_user.id)
+        if profile is None:
+            profile = Profile(user_id=presentation_user.id, ai={})
+            session.add(profile)
+        profile.ai = {
+            "systemPrompt": "Test",
+            "llmModels": [
+                {
+                    "id": "llm-1",
+                    "provider": "OpenAI",
+                    "model": "gpt-4o",
+                    "apiKey": "sk-openai-demo",
+                    "active": True,
+                }
+            ],
+        }
+        await session.commit()
+
+    response = await client.post(
+        "/api/v1/ai/reply/",
+        headers=guest_auth_headers(),
+        json={
+            "text": "Hello",
+            "scope": "global",
+            "llmId": "overlay-deepseek-1",
+            "provider": "DeepSeek",
+            "model": "deepseek-chat",
+            "apiKey": "sk-user-deepseek",
+        },
+    )
+
+    assert response.status_code == 200
+    assert parse_sse_text(response.text) == "DeepSeek OK"
+    assert captured["model"] == "deepseek-chat"
+    assert captured["api_key"] == "sk-user-deepseek"
+
+
+@pytest.mark.asyncio
+async def test_stream_llm_sse_returns_error_text_on_http_401(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    request = httpx.Request("POST", "https://api.deepseek.com/v1/chat/completions")
+    response = httpx.Response(401, request=request)
+
+    async def failing_tokens(**kwargs: object) -> AsyncIterator[str]:
+        raise httpx.HTTPStatusError("Unauthorized", request=request, response=response)
+        yield ""  # pragma: no cover
+
+    monkeypatch.setattr("app.services.ai.llm.stream_chat_completion_tokens", failing_tokens)
+
+    spec = get_provider_spec("DeepSeek")
+    assert spec is not None
+
+    body = "".join(
+        [
+            chunk
+            async for chunk in stream_llm_sse(
+                spec=spec,
+                model="deepseek-chat",
+                api_key="sk-bad",
+                messages=[{"role": "user", "content": "Hi"}],
+            )
+        ]
+    )
+    text = parse_sse_text(body)
+    assert "недействительный" in text.lower()
+
+
+@pytest.mark.asyncio
+async def test_ai_reply_invalid_key_returns_error_text_for_real_account(
+    client: AsyncClient,
+    writer_user: User,
+    writer_auth_headers: dict[str, str],
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    request = httpx.Request("POST", "https://api.openai.com/v1/chat/completions")
+    response = httpx.Response(401, request=request)
+
+    async def failing_tokens(**kwargs: object) -> AsyncIterator[str]:
+        raise httpx.HTTPStatusError("Unauthorized", request=request, response=response)
+        yield ""  # pragma: no cover
+
+    monkeypatch.setattr("app.services.ai.llm.stream_chat_completion_tokens", failing_tokens)
+
+    async with TestSessionLocal() as session:
+        session.add(
+            Profile(
+                user_id=writer_user.id,
+                ai={
+                    "systemPrompt": "Test",
+                    "llmModels": [
+                        {
+                            "id": "llm-1",
+                            "provider": "OpenAI",
+                            "model": "gpt-4o",
+                            "apiKey": "sk-bad-real",
+                            "active": True,
+                        }
+                    ],
+                },
+            )
+        )
+        await session.commit()
+
+    http_response = await client.post(
+        "/api/v1/ai/reply/",
+        headers=writer_auth_headers,
+        json={"text": "Hello", "scope": "global", "llmId": "llm-1"},
+    )
+    assert http_response.status_code == 200
+    text = parse_sse_text(http_response.text)
+    assert "недействительный" in text.lower()

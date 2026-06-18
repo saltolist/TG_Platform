@@ -2,9 +2,12 @@ import { describe, expect, it } from "vitest";
 
 import {
   buildAiReplyMessage,
+  completeAssistantReply,
+  EMPTY_AI_REPLY_FALLBACK,
   getChatSendValidationMessage,
   getLlmSendValidationMessage,
   getOrchestratorSendValidationMessage,
+  resolveLlmTarget,
 } from "@/app/model/store/composer/helpers";
 import { initialAiProfileConfig } from "@/shared/data/seed-data";
 import type { AiProfileConfig } from "@/shared/types";
@@ -19,6 +22,43 @@ function multiCfg(overrides?: Partial<AiProfileConfig>): AiProfileConfig {
     ...overrides,
   };
 }
+
+describe("completeAssistantReply", () => {
+  it("returns fallback when stream resolves empty", async () => {
+    const messages: string[] = [];
+    const text = await completeAssistantReply(async () => "", (message) => messages.push(message));
+    expect(text).toBe(EMPTY_AI_REPLY_FALLBACK);
+    expect(messages).toEqual([EMPTY_AI_REPLY_FALLBACK]);
+  });
+
+  it("returns stream text on success", async () => {
+    const text = await completeAssistantReply(async () => "Ответ");
+    expect(text).toBe("Ответ");
+  });
+});
+
+describe("resolveLlmTarget", () => {
+  it("returns provider, model and apiKey for selected llm", () => {
+    const cfg = multiCfg({
+      llmModels: [
+        {
+          id: "ds-1",
+          provider: "DeepSeek",
+          model: "deepseek-chat",
+          apiKey: "sk-test",
+          active: true,
+          includeInMulti: false,
+        },
+      ],
+    });
+    expect(resolveLlmTarget(cfg, "ds-1")).toEqual({
+      llmId: "ds-1",
+      provider: "DeepSeek",
+      model: "deepseek-chat",
+      apiKey: "sk-test",
+    });
+  });
+});
 
 describe("buildAiReplyMessage", () => {
   it("builds multi-variant reply when multiResponseEnabled", () => {

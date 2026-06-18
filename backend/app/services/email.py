@@ -4,6 +4,7 @@ import smtplib
 from email.message import EmailMessage
 
 from app.core.config import settings
+from app.core.constants import DEV_EMAIL_CODE
 
 logger = logging.getLogger("tg.email")
 
@@ -14,6 +15,8 @@ _SUBJECTS = {
 
 
 def generate_code() -> str:
+    if not settings.smtp_host:
+        return DEV_EMAIL_CODE
     return f"{secrets.randbelow(1_000_000):06d}"
 
 

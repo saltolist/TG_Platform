@@ -10,3 +10,6 @@ GUEST_TOKEN_PREFIX = "guest:"
 PRESENTATION_EMAIL = "presentation@example.com"
 LEGACY_PRESENTATION_EMAIL = "prezentaciya@mail.ru"
 DEMO_EMAIL = "demo@mail.ru"
+
+# Fixed verification code when SMTP is not configured (dev / Docker).
+DEV_EMAIL_CODE = "000000"

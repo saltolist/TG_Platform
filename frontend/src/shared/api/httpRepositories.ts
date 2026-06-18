@@ -2,6 +2,11 @@ import { apiV1Path } from "@/shared/config/basePath";
 import { apiRequest, apiStream } from "@/shared/api/httpClient";
 import type { AssistantStreamOptions, RepositoryBundle } from "@/shared/api/repositories";
 import {
+  normalizeAiProfileConfigFromServer,
+  normalizeChannelProfileConfig,
+  normalizeTelegramProfileConfig,
+} from "@/shared/lib/profile/normalizeProfileConfig";
+import {
   globalChatsListSchema,
   globalChatSchema,
   globalNotesListSchema,
@@ -26,6 +31,9 @@ function streamAiReply(
 ) {
   const body: Record<string, string> = { text, scope };
   if (options?.llmId) body.llmId = options.llmId;
+  if (options?.provider) body.provider = options.provider;
+  if (options?.model) body.model = options.model;
+  if (options?.apiKey) body.apiKey = options.apiKey;
   return apiStream(apiV1Path("ai/reply"), {
     method: "POST",
     body,
@@ -95,24 +103,31 @@ export function createHttpRepositories(): RepositoryBundle {
         apiRequest<void>(apiV1Path(`global-notes/${noteId}`), { method: "DELETE" }),
     },
     profile: {
-      getChannel: () => apiRequest<ChannelProfileConfig>(apiV1Path("profile/channel")),
+      getChannel: () =>
+        apiRequest<ChannelProfileConfig>(apiV1Path("profile/channel")).then(
+          normalizeChannelProfileConfig,
+        ),
       updateChannel: (config) =>
         apiRequest<ChannelProfileConfig>(apiV1Path("profile/channel"), {
           method: "PUT",
           body: config,
-        }),
-      getAi: () => apiRequest<AiProfileConfig>(apiV1Path("profile/ai")),
+        }).then(normalizeChannelProfileConfig),
+      getAi: () =>
+        apiRequest<AiProfileConfig>(apiV1Path("profile/ai")).then(normalizeAiProfileConfigFromServer),
       updateAi: (config) =>
         apiRequest<AiProfileConfig>(apiV1Path("profile/ai"), {
           method: "PUT",
           body: config,
-        }),
-      getTelegram: () => apiRequest<TelegramProfileConfig>(apiV1Path("profile/telegram")),
+        }).then(normalizeAiProfileConfigFromServer),
+      getTelegram: () =>
+        apiRequest<TelegramProfileConfig>(apiV1Path("profile/telegram")).then(
+          normalizeTelegramProfileConfig,
+        ),
       updateTelegram: (config) =>
         apiRequest<TelegramProfileConfig>(apiV1Path("profile/telegram"), {
           method: "PUT",
           body: config,
-        }),
+        }).then(normalizeTelegramProfileConfig),
     },
     assistant: {
       streamGlobalChatReply: (text, onChunk, options) =>

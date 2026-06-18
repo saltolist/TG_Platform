@@ -8,7 +8,8 @@ from tests.conftest import writer_auth_headers
 async def test_profile_channel_roundtrip(client: AsyncClient, writer_auth_headers: dict) -> None:
     empty = await client.get("/api/v1/profile/channel/", headers=writer_auth_headers)
     assert empty.status_code == 200
-    assert empty.json() == {}
+    assert empty.json()["core"]["topic"] == ""
+    assert empty.json()["rubrics"] == []
 
     payload = {
         "core": {

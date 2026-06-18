@@ -6,7 +6,7 @@ import type {
 import { DEMO_CHANNEL_HANDLE } from "@/shared/lib/auth/constants";
 import type { MswStore } from "@/shared/api/msw/store";
 
-function emptyChannelProfile(): ChannelProfileConfig {
+export function createEmptyChannelProfile(): ChannelProfileConfig {
   return {
     core: {
       topic: "",
@@ -42,7 +42,7 @@ function emptyAiProfile(): AiProfileConfig {
   };
 }
 
-function emptyTelegramProfile(): TelegramProfileConfig {
+export function createEmptyTelegramProfile(): TelegramProfileConfig {
   return {
     authStatus: "idle",
     authStep: "credentials",
@@ -70,8 +70,8 @@ export function createEmptyAccountStore(): MswStore {
     posts: [],
     globalChats: [],
     globalNotes: [],
-    channelProfile: emptyChannelProfile(),
+    channelProfile: createEmptyChannelProfile(),
     aiProfile: emptyAiProfile(),
-    telegramProfile: emptyTelegramProfile(),
+    telegramProfile: createEmptyTelegramProfile(),
   };
 }

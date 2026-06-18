@@ -18,6 +18,19 @@ DEFAULT_SYSTEM_PROMPT = (
 
 _HTTP_TIMEOUT = httpx.Timeout(120.0, connect=30.0)
 
+_LLM_ERROR_GENERIC = (
+    "Не удалось получить ответ от модели. Проверьте API ключ и настройки провайдера."
+)
+
+
+def llm_http_error_message(exc: httpx.HTTPStatusError) -> str:
+    status = exc.response.status_code
+    if status in (401, 403):
+        return "Неверный или недействительный API ключ провайдера."
+    if status == 429:
+        return "Превышен лимит запросов к провайдеру. Попробуйте позже."
+    return _LLM_ERROR_GENERIC
+
 
 def build_reply_messages(
     ai_profile: Mapping[str, Any],
@@ -101,10 +114,24 @@ async def stream_llm_sse(
     messages: list[dict[str, str]],
 ) -> AsyncIterator[str]:
     """Stream LLM tokens as SSE `data: {"text": "..."}` chunks."""
-    async for token in stream_chat_completion_tokens(
-        spec=spec,
-        model=model,
-        api_key=api_key,
-        messages=messages,
-    ):
-        yield format_sse_data(token)
+    yielded = False
+    try:
+        async for token in stream_chat_completion_tokens(
+            spec=spec,
+            model=model,
+            api_key=api_key,
+            messages=messages,
+        ):
+            yielded = True
+            yield format_sse_data(token)
+    except httpx.HTTPStatusError as exc:
+        yield format_sse_data(llm_http_error_message(exc))
+        return
+    except httpx.HTTPError:
+        yield format_sse_data(
+            "Не удалось связаться с провайдером LLM. Проверьте сеть и повторите попытку."
+        )
+        return
+
+    if not yielded:
+        yield format_sse_data(_LLM_ERROR_GENERIC)

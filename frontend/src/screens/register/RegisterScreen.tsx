@@ -8,6 +8,7 @@ import { DEMO_EMAIL_CODE } from "@/shared/lib/auth/constants";
 import { checkPasswordStrength, PASSWORD_REQUIREMENTS_HINT } from "@/shared/lib/check-password-strength";
 import { routes } from "@/shared/lib/routes";
 import { getApiErrorMessage } from "@/shared/api/getApiErrorMessage";
+import { isValidEmail } from "@/shared/lib/isValidEmail";
 import { showToast } from "@/shared/ui/toast";
 import {
   AuthDemoHint,
@@ -48,10 +49,18 @@ export function RegisterScreen({ variant = "page", onOpenLogin }: Props = {}) {
       showToast({ message: "Укажите email", variant: "error" });
       return;
     }
+    if (!isValidEmail(email)) {
+      showToast({ message: "Укажите корректный email", variant: "error" });
+      return;
+    }
     setStep("password");
   };
 
   const handleSendCode = async () => {
+    if (!isValidEmail(email)) {
+      showToast({ message: "Укажите корректный email", variant: "error" });
+      return;
+    }
     if (passwordStrength.isWeak || !password.trim()) {
       showToast({ message: passwordStrength.message ?? PASSWORD_REQUIREMENTS_HINT, variant: "error" });
       return;
@@ -65,7 +74,7 @@ export function RegisterScreen({ variant = "page", onOpenLogin }: Props = {}) {
     try {
       await registerSendCode({ email: email.trim(), password });
       setStep("code");
-      showToast({ message: "Код отправлен (демо: 000000)", variant: "info" });
+      showToast({ message: `Код отправлен (демо: ${DEMO_EMAIL_CODE})`, variant: "info" });
     } catch (error) {
       showToast({
         message: getApiErrorMessage(error, "Не удалось отправить код"),

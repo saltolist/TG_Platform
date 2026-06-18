@@ -4,6 +4,11 @@ from fastapi import APIRouter
 
 from app.core.deps import CurrentUser, CurrentWriter, DbSession
 from app.db.models import Profile
+from app.services.profile_defaults import (
+    empty_ai_profile,
+    empty_channel_profile,
+    empty_telegram_profile,
+)
 
 router = APIRouter(prefix="/profile", tags=["Profile"])
 
@@ -20,7 +25,9 @@ async def _get_or_create(session: DbSession, user_id) -> Profile:
 @router.get("/channel/")
 async def get_channel(user: CurrentUser, session: DbSession) -> dict[str, Any]:
     profile = await session.get(Profile, user.id)
-    return (profile.channel if profile and profile.channel else {})
+    if profile and profile.channel:
+        return profile.channel
+    return empty_channel_profile()
 
 
 @router.put("/channel/")
@@ -36,7 +43,9 @@ async def put_channel(
 @router.get("/ai/")
 async def get_ai(user: CurrentUser, session: DbSession) -> dict[str, Any]:
     profile = await session.get(Profile, user.id)
-    return (profile.ai if profile and profile.ai else {})
+    if profile and profile.ai:
+        return profile.ai
+    return empty_ai_profile()
 
 
 @router.put("/ai/")
@@ -50,7 +59,9 @@ async def put_ai(payload: dict[str, Any], user: CurrentWriter, session: DbSessio
 @router.get("/telegram/")
 async def get_telegram(user: CurrentUser, session: DbSession) -> dict[str, Any]:
     profile = await session.get(Profile, user.id)
-    return (profile.telegram if profile and profile.telegram else {})
+    if profile and profile.telegram:
+        return profile.telegram
+    return empty_telegram_profile()
 
 
 @router.put("/telegram/")

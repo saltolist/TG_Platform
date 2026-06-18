@@ -1,4 +1,8 @@
 import { normalizeAiProfileConfig } from "@/shared/lib/profile/aiModelsSnapshot";
+import {
+  normalizeChannelProfileConfig,
+  normalizeTelegramProfileConfig,
+} from "@/shared/lib/profile/normalizeProfileConfig";
 import { isOverlayAccount } from "@/shared/lib/overlay/isOverlayAccount";
 import { mergeEntityList } from "@/shared/lib/overlay/mergeEntities";
 import { mutateOverlay, readOverlay } from "@/shared/lib/overlay/overlayStorage";
@@ -152,9 +156,10 @@ function overlayNotes(inner: NotesRepository): NotesRepository {
 function overlayProfile(inner: ProfileRepository): ProfileRepository {
   return {
     getChannel: async () => {
-      const base = await inner.getChannel();
+      const base = normalizeChannelProfileConfig(await inner.getChannel());
       if (!isOverlayAccount()) return base;
-      return readOverlay().profile?.channel ?? base;
+      const overlay = readOverlay().profile?.channel;
+      return overlay ? normalizeChannelProfileConfig({ ...base, ...overlay }) : base;
     },
     updateChannel: async (config) => {
       if (!isOverlayAccount()) return inner.updateChannel(config);
@@ -177,9 +182,10 @@ function overlayProfile(inner: ProfileRepository): ProfileRepository {
       return normalized;
     },
     getTelegram: async () => {
-      const base = await inner.getTelegram();
+      const base = normalizeTelegramProfileConfig(await inner.getTelegram());
       if (!isOverlayAccount()) return base;
-      return readOverlay().profile?.telegram ?? base;
+      const overlay = readOverlay().profile?.telegram;
+      return overlay ? normalizeTelegramProfileConfig({ ...base, ...overlay }) : base;
     },
     updateTelegram: async (config) => {
       if (!isOverlayAccount()) return inner.updateTelegram(config);

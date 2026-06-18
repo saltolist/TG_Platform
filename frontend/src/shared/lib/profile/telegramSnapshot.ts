@@ -31,8 +31,8 @@ export function parseTelegramSnapshot(snapshotJson: string): Pick<
   }
 }
 
-export function normalizeTelegramValue(value: string) {
-  return value.trim().toLowerCase();
+export function normalizeTelegramValue(value: string | null | undefined) {
+  return (value ?? "").trim().toLowerCase();
 }
 
 export function getTelegramStatusLabel(cfg: TelegramProfileConfig, syncing: boolean) {

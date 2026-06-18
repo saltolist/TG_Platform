@@ -12,6 +12,17 @@ from app.db.models import User
 
 ENV_REF_PREFIX = "env:"
 
+# Fixture/demo profile keys (demo-full.json, presentation.json) — not real BYOK.
+DEMO_FIXTURE_API_KEYS = frozenset(
+    {
+        "sk-openai-demo",
+        "sk-anthropic-demo",
+        "pk-perplexity-demo",
+        "tvly-demo",
+        "exa-demo",
+    }
+)
+
 # Provider display name (profile) → settings attribute for env-fallback.
 PROVIDER_ENV_ATTR: dict[str, str] = {
     "OpenAI": "openai_api_key",
@@ -79,6 +90,10 @@ def is_env_ref(api_key: str) -> bool:
     return api_key.startswith(ENV_REF_PREFIX)
 
 
+def is_demo_fixture_api_key(api_key: str) -> bool:
+    return api_key.strip() in DEMO_FIXTURE_API_KEYS
+
+
 def parse_env_ref(api_key: str) -> str:
     return api_key[len(ENV_REF_PREFIX) :]
 
@@ -122,6 +137,8 @@ def resolve_api_key(
     raw_key = (model.api_key or "").strip()
 
     if raw_key and not is_env_ref(raw_key):
+        if mode == AccountMode.DEMO and is_demo_fixture_api_key(raw_key):
+            return KeyResolution(api_key=None, source=KeySource.NONE, account_mode=mode)
         return KeyResolution(api_key=raw_key, source=KeySource.BYOK, account_mode=mode)
 
     if raw_key and is_env_ref(raw_key):

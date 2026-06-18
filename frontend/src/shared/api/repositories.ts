@@ -45,6 +45,9 @@ export interface ProfileRepository {
 
 export type AssistantStreamOptions = {
   llmId?: string;
+  provider?: string;
+  model?: string;
+  apiKey?: string;
   signal?: AbortSignal;
 };
 

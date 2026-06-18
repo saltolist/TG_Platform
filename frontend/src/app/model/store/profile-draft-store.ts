@@ -2,6 +2,10 @@ import { create } from "zustand";
 
 import { buildProfileDiscardPatch } from "@/shared/lib/profileDiscard";
 import { normalizeAiProfileConfig, snapshotAiConfig } from "@/shared/lib/profile/aiModelsSnapshot";
+import {
+  normalizeChannelProfileConfig,
+  normalizeTelegramProfileConfig,
+} from "@/shared/lib/profile/normalizeProfileConfig";
 import { telegramConfigSnapshot } from "@/shared/lib/profile/telegramSnapshot";
 import { createEmptyAccountStore } from "@/shared/data/empty-account-state";
 import type {
@@ -129,15 +133,17 @@ function createInitialProfileDraftState(): ProfileDraftState {
 export const useProfileDraftStore = create<ProfileDraftState & ProfileDraftActions>((set, get) => ({
   ...createInitialProfileDraftState(),
   hydrateFromServer: (channel, ai, telegram) => {
+    const normalizedChannel = normalizeChannelProfileConfig(channel);
     const normalizedAi = normalizeAiProfileConfig(ai);
+    const normalizedTelegram = normalizeTelegramProfileConfig(telegram);
     set({
-      channelProfileConfig: structuredClone(channel),
+      channelProfileConfig: structuredClone(normalizedChannel),
       aiProfileConfig: structuredClone(normalizedAi),
-      telegramProfileConfig: structuredClone(telegram),
-      channelProfileSavedSnapshot: JSON.stringify(channel),
+      telegramProfileConfig: structuredClone(normalizedTelegram),
+      channelProfileSavedSnapshot: JSON.stringify(normalizedChannel),
       modelSettingsSavedSnapshot: buildInitialAiSnapshot(normalizedAi),
       systemPromptSavedSnapshot: normalizedAi.systemPrompt,
-      telegramSettingsSavedSnapshot: buildInitialTelegramSnapshot(telegram),
+      telegramSettingsSavedSnapshot: buildInitialTelegramSnapshot(normalizedTelegram),
       hydrated: true,
     });
   },

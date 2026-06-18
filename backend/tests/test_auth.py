@@ -18,6 +18,7 @@ async def test_register_and_login(client: AsyncClient) -> None:
     assert send.status_code == 204
 
     code = await fetch_email_code(email)
+    assert code == "000000"
 
     verify = await client.post(
         "/api/v1/auth/register/verify/",
@@ -28,6 +29,10 @@ async def test_register_and_login(client: AsyncClient) -> None:
     assert session["email"] == email
     assert session["token"]
     assert session["accountId"]
+
+    channel = await client.get("/api/v1/profile/channel/", headers={"Authorization": f"Bearer {session['token']}"})
+    assert channel.status_code == 200
+    assert channel.json()["rubrics"] == []
 
     login = await client.post(
         "/api/v1/auth/login/",

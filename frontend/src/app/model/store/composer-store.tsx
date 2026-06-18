@@ -14,8 +14,10 @@ import { useComposerTargetStore } from "@/app/model/store/composer-target-store"
 import {
   buildAiReplyMessage,
   buildStreamingAiShell,
+  completeAssistantReply,
   getChatSendValidationMessage,
   hasLlmForComposerScope,
+  resolveLlmTarget,
   resolveLlmLabel,
   resolveWebLabel,
 } from "@/app/model/store/composer/helpers";
@@ -63,9 +65,9 @@ async function streamGlobalAssistantReply(params: {
   chatId: string;
   assistant: AssistantRepository;
   userText: string;
-  llmId: string;
+  llmTarget: ReturnType<typeof resolveLlmTarget>;
 }): Promise<string> {
-  const { queryClient, accountId, chatId, assistant, userText, llmId } = params;
+  const { queryClient, accountId, chatId, assistant, userText, llmTarget } = params;
   let accumulated = "";
   return assistant.streamGlobalChatReply(
     userText,
@@ -73,7 +75,7 @@ async function streamGlobalAssistantReply(params: {
       accumulated += chunk;
       patchGlobalChatStreamingText(queryClient, chatId, accumulated, accountId);
     },
-    { llmId },
+    llmTarget,
   );
 }
 
@@ -84,9 +86,9 @@ async function streamPostAssistantReply(params: {
   chatId: string;
   assistant: AssistantRepository;
   userText: string;
-  llmId: string;
+  llmTarget: ReturnType<typeof resolveLlmTarget>;
 }): Promise<string> {
-  const { queryClient, accountId, postId, chatId, assistant, userText, llmId } = params;
+  const { queryClient, accountId, postId, chatId, assistant, userText, llmTarget } = params;
   let accumulated = "";
   return assistant.streamPostChatReply(
     userText,
@@ -94,7 +96,7 @@ async function streamPostAssistantReply(params: {
       accumulated += chunk;
       patchPostChatStreamingText(queryClient, postId, chatId, accumulated, accountId);
     },
-    { llmId },
+    llmTarget,
   );
 }
 
@@ -206,14 +208,18 @@ export function ComposerProvider({ children }: { children: ReactNode }) {
           chatId: id,
           message: buildStreamingAiShell(cfg, target),
         });
-        const baseReply = await streamGlobalAssistantReply({
-          queryClient,
-          accountId,
-          chatId: id,
-          assistant,
-          userText: text,
-          llmId: target.llmId,
-        });
+        const baseReply = await completeAssistantReply(
+          () =>
+            streamGlobalAssistantReply({
+              queryClient,
+              accountId,
+              chatId: id,
+              assistant,
+              userText: text,
+              llmTarget: resolveLlmTarget(cfg, target.llmId),
+            }),
+          (message) => showToast({ message, variant: "error" }),
+        );
         await finalizeGlobalReply(id, "home", baseReply);
       });
 
@@ -245,14 +251,18 @@ export function ComposerProvider({ children }: { children: ReactNode }) {
           chatId,
           message: buildStreamingAiShell(cfg, target),
         });
-        const baseReply = await streamGlobalAssistantReply({
-          queryClient,
-          accountId,
-          chatId,
-          assistant,
-          userText: text,
-          llmId: target.llmId,
-        });
+        const baseReply = await completeAssistantReply(
+          () =>
+            streamGlobalAssistantReply({
+              queryClient,
+              accountId,
+              chatId,
+              assistant,
+              userText: text,
+              llmTarget: resolveLlmTarget(cfg, target.llmId),
+            }),
+          (message) => showToast({ message, variant: "error" }),
+        );
         await finalizeGlobalReply(chatId, "gchat", baseReply);
       });
       return true;
@@ -295,15 +305,19 @@ export function ComposerProvider({ children }: { children: ReactNode }) {
         }
         const target = getTarget("post");
         await pushLocalChatMessage(postId, replyChatId, buildStreamingAiShell(cfg, target));
-        const baseReply = await streamPostAssistantReply({
-          queryClient,
-          accountId,
-          postId,
-          chatId: replyChatId,
-          assistant,
-          userText: text,
-          llmId: target.llmId,
-        });
+        const baseReply = await completeAssistantReply(
+          () =>
+            streamPostAssistantReply({
+              queryClient,
+              accountId,
+              postId,
+              chatId: replyChatId,
+              assistant,
+              userText: text,
+              llmTarget: resolveLlmTarget(cfg, target.llmId),
+            }),
+          (message) => showToast({ message, variant: "error" }),
+        );
         await finalizePostReply(postId, replyChatId, baseReply);
       });
 

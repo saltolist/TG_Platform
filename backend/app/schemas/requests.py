@@ -19,6 +19,9 @@ class AiReplyRequest(BaseModel):
     text: str
     scope: Literal["global", "post"] = "global"
     llm_id: str | None = Field(default=None, validation_alias="llmId")
+    api_key: str | None = Field(default=None, validation_alias="apiKey")
+    provider: str | None = None
+    llm_model: str | None = Field(default=None, validation_alias="model")
 
 
 class AiReplyResponse(BaseModel):

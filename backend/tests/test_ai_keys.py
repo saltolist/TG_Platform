@@ -262,3 +262,34 @@ def test_resolve_model_api_key_from_profile_dict(real_user: User) -> None:
 
     assert result.source == KeySource.BYOK
     assert result.api_key == "sk-from-profile"
+
+
+def test_demo_fixture_api_key_uses_stub(demo_user: User, empty_settings: Settings) -> None:
+    model = LlmModelKey(provider="OpenAI", api_key="sk-openai-demo")
+    result = resolve_api_key(model, demo_user, empty_settings)
+
+    assert result.source == KeySource.NONE
+    assert result.api_key is None
+    assert result.use_stub
+
+
+def test_demo_fixture_api_key_still_byok_for_real_account(
+    real_user: User,
+    empty_settings: Settings,
+) -> None:
+    model = LlmModelKey(provider="OpenAI", api_key="sk-openai-demo")
+    result = resolve_api_key(model, real_user, empty_settings)
+
+    assert result.source == KeySource.BYOK
+    assert result.api_key == "sk-openai-demo"
+
+
+def test_demo_fixture_api_key_still_byok_for_presentation(
+    presentation_user: User,
+    empty_settings: Settings,
+) -> None:
+    model = LlmModelKey(provider="OpenAI", api_key="sk-openai-demo")
+    result = resolve_api_key(model, presentation_user, empty_settings)
+
+    assert result.source == KeySource.BYOK
+    assert result.api_key == "sk-openai-demo"
