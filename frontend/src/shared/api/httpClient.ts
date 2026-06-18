@@ -28,7 +28,11 @@ type RequestOptions = {
   signal?: AbortSignal;
 };
 
-export async function apiRequest<T>(path: string, options: RequestOptions = {}): Promise<T> {
+type StreamRequestOptions = RequestOptions & {
+  onChunk: (text: string) => void;
+};
+
+async function prepareApiFetch(path: string, options: RequestOptions = {}) {
   if (!API_BASE_URL && !USE_MSW) {
     throw new ApiError("NEXT_PUBLIC_API_BASE_URL is not configured", 0);
   }
@@ -49,6 +53,11 @@ export async function apiRequest<T>(path: string, options: RequestOptions = {}):
   }
 
   const url = API_BASE_URL ? `${API_BASE_URL}${path}` : path;
+  return { method, body, signal, headers, url };
+}
+
+export async function apiRequest<T>(path: string, options: RequestOptions = {}): Promise<T> {
+  const { method, body, signal, headers, url } = await prepareApiFetch(path, options);
 
   const res = await fetch(url, {
     method,
@@ -76,4 +85,37 @@ export async function apiRequest<T>(path: string, options: RequestOptions = {}):
   const text = await res.text();
   if (!text) return undefined as T;
   return JSON.parse(text) as T;
+}
+
+export async function apiStream(path: string, options: StreamRequestOptions): Promise<string> {
+  const { onChunk, ...requestOptions } = options;
+  const { method = "POST", body, signal, headers, url } = await prepareApiFetch(path, requestOptions);
+
+  const res = await fetch(url, {
+    method,
+    headers,
+    body: body !== undefined ? JSON.stringify(body) : undefined,
+    signal,
+  });
+
+  if (!res.ok) {
+    if (res.status === 401) {
+      onUnauthorized?.();
+      throw new ApiError("Unauthorized", 401);
+    }
+    let payload: unknown;
+    try {
+      payload = await res.json();
+    } catch {
+      payload = await res.text().catch(() => undefined);
+    }
+    throw new ApiError(`API ${method} ${path} failed (${res.status})`, res.status, payload);
+  }
+
+  if (!res.body) {
+    throw new ApiError(`API ${method} ${path} returned empty stream`, res.status);
+  }
+
+  const { consumeSseTextStream } = await import("@/shared/api/sse");
+  return consumeSseTextStream(res.body, onChunk);
 }

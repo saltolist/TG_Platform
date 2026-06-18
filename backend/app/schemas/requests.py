@@ -1,6 +1,6 @@
 from typing import Any, Literal
 
-from pydantic import BaseModel
+from pydantic import BaseModel, ConfigDict, Field
 
 from app.schemas.resources import PostIn
 
@@ -14,8 +14,11 @@ class MessageRequest(BaseModel):
 
 
 class AiReplyRequest(BaseModel):
+    model_config = ConfigDict(populate_by_name=True)
+
     text: str
     scope: Literal["global", "post"] = "global"
+    llm_id: str | None = Field(default=None, validation_alias="llmId")
 
 
 class AiReplyResponse(BaseModel):

@@ -236,6 +236,20 @@ export function lastUserPreviewFromVisibleHistory(history: ChatMessage[]): strin
   return "";
 }
 
+/** Обновить последнее AI-сообщение в видимой ветке (для стриминга). */
+export function updateLastVisibleAiMessage(
+  history: ChatMessage[],
+  updater: (message: ChatMessage) => ChatMessage,
+): ChatMessage[] {
+  const flat = flattenVisibleWithPaths(history);
+  for (let i = flat.length - 1; i >= 0; i--) {
+    if (flat[i].message.role === "ai") {
+      return mapMessageAtPath(history, flat[i].path, updater);
+    }
+  }
+  return history;
+}
+
 /** Добавить сообщение в конец активной ветки. */
 export function appendToActiveHistory(history: ChatMessage[], msg: ChatMessage): ChatMessage[] {
   if (history.length === 0) return [msg];

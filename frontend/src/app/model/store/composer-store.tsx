@@ -8,10 +8,12 @@ import {
   useRef,
   type ReactNode,
 } from "react";
+import { useQueryClient } from "@tanstack/react-query";
 import { useUiStore } from "@/app/model/store/ui-store";
 import { useComposerTargetStore } from "@/app/model/store/composer-target-store";
 import {
   buildAiReplyMessage,
+  buildStreamingAiShell,
   getChatSendValidationMessage,
   hasLlmForComposerScope,
   resolveLlmLabel,
@@ -19,6 +21,9 @@ import {
 } from "@/app/model/store/composer/helpers";
 import { selectAiProfileConfig, useProfileDraftStore } from "@/app/model/store/profile-draft-store";
 import { useRepositories } from "@/app/providers/RepositoryProvider";
+import { useQueryAccountScope } from "@/app/providers/useQueryAccountScope";
+import { patchGlobalChatHistory } from "@/entities/chat/lib/patchGlobalChatHistory";
+import { patchPostChatHistory } from "@/entities/post/lib/patchPostChatHistory";
 import { isPresentationAccount } from "@/shared/lib/auth/queryAccountScope";
 import { useCreateGlobalChat, usePushGlobalChatMessage } from "@/entities/chat";
 import { useAddLocalChat, usePushLocalChatMessage } from "@/entities/post";
@@ -27,6 +32,9 @@ import { truncate } from "@/shared/lib/helpers";
 import { buildMultiResponsePairs } from "@/shared/config/composer";
 import { randomId } from "@/shared/lib/randomId";
 import { showToast } from "@/shared/ui/toast";
+import { patchGlobalChatStreamingText, patchPostChatStreamingText } from "@/shared/lib/streaming/patchStreamingReply";
+import { updateLastVisibleAiMessage } from "@/shared/lib/chatPaths";
+import type { AssistantRepository } from "@/shared/api/repositories";
 import type { ComposerScope, GlobalChat, LocalChat } from "@/shared/types";
 
 export type ComposerNavBridge = {
@@ -49,8 +57,51 @@ export type ComposerContextValue = {
 
 const ComposerContext = createContext<ComposerContextValue | null>(null);
 
+async function streamGlobalAssistantReply(params: {
+  queryClient: ReturnType<typeof useQueryClient>;
+  accountId: string;
+  chatId: string;
+  assistant: AssistantRepository;
+  userText: string;
+  llmId: string;
+}): Promise<string> {
+  const { queryClient, accountId, chatId, assistant, userText, llmId } = params;
+  let accumulated = "";
+  return assistant.streamGlobalChatReply(
+    userText,
+    (chunk) => {
+      accumulated += chunk;
+      patchGlobalChatStreamingText(queryClient, chatId, accumulated, accountId);
+    },
+    { llmId },
+  );
+}
+
+async function streamPostAssistantReply(params: {
+  queryClient: ReturnType<typeof useQueryClient>;
+  accountId: string;
+  postId: string;
+  chatId: string;
+  assistant: AssistantRepository;
+  userText: string;
+  llmId: string;
+}): Promise<string> {
+  const { queryClient, accountId, postId, chatId, assistant, userText, llmId } = params;
+  let accumulated = "";
+  return assistant.streamPostChatReply(
+    userText,
+    (chunk) => {
+      accumulated += chunk;
+      patchPostChatStreamingText(queryClient, postId, chatId, accumulated, accountId);
+    },
+    { llmId },
+  );
+}
+
 export function ComposerProvider({ children }: { children: ReactNode }) {
-  const { assistant } = useRepositories();
+  const { assistant, chats, posts } = useRepositories();
+  const queryClient = useQueryClient();
+  const accountId = useQueryAccountScope();
   const aiProfile = useProfileDraftStore(selectAiProfileConfig);
   const createChat = useCreateGlobalChat();
   const pushMessage = usePushGlobalChatMessage();
@@ -105,6 +156,32 @@ export function ComposerProvider({ children }: { children: ReactNode }) {
     [getTarget],
   );
 
+  const finalizeGlobalReply = useCallback(
+    async (chatId: string, scope: ComposerScope, baseReply: string) => {
+      const cfg = aiProfileRef.current;
+      if (!cfg) return;
+      const target = getTarget(scope);
+      const reply = buildAiReplyMessage(cfg, baseReply, scope, target);
+      await patchGlobalChatHistory(queryClient, chats, chatId, (history) =>
+        updateLastVisibleAiMessage(history, () => reply),
+      );
+    },
+    [chats, getTarget, queryClient],
+  );
+
+  const finalizePostReply = useCallback(
+    async (postId: string, chatId: string, baseReply: string) => {
+      const cfg = aiProfileRef.current;
+      if (!cfg) return;
+      const target = getTarget("post");
+      const reply = buildAiReplyMessage(cfg, baseReply, "post", target);
+      await patchPostChatHistory(queryClient, posts, postId, chatId, (history) =>
+        updateLastVisibleAiMessage(history, () => reply),
+      );
+    },
+    [getTarget, posts, queryClient],
+  );
+
   const sendHome = useCallback(
     (text: string) => {
       const bridge = navBridgeRef.current;
@@ -124,14 +201,35 @@ export function ComposerProvider({ children }: { children: ReactNode }) {
 
       void createChat.mutateAsync(newChat).then(async () => {
         bridge.goToHref(routes.gchat(id));
-        const replyText = await assistant.getGlobalChatReply(text);
-        const reply = buildAiReplyMessage(cfg, replyText, "home", getTarget("home"));
-        void pushMessage.mutateAsync({ chatId: id, message: reply });
+        const target = getTarget("home");
+        await pushMessage.mutateAsync({
+          chatId: id,
+          message: buildStreamingAiShell(cfg, target),
+        });
+        const baseReply = await streamGlobalAssistantReply({
+          queryClient,
+          accountId,
+          chatId: id,
+          assistant,
+          userText: text,
+          llmId: target.llmId,
+        });
+        await finalizeGlobalReply(id, "home", baseReply);
       });
 
       return true;
     },
-    [assertCanSend, assistant, createChat, getTarget, pushMessage, setMobileSidebarOpen],
+    [
+      accountId,
+      assertCanSend,
+      assistant,
+      createChat,
+      finalizeGlobalReply,
+      getTarget,
+      pushMessage,
+      queryClient,
+      setMobileSidebarOpen,
+    ],
   );
 
   const sendGChat = useCallback(
@@ -142,13 +240,24 @@ export function ComposerProvider({ children }: { children: ReactNode }) {
       if (!text.trim() || !chatId || !cfg) return false;
       if (!assertCanSend("gchat")) return false;
       void pushMessage.mutateAsync({ chatId, message: { role: "user", text } }).then(async () => {
-        const replyText = await assistant.getGlobalChatReply(text);
-        const reply = buildAiReplyMessage(cfg, replyText, "gchat", getTarget("gchat"));
-        void pushMessage.mutateAsync({ chatId, message: reply });
+        const target = getTarget("gchat");
+        await pushMessage.mutateAsync({
+          chatId,
+          message: buildStreamingAiShell(cfg, target),
+        });
+        const baseReply = await streamGlobalAssistantReply({
+          queryClient,
+          accountId,
+          chatId,
+          assistant,
+          userText: text,
+          llmId: target.llmId,
+        });
+        await finalizeGlobalReply(chatId, "gchat", baseReply);
       });
       return true;
     },
-    [assertCanSend, assistant, getTarget, pushMessage],
+    [accountId, assertCanSend, assistant, finalizeGlobalReply, getTarget, pushMessage, queryClient],
   );
 
   const sendPost = useCallback(
@@ -184,14 +293,23 @@ export function ComposerProvider({ children }: { children: ReactNode }) {
         if (chatId != null) {
           await pushLocalChatMessage(postId, replyChatId, { role: "user", text });
         }
-        const replyText = await assistant.getPostChatReply(text);
-        const reply = buildAiReplyMessage(cfg, replyText, "post", getTarget("post"));
-        void pushLocalChatMessage(postId, replyChatId, reply);
+        const target = getTarget("post");
+        await pushLocalChatMessage(postId, replyChatId, buildStreamingAiShell(cfg, target));
+        const baseReply = await streamPostAssistantReply({
+          queryClient,
+          accountId,
+          postId,
+          chatId: replyChatId,
+          assistant,
+          userText: text,
+          llmId: target.llmId,
+        });
+        await finalizePostReply(postId, replyChatId, baseReply);
       });
 
       return true;
     },
-    [addLocalChat, assertCanSend, assistant, getTarget, pushLocalChatMessage],
+    [accountId, addLocalChat, assertCanSend, assistant, finalizePostReply, getTarget, pushLocalChatMessage, queryClient],
   );
 
   const value = useMemo<ComposerContextValue>(

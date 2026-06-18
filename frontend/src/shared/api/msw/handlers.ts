@@ -3,6 +3,7 @@ import { apiV1MswPath } from "@/shared/config/basePath";
 import { DEMO_CHANNEL_TITLE } from "@/shared/lib/auth/constants";
 import { appendToActiveHistory } from "@/shared/lib/chatPaths";
 import { getGlobalReply, getPostReply } from "@/shared/api/assistantReplies";
+import { chunkTextForStream, formatSseData } from "@/shared/api/sse";
 import type { GlobalChat, GlobalNote, Post, TelegramProfileConfig } from "@/shared/types";
 import {
   getStoreForRequest,
@@ -219,9 +220,20 @@ export const handlers = [
     const store = requireStore(request);
     if (!store) return unauthorized();
     const body = (await request.json()) as { text: string; scope: "global" | "post" };
-    await new Promise((resolve) => setTimeout(resolve, 300));
     const text =
       body.scope === "post" ? getPostReply(body.text) : getGlobalReply(body.text);
-    return HttpResponse.json({ text });
+    const stream = new ReadableStream({
+      async start(controller) {
+        const encoder = new TextEncoder();
+        for (const chunk of chunkTextForStream(text, 12)) {
+          await new Promise((resolve) => setTimeout(resolve, 40));
+          controller.enqueue(encoder.encode(formatSseData(chunk)));
+        }
+        controller.close();
+      },
+    });
+    return new HttpResponse(stream, {
+      headers: { "Content-Type": "text/event-stream" },
+    });
   }),
 ];

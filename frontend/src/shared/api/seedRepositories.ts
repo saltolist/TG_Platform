@@ -9,6 +9,7 @@ import {
 } from "@/shared/data/seed-data";
 import { appendToActiveHistory } from "@/shared/lib/chatPaths";
 import { getGlobalReply, getPostReply } from "@/shared/api/assistantReplies";
+import { simulateStreamedText } from "@/shared/api/sse";
 import type {
   AiProfileConfig,
   ChannelProfileConfig,
@@ -134,11 +135,19 @@ export function createSeedRepositories(): RepositoryBundle {
       },
     },
     assistant: {
-      async getGlobalChatReply(text) {
-        return getGlobalReply(text);
+      async streamGlobalChatReply(text, onChunk, options) {
+        void options;
+        return simulateStreamedText(getGlobalReply(text), onChunk);
       },
-      async getPostChatReply(text) {
-        return getPostReply(text);
+      async streamPostChatReply(text, onChunk, options) {
+        void options;
+        return simulateStreamedText(getPostReply(text), onChunk);
+      },
+      async getGlobalChatReply(text, options) {
+        return this.streamGlobalChatReply(text, () => undefined, options);
+      },
+      async getPostChatReply(text, options) {
+        return this.streamPostChatReply(text, () => undefined, options);
       },
     },
   };

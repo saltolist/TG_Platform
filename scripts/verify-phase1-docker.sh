@@ -38,10 +38,10 @@ fi
 
 if curl -s -X POST -H "$GUEST" -H "Content-Type: application/json" \
   -d '{"text":"hi","scope":"global"}' "$API/api/v1/ai/reply/" \
-  | python3 -c "import sys,json; d=json.load(sys.stdin); exit(0 if d.get('text') else 1)"; then
-  ok "ai json stub"
+  | python3 -c "import sys,json; body=sys.stdin.read(); parts=[p for p in body.split('\n\n') if p.startswith('data: ')]; text=''.join(json.loads(p[6:]).get('text','') for p in parts); exit(0 if text.strip() else 1)"; then
+  ok "ai sse stub"
 else
-  fail "ai json stub"
+  fail "ai sse stub"
 fi
 
 if [[ "$FAIL" -eq 0 ]]; then

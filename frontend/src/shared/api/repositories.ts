@@ -43,9 +43,24 @@ export interface ProfileRepository {
   updateTelegram(config: TelegramProfileConfig): Promise<TelegramProfileConfig>;
 }
 
+export type AssistantStreamOptions = {
+  llmId?: string;
+  signal?: AbortSignal;
+};
+
 export interface AssistantRepository {
-  getGlobalChatReply(text: string): Promise<string>;
-  getPostChatReply(text: string): Promise<string>;
+  streamGlobalChatReply(
+    text: string,
+    onChunk: (chunk: string) => void,
+    options?: AssistantStreamOptions,
+  ): Promise<string>;
+  streamPostChatReply(
+    text: string,
+    onChunk: (chunk: string) => void,
+    options?: AssistantStreamOptions,
+  ): Promise<string>;
+  getGlobalChatReply(text: string, options?: AssistantStreamOptions): Promise<string>;
+  getPostChatReply(text: string, options?: AssistantStreamOptions): Promise<string>;
 }
 
 export type RepositoryBundle = {

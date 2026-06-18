@@ -1,6 +1,6 @@
 import { apiV1Path } from "@/shared/config/basePath";
-import { apiRequest } from "@/shared/api/httpClient";
-import type { RepositoryBundle } from "@/shared/api/repositories";
+import { apiRequest, apiStream } from "@/shared/api/httpClient";
+import type { AssistantStreamOptions, RepositoryBundle } from "@/shared/api/repositories";
 import {
   globalChatsListSchema,
   globalChatSchema,
@@ -17,6 +17,22 @@ import type {
   Post,
   TelegramProfileConfig,
 } from "@/shared/types";
+
+function streamAiReply(
+  scope: "global" | "post",
+  text: string,
+  onChunk: (chunk: string) => void,
+  options?: AssistantStreamOptions,
+) {
+  const body: Record<string, string> = { text, scope };
+  if (options?.llmId) body.llmId = options.llmId;
+  return apiStream(apiV1Path("ai/reply"), {
+    method: "POST",
+    body,
+    signal: options?.signal,
+    onChunk,
+  });
+}
 
 export function createHttpRepositories(): RepositoryBundle {
   return {
@@ -99,16 +115,14 @@ export function createHttpRepositories(): RepositoryBundle {
         }),
     },
     assistant: {
-      getGlobalChatReply: (text) =>
-        apiRequest<{ text: string }>(apiV1Path("ai/reply"), {
-          method: "POST",
-          body: { text, scope: "global" },
-        }).then((r) => r.text),
-      getPostChatReply: (text) =>
-        apiRequest<{ text: string }>(apiV1Path("ai/reply"), {
-          method: "POST",
-          body: { text, scope: "post" },
-        }).then((r) => r.text),
+      streamGlobalChatReply: (text, onChunk, options) =>
+        streamAiReply("global", text, onChunk, options),
+      streamPostChatReply: (text, onChunk, options) =>
+        streamAiReply("post", text, onChunk, options),
+      getGlobalChatReply: (text, options) =>
+        streamAiReply("global", text, () => undefined, options),
+      getPostChatReply: (text, options) =>
+        streamAiReply("post", text, () => undefined, options),
     },
   };
 }

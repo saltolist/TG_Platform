@@ -7,7 +7,7 @@ from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_asyn
 from sqlalchemy.pool import NullPool
 
 from app.core.config import settings
-from app.core.constants import PRESENTATION_GUEST_TOKEN
+from app.core.constants import PRESENTATION_EMAIL, PRESENTATION_GUEST_TOKEN
 from app.core.security import create_access_token, hash_password
 from app.db.models import EmailCode, GlobalChat, GlobalNote, Post, Profile, User
 from app.db.session import get_session
@@ -64,6 +64,23 @@ async def fetch_email_code(email: str) -> str:
 
 def guest_auth_headers() -> dict[str, str]:
     return {"Authorization": f"Bearer {PRESENTATION_GUEST_TOKEN}"}
+
+
+@pytest.fixture
+async def presentation_user() -> User:
+    async with TestSessionLocal() as session:
+        result = await session.execute(select(User).where(User.email == PRESENTATION_EMAIL))
+        user = result.scalar_one_or_none()
+        if user is None:
+            user = User(
+                email=PRESENTATION_EMAIL,
+                password_hash=hash_password("seed-no-login"),
+                is_seed=True,
+            )
+            session.add(user)
+            await session.commit()
+            await session.refresh(user)
+        return user
 
 
 @pytest.fixture

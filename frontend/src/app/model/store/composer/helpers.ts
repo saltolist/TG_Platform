@@ -82,6 +82,57 @@ export function hasLlmForComposerScope(
   );
 }
 
+export function buildStreamingAiShell(
+  cfg: AiProfileConfig,
+  target: { llmId: string; webId: string },
+): ChatMessage {
+  if (cfg.multiResponseEnabled) {
+    const pairs = buildMultiResponsePairs(cfg.llmModels, cfg.webSearchModels);
+    if (pairs.length > 0) {
+      const variants: AiVariant[] = pairs.map((pair) => {
+        const llmModel = cfg.llmModels.find((m) => m.id === pair.llmId);
+        const webModel = pair.webId
+          ? cfg.webSearchModels.find((m) => m.id === pair.webId)
+          : undefined;
+        const llmCap = llmModel ? `${llmModel.provider}/${llmModel.model}` : "";
+        const webCap = webModel
+          ? formatWebSearchComposerLabel(webModel.provider, webModel.model)
+          : "";
+        const label = webCap ? `${llmCap} + ${webCap}` : llmCap;
+        return {
+          key: pair.id,
+          label,
+          llmCaption: llmCap,
+          webCaption: webCap || undefined,
+          text: "",
+        };
+      });
+      return { role: "ai", variants, selectedVariant: 0, mode: "multi" };
+    }
+  }
+  const llm = resolveLlmLabel(cfg, target.llmId);
+  const web = resolveWebLabel(cfg, target.webId);
+  const label = target.webId ? `${llm} + ${web}` : llm;
+  return {
+    role: "ai",
+    text: "",
+    mode: "single",
+    targetLabel: label,
+    llmLabel: llm,
+    webLabel: web,
+  };
+}
+
+export function applyStreamingAiText(message: ChatMessage, text: string): ChatMessage {
+  if (message.mode === "multi" && message.variants?.length) {
+    return {
+      ...message,
+      variants: message.variants.map((variant) => ({ ...variant, text })),
+    };
+  }
+  return { ...message, text };
+}
+
 export function buildAiReplyMessage(
   cfg: AiProfileConfig,
   baseReply: string,
