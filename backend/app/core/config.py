@@ -39,6 +39,10 @@ class Settings(BaseSettings):
     # AI provider keys (Phase 2) — empty by default; presentation/demo use stubs
     openai_api_key: str = ""
     deepseek_api_key: str = ""
+    tavily_api_key: str = ""
+    perplexity_api_key: str = ""
+    serpapi_api_key: str = ""
+    exa_api_key: str = ""
     rag_enabled: bool = False
 
     @field_validator("rag_enabled", mode="before")

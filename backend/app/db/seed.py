@@ -10,11 +10,13 @@ from typing import Any
 
 from sqlalchemy import delete, select
 
+from app.core.config import Settings, get_settings
 from app.core.constants import DEMO_EMAIL, LEGACY_PRESENTATION_EMAIL, PRESENTATION_EMAIL
 from app.core.security import hash_password
 from app.db.models import GlobalChat, GlobalNote, Post, Profile, User
 from app.db.seed_ids import seed_entity_uuid
 from app.db.session import SessionLocal
+from app.services.ai.model_catalog import build_seed_ai_profile
 
 logger = logging.getLogger("tg.seed")
 
@@ -38,7 +40,14 @@ async def _clear_user_content(session, user_id) -> None:
     await session.execute(delete(Profile).where(Profile.user_id == user_id))
 
 
-async def _seed_content(session, user_id, fixture: dict[str, Any]) -> None:
+async def _seed_content(
+    session,
+    user_id,
+    fixture: dict[str, Any],
+    *,
+    fixture_name: str,
+    settings: Settings | None = None,
+) -> None:
     for index, post in enumerate(fixture.get("posts", [])):
         seed_id = str(post["id"])
         session.add(
@@ -70,10 +79,12 @@ async def _seed_content(session, user_id, fixture: dict[str, Any]) -> None:
             )
         )
 
-    profile_data = fixture.get("profile") or {}
+    profile_data = dict(fixture.get("profile") or {})
     channel = profile_data.get("channel")
     ai = profile_data.get("ai")
     telegram = profile_data.get("telegram")
+    if ai:
+        ai = build_seed_ai_profile(fixture_name, ai, settings or get_settings())
     if channel or ai or telegram:
         session.add(
             Profile(
@@ -91,6 +102,7 @@ async def _upsert_seed_user(
     email: str,
     password: str | None,
     fixture_name: str,
+    settings: Settings | None = None,
 ) -> User:
     result = await session.execute(select(User).where(User.email == email))
     user = result.scalar_one_or_none()
@@ -115,25 +127,34 @@ async def _upsert_seed_user(
             user.password_hash = hash_password(password)
 
     await _clear_user_content(session, user.id)
-    await _seed_content(session, user.id, _load_fixture(fixture_name))
+    await _seed_content(
+        session,
+        user.id,
+        _load_fixture(fixture_name),
+        fixture_name=fixture_name,
+        settings=settings,
+    )
     return user
 
 
-async def run_seed(session=None) -> None:
+async def run_seed(session=None, settings: Settings | None = None) -> None:
     """Seed presentation and demo accounts. Pass a session in tests to reuse the test engine."""
 
     async def _run(s) -> None:
+        seed_settings = settings or get_settings()
         await _upsert_seed_user(
             s,
             email=PRESENTATION_EMAIL,
             password=None,
             fixture_name="presentation",
+            settings=seed_settings,
         )
         await _upsert_seed_user(
             s,
             email=DEMO_EMAIL,
             password=DEMO_PASSWORD,
             fixture_name="demo-full",
+            settings=seed_settings,
         )
         await s.commit()
 
