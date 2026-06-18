@@ -23,11 +23,32 @@ def _valid_generations(profile_meta: Mapping[str, Any] | None) -> list[dict[str,
     return [dict(item) for item in raw if isinstance(item, Mapping)]
 
 
+def generation_is_matured(
+    generation: Mapping[str, Any],
+    *,
+    user_turn_count: int,
+    window_user_turns: set[int] | None = None,
+) -> bool:
+    """A generation is mature after N user-turns, or once its anchor left the prompt window."""
+    anchor = int(generation.get("anchor_user_turn") or 0)
+    if anchor + SUMMARY_BUNDLE_CATCHUP_MESSAGES <= user_turn_count:
+        return True
+    if (
+        window_user_turns is not None
+        and anchor > 0
+        and anchor not in window_user_turns
+        and user_turn_count > anchor
+    ):
+        return True
+    return False
+
+
 def resolve_matured_generation(
     generations: list[Mapping[str, Any]],
     *,
     stub_generation_id: str | None,
     user_turn_count: int,
+    window_user_turns: set[int] | None = None,
 ) -> Mapping[str, Any] | None:
     if not generations:
         return None
@@ -43,8 +64,11 @@ def resolve_matured_generation(
         generations,
         key=lambda item: int(item.get("anchor_user_turn") or 0),
     ):
-        anchor = int(generation.get("anchor_user_turn") or 0)
-        if anchor + SUMMARY_BUNDLE_CATCHUP_MESSAGES <= user_turn_count:
+        if generation_is_matured(
+            generation,
+            user_turn_count=user_turn_count,
+            window_user_turns=window_user_turns,
+        ):
             matured = generation
 
     return matured
@@ -56,6 +80,7 @@ def ensure_bundle_profile(
     current_bundle: str,
     current_fingerprint: str,
     user_turn_count: int,
+    window_user_turns: set[int] | None = None,
 ) -> dict[str, Any]:
     """Track bundle generations; mature stub after N user-turns."""
     generations = _valid_generations(profile_meta)
@@ -83,6 +108,7 @@ def ensure_bundle_profile(
         generations,
         stub_generation_id=stub_id,
         user_turn_count=user_turn_count,
+        window_user_turns=window_user_turns,
     )
     if matured is not None:
         stub_id = str(matured.get("id") or stub_id)
@@ -98,6 +124,7 @@ def bundle_text_for_primer(
     *,
     current_bundle: str,
     user_turn_count: int,
+    window_user_turns: set[int] | None = None,
 ) -> str:
     generations = _valid_generations(profile_meta)
     if not generations:
@@ -108,6 +135,7 @@ def bundle_text_for_primer(
         generations,
         stub_generation_id=stub_id or None,
         user_turn_count=user_turn_count,
+        window_user_turns=window_user_turns,
     )
     if matured is None:
         return current_bundle
@@ -133,7 +161,11 @@ def get_floating_bundle_injections(
         anchor = int(generation.get("anchor_user_turn") or 0)
         if anchor not in window_user_turns:
             continue
-        if anchor + SUMMARY_BUNDLE_CATCHUP_MESSAGES <= user_turn_count:
+        if generation_is_matured(
+            generation,
+            user_turn_count=user_turn_count,
+            window_user_turns=window_user_turns,
+        ):
             continue
 
         text = str(generation.get("text") or "").strip()

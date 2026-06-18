@@ -8,6 +8,10 @@ cd "$ROOT"
 
 docker compose up -d "$@"
 
+if [[ -x "$ROOT/scripts/ensure-test-db.sh" ]]; then
+  "$ROOT/scripts/ensure-test-db.sh" || true
+fi
+
 echo ""
 echo "[docker-up] Сервисы запущены в фоне."
 echo "  UI:      http://localhost:3000"

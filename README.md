@@ -50,6 +50,16 @@ docker compose logs -f backend   # Ctrl+C здесь безопасен
 
 Удаляют регистрации также: сброс Docker/Colima (`colima delete`), случайный `down -v`.
 
+**Важно:** `pytest` в `backend/` **не должен** ходить в dev-базу `tg` — после каждого теста conftest удаляет всех пользователей. Используйте отдельную БД `tg_test`:
+
+```bash
+./scripts/ensure-test-db.sh   # один раз (создаёт tg_test + миграции)
+cd backend
+TEST_DATABASE_URL=postgresql+asyncpg://tg:tg@localhost:5432/tg_test pytest -v
+```
+
+`./scripts/docker-up.sh` пробует создать `tg_test` автоматически.
+
 Регистрируйтесь и входите через **http://localhost:3000** (Docker).  
 `npm run dev` (порт 3020) использует MSW — это отдельная «песочница», аккаунты оттуда не попадают в PostgreSQL.
 

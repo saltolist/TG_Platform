@@ -43,12 +43,15 @@ alembic downgrade -1              # откат на одну миграцию
 
 ## Тесты
 
+Тесты используют **отдельную** базу `tg_test`, не dev-базу `tg` (иначе pytest удалит ваши регистрации).
+
 ```bash
+# из корня репозитория, при запущенном docker compose
+./scripts/ensure-test-db.sh
+
 cd backend
 pip install -r requirements-dev.txt
-# Postgres должен быть доступен (см. DATABASE_URL в .env)
-alembic upgrade head
-pytest -v
+TEST_DATABASE_URL=postgresql+asyncpg://tg:tg@localhost:5432/tg_test pytest -v
 ```
 
 ## Структура

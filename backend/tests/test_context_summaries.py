@@ -11,8 +11,8 @@ from app.services.ai.bundle_profile import (
     get_floating_bundle_injections,
 )
 from app.services.ai.context import assemble_reply_messages
-from app.services.ai.context_config import HISTORY_WINDOW, SUMMARY_BUNDLE_CATCHUP_MESSAGES
-from app.services.ai.context_meta import refresh_context_meta_after_reply
+from app.services.ai.context_config import HISTORY_WINDOW, PROMPT_WINDOW, SUMMARY_BUNDLE_CATCHUP_MESSAGES
+from app.services.ai.context_meta import compute_window_user_turns, refresh_context_meta_after_reply
 from app.services.ai.rolling_summary import (
     exchanges_from_messages,
     update_rolling_summary_template,
@@ -179,6 +179,87 @@ def test_floating_bundle_injected_before_anchor_user_turn() -> None:
     user_turn_3 = next(m for m in dialog if m["role"] == "user" and "Вопрос 3" in m["content"])
     assert "SUMMARY_BUNDLE:" in user_turn_3["content"]
     assert "Bundle B" in user_turn_3["content"] or "Крипто" in user_turn_3["content"]
+
+
+def test_bundle_promotes_to_primer_when_anchor_leaves_window() -> None:
+    """New bundle must not vanish when its anchor turn scrolls out of PROMPT_WINDOW."""
+    profile = ensure_bundle_profile(
+        None,
+        current_bundle="Контекст канала пока не заполнен.",
+        current_fingerprint="fp-empty",
+        user_turn_count=1,
+    )
+    profile = ensure_bundle_profile(
+        profile,
+        current_bundle="## Канал\nНазвание: wewe",
+        current_fingerprint="fp-filled",
+        user_turn_count=3,
+    )
+
+    pairs = _pairs(6)
+    window_turns = compute_window_user_turns(pairs)
+    assert 3 not in window_turns
+    assert 6 in window_turns
+
+    updated = ensure_bundle_profile(
+        profile,
+        current_bundle="## Канал\nНазвание: wewe",
+        current_fingerprint="fp-filled",
+        user_turn_count=6,
+        window_user_turns=window_turns,
+    )
+    primer = bundle_text_for_primer(
+        updated,
+        current_bundle="## Канал\nНазвание: wewe",
+        user_turn_count=6,
+        window_user_turns=window_turns,
+    )
+    assert "wewe" in primer
+    assert "не заполнен" not in primer
+
+    floating = get_floating_bundle_injections(
+        updated,
+        primer_stub_id=str(updated["stub_generation_id"]),
+        user_turn_count=6,
+        window_user_turns=window_turns,
+    )
+    assert floating == {}
+
+
+def test_assemble_promotes_bundle_when_anchor_left_window() -> None:
+    profile = ensure_bundle_profile(
+        None,
+        current_bundle="Контекст канала пока не заполнен.",
+        current_fingerprint="fp-empty",
+        user_turn_count=1,
+    )
+    profile = ensure_bundle_profile(
+        profile,
+        current_bundle="## Канал\nНазвание: wewe",
+        current_fingerprint="fp-filled",
+        user_turn_count=3,
+    )
+
+    history = [
+        {"role": "user" if role == "user" else "ai", "text": content}
+        for role, content in _pairs(5)
+    ]
+    messages = assemble_reply_messages(
+        ai_profile={},
+        user_text="Вопрос 6",
+        scope="global",
+        history=history,
+        channel_profile=CHANNEL_V2,
+        telegram_profile={"channelTitle": "wewe", "channel": "@wewe"},
+        chat_meta={
+            "rolling_summary_profile": profile,
+            "rolling_summary": "Краткое саммари диалога.",
+            "rolling_summary_idx": 0,
+        },
+    )
+    primer = messages[1]["content"]
+    assert "wewe" in primer or "Крипто" in primer
+    assert "не заполнен" not in primer
 
 
 @pytest.mark.asyncio

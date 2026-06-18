@@ -16,7 +16,7 @@ from app.services.ai.chat_history import (
     linearize_for_llm,
 )
 from app.services.ai.context_config import PRIMER_ACK, PROMPT_WINDOW
-from app.services.ai.context_meta import annotate_user_turns
+from app.services.ai.context_meta import annotate_user_turns, compute_window_user_turns
 
 DEFAULT_SYSTEM_PROMPT = (
     "Ты AI-ассистент TG Platform. Помогай автору Telegram-канала с текстами, "
@@ -102,6 +102,7 @@ def assemble_reply_messages(
 
     user_turn_count = count_user_turns(valid_pairs)
     window_pairs = take_prompt_window(valid_pairs)
+    window_user_turns = compute_window_user_turns(valid_pairs)
 
     rolling_summary = ""
     bundle_profile: dict[str, Any] = {}
@@ -112,6 +113,7 @@ def assemble_reply_messages(
             current_bundle=current_bundle,
             current_fingerprint=fingerprint,
             user_turn_count=user_turn_count,
+            window_user_turns=window_user_turns,
         )
     else:
         bundle_profile = ensure_bundle_profile(
@@ -119,6 +121,7 @@ def assemble_reply_messages(
             current_bundle=current_bundle,
             current_fingerprint=fingerprint,
             user_turn_count=user_turn_count,
+            window_user_turns=window_user_turns,
         )
 
     primer_stub_id = str(bundle_profile.get("stub_generation_id") or "")
@@ -126,13 +129,8 @@ def assemble_reply_messages(
         bundle_profile,
         current_bundle=current_bundle,
         user_turn_count=user_turn_count,
+        window_user_turns=window_user_turns,
     )
-
-    window_user_turns = {
-        user_turn
-        for user_turn, role, _ in annotate_user_turns(valid_pairs)[-len(window_pairs) :]
-        if role == "user" and user_turn is not None
-    }
     floating_bundles = get_floating_bundle_injections(
         bundle_profile,
         primer_stub_id=primer_stub_id,

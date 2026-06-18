@@ -1,4 +1,6 @@
+import os
 import uuid
+from urllib.parse import urlparse
 
 import pytest
 from httpx import ASGITransport, AsyncClient
@@ -6,15 +8,31 @@ from sqlalchemy import delete, select
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
 from sqlalchemy.pool import NullPool
 
-from app.core.config import settings
 from app.core.constants import PRESENTATION_EMAIL, PRESENTATION_GUEST_TOKEN
 from app.core.security import create_access_token, hash_password
 from app.db.models import EmailCode, GlobalChat, GlobalNote, Post, Profile, User
 from app.db.session import get_session
 from app.main import app
 
+DEFAULT_TEST_DATABASE_URL = "postgresql+asyncpg://tg:tg@localhost:5432/tg_test"
+
+
+def _resolve_test_database_url() -> str:
+    url = os.environ.get("TEST_DATABASE_URL", DEFAULT_TEST_DATABASE_URL)
+    db_name = urlparse(url.replace("+asyncpg", "")).path.lstrip("/").split("?")[0]
+    if db_name == "tg":
+        raise RuntimeError(
+            "Refusing to run pytest against the dev database 'tg' — it would delete your "
+            "registered accounts after each test. Run ./scripts/ensure-test-db.sh from the "
+            "repo root, then: TEST_DATABASE_URL=postgresql+asyncpg://tg:tg@localhost:5432/tg_test pytest"
+        )
+    return url
+
+
+TEST_DATABASE_URL = _resolve_test_database_url()
+
 # Isolated test engine: NullPool avoids stale asyncpg connections across event loops.
-test_engine = create_async_engine(settings.database_url, poolclass=NullPool)
+test_engine = create_async_engine(TEST_DATABASE_URL, poolclass=NullPool)
 TestSessionLocal = async_sessionmaker(test_engine, class_=AsyncSession, expire_on_commit=False)
 
 

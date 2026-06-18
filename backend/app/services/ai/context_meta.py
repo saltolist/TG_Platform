@@ -13,6 +13,22 @@ from app.schemas.requests import AiReplyRequest
 from app.services.ai.bundle_profile import ensure_bundle_profile
 from app.services.ai.chat_history import count_user_turns
 from app.services.ai.context_config import HISTORY_WINDOW, PROMPT_WINDOW
+
+
+def compute_window_user_turns(
+    pairs: list[tuple[str, str]],
+    *,
+    window_size: int = PROMPT_WINDOW,
+) -> set[int]:
+    if window_size <= 0 or not pairs:
+        return set()
+    window_len = min(window_size, len(pairs))
+    window_annotated = annotate_user_turns(pairs)[-window_len:]
+    return {
+        user_turn
+        for user_turn, role, _ in window_annotated
+        if role == "user" and user_turn is not None
+    }
 from app.services.ai.rolling_summary import (
     exchanges_from_messages,
     update_rolling_summary_llm,
@@ -60,12 +76,14 @@ async def refresh_context_meta_after_reply(
     """
     base_meta = dict(chat_meta) if isinstance(chat_meta, Mapping) else {}
     user_turn_count = count_user_turns(valid_pairs)
+    window_user_turns = compute_window_user_turns(valid_pairs)
 
     bundle_profile = ensure_bundle_profile(
         base_meta.get("rolling_summary_profile"),
         current_bundle=current_bundle,
         current_fingerprint=current_fingerprint,
         user_turn_count=user_turn_count,
+        window_user_turns=window_user_turns,
     )
 
     prefix, _ = split_prefix_and_window(valid_pairs)
