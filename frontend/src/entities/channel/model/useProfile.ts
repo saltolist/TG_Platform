@@ -5,6 +5,7 @@ import { queryKeys } from "@/shared/api/queryKeys";
 import { useRepositories } from "@/app/providers/RepositoryProvider";
 import { useAuthenticatedQueryEnabled } from "@/app/providers/useAuthenticatedQueryEnabled";
 import { useQueryAccountScope } from "@/app/providers/useQueryAccountScope";
+import { profileQueryOptions } from "@/entities/channel/model/profileQueryOptions";
 import type {
   AiProfileConfig,
   ChannelProfileConfig,
@@ -20,7 +21,7 @@ export function useChannelProfile() {
     queryKey: queryKeys.profile.channel(accountId),
     queryFn: () => profile.getChannel(),
     enabled,
-    staleTime: 5 * 60_000,
+    ...profileQueryOptions,
   });
 }
 
@@ -46,7 +47,7 @@ export function useAiProfile() {
     queryKey: queryKeys.profile.ai(accountId),
     queryFn: () => profile.getAi(),
     enabled,
-    staleTime: 5 * 60_000,
+    ...profileQueryOptions,
   });
 }
 
@@ -72,7 +73,7 @@ export function useTelegramProfile() {
     queryKey: queryKeys.profile.telegram(accountId),
     queryFn: () => profile.getTelegram(),
     enabled,
-    staleTime: 5 * 60_000,
+    ...profileQueryOptions,
   });
 }
 

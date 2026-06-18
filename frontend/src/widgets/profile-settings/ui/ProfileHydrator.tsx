@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useRef } from "react";
+import { useEffect } from "react";
 
 import { useQueryAccountScope } from "@/app/providers/useQueryAccountScope";
 import { useProfileDraftStore } from "@/app/model/store/profile-draft-store";
@@ -9,6 +9,11 @@ import {
   useChannelProfile,
   useTelegramProfile,
 } from "@/entities/channel";
+import { normalizeAiProfileConfig } from "@/shared/lib/profile/aiModelsSnapshot";
+import {
+  normalizeChannelProfileConfig,
+  normalizeTelegramProfileConfig,
+} from "@/shared/lib/profile/normalizeProfileConfig";
 
 /** Loads React Query profile data into the local draft store after account switch. */
 export function ProfileHydrator() {
@@ -17,17 +22,14 @@ export function ProfileHydrator() {
   const { data: ai } = useAiProfile();
   const { data: telegram } = useTelegramProfile();
   const hydrateFromServer = useProfileDraftStore((s) => s.hydrateFromServer);
-  const lastHydratedAccountRef = useRef<string | null>(null);
 
   useEffect(() => {
-    lastHydratedAccountRef.current = null;
-  }, [accountId]);
-
-  useEffect(() => {
-    if (!channel || !ai || !telegram) return;
-    if (lastHydratedAccountRef.current === accountId) return;
-    hydrateFromServer(channel, ai, telegram);
-    lastHydratedAccountRef.current = accountId;
+    if (!ai) return;
+    hydrateFromServer(
+      normalizeChannelProfileConfig(channel),
+      normalizeAiProfileConfig(ai),
+      normalizeTelegramProfileConfig(telegram),
+    );
   }, [accountId, ai, channel, hydrateFromServer, telegram]);
 
   return null;

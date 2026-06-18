@@ -21,7 +21,7 @@ import {
   resolveLlmLabel,
   resolveWebLabel,
 } from "@/app/model/store/composer/helpers";
-import { selectAiProfileConfig, useProfileDraftStore } from "@/app/model/store/profile-draft-store";
+import { useEffectiveAiProfileConfig } from "@/app/model/store/useEffectiveAiProfileConfig";
 import { useRepositories } from "@/app/providers/RepositoryProvider";
 import { useQueryAccountScope } from "@/app/providers/useQueryAccountScope";
 import { patchGlobalChatHistory } from "@/entities/chat/lib/patchGlobalChatHistory";
@@ -104,7 +104,7 @@ export function ComposerProvider({ children }: { children: ReactNode }) {
   const { assistant, chats, posts } = useRepositories();
   const queryClient = useQueryClient();
   const accountId = useQueryAccountScope();
-  const aiProfile = useProfileDraftStore(selectAiProfileConfig);
+  const aiProfile = useEffectiveAiProfileConfig();
   const createChat = useCreateGlobalChat();
   const pushMessage = usePushGlobalChatMessage();
   const addLocalChat = useAddLocalChat();
@@ -349,7 +349,7 @@ export function useComposer(): ComposerContextValue {
 }
 
 export function useComposerLabels() {
-  const cfg = useProfileDraftStore(selectAiProfileConfig);
+  const cfg = useEffectiveAiProfileConfig();
   return useMemo(
     () => ({
       llmLabel: (id: string) => resolveLlmLabel(cfg, id),
