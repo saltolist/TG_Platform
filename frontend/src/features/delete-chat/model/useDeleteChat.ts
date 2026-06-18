@@ -3,10 +3,11 @@
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import { useCallback } from "react";
 
+import { usePostNavigationStore } from "@/app/model/store/post-navigation-store";
 import { useDeleteGlobalChat } from "@/entities/chat";
 import { useDeleteLocalChat } from "@/entities/post";
 import { confirmDialog } from "@/shared/ui/dialog";
-import { parseChatSearchParam, parseGChatSearchParam, routes, screenFromPath } from "@/shared/lib/routes";
+import { parseGChatSearchParam, routes, screenFromPath } from "@/shared/lib/routes";
 
 type GlobalTarget = { scope: "global"; chatId: string; title: string };
 type LocalTarget = { scope: "local"; postId: string; chatId: string; title: string };
@@ -17,7 +18,6 @@ export function useDeleteChat() {
   const searchParams = useSearchParams();
   const screen = screenFromPath(pathname);
   const gchatIdFromUrl = parseGChatSearchParam(searchParams.get("id"));
-  const postChatIdFromUrl = parseChatSearchParam(searchParams.get("chat"));
   const routePostId = (() => {
     const m = pathname.match(/^\/post\/([^/]+)\/?$/);
     if (!m || !m[1]) return null;
@@ -42,11 +42,12 @@ export function useDeleteChat() {
         }
       } else {
         await deleteLocalChat(target.postId, target.chatId);
-        if (
-          screen === "post" &&
-          routePostId === target.postId &&
-          postChatIdFromUrl === target.chatId
-        ) {
+        const nav = usePostNavigationStore.getState();
+        if (nav.getCurrentPostChatId(target.postId) === target.chatId) {
+          nav.setPendingNewPostChat(target.postId, false);
+          nav.setMode(target.postId, "chat", null);
+        }
+        if (screen === "post" && routePostId === target.postId) {
           router.replace(routes.post(target.postId));
         }
       }
@@ -55,7 +56,6 @@ export function useDeleteChat() {
       deleteGlobalChat,
       deleteLocalChat,
       gchatIdFromUrl,
-      postChatIdFromUrl,
       routePostId,
       router,
       screen,

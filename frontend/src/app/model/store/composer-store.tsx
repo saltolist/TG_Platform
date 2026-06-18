@@ -36,8 +36,9 @@ import { randomId } from "@/shared/lib/randomId";
 import { showToast } from "@/shared/ui/toast";
 import { patchGlobalChatStreamingText, patchPostChatStreamingText } from "@/shared/lib/streaming/patchStreamingReply";
 import { updateLastVisibleAiMessage } from "@/shared/lib/chatPaths";
+import { queryKeys } from "@/shared/api/queryKeys";
 import type { AssistantRepository } from "@/shared/api/repositories";
-import type { ComposerScope, GlobalChat, LocalChat } from "@/shared/types";
+import type { ChatMessage, ComposerScope, GlobalChat, LocalChat, Post } from "@/shared/types";
 
 export type ComposerNavBridge = {
   goToHref: (href: string, opts?: { replace?: boolean }) => boolean;
@@ -59,6 +60,34 @@ export type ComposerContextValue = {
 
 const ComposerContext = createContext<ComposerContextValue | null>(null);
 
+function readGlobalChatHistory(
+  queryClient: ReturnType<typeof useQueryClient>,
+  accountId: string,
+  chatId: string,
+): ChatMessage[] {
+  const fromDetail = queryClient.getQueryData<GlobalChat>(
+    queryKeys.globalChats.detail(accountId, chatId),
+  );
+  if (fromDetail) return fromDetail.history ?? [];
+
+  const list = queryClient.getQueryData<GlobalChat[]>(queryKeys.globalChats.list(accountId));
+  return list?.find((chat) => chat.id === chatId)?.history ?? [];
+}
+
+function readPostChatHistory(
+  queryClient: ReturnType<typeof useQueryClient>,
+  accountId: string,
+  postId: string,
+  chatId: string,
+): ChatMessage[] {
+  const fromDetail = queryClient.getQueryData<Post>(queryKeys.posts.detail(accountId, postId));
+  const post =
+    fromDetail ??
+    queryClient.getQueryData<Post[]>(queryKeys.posts.list(accountId))?.find((item) => item.id === postId);
+  const chat = post?.chats?.find((item) => item.id === chatId);
+  return chat?.history ?? [];
+}
+
 async function streamGlobalAssistantReply(params: {
   queryClient: ReturnType<typeof useQueryClient>;
   accountId: string;
@@ -75,7 +104,11 @@ async function streamGlobalAssistantReply(params: {
       accumulated += chunk;
       patchGlobalChatStreamingText(queryClient, chatId, accumulated, accountId);
     },
-    llmTarget,
+    {
+      ...llmTarget,
+      chatId,
+      history: readGlobalChatHistory(queryClient, accountId, chatId),
+    },
   );
 }
 
@@ -96,7 +129,12 @@ async function streamPostAssistantReply(params: {
       accumulated += chunk;
       patchPostChatStreamingText(queryClient, postId, chatId, accumulated, accountId);
     },
-    llmTarget,
+    {
+      ...llmTarget,
+      postId,
+      postChatId: chatId,
+      history: readPostChatHistory(queryClient, accountId, postId, chatId),
+    },
   );
 }
 
@@ -300,7 +338,8 @@ export function ComposerProvider({ children }: { children: ReactNode }) {
           })();
 
       void ensureChat.then(async (replyChatId) => {
-        if (chatId != null) {
+        const isNewChat = chatId == null;
+        if (!isNewChat) {
           await pushLocalChatMessage(postId, replyChatId, { role: "user", text });
         }
         const target = getTarget("post");

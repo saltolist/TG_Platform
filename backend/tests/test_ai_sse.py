@@ -107,6 +107,49 @@ async def test_demo_fixture_api_key_returns_stub_reply(
     assert parse_sse_text(response.text) == generate_reply("Hello AI", scope="global")
 
 
+@pytest.mark.asyncio
+async def test_ai_reply_unknown_chat_id_with_client_history_does_not_404(
+    client: AsyncClient,
+    presentation_user: User,
+) -> None:
+    response = await client.post(
+        "/api/v1/ai/reply/",
+        headers=guest_auth_headers(),
+        json={
+            "text": "Новый вопрос",
+            "scope": "global",
+            "chatId": "overlay-only-chat",
+            "history": [
+                {"role": "user", "text": "Первый вопрос"},
+                {"role": "ai", "text": "Первый ответ"},
+                {"role": "user", "text": "Новый вопрос"},
+            ],
+        },
+    )
+    assert response.status_code == 200
+    assert parse_sse_text(response.text) == generate_reply("Новый вопрос", scope="global")
+
+
+@pytest.mark.asyncio
+async def test_ai_reply_post_scope_with_client_history(
+    client: AsyncClient,
+    presentation_user: User,
+) -> None:
+    response = await client.post(
+        "/api/v1/ai/reply/",
+        headers=guest_auth_headers(),
+        json={
+            "text": "Комментарий",
+            "scope": "post",
+            "postId": "1",
+            "postChatId": "local-chat-1",
+            "history": [{"role": "user", "text": "Комментарий"}],
+        },
+    )
+    assert response.status_code == 200
+    assert parse_sse_text(response.text) == generate_reply("Комментарий", scope="post")
+
+
 def test_format_sse_data_roundtrip() -> None:
     from app.services.ai.sse import format_sse_data
 

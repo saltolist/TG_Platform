@@ -64,13 +64,24 @@ def test_build_reply_messages_uses_profile_system_prompt() -> None:
     )
     assert messages[0]["role"] == "system"
     assert messages[0]["content"] == "Custom system"
-    assert messages[1]["content"] == "Привет"
+    assert messages[1]["role"] == "user"
+    assert "SUMMARY_BUNDLE:" in messages[1]["content"]
+    assert messages[2]["role"] == "assistant"
+    assert messages[-1]["role"] == "user"
+    assert messages[-1]["content"] == "Привет"
 
 
-def test_build_reply_messages_post_scope_marker() -> None:
-    messages = build_reply_messages({}, "Текст", scope="post")
-    assert "[Чат поста" in messages[1]["content"]
-    assert "Текст" in messages[1]["content"]
+def test_build_reply_messages_post_scope_includes_post_bundle() -> None:
+    messages = build_reply_messages(
+        {},
+        "Текст",
+        scope="post",
+        post_data={"text": "Контент поста"},
+        channel_profile={"core": {"topic": "Тема"}},
+    )
+    primer = messages[1]["content"]
+    assert "Контент поста" in primer
+    assert messages[-1]["content"] == "Текст"
 
 
 class _FakeStreamResponse:

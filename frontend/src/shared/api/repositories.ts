@@ -1,6 +1,7 @@
 import type {
   AiProfileConfig,
   ChannelProfileConfig,
+  ChatMessage,
   GlobalChat,
   GlobalNote,
   Post,
@@ -49,6 +50,10 @@ export type AssistantStreamOptions = {
   model?: string;
   apiKey?: string;
   signal?: AbortSignal;
+  chatId?: string;
+  postId?: string;
+  postChatId?: string;
+  history?: ChatMessage[];
 };
 
 export interface AssistantRepository {

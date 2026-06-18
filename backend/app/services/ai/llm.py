@@ -11,10 +11,7 @@ import httpx
 from app.services.ai.providers import ProviderSpec, chat_completions_url
 from app.services.ai.sse import format_sse_data
 
-DEFAULT_SYSTEM_PROMPT = (
-    "Ты AI-ассистент TG Platform. Помогай автору Telegram-канала с текстами, "
-    "идеями и анализом. Отвечай на языке пользователя, кратко и по делу."
-)
+from app.services.ai.context import DEFAULT_SYSTEM_PROMPT, build_reply_messages
 
 _HTTP_TIMEOUT = httpx.Timeout(120.0, connect=30.0)
 
@@ -30,22 +27,6 @@ def llm_http_error_message(exc: httpx.HTTPStatusError) -> str:
     if status == 429:
         return "Превышен лимит запросов к провайдеру. Попробуйте позже."
     return _LLM_ERROR_GENERIC
-
-
-def build_reply_messages(
-    ai_profile: Mapping[str, Any],
-    user_text: str,
-    scope: str = "global",
-) -> list[dict[str, str]]:
-    """Minimal message list until full context assembly (step 3.3)."""
-    system_prompt = str(ai_profile.get("systemPrompt") or "").strip() or DEFAULT_SYSTEM_PROMPT
-    text = user_text.strip()
-    if scope == "post":
-        text = f"[Чат поста · контекст поста подключится на шаге 3.3]\n{text}"
-    return [
-        {"role": "system", "content": system_prompt},
-        {"role": "user", "content": text},
-    ]
 
 
 def parse_openai_stream_line(line: str) -> str | None:

@@ -16,9 +16,12 @@ export type PostNavigationState = {
   stacks: Record<string, PostViewEntry[]>;
   modes: Record<string, PostMode>;
   chatIds: Record<string, string | null>;
+  pendingNewChat: Record<string, boolean>;
   getMode: (postId: string) => PostMode;
   getStack: (postId: string) => PostViewEntry[];
   getCurrentPostChatId: (postId: string) => string | null;
+  isPendingNewPostChat: (postId: string) => boolean;
+  setPendingNewPostChat: (postId: string, pending: boolean) => void;
   pushMode: (postId: string, mode: PostMode, chatId?: string | null) => void;
   popMode: (postId: string) => void;
   resetStack: (postId: string) => void;
@@ -29,10 +32,16 @@ export const usePostNavigationStore = create<PostNavigationState>((set, get) => 
   stacks: {},
   modes: {},
   chatIds: {},
+  pendingNewChat: {},
 
   getMode: (postId) => get().modes[postId] ?? "chat",
   getStack: (postId) => get().stacks[postId] ?? [],
   getCurrentPostChatId: (postId) => get().chatIds[postId] ?? null,
+  isPendingNewPostChat: (postId) => get().pendingNewChat[postId] ?? false,
+  setPendingNewPostChat: (postId, pending) =>
+    set((state) => ({
+      pendingNewChat: { ...state.pendingNewChat, [postId]: pending },
+    })),
 
   pushMode: (postId, mode, chatId = null) => {
     const currentMode = get().getMode(postId);

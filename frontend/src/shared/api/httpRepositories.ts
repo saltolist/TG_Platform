@@ -29,11 +29,15 @@ function streamAiReply(
   onChunk: (chunk: string) => void,
   options?: AssistantStreamOptions,
 ) {
-  const body: Record<string, string> = { text, scope };
+  const body: Record<string, unknown> = { text, scope };
   if (options?.llmId) body.llmId = options.llmId;
   if (options?.provider) body.provider = options.provider;
   if (options?.model) body.model = options.model;
   if (options?.apiKey) body.apiKey = options.apiKey;
+  if (options?.chatId) body.chatId = options.chatId;
+  if (options?.postId) body.postId = options.postId;
+  if (options?.postChatId) body.postChatId = options.postChatId;
+  if (Array.isArray(options?.history)) body.history = options.history;
   return apiStream(apiV1Path("ai/reply"), {
     method: "POST",
     body,

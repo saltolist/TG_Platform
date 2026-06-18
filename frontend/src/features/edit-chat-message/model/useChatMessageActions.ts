@@ -11,7 +11,7 @@ import {
   applyOmnichannelUserMessageSave,
   applyUserMessageSave,
   mapMessageAtPath,
-  removeMessageAtPath,
+  removeAssistantTurnAtPath,
   setActiveUserBranch,
 } from "@/shared/lib/chatPaths";
 import { isOmnichannelChatId } from "@/shared/lib/omnichannel";
@@ -69,15 +69,13 @@ export function useChatMessageActions() {
 
   const deleteMessage = useCallback(
     (ctx: ChatMessageCtx, path: number[]) => {
+      const removeTurn = (history: ChatMessage[]) => removeAssistantTurnAtPath(history, path);
+
       if (ctx.scope === "gchat") {
-        void patchGlobalChatHistory(queryClient, chats, ctx.entityId, (history) =>
-          removeMessageAtPath(history, path),
-        );
+        void patchGlobalChatHistory(queryClient, chats, ctx.entityId, removeTurn);
         return;
       }
-      void patchPostChatHistory(queryClient, posts, ctx.postId, ctx.entityId, (history) =>
-        removeMessageAtPath(history, path),
-      );
+      void patchPostChatHistory(queryClient, posts, ctx.postId, ctx.entityId, removeTurn);
     },
     [chats, posts, queryClient],
   );

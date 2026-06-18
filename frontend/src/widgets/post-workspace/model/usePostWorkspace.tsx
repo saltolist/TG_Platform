@@ -56,7 +56,11 @@ export function usePostWorkspace() {
   const [listContextFilter, setListContextFilter] = useState<NoteListFilter>("all");
 
   const mediaItems: PostMedia[] = post?.media ?? [];
-  const activeChat = post?.chats.find((c) => c.id === currentPostChatId) ?? null;
+  const validatedPostChatId =
+    currentPostChatId != null && post?.chats.some((chat) => chat.id === currentPostChatId)
+      ? currentPostChatId
+      : null;
+  const activeChat = post?.chats.find((c) => c.id === validatedPostChatId) ?? null;
   const chatHistory = normalizeBranchedHistory(activeChat?.history ?? []);
   const chatHistoryRevision = visibleHistoryRevision(chatHistory);
   const flatMessages = flattenVisibleWithPaths(chatHistory);
@@ -77,6 +81,9 @@ export function usePostWorkspace() {
   const applyPostView = useCallback(
     (nextMode: PostMode, nextChatId: string | null = null) => {
       if (postId == null) return;
+      if (nextMode === "chat") {
+        usePostNavigationStore.getState().setPendingNewPostChat(postId, nextChatId == null);
+      }
       setMode(postId, nextMode, nextChatId);
       setListSearch("");
       syncPostUrl(nextMode, nextMode === "chat" ? nextChatId : null);
@@ -184,6 +191,13 @@ export function usePostWorkspace() {
     setListContextFilter("all");
   }, [post?.id]);
 
+  useEffect(() => {
+    if (postId == null || currentPostChatId == null || !post) return;
+    if (!post.chats.some((chat) => chat.id === currentPostChatId)) {
+      setMode(postId, "chat", null);
+    }
+  }, [currentPostChatId, post, postId, setMode]);
+
   const headerTitle = post ? postTitle(post) : "Пост";
 
   return {
@@ -193,7 +207,7 @@ export function usePostWorkspace() {
       post: post ?? null,
       postMode,
       isEditing,
-      currentPostChatId,
+      currentPostChatId: validatedPostChatId,
       activeChat,
       flatMessages,
       lastAssistantFlat,

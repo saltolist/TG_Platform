@@ -16,8 +16,10 @@ function patchLocalChatInList(
   chatId: string,
   updater: (history: ChatMessage[]) => ChatMessage[],
 ): LocalChat[] {
-  return chats.map((chat) => {
+  let found = false;
+  const next = chats.map((chat) => {
     if (chat.id !== chatId) return chat;
+    found = true;
     const history = updater(normalizeBranchedHistory(chat.history));
     return {
       ...chat,
@@ -26,6 +28,10 @@ function patchLocalChatInList(
       date: new Date().toISOString(),
     };
   });
+  if (!found) {
+    throw new Error(`Chat ${chatId} not found`);
+  }
+  return next;
 }
 
 /** Актуальный пост с бэкенда. */

@@ -18,6 +18,10 @@ class AiReplyRequest(BaseModel):
 
     text: str
     scope: Literal["global", "post"] = "global"
+    chat_id: str | None = Field(default=None, validation_alias="chatId")
+    post_id: str | None = Field(default=None, validation_alias="postId")
+    post_chat_id: str | None = Field(default=None, validation_alias="postChatId")
+    history: list[dict[str, Any]] | None = None
     llm_id: str | None = Field(default=None, validation_alias="llmId")
     api_key: str | None = Field(default=None, validation_alias="apiKey")
     provider: str | None = None

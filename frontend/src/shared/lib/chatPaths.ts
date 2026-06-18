@@ -406,3 +406,19 @@ export function removeMessageAtPath(history: ChatMessage[], path: number[]): Cha
   const newList = list.filter((_, j) => j !== index);
   return replaceContainingList(history, path, newList);
 }
+
+/** Delete assistant reply and the user message directly above it (one dialog turn). */
+export function removeAssistantTurnAtPath(history: ChatMessage[], path: number[]): ChatMessage[] {
+  const ctx = getParentListAndIndex(history, path);
+  if (!ctx) return history;
+  const { list, index } = ctx;
+  const target = list[index];
+  if (!target || target.role !== "ai") {
+    return removeMessageAtPath(history, path);
+  }
+  if (index > 0 && list[index - 1]?.role === "user") {
+    const newList = list.filter((_, j) => j !== index && j !== index - 1);
+    return replaceContainingList(history, path, newList);
+  }
+  return removeMessageAtPath(history, path);
+}
