@@ -44,6 +44,7 @@ import {
 import { extractChatContextMeta } from "@/shared/api/schemas/chatContextMeta";
 import { updateLastVisibleAiMessage } from "@/shared/lib/chatPaths";
 import { queryKeys } from "@/shared/api/queryKeys";
+import type { ChatMessageCtx } from "@/entities/message";
 import type { AssistantRepository } from "@/shared/api/repositories";
 import type {
   AiProfileConfig,
@@ -66,6 +67,7 @@ export type ComposerContextValue = {
   sendHome: (text: string) => boolean;
   sendGChat: (text: string) => boolean;
   sendPost: (text: string) => boolean;
+  regenerateAfterUserEdit: (ctx: ChatMessageCtx, editedText: string) => Promise<void>;
   hasLlmForSend: (scope: ComposerScope) => boolean;
   setComposerLlm: (scope: ComposerScope, llmId: string) => void;
   setComposerWeb: (scope: ComposerScope, webId: string) => void;
@@ -622,17 +624,143 @@ export function ComposerProvider({ children }: { children: ReactNode }) {
     [accountId, addLocalChat, assertCanSend, assistant, finalizePostReply, getTarget, pushLocalChatMessage, queryClient],
   );
 
+  const regenerateAfterUserEdit = useCallback(
+    async (ctx: ChatMessageCtx, editedText: string) => {
+      const cfg = aiProfileRef.current;
+      const text = editedText.trim();
+      if (!cfg || !text) return;
+
+      const onStreamError = (message: string) => showToast({ message, variant: "error" });
+
+      if (ctx.scope === "gchat") {
+        if (!assertCanSend("gchat")) return;
+        const target = getTarget("gchat");
+        await pushMessage.mutateAsync({
+          chatId: ctx.entityId,
+          message: buildStreamingAiShell(cfg, target),
+        });
+        const signal = useComposerReplyStore.getState().beginReply("gchat");
+        try {
+          if (cfg.multiResponseEnabled) {
+            const variantTexts = resolveFinalMultiAssistantReply(
+              await runMultiGlobalAssistantReplies({
+                queryClient,
+                accountId,
+                chatId: ctx.entityId,
+                assistant,
+                userText: text,
+                cfg,
+                signal,
+                onError: onStreamError,
+              }),
+              signal,
+            );
+            await finalizeGlobalReply(ctx.entityId, "gchat", "", variantTexts);
+          } else {
+            const baseReply = await completeAssistantReply(
+              () =>
+                streamGlobalAssistantReply({
+                  queryClient,
+                  accountId,
+                  chatId: ctx.entityId,
+                  assistant,
+                  userText: text,
+                  llmTarget: resolveLlmTarget(cfg, target.llmId),
+                  signal,
+                }),
+              onStreamError,
+              { allowEmpty: true },
+            );
+            await finalizeGlobalReply(
+              ctx.entityId,
+              "gchat",
+              resolveFinalAssistantReply(baseReply, signal),
+            );
+          }
+        } finally {
+          useComposerReplyStore.getState().endReply();
+        }
+        return;
+      }
+
+      if (ctx.scope === "post") {
+        if (!assertCanSend("post")) return;
+        const target = getTarget("post");
+        await pushLocalChatMessage(
+          ctx.postId,
+          ctx.entityId,
+          buildStreamingAiShell(cfg, target),
+        );
+        const signal = useComposerReplyStore.getState().beginReply("post");
+        try {
+          if (cfg.multiResponseEnabled) {
+            const variantTexts = resolveFinalMultiAssistantReply(
+              await runMultiPostAssistantReplies({
+                queryClient,
+                accountId,
+                postId: ctx.postId,
+                chatId: ctx.entityId,
+                assistant,
+                userText: text,
+                cfg,
+                signal,
+                onError: onStreamError,
+              }),
+              signal,
+            );
+            await finalizePostReply(ctx.postId, ctx.entityId, "", variantTexts);
+          } else {
+            const baseReply = await completeAssistantReply(
+              () =>
+                streamPostAssistantReply({
+                  queryClient,
+                  accountId,
+                  postId: ctx.postId,
+                  chatId: ctx.entityId,
+                  assistant,
+                  userText: text,
+                  llmTarget: resolveLlmTarget(cfg, target.llmId),
+                  signal,
+                }),
+              onStreamError,
+              { allowEmpty: true },
+            );
+            await finalizePostReply(
+              ctx.postId,
+              ctx.entityId,
+              resolveFinalAssistantReply(baseReply, signal),
+            );
+          }
+        } finally {
+          useComposerReplyStore.getState().endReply();
+        }
+      }
+    },
+    [
+      accountId,
+      assertCanSend,
+      assistant,
+      finalizeGlobalReply,
+      finalizePostReply,
+      getTarget,
+      pushLocalChatMessage,
+      pushMessage,
+      queryClient,
+    ],
+  );
+
   const value = useMemo<ComposerContextValue>(
     () => ({
       sendHome,
       sendGChat,
       sendPost,
+      regenerateAfterUserEdit,
       hasLlmForSend,
       setComposerLlm,
       setComposerWeb,
       registerNavBridge,
     }),
-    [sendHome, sendGChat, sendPost, hasLlmForSend, setComposerLlm, setComposerWeb, registerNavBridge],
+    [sendHome, sendGChat, sendPost, regenerateAfterUserEdit, hasLlmForSend, setComposerLlm, setComposerWeb, registerNavBridge],
   );
 
   return <ComposerContext.Provider value={value}>{children}</ComposerContext.Provider>;

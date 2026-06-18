@@ -3,6 +3,7 @@
 import { useQueryClient } from "@tanstack/react-query";
 import { useCallback } from "react";
 
+import { useComposer } from "@/app/model/store/composer-store";
 import { patchGlobalChatHistory } from "@/entities/chat/lib/patchGlobalChatHistory";
 import { useRepositories } from "@/app/providers/RepositoryProvider";
 import { patchPostChatHistory } from "@/entities/post/lib/patchPostChatHistory";
@@ -13,6 +14,7 @@ import {
   mapMessageAtPath,
   removeAssistantTurnAtPath,
   setActiveUserBranch,
+  threadEndsWithUserMessage,
 } from "@/shared/lib/chatPaths";
 import { isOmnichannelChatId } from "@/shared/lib/omnichannel";
 import type { ChatMessage } from "@/shared/types";
@@ -20,23 +22,35 @@ import type { ChatMessage } from "@/shared/types";
 export function useChatMessageActions() {
   const queryClient = useQueryClient();
   const { chats, posts } = useRepositories();
+  const { regenerateAfterUserEdit } = useComposer();
 
   const saveUserMessage = useCallback(
-    (ctx: ChatMessageCtx, path: number[], text: string) => {
+    async (ctx: ChatMessageCtx, path: number[], text: string) => {
       if (ctx.scope === "gchat") {
         const apply = isOmnichannelChatId(ctx.entityId)
           ? applyOmnichannelUserMessageSave
           : applyUserMessageSave;
-        void patchGlobalChatHistory(queryClient, chats, ctx.entityId, (history) =>
+        const updated = await patchGlobalChatHistory(queryClient, chats, ctx.entityId, (history) =>
           apply(history, path, text),
         );
+        if (threadEndsWithUserMessage(updated.history)) {
+          await regenerateAfterUserEdit(ctx, text);
+        }
         return;
       }
-      void patchPostChatHistory(queryClient, posts, ctx.postId, ctx.entityId, (history) =>
-        applyUserMessageSave(history, path, text),
+      const updated = await patchPostChatHistory(
+        queryClient,
+        posts,
+        ctx.postId,
+        ctx.entityId,
+        (history) => applyUserMessageSave(history, path, text),
       );
+      const chat = updated.chats.find((item) => item.id === ctx.entityId);
+      if (chat && threadEndsWithUserMessage(chat.history)) {
+        await regenerateAfterUserEdit(ctx, text);
+      }
     },
-    [chats, posts, queryClient],
+    [chats, posts, queryClient, regenerateAfterUserEdit],
   );
 
   const setUserBranch = useCallback(

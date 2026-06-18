@@ -1,14 +1,5 @@
 import type { ChatMessage, UserMessageBranch } from "@/shared/types";
 
-/** Заглушка ответа ассистента после правки пользовательского сообщения (несколько строк, в конце пометка). */
-export const STUB_REPLY_AFTER_USER_EDIT: ChatMessage = {
-  role: "ai",
-  text:
-    "Ответ ассистента занял бы здесь привычное полотно: короткое резюме, затем развёрнутые пояснения с опорой на ваш запрос и контекст треда.\n\n" +
-    "Пока модель недоступна, показан типографический placeholder — несколько абзацев для проверки переносов и верстки сообщения.\n\n" +
-    "отредактировано",
-};
-
 export function clampActiveBranchIndex(m: ChatMessage): number {
   if (m.role !== "user" || !m.userBranches?.length) return 0;
   const n = m.userBranches.length;
@@ -281,28 +272,11 @@ function setUserDisplayText(m: ChatMessage, text: string): ChatMessage {
   return { ...m, text };
 }
 
-/** После правки пользователя: всё продолжение активной ветки заменяется одним ответом-заглушкой. */
-export function replaceTailAfterUserWithStubAi(history: ChatMessage[], path: number[]): ChatMessage[] {
-  const u = resolveMessage(history, path);
-  if (!u || u.role !== "user") return history;
-  const stub = STUB_REPLY_AFTER_USER_EDIT;
-  if (u.userBranches?.length) {
-    return mapMessageAtPath(history, path, (m) => {
-      if (m.role !== "user" || !m.userBranches?.length) return m;
-      const b = clampActiveBranchIndex(m);
-      return {
-        ...m,
-        userBranches: m.userBranches.map((br, j) =>
-          j === b ? { ...br, continuation: [stub] } : br,
-        ),
-      };
-    });
-  }
-  const ctx = getParentListAndIndex(history, path);
-  if (!ctx) return history;
-  const { list, index } = ctx;
-  const newList = [...list.slice(0, index + 1), stub];
-  return replaceContainingList(history, path, newList);
+/** Видимый тред заканчивается user-сообщением — нужен новый ответ ассистента. */
+export function threadEndsWithUserMessage(history: ChatMessage[]): boolean {
+  const flat = flattenVisibleWithPaths(history);
+  if (flat.length === 0) return false;
+  return flat[flat.length - 1]!.message.role === "user";
 }
 
 /** Сохранение текста пользователя: форк при «хвосте» снизу, иначе правка на месте; без заглушки ИИ. */
@@ -363,7 +337,7 @@ function applyUserMessageSaveCore(history: ChatMessage[], path: number[], newTex
   return replaceContainingList(healed, path, newList);
 }
 
-/** Как `applyUserMessageSaveCore`, плюс всегда новый ответ ассистента-заглушка под отредактированным сообщением (если текст реально менялся / был форк). */
+/** Как `applyUserMessageSaveCore`; при форке/сбросе хвоста вызывающий код запускает регенерацию ответа. */
 export function applyUserMessageSave(history: ChatMessage[], path: number[], newText: string): ChatMessage[] {
   const trimmed = newText.trim();
   const original = resolveMessage(history, path);
@@ -373,10 +347,10 @@ export function applyUserMessageSave(history: ChatMessage[], path: number[], new
   }
   const next = applyUserMessageSaveCore(history, path, newText);
   if (next === history) return history;
-  return replaceTailAfterUserWithStubAi(next, path);
+  return normalizeBranchedHistory(next);
 }
 
-/** Омниканальный бот: правка на месте без веток, затем одна заглушка ассистента. */
+/** Омниканальный бот: правка на месте без веток. */
 export function applyOmnichannelUserMessageSave(
   history: ChatMessage[],
   path: number[],
@@ -386,8 +360,13 @@ export function applyOmnichannelUserMessageSave(
   if (!u || u.role !== "user") return history;
   const trimmed = newText.trim();
   if (trimmed === displayUserText(u).trim()) return history;
-  const next = mapMessageAtPath(history, path, () => ({ role: "user", text: trimmed }));
-  return replaceTailAfterUserWithStubAi(next, path);
+  const ctx = getParentListAndIndex(history, path);
+  if (!ctx) return history;
+  const { list, index } = ctx;
+  const newList = [...list.slice(0, index + 1)];
+  const updated = setUserDisplayText({ ...u, text: trimmed }, trimmed);
+  newList[index] = updated;
+  return replaceContainingList(history, path, newList);
 }
 
 export function setActiveUserBranch(history: ChatMessage[], path: number[], branchIdx: number): ChatMessage[] {

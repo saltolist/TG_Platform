@@ -159,8 +159,8 @@ export function useChatMessage({ message, ctx }: Props) {
     if (!ctx) return;
     const text = draft.trim();
     if (text === "") return;
-    saveUserMessage(ctx, ctx.path, text);
     setEditing(false);
+    void saveUserMessage(ctx, ctx.path, text);
   }, [ctx, draft, saveUserMessage]);
 
   const onEditKeyDown = useCallback(
