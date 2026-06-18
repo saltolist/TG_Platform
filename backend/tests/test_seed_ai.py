@@ -24,6 +24,7 @@ def test_demo_empty_env_uses_stub_llm_models() -> None:
     ai = build_demo_ai_profile(Settings(), stub)
     assert ai["llmModels"] == stub["llmModels"]
     assert ai["llmModels"][0]["apiKey"] == "sk-openai-demo"
+    assert ai["webSearchModels"] == []
 
 
 def test_demo_openai_env_uses_env_ref() -> None:
@@ -35,6 +36,8 @@ def test_demo_openai_env_uses_env_ref() -> None:
     assert all(m["active"] for m in ai["llmModels"])
     assert ai["llmModels"][0]["model"] == "gpt-4o"
     assert ai["llmModels"][1]["model"] == "gpt-4.1"
+    assert len(ai["webSearchModels"]) == 1
+    assert ai["webSearchModels"][0]["provider"] == "OpenAI"
 
 
 def test_demo_openai_and_deepseek_env() -> None:
@@ -46,6 +49,33 @@ def test_demo_openai_and_deepseek_env() -> None:
     providers = {m["provider"] for m in ai["llmModels"]}
     assert providers == {"OpenAI", "DeepSeek"}
     assert all(m["apiKey"].startswith("env:") for m in ai["llmModels"])
+    assert len(ai["webSearchModels"]) == 1
+    assert ai["webSearchModels"][0]["provider"] == "OpenAI"
+
+
+def test_demo_deepseek_only_no_web_models() -> None:
+    stub = _load_fixture_ai("demo-full")
+    ai = build_demo_ai_profile(Settings(deepseek_api_key="sk-d"), stub)
+    assert all(m["provider"] == "DeepSeek" for m in ai["llmModels"])
+    assert ai["webSearchModels"] == []
+
+
+def test_demo_openai_and_tavily_web_models() -> None:
+    stub = _load_fixture_ai("demo-full")
+    ai = build_demo_ai_profile(
+        Settings(openai_api_key="sk-o", tavily_api_key="tvly-x"),
+        stub,
+    )
+    assert len(ai["webSearchModels"]) == 2
+    web_providers = {m["provider"] for m in ai["webSearchModels"]}
+    assert web_providers == {"Tavily", "OpenAI"}
+    assert all(m["apiKey"].startswith("env:") for m in ai["webSearchModels"])
+
+
+def test_demo_web_keys_without_llm_env_stay_empty() -> None:
+    stub = _load_fixture_ai("demo-full")
+    ai = build_demo_ai_profile(Settings(tavily_api_key="tvly-x"), stub)
+    assert ai["webSearchModels"] == []
 
 
 def test_presentation_no_llm_keys_uses_fixture_stub() -> None:
@@ -107,6 +137,7 @@ async def test_seed_demo_profile_reflects_openai_env(client: AsyncClient) -> Non
     llm_models = ai.json()["llmModels"]
     assert len(llm_models) == 2
     assert llm_models[0]["apiKey"] == "env:OPENAI_API_KEY"
+    assert len(ai.json()["webSearchModels"]) == 1
 
 
 @pytest.mark.asyncio

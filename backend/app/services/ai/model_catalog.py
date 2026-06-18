@@ -128,9 +128,33 @@ def build_demo_llm_models(settings: Settings, stub_llm_models: list[dict[str, An
     return built
 
 
+def build_demo_web_models(settings: Settings) -> list[dict[str, Any]]:
+    """demo-full: web models only for web env keys (with LLM env present); else empty."""
+    if not any_llm_env_key(settings):
+        return []
+    providers = _web_providers_with_keys(settings)
+    if not providers:
+        return []
+
+    built: list[dict[str, Any]] = []
+    for provider in providers:
+        env_name, _ = WEB_PROVIDER_ENV[provider]
+        built.extend(
+            _build_catalog_models(
+                providers=[provider],
+                catalog=WEB_SEARCH_PROVIDER_MODELS,
+                id_prefix="web",
+                api_key=f"{ENV_REF_PREFIX}{env_name}",
+                activate_all=True,
+            )
+        )
+    return built
+
+
 def build_demo_ai_profile(settings: Settings, stub_ai: dict[str, Any]) -> dict[str, Any]:
     ai = deepcopy(stub_ai)
     ai["llmModels"] = build_demo_llm_models(settings, stub_ai.get("llmModels", []))
+    ai["webSearchModels"] = build_demo_web_models(settings)
     return ai
 
 
