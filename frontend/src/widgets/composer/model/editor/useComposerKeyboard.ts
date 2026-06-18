@@ -15,6 +15,7 @@ type Params = {
   refreshIsEmpty: () => void;
   refreshMention: () => void;
   syncAttachmentsFromDom: () => void;
+  isGenerating?: boolean;
 };
 
 export function useComposerKeyboard({
@@ -29,9 +30,11 @@ export function useComposerKeyboard({
   refreshIsEmpty,
   refreshMention,
   syncAttachmentsFromDom,
+  isGenerating = false,
 }: Params) {
   const onKeyDown = useCallback(
     (e: React.KeyboardEvent<HTMLDivElement>) => {
+      if (isGenerating) return;
       if (mentionOpen) {
         if (e.key === "ArrowDown") {
           e.preventDefault();
@@ -62,6 +65,7 @@ export function useComposerKeyboard({
     },
     [
       clearMention,
+      isGenerating,
       mentionOpen,
       mentionIndex,
       mentionMatches,

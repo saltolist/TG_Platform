@@ -10,7 +10,12 @@ import type { UseComposerEditorProps } from "@/widgets/composer/model/editor/typ
 import { usePosts } from "@/entities/post";
 import { useComposerSubmit } from "@/widgets/composer/model/useComposerSubmit";
 
-export function useComposerEditor({ scope, placeholder, onSubmit }: UseComposerEditorProps) {
+export function useComposerEditor({
+  scope,
+  placeholder,
+  onSubmit,
+  isGenerating = false,
+}: UseComposerEditorProps) {
   const { data: posts = [] } = usePosts();
   const modelTarget = useComposerModelTarget(scope);
   const { narrowComposer, effectivePlaceholder } = useComposerLayout(placeholder);
@@ -61,7 +66,7 @@ export function useComposerEditor({ scope, placeholder, onSubmit }: UseComposerE
     clearMention();
   }, [clearEditorContent, clearMention]);
 
-  const submit = useComposerSubmit(serializeEditor, clearEditor, onSubmit);
+  const submit = useComposerSubmit(serializeEditor, clearEditor, onSubmit, isGenerating);
 
   const keyboard = useComposerKeyboard({
     narrowComposer,
@@ -75,6 +80,7 @@ export function useComposerEditor({ scope, placeholder, onSubmit }: UseComposerE
     refreshIsEmpty,
     refreshMention,
     syncAttachmentsFromDom,
+    isGenerating,
   });
 
   const placement: "up" | "down" = scope === "home" ? "down" : "up";

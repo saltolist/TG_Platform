@@ -11,6 +11,7 @@ import {
 import { useQueryClient } from "@tanstack/react-query";
 import { useUiStore } from "@/app/model/store/ui-store";
 import { useComposerTargetStore } from "@/app/model/store/composer-target-store";
+import { useComposerReplyStore } from "@/app/model/store/composer-reply-store";
 import {
   buildAiReplyMessage,
   buildStreamingAiShell,
@@ -34,6 +35,7 @@ import { truncate } from "@/shared/lib/helpers";
 import { buildMultiResponsePairs } from "@/shared/config/composer";
 import { randomId } from "@/shared/lib/randomId";
 import { showToast } from "@/shared/ui/toast";
+import { isAbortError } from "@/shared/lib/isAbortError";
 import { patchGlobalChatStreamingText, patchPostChatStreamingText } from "@/shared/lib/streaming/patchStreamingReply";
 import { updateLastVisibleAiMessage } from "@/shared/lib/chatPaths";
 import { queryKeys } from "@/shared/api/queryKeys";
@@ -95,21 +97,28 @@ async function streamGlobalAssistantReply(params: {
   assistant: AssistantRepository;
   userText: string;
   llmTarget: ReturnType<typeof resolveLlmTarget>;
+  signal?: AbortSignal;
 }): Promise<string> {
-  const { queryClient, accountId, chatId, assistant, userText, llmTarget } = params;
+  const { queryClient, accountId, chatId, assistant, userText, llmTarget, signal } = params;
   let accumulated = "";
-  return assistant.streamGlobalChatReply(
-    userText,
-    (chunk) => {
-      accumulated += chunk;
-      patchGlobalChatStreamingText(queryClient, chatId, accumulated, accountId);
-    },
-    {
-      ...llmTarget,
-      chatId,
-      history: readGlobalChatHistory(queryClient, accountId, chatId),
-    },
-  );
+  try {
+    return await assistant.streamGlobalChatReply(
+      userText,
+      (chunk) => {
+        accumulated += chunk;
+        patchGlobalChatStreamingText(queryClient, chatId, accumulated, accountId);
+      },
+      {
+        ...llmTarget,
+        chatId,
+        history: readGlobalChatHistory(queryClient, accountId, chatId),
+        signal,
+      },
+    );
+  } catch (error) {
+    if (isAbortError(error)) return accumulated;
+    throw error;
+  }
 }
 
 async function streamPostAssistantReply(params: {
@@ -120,22 +129,36 @@ async function streamPostAssistantReply(params: {
   assistant: AssistantRepository;
   userText: string;
   llmTarget: ReturnType<typeof resolveLlmTarget>;
+  signal?: AbortSignal;
 }): Promise<string> {
-  const { queryClient, accountId, postId, chatId, assistant, userText, llmTarget } = params;
+  const { queryClient, accountId, postId, chatId, assistant, userText, llmTarget, signal } = params;
   let accumulated = "";
-  return assistant.streamPostChatReply(
-    userText,
-    (chunk) => {
-      accumulated += chunk;
-      patchPostChatStreamingText(queryClient, postId, chatId, accumulated, accountId);
-    },
-    {
-      ...llmTarget,
-      postId,
-      postChatId: chatId,
-      history: readPostChatHistory(queryClient, accountId, postId, chatId),
-    },
-  );
+  try {
+    return await assistant.streamPostChatReply(
+      userText,
+      (chunk) => {
+        accumulated += chunk;
+        patchPostChatStreamingText(queryClient, postId, chatId, accumulated, accountId);
+      },
+      {
+        ...llmTarget,
+        postId,
+        postChatId: chatId,
+        history: readPostChatHistory(queryClient, accountId, postId, chatId),
+        signal,
+      },
+    );
+  } catch (error) {
+    if (isAbortError(error)) return accumulated;
+    throw error;
+  }
+}
+
+const STOPPED_REPLY_TEXT = "Генерация остановлена.";
+
+function resolveFinalAssistantReply(baseReply: string, signal: AbortSignal): string {
+  if (signal.aborted && !baseReply.trim()) return STOPPED_REPLY_TEXT;
+  return baseReply;
 }
 
 export function ComposerProvider({ children }: { children: ReactNode }) {
@@ -246,19 +269,26 @@ export function ComposerProvider({ children }: { children: ReactNode }) {
           chatId: id,
           message: buildStreamingAiShell(cfg, target),
         });
-        const baseReply = await completeAssistantReply(
-          () =>
-            streamGlobalAssistantReply({
-              queryClient,
-              accountId,
-              chatId: id,
-              assistant,
-              userText: text,
-              llmTarget: resolveLlmTarget(cfg, target.llmId),
-            }),
-          (message) => showToast({ message, variant: "error" }),
-        );
-        await finalizeGlobalReply(id, "home", baseReply);
+        const signal = useComposerReplyStore.getState().beginReply("home");
+        try {
+          const baseReply = await completeAssistantReply(
+            () =>
+              streamGlobalAssistantReply({
+                queryClient,
+                accountId,
+                chatId: id,
+                assistant,
+                userText: text,
+                llmTarget: resolveLlmTarget(cfg, target.llmId),
+                signal,
+              }),
+            (message) => showToast({ message, variant: "error" }),
+            { allowEmpty: true },
+          );
+          await finalizeGlobalReply(id, "home", resolveFinalAssistantReply(baseReply, signal));
+        } finally {
+          useComposerReplyStore.getState().endReply();
+        }
       });
 
       return true;
@@ -289,19 +319,26 @@ export function ComposerProvider({ children }: { children: ReactNode }) {
           chatId,
           message: buildStreamingAiShell(cfg, target),
         });
-        const baseReply = await completeAssistantReply(
-          () =>
-            streamGlobalAssistantReply({
-              queryClient,
-              accountId,
-              chatId,
-              assistant,
-              userText: text,
-              llmTarget: resolveLlmTarget(cfg, target.llmId),
-            }),
-          (message) => showToast({ message, variant: "error" }),
-        );
-        await finalizeGlobalReply(chatId, "gchat", baseReply);
+        const signal = useComposerReplyStore.getState().beginReply("gchat");
+        try {
+          const baseReply = await completeAssistantReply(
+            () =>
+              streamGlobalAssistantReply({
+                queryClient,
+                accountId,
+                chatId,
+                assistant,
+                userText: text,
+                llmTarget: resolveLlmTarget(cfg, target.llmId),
+                signal,
+              }),
+            (message) => showToast({ message, variant: "error" }),
+            { allowEmpty: true },
+          );
+          await finalizeGlobalReply(chatId, "gchat", resolveFinalAssistantReply(baseReply, signal));
+        } finally {
+          useComposerReplyStore.getState().endReply();
+        }
       });
       return true;
     },
@@ -344,20 +381,31 @@ export function ComposerProvider({ children }: { children: ReactNode }) {
         }
         const target = getTarget("post");
         await pushLocalChatMessage(postId, replyChatId, buildStreamingAiShell(cfg, target));
-        const baseReply = await completeAssistantReply(
-          () =>
-            streamPostAssistantReply({
-              queryClient,
-              accountId,
-              postId,
-              chatId: replyChatId,
-              assistant,
-              userText: text,
-              llmTarget: resolveLlmTarget(cfg, target.llmId),
-            }),
-          (message) => showToast({ message, variant: "error" }),
-        );
-        await finalizePostReply(postId, replyChatId, baseReply);
+        const signal = useComposerReplyStore.getState().beginReply("post");
+        try {
+          const baseReply = await completeAssistantReply(
+            () =>
+              streamPostAssistantReply({
+                queryClient,
+                accountId,
+                postId,
+                chatId: replyChatId,
+                assistant,
+                userText: text,
+                llmTarget: resolveLlmTarget(cfg, target.llmId),
+                signal,
+              }),
+            (message) => showToast({ message, variant: "error" }),
+            { allowEmpty: true },
+          );
+          await finalizePostReply(
+            postId,
+            replyChatId,
+            resolveFinalAssistantReply(baseReply, signal),
+          );
+        } finally {
+          useComposerReplyStore.getState().endReply();
+        }
       });
 
       return true;

@@ -18,4 +18,5 @@ export type UseComposerEditorProps = {
   scope: ComposerScope;
   placeholder?: string;
   onSubmit: (text: string) => boolean;
+  isGenerating?: boolean;
 };

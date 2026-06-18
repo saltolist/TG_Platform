@@ -4,18 +4,9 @@ import { queryKeys } from "@/shared/api/queryKeys";
 import { getQueryAccountIdFromAuth } from "@/shared/lib/auth/queryAccountScope";
 import { isOverlayAccount } from "@/shared/lib/overlay/isOverlayAccount";
 import { mutateOverlay } from "@/shared/lib/overlay/overlayStorage";
+import { applyStreamingAiText } from "@/app/model/store/composer/helpers";
 import { updateLastVisibleAiMessage } from "@/shared/lib/chatPaths";
 import type { ChatMessage, GlobalChat, Post } from "@/shared/types";
-
-function applyStreamingAiText(message: ChatMessage, text: string): ChatMessage {
-  if (message.mode === "multi" && message.variants?.length) {
-    return {
-      ...message,
-      variants: message.variants.map((variant) => ({ ...variant, text })),
-    };
-  }
-  return { ...message, text };
-}
 
 function applyAccumulatedAiText(history: ChatMessage[], accumulated: string): ChatMessage[] {
   return updateLastVisibleAiMessage(history, (message) =>

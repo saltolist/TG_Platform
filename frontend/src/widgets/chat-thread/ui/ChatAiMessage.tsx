@@ -1,6 +1,7 @@
 "use client";
 
 import AiMessageToolbar from "./AiMessageToolbar";
+import AiTypingIndicator from "./AiTypingIndicator";
 import ChatAiVariantNav from "./ChatAiVariantNav";
 import type { ChatMessageCtx } from "@/entities/message";
 
@@ -14,6 +15,7 @@ type Props = {
   canGoVariantNext: boolean;
   onBumpVariant: (delta: number) => void;
   onDelete?: () => void;
+  isStreaming?: boolean;
 };
 
 export default function ChatAiMessage({
@@ -26,25 +28,34 @@ export default function ChatAiMessage({
   canGoVariantNext,
   onBumpVariant,
   onDelete,
+  isStreaming = false,
 }: Props) {
+  const showTyping = isStreaming && !plainAi.trim();
+
   return (
     <div className="msg-row ai">
       <div className="msg-body">
-        <div className="msg-text" dangerouslySetInnerHTML={{ __html: textHtml }} />
-        <div className="ai-msg-footer">
-          <div className="ai-msg-footer-left">
-            {showVariantNav && ctx ? (
-              <ChatAiVariantNav
-                modelTitle={modelTitle}
-                canGoPrev={canGoVariantPrev}
-                canGoNext={canGoVariantNext}
-                onPrev={() => onBumpVariant(-1)}
-                onNext={() => onBumpVariant(1)}
-              />
-            ) : null}
+        {showTyping ? (
+          <AiTypingIndicator />
+        ) : (
+          <div className="msg-text" dangerouslySetInnerHTML={{ __html: textHtml }} />
+        )}
+        {!isStreaming ? (
+          <div className="ai-msg-footer">
+            <div className="ai-msg-footer-left">
+              {showVariantNav && ctx ? (
+                <ChatAiVariantNav
+                  modelTitle={modelTitle}
+                  canGoPrev={canGoVariantPrev}
+                  canGoNext={canGoVariantNext}
+                  onPrev={() => onBumpVariant(-1)}
+                  onNext={() => onBumpVariant(1)}
+                />
+              ) : null}
+            </div>
+            <AiMessageToolbar plainText={plainAi} onDelete={onDelete} />
           </div>
-          <AiMessageToolbar plainText={plainAi} onDelete={onDelete} />
-        </div>
+        ) : null}
       </div>
     </div>
   );

@@ -1,6 +1,7 @@
 "use client";
 
 import { createPortal } from "react-dom";
+import { useComposerReplyStore } from "@/app/model/store/composer-reply-store";
 import { useComposerEditor } from "@/widgets/composer/model/useComposerEditor";
 import { onComposerShellMouseDown } from "@/shared/lib/composerPointerDown";
 import type { ComposerScope } from "@/shared/types";
@@ -14,6 +15,9 @@ type Props = {
 };
 
 export default function Composer({ scope, placeholder, onSubmit }: Props) {
+  const isGenerating = useComposerReplyStore((s) => s.isActiveForScope(scope));
+  const stopReply = useComposerReplyStore((s) => s.stopReply);
+
   const {
     placement,
     editorRef,
@@ -43,7 +47,7 @@ export default function Composer({ scope, placeholder, onSubmit }: Props) {
     normalizeEmptyEditorFocus,
     refreshMention,
     submit,
-  } = useComposerEditor({ scope, placeholder, onSubmit });
+  } = useComposerEditor({ scope, placeholder, onSubmit, isGenerating });
 
   const mentionDropdown =
     mentionOpen && mentionPos ? (
@@ -99,6 +103,8 @@ export default function Composer({ scope, placeholder, onSubmit }: Props) {
           onLlmChange={(id) => setComposerLlm(scope, id)}
           onWebChange={(id) => setComposerWeb(scope, id)}
           onSubmit={submit}
+          isGenerating={isGenerating}
+          onStop={stopReply}
         />
       </div>
       {mentionDropdown && typeof document !== "undefined"

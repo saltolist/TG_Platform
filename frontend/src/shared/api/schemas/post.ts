@@ -59,6 +59,7 @@ export const chatMessageSchema: z.ZodType<{
   targetLabel?: string;
   llmLabel?: string;
   webLabel?: string;
+  streaming?: boolean;
 }> = z.lazy(() =>
   z.object({
     role: z.enum(["user", "ai"]),
@@ -71,6 +72,7 @@ export const chatMessageSchema: z.ZodType<{
     targetLabel: z.string().optional(),
     llmLabel: z.string().optional(),
     webLabel: z.string().optional(),
+    streaming: z.boolean().optional(),
   }),
 );
 

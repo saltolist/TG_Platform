@@ -4,6 +4,7 @@ import ChatAiMessage from "./ChatAiMessage";
 import ChatUserMessage from "./ChatUserMessage";
 import type { ChatMessageCtx } from "@/entities/message";
 import { useChatMessage } from "@/widgets/chat-thread/model/useChatMessage";
+import { isStreamingChatMessage } from "@/shared/lib/streaming/streamingMessage";
 import type { ChatMessage as ChatMessageType } from "@/shared/types";
 
 export type { ChatMessageCtx };
@@ -12,13 +13,17 @@ export default function ChatMessage({
   message,
   ctx,
   isLastAssistantMessage = false,
+  isPendingUserTurn = false,
 }: {
   message: ChatMessageType;
   ctx?: ChatMessageCtx;
   /** Показывать «Удалить» в меню только у последнего ответа ассистента в треде. */
   isLastAssistantMessage?: boolean;
+  /** Сообщение пользователя перед стримингом ответа — скрыть редактирование. */
+  isPendingUserTurn?: boolean;
 }) {
   const chat = useChatMessage({ message, ctx });
+  const isStreaming = isStreamingChatMessage(message);
 
   if (chat.isUser) {
     return (
@@ -42,6 +47,7 @@ export default function ChatMessage({
         onCopy={chat.onCopyUser}
         onOpenMobileActions={chat.openUserActionsOnMobile}
         onBumpBranch={chat.bumpUserBranch}
+        lockUserActions={isPendingUserTurn}
       />
     );
   }
@@ -56,7 +62,8 @@ export default function ChatMessage({
       canGoVariantPrev={chat.aiVariantIdx > 0}
       canGoVariantNext={chat.aiVariantIdx < chat.aiVariantCount - 1}
       onBumpVariant={chat.bumpAiVariant}
-      onDelete={ctx && isLastAssistantMessage ? chat.deleteMessage : undefined}
+      onDelete={ctx && isLastAssistantMessage && !isStreaming ? chat.deleteMessage : undefined}
+      isStreaming={isStreaming}
     />
   );
 }

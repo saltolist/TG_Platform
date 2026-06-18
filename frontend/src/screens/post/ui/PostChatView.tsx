@@ -4,6 +4,7 @@ import { Composer } from "@/widgets/composer";
 import { ChatMessage } from "@/widgets/chat-thread";
 import { PostMessageCard, type PostWorkspace } from "@/widgets/post-workspace";
 import { PostStatusBadge } from "@/entities/post";
+import { isStreamingChatMessage } from "@/shared/lib/streaming/streamingMessage";
 import type { Post } from "@/shared/types";
 
 type Props = {
@@ -54,19 +55,25 @@ export default function PostChatView({ post, data, ui, actions }: Props) {
                 }
                 phoneFormat={phoneFormat}
               />
-              {flatMessages.map(({ message: m, path }, i) => (
-                <ChatMessage
-                  key={path.join("-")}
-                  message={m}
-                  ctx={{
-                    scope: "post",
-                    postId: post.id,
-                    entityId: activeChat?.id ?? "",
-                    path,
-                  }}
-                  isLastAssistantMessage={m.role === "ai" && i === lastAssistantFlat}
-                />
-              ))}
+              {flatMessages.map(({ message: m, path }, i) => {
+                const nextMessage = flatMessages[i + 1]?.message;
+                return (
+                  <ChatMessage
+                    key={path.join("-")}
+                    message={m}
+                    ctx={{
+                      scope: "post",
+                      postId: post.id,
+                      entityId: activeChat?.id ?? "",
+                      path,
+                    }}
+                    isLastAssistantMessage={
+                      m.role === "ai" && i === lastAssistantFlat && !isStreamingChatMessage(m)
+                    }
+                    isPendingUserTurn={m.role === "user" && isStreamingChatMessage(nextMessage)}
+                  />
+                );
+              })}
             </div>
           </div>
         </div>

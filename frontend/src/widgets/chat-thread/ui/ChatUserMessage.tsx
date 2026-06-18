@@ -28,6 +28,7 @@ type Props = {
   onCopy: () => void;
   onOpenMobileActions: () => void;
   onBumpBranch: (delta: number) => void;
+  lockUserActions?: boolean;
 };
 
 export default function ChatUserMessage({
@@ -50,7 +51,10 @@ export default function ChatUserMessage({
   onCopy,
   onOpenMobileActions,
   onBumpBranch,
+  lockUserActions = false,
 }: Props) {
+  const showUserActions = ctx && !editing && !lockUserActions;
+
   return (
     <div className="msg-row user">
       <div
@@ -60,9 +64,9 @@ export default function ChatUserMessage({
         }`}
       >
         <div className="msg-user-stack">
-          <div className="msg-user-bubble-row" onClick={onOpenMobileActions}>
-            <div className={`msg-body${ctx && !editing ? " msg-body--user-actions" : ""}`}>
-              {ctx && !editing ? (
+          <div className="msg-user-bubble-row" onClick={lockUserActions ? undefined : onOpenMobileActions}>
+            <div className={`msg-body${showUserActions ? " msg-body--user-actions" : ""}`}>
+              {showUserActions ? (
                 <div className="msg-user-side-actions">
                   <button
                     type="button"

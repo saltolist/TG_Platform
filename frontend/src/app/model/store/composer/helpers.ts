@@ -4,6 +4,7 @@ import {
   VARIANT_TAILS,
 } from "@/shared/config/composer";
 import { getApiErrorMessage } from "@/shared/api/getApiErrorMessage";
+import { isAbortError } from "@/shared/lib/isAbortError";
 import type { AiProfileConfig, AiVariant, ChatMessage, ComposerScope, LlmModel } from "@/shared/types";
 
 export function resolveLlmLabel(cfg: AiProfileConfig, id: string): string {
@@ -17,16 +18,19 @@ export const EMPTY_AI_REPLY_FALLBACK =
 export async function completeAssistantReply(
   stream: () => Promise<string>,
   onError?: (message: string) => void,
+  options?: { allowEmpty?: boolean },
 ): Promise<string> {
   try {
     const text = await stream();
     const trimmed = text.trim();
     if (!trimmed) {
+      if (options?.allowEmpty) return text;
       onError?.(EMPTY_AI_REPLY_FALLBACK);
       return EMPTY_AI_REPLY_FALLBACK;
     }
     return text;
   } catch (error) {
+    if (isAbortError(error)) return "";
     const message = getApiErrorMessage(error, EMPTY_AI_REPLY_FALLBACK);
     onError?.(message);
     return message;
@@ -153,7 +157,7 @@ export function buildStreamingAiShell(
           text: "",
         };
       });
-      return { role: "ai", variants, selectedVariant: 0, mode: "multi" };
+      return { role: "ai", variants, selectedVariant: 0, mode: "multi", streaming: true };
     }
   }
   const llm = resolveLlmLabel(cfg, target.llmId);
@@ -166,6 +170,7 @@ export function buildStreamingAiShell(
     targetLabel: label,
     llmLabel: llm,
     webLabel: web,
+    streaming: true,
   };
 }
 
@@ -173,10 +178,11 @@ export function applyStreamingAiText(message: ChatMessage, text: string): ChatMe
   if (message.mode === "multi" && message.variants?.length) {
     return {
       ...message,
+      streaming: true,
       variants: message.variants.map((variant) => ({ ...variant, text })),
     };
   }
-  return { ...message, text };
+  return { ...message, text, streaming: true };
 }
 
 export function buildAiReplyMessage(

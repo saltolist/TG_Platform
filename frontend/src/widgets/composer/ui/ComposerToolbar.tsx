@@ -22,6 +22,8 @@ type Props = {
   onLlmChange: (id: string) => void;
   onWebChange: (id: string) => void;
   onSubmit: () => void;
+  isGenerating?: boolean;
+  onStop?: () => void;
 };
 
 export default function ComposerToolbar({
@@ -37,6 +39,8 @@ export default function ComposerToolbar({
   onLlmChange,
   onWebChange,
   onSubmit,
+  isGenerating = false,
+  onStop,
 }: Props) {
   return (
     <div className="input-bottom">
@@ -102,9 +106,21 @@ export default function ComposerToolbar({
         )}
       </div>
       <div style={{ flex: 1 }} />
-      <button className="send-btn" onClick={onSubmit} type="button">
-        ↑
-      </button>
+      {isGenerating ? (
+        <button
+          className="send-btn send-btn--stop"
+          onClick={onStop}
+          type="button"
+          aria-label="Остановить генерацию"
+          title="Остановить"
+        >
+          <span className="send-btn-stop-icon" aria-hidden />
+        </button>
+      ) : (
+        <button className="send-btn" onClick={onSubmit} type="button" aria-label="Отправить">
+          ↑
+        </button>
+      )}
     </div>
   );
 }
