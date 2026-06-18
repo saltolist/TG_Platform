@@ -49,6 +49,48 @@ def display_ai_text(message: Mapping[str, Any]) -> str:
     return str(message.get("text") or "")
 
 
+def map_message_at_path(
+    history: list[Mapping[str, Any]],
+    path: list[int],
+    updater: Any,
+) -> list[dict[str, Any]]:
+    """Return history with one message replaced (mirrors frontend mapMessageAtPath)."""
+    if not path:
+        return [dict(item) if isinstance(item, Mapping) else item for item in history]
+
+    head, *rest = path
+
+    def map_list(items: list[Mapping[str, Any]]) -> list[dict[str, Any]]:
+        result: list[dict[str, Any]] = []
+        for index, message in enumerate(items):
+            if index != head:
+                result.append(dict(message) if isinstance(message, Mapping) else message)
+                continue
+            current = dict(message) if isinstance(message, Mapping) else message
+            if not rest:
+                result.append(dict(updater(current)))
+                continue
+            if current.get("role") != "user":
+                result.append(current)
+                continue
+            branches = current.get("userBranches")
+            if not isinstance(branches, list) or not branches:
+                result.append(current)
+                continue
+            branch_index = clamp_active_branch_index(current)
+            branch = dict(branches[branch_index]) if isinstance(branches[branch_index], Mapping) else {}
+            continuation = branch.get("continuation")
+            if isinstance(continuation, list):
+                branch["continuation"] = map_list(continuation)
+            new_branches = [dict(item) if isinstance(item, Mapping) else item for item in branches]
+            new_branches[branch_index] = branch
+            current["userBranches"] = new_branches
+            result.append(current)
+        return result
+
+    return map_list(list(history))
+
+
 def flatten_visible_with_paths(
     history: list[Mapping[str, Any]],
 ) -> list[dict[str, Any]]:
@@ -117,3 +159,26 @@ def filter_alternating_roles(pairs: list[tuple[str, str]]) -> list[tuple[str, st
 
 def count_user_turns(pairs: list[tuple[str, str]]) -> int:
     return sum(1 for role, _ in pairs if role == "user")
+
+
+def active_thread_key(history: list[Mapping[str, Any]]) -> str:
+    """Signature of active branches — mirrors frontend visibleHistoryRevision()."""
+    parts: list[str] = []
+
+    def walk(items: list[Mapping[str, Any]], prefix: str) -> None:
+        for index, message in enumerate(items):
+            path = f"{prefix}{index}"
+            if message.get("role") == "user":
+                branches = message.get("userBranches")
+                if isinstance(branches, list) and branches:
+                    branch_index = clamp_active_branch_index(message)
+                    parts.append(f"{path}@{branch_index}")
+                    branch = branches[branch_index]
+                    if isinstance(branch, Mapping):
+                        continuation = branch.get("continuation")
+                        if isinstance(continuation, list):
+                            walk(continuation, f"{path}.")
+                    break
+
+    walk(history, "")
+    return ",".join(parts)

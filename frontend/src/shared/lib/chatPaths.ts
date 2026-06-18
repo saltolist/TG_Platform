@@ -315,6 +315,7 @@ function applyUserMessageSaveCore(history: ChatMessage[], path: number[], newTex
         { text: trimmed, continuation: [] },
       ],
       activeUserBranch: 1,
+      ...(target.bundleContext ? { bundleContext: target.bundleContext } : {}),
     };
     const newList = [...list.slice(0, index), forked];
     return replaceContainingList(healed, path, newList);
@@ -332,6 +333,7 @@ function applyUserMessageSaveCore(history: ChatMessage[], path: number[], newTex
       ...branches.slice(bi + 1),
     ],
     activeUserBranch: bi + 1,
+    ...(target.bundleContext ? { bundleContext: target.bundleContext } : {}),
   };
   const newList = [...list.slice(0, index), forkedUser];
   return replaceContainingList(healed, path, newList);

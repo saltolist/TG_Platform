@@ -6,9 +6,11 @@ from typing import Any, Mapping
 
 from app.services.ai.bundle import build_summary_bundle, bundle_fingerprint
 from app.services.ai.bundle_profile import (
+    advance_bundle_profile,
     bundle_text_for_primer,
-    ensure_bundle_profile,
+    ensure_unseen_channel_bundle_floating,
     get_floating_bundle_injections,
+    prepare_bundle_profile_for_assemble,
 )
 from app.services.ai.chat_history import (
     count_user_turns,
@@ -17,6 +19,11 @@ from app.services.ai.chat_history import (
 )
 from app.services.ai.context_config import PRIMER_ACK, PROMPT_WINDOW
 from app.services.ai.context_meta import annotate_user_turns, compute_window_user_turns
+from app.services.ai.message_bundle import (
+    resolve_bundle_from_messages,
+    resolve_bundle_from_profile_snapshot,
+)
+from app.services.ai.thread_context import resolve_thread_state
 
 DEFAULT_SYSTEM_PROMPT = (
     "Ты AI-ассистент TG Platform. Помогай автору Telegram-канала с текстами, "
@@ -107,19 +114,24 @@ def assemble_reply_messages(
     rolling_summary = ""
     bundle_profile: dict[str, Any] = {}
     if isinstance(chat_meta, Mapping):
-        rolling_summary = str(chat_meta.get("rolling_summary") or "").strip()
-        bundle_profile = ensure_bundle_profile(
-            chat_meta.get("rolling_summary_profile"),
-            current_bundle=current_bundle,
-            current_fingerprint=fingerprint,
+        thread_state, _, _ = resolve_thread_state(
+            chat_meta,
+            list(history or []),
+            global_fingerprint=fingerprint,
+        )
+        rolling_summary = str(thread_state.get("rolling_summary") or "").strip()
+        bundle_profile = prepare_bundle_profile_for_assemble(
+            thread_state.get("rolling_summary_profile"),
             user_turn_count=user_turn_count,
             window_user_turns=window_user_turns,
-        )
-    else:
-        bundle_profile = ensure_bundle_profile(
-            None,
             current_bundle=current_bundle,
             current_fingerprint=fingerprint,
+            global_fingerprint_at_last_refresh=thread_state.get("global_fingerprint_at_last_refresh"),
+            parent_generations=thread_state.get("parent_generations_snapshot"),
+        )
+    else:
+        bundle_profile = prepare_bundle_profile_for_assemble(
+            None,
             user_turn_count=user_turn_count,
             window_user_turns=window_user_turns,
         )
@@ -136,6 +148,42 @@ def assemble_reply_messages(
         primer_stub_id=primer_stub_id,
         user_turn_count=user_turn_count,
         window_user_turns=window_user_turns,
+    )
+
+    message_bundle = resolve_bundle_from_messages(
+        list(history or []),
+        bundle_profile,
+        user_turn_count=user_turn_count,
+        window_user_turns=window_user_turns,
+        fallback_primer=bundle_for_primer,
+        fallback_stub_id=primer_stub_id,
+        fallback_floating=floating_bundles,
+    )
+    if message_bundle is None:
+        message_bundle = resolve_bundle_from_profile_snapshot(
+            bundle_profile,
+            user_turn_count=user_turn_count,
+            window_user_turns=window_user_turns,
+            fallback_primer=bundle_for_primer,
+            fallback_stub_id=primer_stub_id,
+            fallback_floating=floating_bundles,
+        )
+    if message_bundle is not None:
+        bundle_for_primer, primer_stub_id, floating_bundles = message_bundle
+
+    floating_bundles = ensure_unseen_channel_bundle_floating(
+        floating_bundles,
+        profile_meta=bundle_profile,
+        primer_stub_id=primer_stub_id,
+        current_bundle=current_bundle,
+        current_fingerprint=fingerprint,
+        user_turn_count=user_turn_count,
+        window_user_turns=window_user_turns,
+        parent_generations=(
+            thread_state.get("parent_generations_snapshot")
+            if isinstance(chat_meta, Mapping)
+            else None
+        ),
     )
 
     messages: list[dict[str, str]] = [

@@ -267,6 +267,7 @@ async def test_refresh_context_meta_builds_rolling_summary_template() -> None:
     pairs = _pairs((HISTORY_WINDOW // 2) + 5)
     meta = await refresh_context_meta_after_reply(
         {},
+        history=[],
         valid_pairs=pairs,
         current_bundle="Bundle",
         current_fingerprint="fp",
@@ -274,6 +275,8 @@ async def test_refresh_context_meta_builds_rolling_summary_template() -> None:
     )
     assert meta["rolling_summary"]
     assert meta["rolling_summary_idx"] == len(pairs) - 5
+    assert meta["active_thread_key"] == ""
+    assert "" in meta["thread_context"]
 
 
 def test_update_rolling_summary_template_limits_growth() -> None:

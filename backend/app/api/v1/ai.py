@@ -16,6 +16,7 @@ from app.services.ai.chat_history import filter_alternating_roles, linearize_for
 from app.services.ai.context import assemble_reply_messages
 from app.services.ai.context_log import get_chat_filter, log_llm_request, log_llm_response, should_log_llm_context
 from app.services.ai.context_meta import refresh_context_meta_after_reply, persist_chat_meta
+from app.services.ai.message_bundle import apply_bundle_context_stamp_to_history
 from app.services.ai.keys import KeyResolution, KeySource, get_account_mode
 from app.services.ai.llm import stream_llm_sse
 from app.services.ai.orchestrator import resolve_orchestrator_llm
@@ -33,6 +34,9 @@ _CHAT_META_KEYS = (
     "rolling_summary",
     "rolling_summary_idx",
     "rolling_summary_profile",
+    "active_thread_key",
+    "thread_context",
+    "global_fingerprint_at_last_refresh",
 )
 
 
@@ -218,12 +222,26 @@ async def _finalize_context_meta(
 
     updated_meta = await refresh_context_meta_after_reply(
         chat_meta,
+        history=history,
         valid_pairs=valid_pairs,
         current_bundle=current_bundle,
         current_fingerprint=fingerprint,
         llm=summary_llm,
     )
-    await persist_chat_meta(session, user.id, payload, updated_meta)
+    stamped_history: list[Mapping[str, Any]] | None = None
+    stamp = updated_meta.get("bundle_context_stamp")
+    if isinstance(stamp, Mapping):
+        source_history = list(history or [])
+        applied = apply_bundle_context_stamp_to_history(source_history, stamp)
+        if applied is not None:
+            stamped_history = applied
+    await persist_chat_meta(
+        session,
+        user.id,
+        payload,
+        updated_meta,
+        history=stamped_history,
+    )
     await session.commit()
     return updated_meta
 

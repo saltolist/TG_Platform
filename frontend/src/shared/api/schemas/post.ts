@@ -49,6 +49,11 @@ export const userMessageBranchSchema = z.object({
   continuation: z.lazy(() => z.array(chatMessageSchema)),
 });
 
+export const messageBundleContextSchema = z.object({
+  headGenerationId: z.string(),
+  floatingGenerationId: z.string().optional(),
+});
+
 export const chatMessageSchema: z.ZodType<{
   role: "user" | "ai";
   text?: string;
@@ -61,6 +66,7 @@ export const chatMessageSchema: z.ZodType<{
   llmLabel?: string;
   webLabel?: string;
   streaming?: boolean;
+  bundleContext?: z.infer<typeof messageBundleContextSchema>;
 }> = z.lazy(() =>
   z.object({
     role: z.enum(["user", "ai"]),
@@ -74,6 +80,7 @@ export const chatMessageSchema: z.ZodType<{
     llmLabel: z.string().optional(),
     webLabel: z.string().optional(),
     streaming: z.boolean().optional(),
+    bundleContext: messageBundleContextSchema.optional(),
   }),
 );
 
