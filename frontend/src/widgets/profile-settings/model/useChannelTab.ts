@@ -1,24 +1,27 @@
 "use client";
 
-import { useEffect, useMemo } from "react";
+import { useCallback, useEffect, useMemo } from "react";
+import { useUpdateChannelProfile } from "@/entities/channel";
 import {
   domainActions,
   selectChannelProfileConfig,
   selectChannelProfileSavedSnapshot,
-  useDomainActions,
   useDomainDispatch,
   useDomainSelector,
   useUi,
 } from "@/app/model/store";
+import { useProfileDraftStore } from "@/app/model/store/profile-draft-store";
+import { normalizeChannelProfileConfig } from "@/shared/lib/profile/normalizeProfileConfig";
 import { randomId } from "@/shared/lib/randomId";
+import { reportMutationError, showToast } from "@/shared/ui/toast";
 import type { ChannelProfileConfig, ChannelProfileRubric } from "@/shared/types";
 
 export function useChannelTab() {
   const cfg = useDomainSelector(selectChannelProfileConfig);
   const channelProfileSavedSnapshot = useDomainSelector(selectChannelProfileSavedSnapshot);
   const dispatch = useDomainDispatch();
-  const { applyPatch } = useDomainActions();
   const { setDirty } = useUi();
+  const updateChannelProfile = useUpdateChannelProfile();
   const savedCfg = useMemo(
     () => JSON.parse(channelProfileSavedSnapshot) as ChannelProfileConfig,
     [channelProfileSavedSnapshot],
@@ -47,15 +50,38 @@ export function useChannelTab() {
 
   const update = (next: ChannelProfileConfig) => dispatch(domainActions.updateChannelProfile(next));
 
+  const persistChannelConfig = useCallback(
+    async (payload: ChannelProfileConfig) => {
+      const normalized = normalizeChannelProfileConfig(payload);
+      const state = useProfileDraftStore.getState();
+      const nextSnapshot = JSON.stringify(normalized);
+      if (nextSnapshot === state.channelProfileSavedSnapshot) return;
+
+      const previousSnapshot = state.channelProfileSavedSnapshot;
+      state.applyPatch({ channelProfileSavedSnapshot: nextSnapshot });
+
+      try {
+        const saved = await updateChannelProfile.mutateAsync(normalized);
+        const savedNormalized = normalizeChannelProfileConfig(saved);
+        state.applyPatch({ channelProfileSavedSnapshot: JSON.stringify(savedNormalized) });
+        dispatch(domainActions.updateChannelProfile(savedNormalized));
+        showToast({ message: "Профиль канала сохранён", variant: "info" });
+      } catch (error) {
+        state.applyPatch({ channelProfileSavedSnapshot: previousSnapshot });
+        reportMutationError(error, "Не удалось сохранить профиль канала");
+      }
+    },
+    [dispatch, updateChannelProfile],
+  );
+
   const saveChannelProfile = () => {
     if (!channelProfileDirty) return;
-    applyPatch({
-      channelProfileSavedSnapshot: JSON.stringify({
-        ...savedCfg,
-        core: cfg.core,
-        voice: cfg.voice,
-        rules: cfg.rules,
-      }),
+    void persistChannelConfig({
+      ...savedCfg,
+      core: cfg.core,
+      voice: cfg.voice,
+      rules: cfg.rules,
+      rubrics: cfg.rubrics,
     });
   };
 
@@ -71,11 +97,12 @@ export function useChannelTab() {
 
   const saveRubrics = () => {
     if (!rubricsDirty) return;
-    applyPatch({
-      channelProfileSavedSnapshot: JSON.stringify({
-        ...savedCfg,
-        rubrics: cfg.rubrics,
-      }),
+    void persistChannelConfig({
+      ...savedCfg,
+      core: cfg.core,
+      voice: cfg.voice,
+      rules: cfg.rules,
+      rubrics: cfg.rubrics,
     });
   };
 

@@ -162,11 +162,14 @@ function overlayProfile(inner: ProfileRepository): ProfileRepository {
       return overlay ? normalizeChannelProfileConfig({ ...base, ...overlay }) : base;
     },
     updateChannel: async (config) => {
-      if (!isOverlayAccount()) return inner.updateChannel(config);
-      mutateOverlay((overlay) => {
-        overlay.profile = { ...overlay.profile, channel: config };
-      });
-      return config;
+      const normalized = normalizeChannelProfileConfig(config);
+      const saved = normalizeChannelProfileConfig(await inner.updateChannel(normalized));
+      if (isOverlayAccount()) {
+        mutateOverlay((overlay) => {
+          overlay.profile = { ...overlay.profile, channel: saved };
+        });
+      }
+      return saved;
     },
     getAi: async () => {
       const base = await inner.getAi();

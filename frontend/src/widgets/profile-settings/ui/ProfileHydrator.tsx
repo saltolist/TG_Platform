@@ -26,6 +26,7 @@ export function ProfileHydrator() {
   useEffect(() => {
     if (!ai) return;
     hydrateFromServer(
+      accountId,
       normalizeChannelProfileConfig(channel),
       normalizeAiProfileConfig(ai),
       normalizeTelegramProfileConfig(telegram),

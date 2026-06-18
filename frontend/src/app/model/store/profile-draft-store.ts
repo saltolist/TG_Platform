@@ -7,6 +7,7 @@ import {
   normalizeTelegramProfileConfig,
 } from "@/shared/lib/profile/normalizeProfileConfig";
 import { telegramConfigSnapshot } from "@/shared/lib/profile/telegramSnapshot";
+import { isChannelProfileDraftDirty } from "@/shared/lib/profile/channelProfileDraft";
 import { createEmptyAccountStore } from "@/shared/data/empty-account-state";
 import type {
   AiProfileConfig,
@@ -90,6 +91,7 @@ export type ProfileDraftState = {
   channelProfileSavedSnapshot: string;
   telegramSettingsSavedSnapshot: string;
   hydrated: boolean;
+  lastHydratedAccountId: string | null;
 };
 
 type ProfileSnapshotPatch = Partial<
@@ -104,6 +106,7 @@ type ProfileSnapshotPatch = Partial<
 
 type ProfileDraftActions = {
   hydrateFromServer: (
+    accountId: string,
     channel: ChannelProfileConfig,
     ai: AiProfileConfig,
     telegram: TelegramProfileConfig,
@@ -127,24 +130,38 @@ function createInitialProfileDraftState(): ProfileDraftState {
     channelProfileSavedSnapshot: JSON.stringify(empty.channelProfile),
     telegramSettingsSavedSnapshot: buildInitialTelegramSnapshot(empty.telegramProfile),
     hydrated: false,
+    lastHydratedAccountId: null,
   };
 }
 
 export const useProfileDraftStore = create<ProfileDraftState & ProfileDraftActions>((set, get) => ({
   ...createInitialProfileDraftState(),
-  hydrateFromServer: (channel, ai, telegram) => {
+  hydrateFromServer: (accountId, channel, ai, telegram) => {
+    const state = get();
     const normalizedChannel = normalizeChannelProfileConfig(channel);
     const normalizedAi = normalizeAiProfileConfig(ai);
     const normalizedTelegram = normalizeTelegramProfileConfig(telegram);
+    const accountChanged = state.lastHydratedAccountId !== accountId;
+    const preserveChannelDraft =
+      state.hydrated && !accountChanged && isChannelProfileDraftDirty(
+        state.channelProfileConfig,
+        state.channelProfileSavedSnapshot,
+      );
+
     set({
-      channelProfileConfig: structuredClone(normalizedChannel),
+      channelProfileConfig: preserveChannelDraft
+        ? state.channelProfileConfig
+        : structuredClone(normalizedChannel),
       aiProfileConfig: structuredClone(normalizedAi),
       telegramProfileConfig: structuredClone(normalizedTelegram),
-      channelProfileSavedSnapshot: JSON.stringify(normalizedChannel),
+      channelProfileSavedSnapshot: preserveChannelDraft
+        ? state.channelProfileSavedSnapshot
+        : JSON.stringify(normalizedChannel),
       modelSettingsSavedSnapshot: buildInitialAiSnapshot(normalizedAi),
       systemPromptSavedSnapshot: normalizedAi.systemPrompt,
       telegramSettingsSavedSnapshot: buildInitialTelegramSnapshot(normalizedTelegram),
       hydrated: true,
+      lastHydratedAccountId: accountId,
     });
   },
   updateChannelProfile: (config) => set({ channelProfileConfig: config }),
