@@ -14,6 +14,7 @@ from app.services.ai import resolve_model_api_key
 from app.services.ai.bundle import build_summary_bundle, bundle_fingerprint
 from app.services.ai.chat_history import filter_alternating_roles, linearize_for_llm
 from app.services.ai.context import assemble_reply_messages
+from app.services.ai.context_log import get_chat_filter, log_llm_request, log_llm_response, should_log_llm_context
 from app.services.ai.context_meta import refresh_context_meta_after_reply, persist_chat_meta
 from app.services.ai.keys import KeyResolution, KeySource, get_account_mode
 from app.services.ai.llm import stream_llm_sse
@@ -239,7 +240,20 @@ async def _stream_reply_with_meta(
     spec: Any,
     model_id: str,
     api_key: str,
+    provider_name: str,
+    log_context: bool = False,
 ) -> AsyncIterator[str]:
+    if log_context:
+        log_llm_request(
+            scope=payload.scope,
+            chat_id=payload.chat_id,
+            post_id=payload.post_id,
+            post_chat_id=payload.post_chat_id,
+            provider=provider_name,
+            model=model_id,
+            history=history,
+            messages=messages,
+        )
     accumulated: list[str] = []
     async for event in stream_llm_sse(
         spec=spec,
@@ -253,6 +267,16 @@ async def _stream_reply_with_meta(
         yield event
 
     assistant_text = "".join(accumulated)
+    if log_context:
+        log_llm_response(
+            scope=payload.scope,
+            chat_id=payload.chat_id,
+            post_id=payload.post_id,
+            post_chat_id=payload.post_chat_id,
+            provider=provider_name,
+            model=model_id,
+            assistant_text=assistant_text,
+        )
     updated_meta = await _finalize_context_meta(
         session=session,
         user=user,
@@ -364,6 +388,15 @@ async def ai_reply(
         post_data=post_data,
         chat_meta=chat_meta,
     )
+    settings = get_settings()
+    log_context = should_log_llm_context(
+        enabled=settings.ai_context_log,
+        chat_filter=get_chat_filter(),
+        scope=payload.scope,
+        chat_id=payload.chat_id,
+        post_id=payload.post_id,
+        post_chat_id=payload.post_chat_id,
+    )
     return StreamingResponse(
         _stream_reply_with_meta(
             session=session,
@@ -379,6 +412,8 @@ async def ai_reply(
             spec=spec,
             model_id=model_id,
             api_key=resolution.api_key,
+            provider_name=provider_name,
+            log_context=log_context,
         ),
         media_type="text/event-stream",
         headers=_SSE_HEADERS,

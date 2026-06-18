@@ -11,13 +11,24 @@ from starlette.exceptions import HTTPException as StarletteHTTPException
 from app.api.v1.router import api_router
 from app.core.config import settings
 from app.db.session import engine
+from app.services.ai.context_log import init_chat_filter
 
 logging.basicConfig(level=logging.INFO)
+_context_logger = logging.getLogger("tg.ai.context")
 
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     # Schema is managed by Alembic (see scripts/entrypoint.sh and `alembic upgrade head`).
+    if settings.ai_context_log:
+        init_chat_filter(settings.ai_context_log_chat)
+        chat_id = settings.ai_context_log_chat.strip()
+        if chat_id:
+            _context_logger.info("AI context log ON → chat %s (from env)", chat_id)
+        else:
+            _context_logger.info(
+                "AI context log ON — set chat: ./scripts/ai-log-chat.sh <chat-id>"
+            )
     yield
     await engine.dispose()
 

@@ -44,10 +44,24 @@ class Settings(BaseSettings):
     serpapi_api_key: str = ""
     exa_api_key: str = ""
     rag_enabled: bool = False
+    ai_context_log: bool = False
+    # Chat id for LLM debug logs: gc1, post chat id, or post:postId:chatId
+    ai_context_log_chat: str = ""
 
     @field_validator("rag_enabled", mode="before")
     @classmethod
     def _parse_rag_enabled(cls, value: Any) -> bool:
+        if isinstance(value, bool):
+            return value
+        if isinstance(value, (int, float)):
+            return bool(value)
+        if isinstance(value, str):
+            return value.strip().lower() in {"1", "true", "yes", "on"}
+        return False
+
+    @field_validator("ai_context_log", mode="before")
+    @classmethod
+    def _parse_ai_context_log(cls, value: Any) -> bool:
         if isinstance(value, bool):
             return value
         if isinstance(value, (int, float)):
