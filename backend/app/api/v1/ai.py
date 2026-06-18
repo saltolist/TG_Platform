@@ -164,23 +164,26 @@ async def _load_reply_context(
 
     if payload.scope == "post" and payload.post_id:
         post_data = await _load_owned_post_data(session, user.id, payload.post_id)
-        if history is None and payload.post_chat_id and post_data is not None:
+        if post_data is not None and payload.post_chat_id:
             for chat in post_data.get("chats") or []:
                 if not isinstance(chat, Mapping):
                     continue
                 if str(chat.get("id")) == payload.post_chat_id:
-                    history = list(chat.get("history") or [])
+                    if history is None:
+                        history = list(chat.get("history") or [])
                     chat_meta = _extract_chat_meta(chat)
                     break
-    elif history is None and payload.chat_id:
+    elif payload.chat_id:
         try:
             chat = await get_owned_chat(session, user.id, payload.chat_id)
         except HTTPException as exc:
             if exc.status_code != 404:
                 raise
-            history = []
+            if history is None:
+                history = []
         else:
-            history = list(chat.data.get("history") or [])
+            if history is None:
+                history = list(chat.data.get("history") or [])
             chat_meta = _extract_chat_meta(chat.data)
 
     if isinstance(payload.chat_meta, Mapping):
@@ -208,7 +211,7 @@ async def _finalize_context_meta(
         telegram=telegram_profile,
         post=post,
     )
-    fingerprint = bundle_fingerprint(channel_profile, post=post)
+    fingerprint = bundle_fingerprint(channel_profile, telegram=telegram_profile, post=post)
     valid_pairs = _valid_pairs_with_assistant_reply(history, payload.text, assistant_text)
 
     summary_llm = resolve_orchestrator_llm(user, ai_profile)

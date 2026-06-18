@@ -3,14 +3,12 @@
 import { NoteCardAiToggle } from "@/entities/note";
 import { formatStoredDate } from "@/shared/lib/helpers";
 import type { AnyNote } from "@/shared/lib/notes/noteList";
-import { ConnectChannelEmptyState } from "@/features/connect-channel";
 import { EmptyState } from "@/shared/ui/empty-state";
 import { NoteListCardMenu } from "@/widgets/note-editor";
 
 type Props = {
   notes: AnyNote[];
   emptyLabel: string;
-  showConnectChannel?: boolean;
   onOpen: (n: AnyNote) => void;
   onToggleAi: (n: AnyNote) => void;
 };
@@ -18,18 +16,13 @@ type Props = {
 export function NotesDesktopGrid({
   notes,
   emptyLabel,
-  showConnectChannel = false,
   onOpen,
   onToggleAi,
 }: Props) {
   return (
     <div className="notes-grid-layout">
       {notes.length === 0 ? (
-        showConnectChannel ? (
-          <ConnectChannelEmptyState feature="заметкам" icon="📝" className="empty" />
-        ) : (
-          <EmptyState icon="📝" message={emptyLabel} className="empty" />
-        )
+        <EmptyState icon="📝" message={emptyLabel} className="empty" />
       ) : (
         notes.map((n) => (
           <div

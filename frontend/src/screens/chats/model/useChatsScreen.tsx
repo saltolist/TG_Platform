@@ -10,7 +10,6 @@ import {
   filterLocalChatRows,
 } from "@/entities/chat/lib/chatList";
 import { useGlobalChats } from "@/entities/chat";
-import { useChannelConnected } from "@/entities/channel";
 import { usePosts } from "@/entities/post";
 import { useMobile760 } from "@/shared/lib/hooks/useMobile760";
 import { isListQueryBootstrapping } from "@/shared/lib/query/isQueryBootstrapping";
@@ -25,13 +24,8 @@ export function useChatsScreen() {
 
   const { data: globalChatsSource = [], isLoading: globalLoading } = useGlobalChats();
   const { data: posts = [], isLoading: postsLoading } = usePosts();
-  const { isConnected: isChannelConnected, isLoading: isChannelLoading } = useChannelConnected();
 
   const localChatsSource = useMemo(() => buildLocalChatRows(posts), [posts]);
-  const hasAnyChats = globalChatsSource.length > 0 || localChatsSource.length > 0;
-  const showConnectChannel =
-    !isChannelLoading && !isChannelConnected && !search.trim() && !hasAnyChats;
-
   const globalChats = useMemo(
     () => filterGlobalChats(globalChatsSource, search),
     [globalChatsSource, search],
@@ -50,7 +44,6 @@ export function useChatsScreen() {
       isLoading:
         isListQueryBootstrapping(globalLoading, globalChatsSource) ||
         isListQueryBootstrapping(postsLoading, posts),
-      showConnectChannel,
     },
     ui: {
       isMobile,

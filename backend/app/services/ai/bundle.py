@@ -143,11 +143,13 @@ def build_summary_bundle(
 def bundle_fingerprint(
     channel: Mapping[str, Any] | None,
     *,
+    telegram: Mapping[str, Any] | None = None,
     post: Mapping[str, Any] | None = None,
 ) -> str:
     """Stable hash for bundle versioning."""
     payload = {
         "channel": channel or {},
+        "telegram": telegram or {},
         "post": {
             "text": (post or {}).get("text"),
             "metrics": (post or {}).get("metrics"),

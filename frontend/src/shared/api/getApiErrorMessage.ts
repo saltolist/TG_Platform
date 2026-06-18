@@ -17,6 +17,9 @@ function validationDetailMessage(details: ValidationDetail[]): string | null {
 }
 
 export function getApiErrorMessage(error: unknown, fallback: string): string {
+  if (error instanceof TypeError) {
+    return "Не удалось связаться с сервером. Запустите docker compose up и откройте http://localhost:3000";
+  }
   if (error instanceof ApiError) {
     const body = error.body as { error?: string; details?: ValidationDetail[] } | undefined;
     if (body?.details?.length) {

@@ -37,6 +37,31 @@ async def test_guest_sees_presentation_posts_after_seed(client: AsyncClient) -> 
 
 
 @pytest.mark.asyncio
+async def test_seed_preserves_registered_users() -> None:
+    await _seed()
+
+    async with TestSessionLocal() as session:
+        session.add(
+            User(
+                email="registered@example.com",
+                password_hash="hash",
+                is_seed=False,
+            )
+        )
+        await session.commit()
+
+    await _seed()
+
+    async with TestSessionLocal() as session:
+        result = await session.execute(
+            select(User).where(User.email == "registered@example.com")
+        )
+        user = result.scalar_one_or_none()
+        assert user is not None
+        assert user.is_seed is False
+
+
+@pytest.mark.asyncio
 async def test_demo_login_after_seed(client: AsyncClient) -> None:
     await _seed()
     response = await client.post(

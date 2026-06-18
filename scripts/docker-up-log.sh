@@ -22,4 +22,6 @@ export AI_CONTEXT_LOG=1
 export AI_CONTEXT_LOG_CHAT="$CHAT_ID"
 
 echo "[docker-up-log] AI_CONTEXT_LOG=1 AI_CONTEXT_LOG_CHAT=$CHAT_ID"
-exec docker compose up --build "$@"
+docker compose up -d --build "$@"
+echo "[docker-up-log] stack running in background; tailing backend logs (Ctrl+C = only exit logs)"
+exec docker compose logs --tail=0 -f backend

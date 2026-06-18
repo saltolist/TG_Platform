@@ -8,7 +8,7 @@ import logging
 from pathlib import Path
 from typing import Any
 
-from sqlalchemy import delete, select
+from sqlalchemy import delete, func, select
 
 from app.core.config import Settings, get_settings
 from app.core.constants import DEMO_EMAIL, LEGACY_PRESENTATION_EMAIL, PRESENTATION_EMAIL
@@ -156,14 +156,24 @@ async def run_seed(session=None, settings: Settings | None = None) -> None:
             fixture_name="demo-full",
             settings=seed_settings,
         )
+        user_count = await s.scalar(select(func.count()).select_from(User))
+        registered_count = await s.scalar(
+            select(func.count()).select_from(User).where(User.is_seed.is_(False))
+        )
         await s.commit()
+        logger.info(
+            "Seed accounts ready: %s, %s (%d user(s) in database, %d registered)",
+            PRESENTATION_EMAIL,
+            DEMO_EMAIL,
+            user_count or 0,
+            registered_count or 0,
+        )
 
     if session is not None:
         await _run(session)
     else:
         async with SessionLocal() as s:
             await _run(s)
-    logger.info("Seed accounts ready: %s, %s", PRESENTATION_EMAIL, DEMO_EMAIL)
 
 
 def main() -> None:

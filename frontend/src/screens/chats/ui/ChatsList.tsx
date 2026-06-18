@@ -2,7 +2,6 @@
 
 import { GlobalChatCardView, LocalChatCardView } from "@/screens/chats/ui/ChatListCards";
 import type { ChatsScreenState } from "@/screens/chats/model/useChatsScreen";
-import { ConnectChannelEmptyState } from "@/features/connect-channel";
 import { EmptyState } from "@/shared/ui/empty-state";
 
 type Props = {
@@ -10,19 +9,8 @@ type Props = {
   actions: Pick<ChatsScreenState["actions"], "openGChat" | "goToHref">;
 };
 
-function renderEmptyState(
-  showConnectChannel: boolean,
-  icon: string,
-  message: string,
-) {
-  if (showConnectChannel) {
-    return <ConnectChannelEmptyState feature="чатам" icon={icon} />;
-  }
-  return <EmptyState icon={icon} message={message} />;
-}
-
 export function ChatsList({ data, actions }: Props) {
-  const { tab, globalChats, localChats, isLoading, showConnectChannel } = data;
+  const { tab, globalChats, localChats, isLoading } = data;
   const { openGChat, goToHref } = actions;
 
   if (isLoading) {
@@ -40,7 +28,7 @@ export function ChatsList({ data, actions }: Props) {
       <div className="chats-scroll-inner">
         {tab === "all" ? (
           globalChats.length === 0 && localChats.length === 0 ? (
-            renderEmptyState(showConnectChannel, "💬", "Нет чатов")
+            <EmptyState icon="💬" message="Нет чатов" />
           ) : (
             <>
               {globalChats.map((c) => (
@@ -59,7 +47,7 @@ export function ChatsList({ data, actions }: Props) {
           <>
             <div style={{ display: tab === "global" ? "" : "none" }}>
               {globalChats.length === 0 ? (
-                renderEmptyState(showConnectChannel, "💬", "Нет глобальных чатов")
+                <EmptyState icon="💬" message="Нет глобальных чатов" />
               ) : (
                 globalChats.map((c) => (
                   <GlobalChatCardView key={c.id} chat={c} onOpen={openGChat} />
@@ -68,7 +56,7 @@ export function ChatsList({ data, actions }: Props) {
             </div>
             <div style={{ display: tab === "local" ? "" : "none" }}>
               {localChats.length === 0 ? (
-                renderEmptyState(showConnectChannel, "📄", "Нет локальных чатов")
+                <EmptyState icon="📄" message="Нет локальных чатов" />
               ) : (
                 localChats.map((row) => (
                   <LocalChatCardView

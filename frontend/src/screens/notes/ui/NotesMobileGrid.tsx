@@ -3,14 +3,12 @@
 import { NoteListCard } from "@/entities/note";
 import { formatStoredDate } from "@/shared/lib/helpers";
 import type { AnyNote } from "@/shared/lib/notes/noteList";
-import { ConnectChannelEmptyState } from "@/features/connect-channel";
 import { EmptyState } from "@/shared/ui/empty-state";
 import { NoteListCardMenu } from "@/widgets/note-editor";
 
 type Props = {
   notes: AnyNote[];
   emptyLabel: string;
-  showConnectChannel?: boolean;
   onOpen: (n: AnyNote) => void;
   onToggleAi: (n: AnyNote) => void;
 };
@@ -18,7 +16,6 @@ type Props = {
 export function NotesMobileGrid({
   notes,
   emptyLabel,
-  showConnectChannel = false,
   onOpen,
   onToggleAi,
 }: Props) {
@@ -26,11 +23,7 @@ export function NotesMobileGrid({
     <div className="notes-grid notes-grid--screen visible">
       <div className="notes-grid-inner">
         {notes.length === 0 ? (
-          showConnectChannel ? (
-            <ConnectChannelEmptyState feature="заметкам" icon="📝" />
-          ) : (
-            <EmptyState icon="📝" message={emptyLabel} />
-          )
+          <EmptyState icon="📝" message={emptyLabel} />
         ) : (
           notes.map((n) => (
             <NoteListCard

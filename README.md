@@ -24,10 +24,36 @@ npm run check            # typecheck + lint + test + build
 
 ```bash
 cp .env.example .env     # заполнить секреты
-docker compose up --build
+./scripts/docker-up.sh --build
+# или: docker compose up -d --build
 # frontend → http://localhost:3000, API → http://localhost:8000/api/v1
 bash scripts/verify-phase1-docker.sh   # smoke-проверка Фазы 1
 ```
+
+**Данные аккаунтов** хранятся в Docker-томе `tg_platform_postgres-data`.
+
+| Команда | Безопасно для аккаунтов? |
+|---------|--------------------------|
+| `docker compose up -d --build` | да |
+| `docker compose logs -f` → Ctrl+C | да (останавливает только просмотр логов) |
+| `docker compose up --build` → Ctrl+C | контейнеры останавливаются, **данные обычно сохраняются** |
+| `docker compose stop` | да |
+| `docker compose down` | да (без `-v`) |
+| `docker compose down -v` | **нет — удаляет базу** |
+
+**Не запускайте** `docker compose up --build` в foreground, если привыкли жать Ctrl+C — используйте `-d` и смотрите логи отдельно:
+
+```bash
+docker compose up -d --build
+docker compose logs -f backend   # Ctrl+C здесь безопасен
+```
+
+Удаляют регистрации также: сброс Docker/Colima (`colima delete`), случайный `down -v`.
+
+Регистрируйтесь и входите через **http://localhost:3000** (Docker).  
+`npm run dev` (порт 3020) использует MSW — это отдельная «песочница», аккаунты оттуда не попадают в PostgreSQL.
+
+Код регистрации в dev без SMTP: **`000000`** (смотрите логи backend: `[DEV] email code`).
 
 ## Структура проекта
 

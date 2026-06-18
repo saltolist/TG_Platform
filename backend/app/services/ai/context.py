@@ -6,7 +6,6 @@ from typing import Any, Mapping
 
 from app.services.ai.bundle import build_summary_bundle, bundle_fingerprint
 from app.services.ai.bundle_profile import (
-    PRIMER_ACK_FLOATING,
     bundle_text_for_primer,
     ensure_bundle_profile,
     get_floating_bundle_injections,
@@ -36,8 +35,13 @@ def build_primer_user_content(bundle_text: str, rolling_summary: str = "") -> st
     return "\n".join(parts)
 
 
-def build_floating_bundle_user_content(bundle_text: str) -> str:
-    return f"{PRIMER_USER_TAG}:\n{bundle_text.strip()}"
+def attach_floating_bundle_to_user_message(bundle_text: str, user_text: str) -> str:
+    """Append channel update bundle to the user turn it belongs to (no extra ack pair)."""
+    bundle_block = f"{PRIMER_USER_TAG}:\n{bundle_text.strip()}"
+    text = user_text.strip()
+    if not text:
+        return bundle_block
+    return f"{bundle_block}\n\n{text}"
 
 
 def take_prompt_window(pairs: list[tuple[str, str]], *, window_size: int = PROMPT_WINDOW) -> list[tuple[str, str]]:
@@ -59,13 +63,7 @@ def build_dialog_messages(
     messages: list[dict[str, str]] = []
     for user_turn, role, content in window_annotated:
         if role == "user" and user_turn is not None and user_turn in floating_bundles:
-            messages.append(
-                {
-                    "role": "user",
-                    "content": build_floating_bundle_user_content(floating_bundles[user_turn]),
-                }
-            )
-            messages.append({"role": "assistant", "content": PRIMER_ACK_FLOATING})
+            content = attach_floating_bundle_to_user_message(floating_bundles[user_turn], content)
         messages.append({"role": role, "content": content})
     return messages
 
@@ -90,11 +88,10 @@ def assemble_reply_messages(
         telegram=telegram_profile,
         post=post,
     )
-    fingerprint = bundle_fingerprint(channel_profile, post=post)
+    fingerprint = bundle_fingerprint(channel_profile, telegram=telegram_profile, post=post)
 
     raw_pairs = linearize_for_llm(list(history or []))
     valid_pairs = filter_alternating_roles(raw_pairs)
-    user_turn_count = count_user_turns(valid_pairs)
 
     trimmed_user_text = user_text.strip()
     if trimmed_user_text:
@@ -103,6 +100,7 @@ def assemble_reply_messages(
         elif valid_pairs[-1][1] != trimmed_user_text:
             valid_pairs.append(("user", trimmed_user_text))
 
+    user_turn_count = count_user_turns(valid_pairs)
     window_pairs = take_prompt_window(valid_pairs)
 
     rolling_summary = ""

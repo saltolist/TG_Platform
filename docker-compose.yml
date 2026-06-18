@@ -1,6 +1,10 @@
+name: tg_platform
+
 services:
   postgres:
     image: postgres:16-alpine
+    restart: unless-stopped
+    stop_grace_period: 30s
     environment:
       POSTGRES_USER: ${POSTGRES_USER:-tg}
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-tg}
@@ -33,7 +37,7 @@ services:
     environment:
       DATABASE_URL: postgresql+asyncpg://${POSTGRES_USER:-tg}:${POSTGRES_PASSWORD:-tg}@postgres:5432/${POSTGRES_DB:-tg}
       JWT_SECRET: ${JWT_SECRET:-change-me-please}
-      CORS_ORIGINS: ${CORS_ORIGINS:-http://localhost:3000}
+      CORS_ORIGINS: ${CORS_ORIGINS:-http://localhost:3000,http://localhost:3020}
       S3_ENDPOINT: http://minio:9000
       S3_ACCESS_KEY: ${MINIO_ROOT_USER:-minioadmin}
       S3_SECRET_KEY: ${MINIO_ROOT_PASSWORD:-minioadmin}
@@ -64,4 +68,6 @@ services:
 
 volumes:
   postgres-data:
+    name: tg_platform_postgres-data
   minio-data:
+    name: tg_platform_minio-data

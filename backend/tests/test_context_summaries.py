@@ -104,6 +104,38 @@ def test_bundle_matures_after_catchup_user_turns() -> None:
     assert "Bundle B" in stub_text_late
 
 
+def test_floating_bundle_attached_to_current_user_message() -> None:
+    """New bundle after channel update is merged into the user message, not a separate pair."""
+    profile = ensure_bundle_profile(
+        None,
+        current_bundle="Bundle A",
+        current_fingerprint="fp-a",
+        user_turn_count=1,
+    )
+
+    history = [
+        {"role": "user", "text": "Привет"},
+        {"role": "ai", "text": "Ответ"},
+    ]
+    messages = assemble_reply_messages(
+        ai_profile={},
+        user_text="Второй вопрос",
+        scope="global",
+        history=history,
+        channel_profile=CHANNEL_V2,
+        chat_meta={
+            "rolling_summary_profile": profile,
+            "rolling_summary": "",
+            "rolling_summary_idx": 0,
+        },
+    )
+    dialog = messages[3:]
+    assert all(m["content"] != "Понял, учту." for m in dialog if m["role"] == "assistant")
+    user_with_bundle = next(m for m in dialog if m["role"] == "user" and "Второй вопрос" in m["content"])
+    assert "SUMMARY_BUNDLE:" in user_with_bundle["content"]
+    assert "Крипто" in user_with_bundle["content"]
+
+
 def test_floating_bundle_injected_before_anchor_user_turn() -> None:
     profile = ensure_bundle_profile(
         None,
@@ -144,9 +176,9 @@ def test_floating_bundle_injected_before_anchor_user_turn() -> None:
         },
     )
     dialog = messages[3:]
-    joined = "\n".join(item["content"] for item in dialog)
-    assert "SUMMARY_BUNDLE:" in joined
-    assert "Крипто" in joined or "Bundle B" in joined
+    user_turn_3 = next(m for m in dialog if m["role"] == "user" and "Вопрос 3" in m["content"])
+    assert "SUMMARY_BUNDLE:" in user_turn_3["content"]
+    assert "Bundle B" in user_turn_3["content"] or "Крипто" in user_turn_3["content"]
 
 
 @pytest.mark.asyncio
@@ -174,3 +206,9 @@ def test_update_rolling_summary_template_limits_growth() -> None:
 
 def test_bundle_fingerprint_changes_when_channel_changes() -> None:
     assert bundle_fingerprint(CHANNEL) != bundle_fingerprint(CHANNEL_V2)
+
+
+def test_bundle_fingerprint_changes_when_telegram_changes() -> None:
+    assert bundle_fingerprint(CHANNEL, telegram={"channelTitle": "A"}) != bundle_fingerprint(
+        CHANNEL, telegram={"channelTitle": "B"}
+    )
