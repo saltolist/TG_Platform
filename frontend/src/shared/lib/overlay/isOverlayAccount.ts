@@ -1,13 +1,19 @@
-import { DEMO_EMAIL, PRESENTATION_ACCOUNT_ID } from "@/shared/lib/auth/constants";
-import { getQueryAccountIdFromAuth } from "@/shared/lib/auth/queryAccountScope";
-import { readSession } from "@/shared/lib/auth/session";
+import { DEMO_EMAIL } from "@/shared/lib/auth/constants";
+import { getGuestOverlayKey } from "@/shared/lib/auth/queryAccountScope";
+import { isGuestBrowsing, readSession } from "@/shared/lib/auth/session";
 
 export function getOverlayAccountKey(): string {
-  return getQueryAccountIdFromAuth();
+  const session = readSession();
+  if (session?.accountId) return session.accountId;
+
+  const guestKey = getGuestOverlayKey();
+  if (guestKey) return guestKey;
+
+  return "presentation";
 }
 
 export function isOverlayAccount(accountId = getOverlayAccountKey()): boolean {
-  if (accountId === PRESENTATION_ACCOUNT_ID) return true;
+  if (isGuestBrowsing()) return true;
   const session = readSession();
   return session?.email?.toLowerCase() === DEMO_EMAIL;
 }

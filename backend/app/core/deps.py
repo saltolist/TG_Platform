@@ -5,10 +5,21 @@ from fastapi import Depends, Header, HTTPException
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.core.constants import PRESENTATION_EMAIL, PRESENTATION_GUEST_TOKEN
+from app.core.constants import PRESENTATION_EMAIL
+from app.core.guest_tokens import is_guest_token
 from app.core.security import decode_token
 from app.db.models import User
 from app.db.session import get_session
+
+
+async def _resolve_presentation_user(session: AsyncSession) -> User:
+    result = await session.execute(
+        select(User).where(User.email == PRESENTATION_EMAIL, User.is_seed.is_(True))
+    )
+    user = result.scalar_one_or_none()
+    if user is None:
+        raise HTTPException(status_code=401, detail="Unauthorized")
+    return user
 
 
 async def get_current_user(
@@ -20,14 +31,8 @@ async def get_current_user(
 
     token = authorization.split(" ", 1)[1].strip()
 
-    if token == PRESENTATION_GUEST_TOKEN:
-        result = await session.execute(
-            select(User).where(User.email == PRESENTATION_EMAIL, User.is_seed.is_(True))
-        )
-        user = result.scalar_one_or_none()
-        if user is None:
-            raise HTTPException(status_code=401, detail="Unauthorized")
-        return user
+    if is_guest_token(token):
+        return await _resolve_presentation_user(session)
 
     subject = decode_token(token)
     if not subject:

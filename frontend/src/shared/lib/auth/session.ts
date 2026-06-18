@@ -1,5 +1,12 @@
 import type { AuthSession } from "@/shared/lib/auth/types";
-import { AUTH_SESSION_STORAGE_KEY, PRESENTATION_GUEST_TOKEN } from "./constants";
+import { AUTH_SESSION_STORAGE_KEY, PRESENTATION_GUEST_TOKEN } from "@/shared/lib/auth/constants";
+import {
+  ensureGuestSession,
+  isGuestToken,
+  readGuestSession,
+} from "@/shared/lib/auth/guestSession";
+
+export { AUTH_SESSION_STORAGE_KEY } from "@/shared/lib/auth/constants";
 
 export function readSession(): AuthSession | null {
   if (typeof window === "undefined") return null;
@@ -28,12 +35,21 @@ export function getSessionToken(): string | null {
   return readSession()?.token ?? null;
 }
 
-/** Session token, or presentation guest token when browsing without login. */
+export function isGuestBrowsing(): boolean {
+  return !readSession() && !!readGuestSession();
+}
+
+/** Logged-in user token, or per-browser guest token for presentation mode. */
 export function getApiAuthToken(): string | null {
   const sessionToken = getSessionToken();
   if (sessionToken) return sessionToken;
+
+  const guest = readGuestSession();
+  if (guest) return guest.token;
+
   if (typeof window === "undefined") return null;
-  return PRESENTATION_GUEST_TOKEN;
+
+  return ensureGuestSession().token;
 }
 
 export function patchSession(patch: Partial<AuthSession>): AuthSession | null {
@@ -42,4 +58,9 @@ export function patchSession(patch: Partial<AuthSession>): AuthSession | null {
   const next = { ...current, ...patch };
   writeSession(next);
   return next;
+}
+
+export function isPresentationGuestApiToken(token: string | null): boolean {
+  if (!token) return false;
+  return token === PRESENTATION_GUEST_TOKEN || isGuestToken(token);
 }

@@ -17,8 +17,13 @@ export const DEMO_KANAL_TITLE = DEMO_CHANNEL_TITLE;
 export const DEMO_EMAIL_CODE = "000000";
 
 export const PRESENTATION_ACCOUNT_ID = "presentation";
-export const PRESENTATION_EMAIL = "prezentaciya@mail.ru";
+/** Internal seed email — not exposed in UI, not used for login. */
+export const PRESENTATION_EMAIL = "presentation@example.com";
 export const PRESENTATION_CHANNEL_HANDLE = "@prezentaciya";
 export const PRESENTATION_CHANNEL_TITLE = "Презентация";
-/** Bearer token for unauthenticated presentation browsing (MSW account id = presentation). */
+
+/** Per-browser anonymous guest session token prefix (Bearer guest:<uuid>). */
+export const GUEST_TOKEN_PREFIX = "guest:";
+
+/** Legacy shared guest token — kept for older clients and smoke scripts. */
 export const PRESENTATION_GUEST_TOKEN = "presentation:guest";

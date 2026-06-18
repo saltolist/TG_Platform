@@ -1,7 +1,12 @@
 import { importDemoKanalContent } from "@/shared/data/channel-pools/demo-kanal-content";
 import { createEmptyAccountStore } from "@/shared/data/empty-account-state";
 import { createPresentationMswStore } from "@/shared/data/presentation-seed";
-import { DEMO_ACCOUNT_ID, PRESENTATION_ACCOUNT_ID } from "@/shared/lib/auth/constants";
+import {
+  DEMO_ACCOUNT_ID,
+  PRESENTATION_ACCOUNT_ID,
+  PRESENTATION_GUEST_TOKEN,
+} from "@/shared/lib/auth/constants";
+import { isGuestToken } from "@/shared/lib/auth/guestSession";
 import { isDemoChannelHandle } from "@/shared/lib/channel/isDemoChannelHandle";
 import { randomId } from "@/shared/lib/randomId";
 import { createInitialMswStore, type MswStore } from "./store";
@@ -62,6 +67,9 @@ export function resolveAccountIdFromRequest(request: Request): string | null {
   const auth = request.headers.get("Authorization");
   if (!auth?.startsWith("Bearer ")) return null;
   const token = auth.slice(7);
+  if (token === PRESENTATION_GUEST_TOKEN || isGuestToken(token)) {
+    return PRESENTATION_ACCOUNT_ID;
+  }
   const accountId = token.split(":")[0];
   if (!accountId || !isResolvableAccountId(accountId)) return null;
   return accountId;

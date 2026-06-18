@@ -10,7 +10,7 @@ from typing import Any
 
 from sqlalchemy import delete, select
 
-from app.core.constants import DEMO_EMAIL, PRESENTATION_EMAIL
+from app.core.constants import DEMO_EMAIL, LEGACY_PRESENTATION_EMAIL, PRESENTATION_EMAIL
 from app.core.security import hash_password
 from app.db.models import GlobalChat, GlobalNote, Post, Profile, User
 from app.db.seed_ids import seed_entity_uuid
@@ -94,6 +94,13 @@ async def _upsert_seed_user(
 ) -> User:
     result = await session.execute(select(User).where(User.email == email))
     user = result.scalar_one_or_none()
+    if user is None and email == PRESENTATION_EMAIL:
+        legacy = await session.execute(
+            select(User).where(User.email == LEGACY_PRESENTATION_EMAIL)
+        )
+        user = legacy.scalar_one_or_none()
+        if user is not None:
+            user.email = PRESENTATION_EMAIL
     if user is None:
         user = User(
             email=email,

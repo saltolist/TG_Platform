@@ -12,6 +12,11 @@ import {
 import { useQueryClient } from "@tanstack/react-query";
 import type { AuthSession } from "@/shared/lib/auth/types";
 import { logout as logoutApi } from "@/entities/auth";
+import {
+  clearGuestSession,
+  ensureGuestSession,
+  rotateGuestSession,
+} from "@/shared/lib/auth/guestSession";
 import { clearSession, readSession, writeSession } from "@/shared/lib/auth/session";
 import { clearUnauthorizedHandler, setUnauthorizedHandler } from "@/shared/api/httpClient";
 import { useProfileDraftStore } from "@/app/model/store/profile-draft-store";
@@ -38,7 +43,12 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const [authOverlayOpen, setAuthOverlayOpen] = useState(false);
 
   useEffect(() => {
-    setSessionState(readSession());
+    const userSession = readSession();
+    if (userSession) {
+      setSessionState(userSession);
+    } else {
+      ensureGuestSession();
+    }
     setReady(true);
   }, []);
 
@@ -50,6 +60,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const setSession = useCallback(
     (next: AuthSession | null) => {
       if (next) {
+        clearGuestSession();
         writeSession(next);
         useProfileDraftStore.getState().resetForLogout();
         useComposerTargetStore.getState().resetTargets();
@@ -71,6 +82,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       // Client session is cleared even if the request fails.
     }
     clearSession();
+    rotateGuestSession();
     setSessionState(null);
     setAuthOverlayOpen(false);
     useProfileDraftStore.getState().resetForLogout();

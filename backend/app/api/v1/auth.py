@@ -4,6 +4,7 @@ from fastapi import APIRouter, HTTPException, Response, status
 from sqlalchemy import delete, select
 
 from app.core.config import settings
+from app.core.constants import DEMO_EMAIL
 from app.core.deps import DbSession
 from app.core.security import create_access_token, hash_password, verify_password
 from app.db.models import EmailCode, User
@@ -75,6 +76,8 @@ async def login(dto: LoginDto, session: DbSession) -> AuthSession:
     user = result.scalar_one_or_none()
     if user is None or not verify_password(dto.password, user.password_hash):
         raise HTTPException(status_code=401, detail="Неверный email или пароль")
+    if user.is_seed and email != _normalize_email(DEMO_EMAIL):
+        raise HTTPException(status_code=403, detail="Этот аккаунт недоступен для входа")
     return _session_for(user)
 
 
@@ -124,7 +127,7 @@ async def forgot_password_send_code(
     result = await session.execute(select(User).where(User.email == email))
     user = result.scalar_one_or_none()
     # Do not leak whether the email exists; only send a code if it does.
-    if user is not None:
+    if user is not None and (not user.is_seed or email == _normalize_email(DEMO_EMAIL)):
         code = await _store_code(session, email, "reset", None)
         send_code(email, code, "reset")
     return Response(status_code=status.HTTP_204_NO_CONTENT)
@@ -141,6 +144,8 @@ async def forgot_password_reset(dto: ForgotPasswordResetDto, session: DbSession)
     user = result.scalar_one_or_none()
     if user is None:
         raise HTTPException(status_code=400, detail="Пользователь не найден")
+    if user.is_seed and email != _normalize_email(DEMO_EMAIL):
+        raise HTTPException(status_code=400, detail="Этот аккаунт недоступен для входа")
 
     user.password_hash = hash_password(dto.password)
     await session.delete(record)
