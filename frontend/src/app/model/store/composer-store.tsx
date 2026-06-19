@@ -28,6 +28,7 @@ import { useQueryAccountScope } from "@/app/providers/useQueryAccountScope";
 import { patchGlobalChatHistory } from "@/entities/chat/lib/patchGlobalChatHistory";
 import { patchPostChatHistory } from "@/entities/post/lib/patchPostChatHistory";
 import { isPresentationAccount } from "@/shared/lib/auth/queryAccountScope";
+import { isOverlayAccount } from "@/shared/lib/overlay/isOverlayAccount";
 import { useCreateGlobalChat, usePushGlobalChatMessage } from "@/entities/chat";
 import { useAddLocalChat, usePushLocalChatMessage } from "@/entities/post";
 import { routes } from "@/shared/lib/routes";
@@ -150,7 +151,7 @@ async function streamGlobalAssistantReply(params: {
       {
         ...llmTarget,
         chatId,
-        history: chat?.history ?? [],
+        history: isOverlayAccount(accountId) ? (chat?.history ?? []) : undefined,
         chatMeta: extractChatContextMeta(chat ?? undefined),
         onMeta: (meta) => patchGlobalChatContextMeta(queryClient, chatId, meta, accountId),
         signal,
@@ -204,7 +205,7 @@ async function streamPostAssistantReply(params: {
         ...llmTarget,
         postId,
         postChatId: chatId,
-        history: chat?.history ?? [],
+        history: isOverlayAccount(accountId) ? (chat?.history ?? []) : undefined,
         chatMeta: extractChatContextMeta(chat ?? undefined),
         onMeta: (meta) => patchPostChatContextMeta(queryClient, postId, chatId, meta, accountId),
         signal,

@@ -1,5 +1,6 @@
 import type { Metadata } from "next";
-import { Geist, Geist_Mono } from "next/font/google";
+import { GeistMono } from "geist/font/mono";
+import { GeistSans } from "geist/font/sans";
 import { AppProviders } from "@/app/providers/AppProviders";
 import "./globals.css";
 import "./styles/shell-auth.css";
@@ -7,16 +8,6 @@ import "./styles/shell-auth.css";
 import "./styles/shell-profile-page.css";
 /* Mobile composer + no-zoom — после profile, чтобы перебить 14px поля */
 import "./styles/shell-mobile-composer.css";
-
-const geistSans = Geist({
-  variable: "--font-geist-sans",
-  subsets: ["latin", "cyrillic"],
-});
-
-const geistMono = Geist_Mono({
-  variable: "--font-geist-mono",
-  subsets: ["latin"],
-});
 
 export const metadata: Metadata = {
   title: "TG Platform",
@@ -33,7 +24,7 @@ export default function RootLayout({
       lang="ru"
       suppressHydrationWarning
       data-theme="system"
-      className={`${geistSans.variable} ${geistMono.variable} h-full antialiased`}
+      className={`${GeistSans.variable} ${GeistMono.variable} h-full antialiased`}
     >
       <body>
         <AppProviders>{children}</AppProviders>

@@ -1,14 +1,16 @@
 import uuid
-from typing import Any
+from typing import Any, Mapping
 
 from fastapi import APIRouter, HTTPException, Response, status
 from sqlalchemy import func, select
 
 from app.core.deps import CurrentUser, CurrentWriter, DbSession
-from app.db.models import Post
+from app.db.models import Post, Profile
 from app.db.resolve import get_owned_post
 from app.schemas.requests import ReorderRequest
 from app.schemas.resources import PostIn
+from app.services.ai.chat_history import merge_history_stamps
+from app.services.ai.summary_catalog import catalog_from_profile, register_local_summary_version
 
 router = APIRouter(prefix="/posts", tags=["Posts"])
 
@@ -63,7 +65,47 @@ async def update_post(
 ) -> dict[str, Any]:
     post = await get_owned_post(session, user.id, post_id)
     merged = {**post.data, **patch}
+    if isinstance(patch.get("chats"), list) and isinstance(post.data.get("chats"), list):
+        existing_by_id = {
+            str(chat.get("id")): chat
+            for chat in post.data.get("chats") or []
+            if isinstance(chat, Mapping)
+        }
+        merged_chats: list[dict[str, Any]] = []
+        for chat in patch["chats"]:
+            if not isinstance(chat, Mapping):
+                merged_chats.append(chat)
+                continue
+            chat_id = str(chat.get("id") or "")
+            existing = existing_by_id.get(chat_id)
+            chat_copy = dict(chat)
+            if existing is not None and isinstance(chat.get("history"), list):
+                chat_copy["history"] = merge_history_stamps(
+                    list(existing.get("history") or []),
+                    chat["history"],
+                    strip_incoming=True,
+                )
+            merged_chats.append(chat_copy)
+        merged["chats"] = merged_chats
     merged["id"] = post.data.get("id", str(post.id))
+
+    profile = await session.get(Profile, user.id)
+    channel = profile.channel if profile and profile.channel else empty_channel_profile()
+    telegram = profile.telegram if profile and profile.telegram else empty_telegram_profile()
+    catalog = catalog_from_profile(profile)
+    updated_catalog, _version = register_local_summary_version(
+        catalog,
+        post_id=str(merged.get("id") or post_id),
+        channel=channel,
+        telegram=telegram,
+        post=merged,
+    )
+    if profile is not None:
+        profile.summary_catalog = updated_catalog
+    elif _version is not None:
+        profile = Profile(user_id=user.id, summary_catalog=updated_catalog)
+        session.add(profile)
+
     post.data = merged
     await session.commit()
     return merged

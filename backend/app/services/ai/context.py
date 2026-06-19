@@ -18,62 +18,20 @@ from app.services.ai.chat_history import (
     linearize_for_llm,
 )
 from app.services.ai.context_config import PRIMER_ACK, PROMPT_WINDOW
-from app.services.ai.context_meta import annotate_user_turns, compute_window_user_turns
+from app.services.ai.context_turns import compute_window_user_turns
+from app.services.ai.context_primer import (
+    DEFAULT_SYSTEM_PROMPT,
+    build_dialog_messages,
+    build_primer_user_content,
+    take_prompt_window,
+)
 from app.services.ai.message_bundle import (
     resolve_bundle_from_messages,
     resolve_bundle_from_profile_snapshot,
 )
+from app.services.ai.context_labels import assemble_reply_messages_from_labels
+from app.services.ai.summary_catalog import ensure_initial_global_version
 from app.services.ai.thread_context import resolve_thread_state
-
-DEFAULT_SYSTEM_PROMPT = (
-    "Ты AI-ассистент TG Platform. Помогай автору Telegram-канала с текстами, "
-    "идеями и анализом. Отвечай на языке пользователя, кратко и по делу."
-)
-
-PRIMER_USER_TAG = "SUMMARY_BUNDLE"
-CONTEXT_SUMMARY_TAG = "CONTEXT_SUMMARY"
-
-
-def build_primer_user_content(bundle_text: str, rolling_summary: str = "") -> str:
-    parts = [f"{PRIMER_USER_TAG}:", bundle_text.strip()]
-    summary = rolling_summary.strip()
-    if summary:
-        parts.extend(["", f"{CONTEXT_SUMMARY_TAG}:", summary])
-    return "\n".join(parts)
-
-
-def attach_floating_bundle_to_user_message(bundle_text: str, user_text: str) -> str:
-    """Append channel update bundle to the user turn it belongs to (no extra ack pair)."""
-    bundle_block = f"{PRIMER_USER_TAG}:\n{bundle_text.strip()}"
-    text = user_text.strip()
-    if not text:
-        return bundle_block
-    return f"{bundle_block}\n\n{text}"
-
-
-def take_prompt_window(pairs: list[tuple[str, str]], *, window_size: int = PROMPT_WINDOW) -> list[tuple[str, str]]:
-    if window_size <= 0:
-        return []
-    return pairs[-window_size:]
-
-
-def build_dialog_messages(
-    window_pairs: list[tuple[str, str]],
-    *,
-    valid_pairs: list[tuple[str, str]],
-    floating_bundles: dict[int, str],
-) -> list[dict[str, str]]:
-    annotated = annotate_user_turns(valid_pairs)
-    window_len = len(window_pairs)
-    window_annotated = annotated[-window_len:] if window_len else []
-
-    messages: list[dict[str, str]] = []
-    for user_turn, role, content in window_annotated:
-        if role == "user" and user_turn is not None and user_turn in floating_bundles:
-            content = attach_floating_bundle_to_user_message(floating_bundles[user_turn], content)
-        messages.append({"role": role, "content": content})
-    return messages
-
 
 def assemble_reply_messages(
     *,
@@ -85,11 +43,34 @@ def assemble_reply_messages(
     telegram_profile: Mapping[str, Any] | None = None,
     post_data: Mapping[str, Any] | None = None,
     chat_meta: Mapping[str, Any] | None = None,
+    summary_catalog: Mapping[str, Any] | None = None,
+    log_labels: dict[int, str] | None = None,
 ) -> list[dict[str, str]]:
     """Build OpenAI-compatible messages: system → primer → dialog window."""
     system_prompt = str(ai_profile.get("systemPrompt") or "").strip() or DEFAULT_SYSTEM_PROMPT
 
     post = post_data if scope == "post" else None
+    post_id = str(post.get("id") or "") if isinstance(post, Mapping) and post.get("id") else None
+
+    catalog = ensure_initial_global_version(
+        summary_catalog,
+        channel=channel_profile,
+        telegram=telegram_profile,
+    )
+
+    label_messages = assemble_reply_messages_from_labels(
+        ai_profile=ai_profile,
+        user_text=user_text,
+        scope=scope,
+        history=history,
+        chat_meta=chat_meta,
+        catalog=catalog,
+        post_id=post_id if scope == "post" else None,
+        log_labels=log_labels,
+    )
+    if label_messages is not None:
+        return label_messages
+
     current_bundle = build_summary_bundle(
         channel_profile,
         telegram=telegram_profile,
@@ -218,4 +199,5 @@ def build_reply_messages(
         telegram_profile=kwargs.get("telegram_profile"),
         post_data=kwargs.get("post_data"),
         chat_meta=kwargs.get("chat_meta"),
+        summary_catalog=kwargs.get("summary_catalog"),
     )

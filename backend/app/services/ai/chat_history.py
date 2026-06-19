@@ -55,19 +55,19 @@ def map_message_at_path(
     updater: Any,
 ) -> list[dict[str, Any]]:
     """Return history with one message replaced (mirrors frontend mapMessageAtPath)."""
-    if not path:
-        return [dict(item) if isinstance(item, Mapping) else item for item in history]
 
-    head, *rest = path
+    def map_at(items: list[Mapping[str, Any]], subpath: list[int]) -> list[dict[str, Any]]:
+        if not subpath:
+            return [dict(item) if isinstance(item, Mapping) else item for item in items]
 
-    def map_list(items: list[Mapping[str, Any]]) -> list[dict[str, Any]]:
+        sub_head, *sub_rest = subpath
         result: list[dict[str, Any]] = []
         for index, message in enumerate(items):
-            if index != head:
+            if index != sub_head:
                 result.append(dict(message) if isinstance(message, Mapping) else message)
                 continue
             current = dict(message) if isinstance(message, Mapping) else message
-            if not rest:
+            if not sub_rest:
                 result.append(dict(updater(current)))
                 continue
             if current.get("role") != "user":
@@ -81,14 +81,132 @@ def map_message_at_path(
             branch = dict(branches[branch_index]) if isinstance(branches[branch_index], Mapping) else {}
             continuation = branch.get("continuation")
             if isinstance(continuation, list):
-                branch["continuation"] = map_list(continuation)
+                branch["continuation"] = map_at(continuation, sub_rest)
             new_branches = [dict(item) if isinstance(item, Mapping) else item for item in branches]
             new_branches[branch_index] = branch
             current["userBranches"] = new_branches
             result.append(current)
         return result
 
-    return map_list(list(history))
+    return map_at(list(history), path)
+
+
+def _strip_branch_stamps(branch: Mapping[str, Any]) -> dict[str, Any]:
+    stripped = dict(branch)
+    stripped.pop("contextLabel", None)
+    stripped.pop("context_label", None)
+    stripped.pop("bundleContext", None)
+    stripped.pop("bundle_context", None)
+    continuation = stripped.get("continuation")
+    if isinstance(continuation, list):
+        stripped["continuation"] = [
+            _strip_message_stamps(item) if isinstance(item, Mapping) else item
+            for item in continuation
+        ]
+    return stripped
+
+
+def _strip_message_stamps(message: Mapping[str, Any]) -> dict[str, Any]:
+    """Remove client-authored stamps; only the server may set contextLabel."""
+    if message.get("role") != "user":
+        return dict(message)
+    stripped = dict(message)
+    stripped.pop("contextLabel", None)
+    stripped.pop("context_label", None)
+    stripped.pop("bundleContext", None)
+    stripped.pop("bundle_context", None)
+    branches = stripped.get("userBranches")
+    if isinstance(branches, list):
+        stripped["userBranches"] = [
+            _strip_branch_stamps(branch) if isinstance(branch, Mapping) else branch
+            for branch in branches
+        ]
+    return stripped
+
+
+def _merge_user_message_stamps(
+    existing: Mapping[str, Any] | None,
+    incoming: Mapping[str, Any],
+) -> dict[str, Any]:
+    merged = dict(incoming)
+    if existing is None or existing.get("role") != "user" or incoming.get("role") != "user":
+        return merged
+    if existing.get("contextLabel"):
+        merged["contextLabel"] = existing["contextLabel"]
+    if existing.get("bundleContext"):
+        merged["bundleContext"] = existing["bundleContext"]
+
+    incoming_branches = incoming.get("userBranches")
+    if not isinstance(incoming_branches, list):
+        return merged
+
+    existing_branches = existing.get("userBranches")
+    merged_branches: list[dict[str, Any]] = []
+    for index, branch in enumerate(incoming_branches):
+        if not isinstance(branch, Mapping):
+            merged_branches.append(dict(branch) if isinstance(branch, Mapping) else branch)
+            continue
+        branch_copy = dict(branch)
+        existing_branch = (
+            existing_branches[index]
+            if isinstance(existing_branches, list) and index < len(existing_branches)
+            else None
+        )
+        if isinstance(existing_branch, Mapping):
+            if existing_branch.get("contextLabel"):
+                branch_copy["contextLabel"] = existing_branch["contextLabel"]
+            if existing_branch.get("bundleContext"):
+                branch_copy["bundleContext"] = existing_branch["bundleContext"]
+        incoming_cont = branch.get("continuation")
+        if isinstance(incoming_cont, list):
+            existing_cont = (
+                existing_branch.get("continuation")
+                if isinstance(existing_branch, Mapping)
+                else None
+            )
+            branch_copy["continuation"] = merge_history_stamps(
+                existing_cont if isinstance(existing_cont, list) else [],
+                incoming_cont,
+            )
+        merged_branches.append(branch_copy)
+    merged["userBranches"] = merged_branches
+    if isinstance(incoming_branches, list) and len(incoming_branches) > 1 and merged.get("contextLabel"):
+        if merged_branches and isinstance(merged_branches[0], Mapping):
+            branch0 = dict(merged_branches[0])
+            if not branch0.get("contextLabel"):
+                branch0["contextLabel"] = merged["contextLabel"]
+                merged_branches[0] = branch0
+                merged["userBranches"] = merged_branches
+        merged.pop("contextLabel", None)
+    return merged
+
+
+def merge_history_stamps(
+    existing: list[Mapping[str, Any]] | None,
+    incoming: list[Mapping[str, Any]],
+    *,
+    strip_incoming: bool = False,
+) -> list[dict[str, Any]]:
+    """Keep immutable per-message stamps when client PATCH omits or overwrites them."""
+    if strip_incoming:
+        incoming = [
+            _strip_message_stamps(item) if isinstance(item, Mapping) else item
+            for item in incoming
+        ]
+    if not isinstance(existing, list) or not existing:
+        return [dict(item) if isinstance(item, Mapping) else item for item in incoming]
+
+    merged: list[dict[str, Any]] = []
+    for index, incoming_message in enumerate(incoming):
+        if not isinstance(incoming_message, Mapping):
+            merged.append(incoming_message)
+            continue
+        existing_message = existing[index] if index < len(existing) else None
+        if isinstance(existing_message, Mapping):
+            merged.append(_merge_user_message_stamps(existing_message, incoming_message))
+        else:
+            merged.append(dict(incoming_message))
+    return merged
 
 
 def flatten_visible_with_paths(

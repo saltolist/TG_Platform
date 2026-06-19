@@ -5,11 +5,12 @@ import {
   chatContextMetaSchema,
   type ChatContextMeta,
 } from "@/shared/api/schemas/chatContextMeta";
+import { messageContextLabelSchema } from "@/shared/api/schemas/post";
 import { queryKeys } from "@/shared/api/queryKeys";
 import { getQueryAccountIdFromAuth } from "@/shared/lib/auth/queryAccountScope";
 import { isOverlayAccount } from "@/shared/lib/overlay/isOverlayAccount";
 import { mutateOverlay } from "@/shared/lib/overlay/overlayStorage";
-import { mapMessageAtPath } from "@/shared/lib/chatPaths";
+import { mapMessageAtPath, clampActiveBranchIndex } from "@/shared/lib/chatPaths";
 import type { ChatMessage, GlobalChat, LocalChat, Post } from "@/shared/types";
 
 const bundleContextStampSchema = z.object({
@@ -18,11 +19,42 @@ const bundleContextStampSchema = z.object({
   floatingGenerationId: z.string().optional(),
 });
 
-export type BundleContextStamp = z.infer<typeof bundleContextStampSchema>;
-
-const streamMetaSchema = chatContextMetaSchema.extend({
-  bundle_context_stamp: bundleContextStampSchema.optional(),
+const contextLabelStampSchema = z.object({
+  path: z.array(z.number()),
+  head: z.number(),
+  attached: z.number(),
+  turn: z.string(),
 });
+
+export type BundleContextStamp = z.infer<typeof bundleContextStampSchema>;
+export type ContextLabelStamp = z.infer<typeof contextLabelStampSchema>;
+
+function formatContextLabelStamp(stamp: ContextLabelStamp): string {
+  return `${stamp.head}-${stamp.attached}-${stamp.turn}`;
+}
+
+function applyContextLabelStamp(history: ChatMessage[], stamp: ContextLabelStamp): ChatMessage[] {
+  const contextLabel = formatContextLabelStamp(stamp);
+  messageContextLabelSchema.parse(contextLabel);
+  return mapMessageAtPath(history, stamp.path, (message) => {
+    if (message.role !== "user") return message;
+    const branches = message.userBranches;
+    if (branches && branches.length > 1) {
+      const bi = clampActiveBranchIndex(message);
+      const existing = branches[bi]?.contextLabel ?? (bi === 0 ? message.contextLabel : undefined);
+      if (existing === contextLabel) return message;
+      const { contextLabel: _parentLabel, ...rest } = message;
+      return {
+        ...rest,
+        userBranches: branches.map((branch, index) =>
+          index === bi ? { ...branch, contextLabel } : branch,
+        ),
+      };
+    }
+    if (message.contextLabel === contextLabel) return message;
+    return { ...message, contextLabel };
+  });
+}
 
 function applyBundleContextStamp(history: ChatMessage[], stamp: BundleContextStamp): ChatMessage[] {
   const bundleContext = {
@@ -34,26 +66,39 @@ function applyBundleContextStamp(history: ChatMessage[], stamp: BundleContextSta
   );
 }
 
+const streamMetaSchema = chatContextMetaSchema.extend({
+  bundle_context_stamp: bundleContextStampSchema.optional(),
+  context_label_stamp: contextLabelStampSchema.optional(),
+});
+
 function splitStreamMeta(meta: Record<string, unknown>): {
   chatMeta: ChatContextMeta;
-  stamp?: BundleContextStamp;
+  bundleStamp?: BundleContextStamp;
+  labelStamp?: ContextLabelStamp;
 } {
   const parsed = streamMetaSchema.parse(meta);
-  const { bundle_context_stamp, ...rest } = parsed;
+  const { bundle_context_stamp, context_label_stamp, ...rest } = parsed;
   return {
     chatMeta: chatContextMetaSchema.parse(rest),
-    stamp: bundle_context_stamp,
+    bundleStamp: bundle_context_stamp,
+    labelStamp: context_label_stamp,
   };
 }
 
 function applyChatMetaPatch<T extends GlobalChat | LocalChat>(
   chat: T,
   patch: ChatContextMeta,
-  stamp?: BundleContextStamp,
+  bundleStamp?: BundleContextStamp,
+  labelStamp?: ContextLabelStamp,
 ): T {
-  const next = { ...chat, ...patch } as T;
-  if (!stamp) return next;
-  return { ...next, history: applyBundleContextStamp(next.history, stamp) };
+  let next = { ...chat, ...patch } as T;
+  if (labelStamp) {
+    next = { ...next, history: applyContextLabelStamp(next.history, labelStamp) };
+  }
+  if (bundleStamp) {
+    next = { ...next, history: applyBundleContextStamp(next.history, bundleStamp) };
+  }
+  return next;
 }
 
 export function patchGlobalChatContextMeta(
@@ -62,10 +107,10 @@ export function patchGlobalChatContextMeta(
   meta: ChatContextMeta | Record<string, unknown>,
   accountId = getQueryAccountIdFromAuth(),
 ): void {
-  const { chatMeta, stamp } = splitStreamMeta(meta as Record<string, unknown>);
+  const { chatMeta, bundleStamp, labelStamp } = splitStreamMeta(meta as Record<string, unknown>);
   queryClient.setQueryData<GlobalChat[]>(queryKeys.globalChats.list(accountId), (prev) =>
     prev?.map((chat) =>
-      chat.id === chatId ? applyChatMetaPatch(chat, chatMeta, stamp) : chat,
+      chat.id === chatId ? applyChatMetaPatch(chat, chatMeta, bundleStamp, labelStamp) : chat,
     ),
   );
 
@@ -74,7 +119,7 @@ export function patchGlobalChatContextMeta(
   mutateOverlay((overlay) => {
     const current = overlay.globalChats.upserts[chatId];
     if (!current) return;
-    overlay.globalChats.upserts[chatId] = applyChatMetaPatch(current, chatMeta, stamp);
+    overlay.globalChats.upserts[chatId] = applyChatMetaPatch(current, chatMeta, bundleStamp, labelStamp);
   }, accountId);
 }
 
@@ -85,11 +130,11 @@ export function patchPostChatContextMeta(
   meta: ChatContextMeta | Record<string, unknown>,
   accountId = getQueryAccountIdFromAuth(),
 ): void {
-  const { chatMeta, stamp } = splitStreamMeta(meta as Record<string, unknown>);
+  const { chatMeta, bundleStamp, labelStamp } = splitStreamMeta(meta as Record<string, unknown>);
   const applyPatch = (post: Post): Post => ({
     ...post,
     chats: post.chats.map((chat) =>
-      chat.id === chatId ? applyChatMetaPatch(chat, chatMeta, stamp) : chat,
+      chat.id === chatId ? applyChatMetaPatch(chat, chatMeta, bundleStamp, labelStamp) : chat,
     ),
   });
 

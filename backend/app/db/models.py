@@ -87,3 +87,4 @@ class Profile(Base):
     channel: Mapped[dict | None] = mapped_column(JSONB, nullable=True)
     ai: Mapped[dict | None] = mapped_column(JSONB, nullable=True)
     telegram: Mapped[dict | None] = mapped_column(JSONB, nullable=True)
+    summary_catalog: Mapped[dict | None] = mapped_column(JSONB, nullable=True)

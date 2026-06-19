@@ -74,12 +74,17 @@ def _format_ai_message(path: str, message: Mapping[str, Any]) -> list[str]:
 
 def _format_user_branches(path: str, message: Mapping[str, Any]) -> list[str]:
     branches = message.get("userBranches")
+    label_suffix = ""
+    raw_label = message.get("contextLabel") or message.get("context_label")
+    if isinstance(raw_label, str) and raw_label.strip():
+        label_suffix = f"  [{raw_label.strip()}]"
+
     if not isinstance(branches, list) or not branches:
         text = str(message.get("text") or "").strip()
-        return [f"[{path}] user: {text}"]
+        return [f"[{path}] user{label_suffix}: {text}"]
 
     active = clamp_active_branch_index(message)
-    lines = [f"[{path}] user — {len(branches)} branch(es), active={active}"]
+    lines = [f"[{path}] user — {len(branches)} branch(es), active={active}{label_suffix}"]
     for index, branch in enumerate(branches):
         if not isinstance(branch, Mapping):
             continue
@@ -146,12 +151,20 @@ def _llm_message_label(index: int, role: str, content: str) -> str:
     return role
 
 
-def format_llm_messages(messages: list[dict[str, str]]) -> str:
+def format_llm_messages(
+    messages: list[dict[str, str]],
+    *,
+    message_labels: Mapping[int, str] | None = None,
+) -> str:
     lines: list[str] = []
     for index, message in enumerate(messages):
         role = message.get("role", "?")
         content = message.get("content", "")
-        label = _llm_message_label(index, role, content)
+        label = None
+        if message_labels is not None:
+            label = message_labels.get(index)
+        if not label:
+            label = _llm_message_label(index, role, content)
         lines.append(f"── [{index}] {label} {_SECTION[: max(0, 40 - len(label))]}")
         lines.append(content)
         lines.append("")
@@ -202,6 +215,7 @@ def log_llm_request(
     model: str,
     history: list[Mapping[str, Any]] | None,
     messages: list[dict[str, str]],
+    message_labels: Mapping[int, str] | None = None,
 ) -> None:
     label = _chat_label(scope=scope, chat_id=chat_id, post_id=post_id, post_chat_id=post_chat_id)
     active_paths = [
@@ -220,7 +234,7 @@ def log_llm_request(
             format_active_thread(history),
             _SECTION,
             f"Messages to LLM ({len(messages)}):",
-            format_llm_messages(messages),
+            format_llm_messages(messages, message_labels=message_labels),
             _BANNER,
         ]
     )

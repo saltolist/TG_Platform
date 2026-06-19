@@ -201,6 +201,9 @@ AI-ответе; фронт передаёт текст сообщения и и
 При переключении ветки саммари не должно тянуть пары из «чужой» ветки — иначе модель
 получит два несовместимых сценария в одном `CONTEXT_SUMMARY`.
 
+**Эталонный пошаговый сценарий** (сообщения, правки профиля, окно LLM, 3+ поколения bundle на форке):
+[summary-branch-scenario.md](summary-branch-scenario.md).
+
 ### Реализация (Фаза 2)
 
 На бэкенде перед сборкой primer:
@@ -274,6 +277,7 @@ window = last K messages from valid
 - [Фаза 2 — AI Integration](../backend/phases/phase-2-ai.md) — реализация LLM, SSE, ключи
 - [Режимы работы](runtime-modes.md) — RAG, ключи, overlay
 - [API-контракты — ChatMessage](api-contracts.md) — `userBranches`, `activeUserBranch`
+- [Метки сводок `1-2-3`](summary-version-labels.md) — **целевая** механика версий и `contextLabel`
 - [ADR-005 — AssistantRepository](adr/005-assistant-repository.md) — слой вызова AI на фронте
 
 ---

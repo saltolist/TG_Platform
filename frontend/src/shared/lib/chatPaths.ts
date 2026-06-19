@@ -311,11 +311,15 @@ function applyUserMessageSaveCore(history: ChatMessage[], path: number[], newTex
     const forked: ChatMessage = {
       role: "user",
       userBranches: [
-        { text: oldDisplay, continuation: linearTail },
+        {
+          text: oldDisplay,
+          continuation: linearTail,
+          ...(target.contextLabel ? { contextLabel: target.contextLabel } : {}),
+          ...(target.bundleContext ? { bundleContext: target.bundleContext } : {}),
+        },
         { text: trimmed, continuation: [] },
       ],
       activeUserBranch: 1,
-      ...(target.bundleContext ? { bundleContext: target.bundleContext } : {}),
     };
     const newList = [...list.slice(0, index), forked];
     return replaceContainingList(healed, path, newList);
@@ -324,16 +328,25 @@ function applyUserMessageSaveCore(history: ChatMessage[], path: number[], newTex
   const bi = clampActiveBranchIndex(target);
   const branches: UserMessageBranch[] = [...target.userBranches!];
   const oldBranch = branches[bi];
+  const { contextLabel, bundleContext, ...targetRest } = target;
+  const legacyBranchMeta = {
+    ...(contextLabel ? { contextLabel } : {}),
+    ...(bundleContext ? { bundleContext } : {}),
+  };
   const forkedUser: ChatMessage = {
-    ...target,
+    ...targetRest,
     userBranches: [
       ...branches.slice(0, bi),
-      { text: oldBranch.text, continuation: [...oldBranch.continuation] },
+      {
+        text: oldBranch.text,
+        continuation: [...oldBranch.continuation],
+        ...(oldBranch.contextLabel ? { contextLabel: oldBranch.contextLabel } : legacyBranchMeta),
+        ...(oldBranch.bundleContext ? { bundleContext: oldBranch.bundleContext } : {}),
+      },
       { text: trimmed, continuation: [] },
       ...branches.slice(bi + 1),
     ],
     activeUserBranch: bi + 1,
-    ...(target.bundleContext ? { bundleContext: target.bundleContext } : {}),
   };
   const newList = [...list.slice(0, index), forkedUser];
   return replaceContainingList(healed, path, newList);

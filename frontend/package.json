@@ -19,6 +19,7 @@
     "@tanstack/react-query": "^5.101.0",
     "class-variance-authority": "^0.7.1",
     "clsx": "^2.1.1",
+    "geist": "^1.7.2",
     "lucide-react": "^1.17.0",
     "msw": "^2.14.6",
     "next": "16.2.7",
@@ -32,9 +33,9 @@
     "zustand": "^5.0.14"
   },
   "devDependencies": {
-    "@eslint/eslintrc": "^3.3.5",
     "@emnapi/core": "1.11.1",
     "@emnapi/runtime": "1.11.1",
+    "@eslint/eslintrc": "^3.3.5",
     "@playwright/test": "^1.60.0",
     "@tailwindcss/postcss": "^4",
     "@testing-library/jest-dom": "^6.9.1",

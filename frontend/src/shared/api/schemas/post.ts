@@ -44,14 +44,18 @@ export const aiVariantSchema = z.object({
   webCaption: z.string().optional(),
 });
 
-export const userMessageBranchSchema = z.object({
-  text: z.string(),
-  continuation: z.lazy(() => z.array(chatMessageSchema)),
-});
+export const messageContextLabelSchema = z.string().regex(/^\d+-\d+-[\d().]+$/);
 
 export const messageBundleContextSchema = z.object({
   headGenerationId: z.string(),
   floatingGenerationId: z.string().optional(),
+});
+
+export const userMessageBranchSchema = z.object({
+  text: z.string(),
+  continuation: z.lazy(() => z.array(chatMessageSchema)),
+  contextLabel: messageContextLabelSchema.optional(),
+  bundleContext: messageBundleContextSchema.optional(),
 });
 
 export const chatMessageSchema: z.ZodType<{
@@ -66,6 +70,7 @@ export const chatMessageSchema: z.ZodType<{
   llmLabel?: string;
   webLabel?: string;
   streaming?: boolean;
+  contextLabel?: z.infer<typeof messageContextLabelSchema>;
   bundleContext?: z.infer<typeof messageBundleContextSchema>;
 }> = z.lazy(() =>
   z.object({
@@ -80,6 +85,7 @@ export const chatMessageSchema: z.ZodType<{
     llmLabel: z.string().optional(),
     webLabel: z.string().optional(),
     streaming: z.boolean().optional(),
+    contextLabel: messageContextLabelSchema.optional(),
     bundleContext: messageBundleContextSchema.optional(),
   }),
 );

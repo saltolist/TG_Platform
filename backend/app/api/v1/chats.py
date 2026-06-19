@@ -8,6 +8,7 @@ from sqlalchemy import select
 from app.core.deps import CurrentUser, CurrentWriter, DbSession
 from app.db.models import GlobalChat
 from app.db.resolve import get_owned_chat
+from app.services.ai.chat_history import merge_history_stamps
 from app.schemas.requests import MessageRequest
 from app.schemas.resources import GlobalChatIn
 from app.services.ai import generate_reply
@@ -65,6 +66,12 @@ async def update_chat(
 ) -> dict[str, Any]:
     chat = await get_owned_chat(session, user.id, chat_id)
     merged = {**chat.data, **patch}
+    if isinstance(patch.get("history"), list):
+        merged["history"] = merge_history_stamps(
+            list(chat.data.get("history") or []),
+            patch["history"],
+            strip_incoming=True,
+        )
     merged["id"] = chat.data.get("id", str(chat.id))
     chat.data = merged
     await session.commit()
