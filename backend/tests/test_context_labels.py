@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from typing import Any
+
 from app.services.ai.context_label import (
     enumerate_active_user_turns,
     format_context_label,
@@ -12,9 +14,12 @@ from app.services.ai.context_label import (
 )
 from app.services.ai.context_labels import (
     assemble_reply_messages_from_labels,
+    mature_head_version,
     plan_context_label_for_turn,
+    primer_head_from_thread,
     seed_label_thread_from_parent,
 )
+from app.services.ai.context_config import SUMMARY_BUNDLE_CATCHUP_MESSAGES
 from app.services.ai.summary_catalog import (
     catalog_from_profile,
     register_global_summary_version,
@@ -367,6 +372,186 @@ def test_plan_context_label_does_not_reattach_on_later_turns() -> None:
     )
     assert head == 1
     assert attached == 0
+
+
+def test_pending_queue_matures_oldest_version_first() -> None:
+    """Two profile bumps: head must advance 1→2→3 in order, not skip v2."""
+    history = [
+        {"role": "user", "text": "u1", "contextLabel": "1-0-1"},
+        {"role": "ai", "text": "a1"},
+        {"role": "user", "text": "u2", "contextLabel": "1-0-2"},
+        {"role": "ai", "text": "a2"},
+        {"role": "user", "text": "u3", "contextLabel": "1-0-3"},
+        {"role": "ai", "text": "a3"},
+        {"role": "user", "text": "u4", "contextLabel": "1-2-4"},
+        {"role": "ai", "text": "a4"},
+        {"role": "user", "text": "u5", "contextLabel": "1-0-5"},
+        {"role": "ai", "text": "a5"},
+        {"role": "user", "text": "u6", "contextLabel": "1-0-6"},
+        {"role": "ai", "text": "a6"},
+        {"role": "user", "text": "u7", "contextLabel": "1-3-7"},
+        {"role": "ai", "text": "a7"},
+        {"role": "user", "text": "u8", "contextLabel": "1-0-8"},
+        {"role": "ai", "text": "a8"},
+    ]
+    # Legacy broken state: only the latest pending survived in thread meta.
+    state = {"head_version": 1, "pending_version": 3, "pending_since_turn": 7}
+
+    matured_at_8 = mature_head_version(state, user_turn_count=8, history=history)
+    assert matured_at_8["head_version"] == 1
+
+    matured_at_9 = mature_head_version(state, user_turn_count=9, history=history)
+    assert matured_at_9["head_version"] == 2
+    assert matured_at_9["pending_version"] == 3
+
+    head, attached, _ = plan_context_label_for_turn(
+        matured_at_9,
+        user_turn_count=9,
+        turn_label="9",
+        latest_catalog_version=3,
+        history=history,
+    )
+    assert head == 2
+    assert attached == 0
+
+    matured_at_12 = mature_head_version(state, user_turn_count=12, history=history)
+    assert matured_at_12["head_version"] == 3
+    assert matured_at_12["pending_version"] == 0
+
+
+def test_pending_queue_appends_without_dropping_earlier_version() -> None:
+    state = {"head_version": 1, "pending_version": 2, "pending_since_turn": 4}
+    head, attached, next_state = plan_context_label_for_turn(
+        state,
+        user_turn_count=7,
+        turn_label="7",
+        latest_catalog_version=3,
+    )
+    assert head == 1
+    assert attached == 3
+    queue = next_state["pending_queue"]
+    assert [item["version"] for item in queue] == [2, 3]
+    assert queue[0]["since_turn"] == 4
+    assert queue[1]["since_turn"] == 7
+
+
+def test_primer_head_advances_through_pending_queue() -> None:
+    history: list[dict[str, Any]] = []
+    labels = {
+        1: "1-0-1",
+        4: "1-2-4",
+        7: "1-3-7",
+    }
+    for turn in range(1, 8):
+        history.append({"role": "user", "text": f"u{turn}", "contextLabel": labels.get(turn, "1-0-1")})
+        history.append({"role": "ai", "text": f"a{turn}"})
+
+    state = {"head_version": 1, "pending_version": 3, "pending_since_turn": 7}
+    assert (
+        primer_head_from_thread(
+            state,
+            user_turn_count=8,
+            latest_catalog_version=3,
+            history=history,
+        )
+        == 1
+    )
+    assert (
+        primer_head_from_thread(
+            state,
+            user_turn_count=4 + SUMMARY_BUNDLE_CATCHUP_MESSAGES,
+            latest_catalog_version=3,
+            history=history,
+        )
+        == 2
+    )
+    assert (
+        primer_head_from_thread(
+            state,
+            user_turn_count=7 + SUMMARY_BUNDLE_CATCHUP_MESSAGES,
+            latest_catalog_version=3,
+            history=history,
+        )
+        == 3
+    )
+
+
+def test_edit_does_not_mature_head_while_float_still_in_window() -> None:
+    """
+    One message before head replacement: editing the last turn must not promote
+    pending to primer while its floating bundle is still visible in the window.
+    """
+    history: list[dict[str, Any]] = []
+    for turn in range(1, 9):
+        label = "1-2-4" if turn == 4 else "1-0-1"
+        history.append({"role": "user", "text": f"u{turn}", "contextLabel": label})
+        history.append({"role": "ai", "text": f"a{turn}"})
+
+    # Fork edit on turn 8 (same turn count, not a new message).
+    history[-2] = {
+        "role": "user",
+        "activeUserBranch": 1,
+        "userBranches": [
+            {"text": "u8", "contextLabel": "1-0-8"},
+            {"text": "u8 edited", "continuation": []},
+        ],
+    }
+
+    state = {
+        "head_version": 1,
+        "pending_version": 2,
+        "pending_since_turn": 4,
+        "pending_queue": [{"version": 2, "since_turn": 4}],
+    }
+    from app.services.ai.context_turns import compute_window_user_turns
+    from app.services.ai.chat_history import filter_alternating_roles, linearize_for_llm
+
+    valid = filter_alternating_roles(linearize_for_llm(history))
+    valid[-1] = ("user", "u8 edited")
+    window = compute_window_user_turns(valid)
+
+    matured = mature_head_version(
+        state,
+        user_turn_count=8,
+        window_user_turns=window,
+        history=history,
+    )
+    assert matured["head_version"] == 1
+
+    head = primer_head_from_thread(
+        state,
+        user_turn_count=8,
+        latest_catalog_version=2,
+        window_user_turns=window,
+        history=history,
+    )
+    assert head == 1
+
+
+def test_new_linear_turn_matures_after_float_leaves_window() -> None:
+    """Head advances on a new user-turn once catchup is satisfied and float is gone."""
+    history: list[dict[str, Any]] = []
+    for turn in range(1, 10):
+        label = "1-2-4" if turn == 4 else "1-0-1"
+        history.append({"role": "user", "text": f"u{turn}", "contextLabel": label})
+        history.append({"role": "ai", "text": f"a{turn}"})
+
+    state = {
+        "head_version": 1,
+        "pending_queue": [{"version": 2, "since_turn": 4}],
+    }
+    from app.services.ai.context_turns import compute_window_user_turns
+    from app.services.ai.chat_history import filter_alternating_roles, linearize_for_llm
+
+    valid = filter_alternating_roles(linearize_for_llm(history))
+    window = compute_window_user_turns(valid)
+    matured = mature_head_version(
+        state,
+        user_turn_count=9,
+        window_user_turns=window,
+        history=history,
+    )
+    assert matured["head_version"] == 2
 
 
 def test_sticky_floating_bundle_on_stamped_message_only() -> None:

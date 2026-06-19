@@ -13,7 +13,7 @@ from app.schemas.requests import AiReplyRequest
 from app.services.ai.bundle_profile import advance_bundle_profile
 from app.services.ai.chat_history import count_user_turns
 from app.services.ai.context_config import HISTORY_WINDOW, PROMPT_WINDOW
-from app.services.ai.context_turns import compute_window_user_turns
+from app.services.ai.context_turns import compute_window_user_turns, maturation_window_user_turns
 from app.services.ai.context_label import enumerate_active_user_turns, resolve_turn_label
 from app.services.ai.context_labels import (
     advance_label_thread_after_reply,
@@ -33,7 +33,7 @@ from app.services.ai.thread_context import (
 )
 
 
-from app.services.ai.context_turns import annotate_user_turns, compute_window_user_turns
+from app.services.ai.context_turns import annotate_user_turns
 from app.services.ai.rolling_summary import (
     exchanges_from_messages,
     update_rolling_summary_llm,
@@ -192,7 +192,8 @@ async def _refresh_context_meta_labels(
         user_turn_count=user_turn_count,
         turn_label=turn_label,
         latest_catalog_version=latest_version,
-        window_user_turns=compute_window_user_turns(valid_pairs),
+        window_user_turns=maturation_window_user_turns(valid_pairs),
+        history=list(history or []),
     )
 
     prefix, _ = split_prefix_and_window(valid_pairs)

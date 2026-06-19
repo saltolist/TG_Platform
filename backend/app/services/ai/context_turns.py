@@ -33,3 +33,21 @@ def compute_window_user_turns(
         for user_turn, role, _ in window_annotated
         if role == "user" and user_turn is not None
     }
+
+
+def maturation_window_user_turns(
+    pairs: list[tuple[str, str]],
+    *,
+    window_size: int = PROMPT_WINDOW,
+) -> set[int]:
+    """User turns in the prompt window for head-maturation decisions.
+
+    Finalize includes the assistant reply just completed in ``valid_pairs``;
+    that extra pair can push a floating anchor turn out of the window one
+    message too early. Drop the trailing assistant so maturation matches the
+    next assemble for the same user turn.
+    """
+    trimmed = list(pairs)
+    if trimmed and trimmed[-1][0] == "assistant":
+        trimmed = trimmed[:-1]
+    return compute_window_user_turns(trimmed, window_size=window_size)
