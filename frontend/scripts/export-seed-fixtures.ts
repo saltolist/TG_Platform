@@ -7,6 +7,7 @@ import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 
 import { createInitialMswStore } from "../src/shared/api/msw/store";
+import { demoKanalPosts } from "../src/shared/data/channel-pools/demo-kanal-posts";
 import { createPresentationMswStore } from "../src/shared/data/presentation-seed";
 
 const scriptDir = dirname(fileURLToPath(import.meta.url));
@@ -28,7 +29,13 @@ function exportStore(name: string, store: MswStore): void {
   writeFileSync(join(fixturesDir, `${name}.json`), `${JSON.stringify(payload, null, 2)}\n`);
 }
 
+function exportDemoKanal(): void {
+  const payload = { posts: demoKanalPosts };
+  writeFileSync(join(fixturesDir, "demo-kanal.json"), `${JSON.stringify(payload, null, 2)}\n`);
+}
+
 mkdirSync(fixturesDir, { recursive: true });
 exportStore("presentation", createPresentationMswStore());
 exportStore("demo-full", createInitialMswStore());
+exportDemoKanal();
 console.log(`Exported seed fixtures to ${fixturesDir}`);
