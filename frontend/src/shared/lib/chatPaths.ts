@@ -343,10 +343,10 @@ function applyUserMessageSaveCore(history: ChatMessage[], path: number[], newTex
         ...(oldBranch.contextLabel ? { contextLabel: oldBranch.contextLabel } : legacyBranchMeta),
         ...(oldBranch.bundleContext ? { bundleContext: oldBranch.bundleContext } : {}),
       },
-      { text: trimmed, continuation: [] },
       ...branches.slice(bi + 1),
+      { text: trimmed, continuation: [] },
     ],
-    activeUserBranch: bi + 1,
+    activeUserBranch: branches.length,
   };
   const newList = [...list.slice(0, index), forkedUser];
   return replaceContainingList(healed, path, newList);

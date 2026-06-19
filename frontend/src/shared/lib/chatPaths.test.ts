@@ -1,6 +1,11 @@
 import { describe, expect, it } from "vitest";
 
-import { removeAssistantTurnAtPath, removeMessageAtPath } from "@/shared/lib/chatPaths";
+import {
+  applyUserMessageSave,
+  removeAssistantTurnAtPath,
+  removeMessageAtPath,
+  setActiveUserBranch,
+} from "@/shared/lib/chatPaths";
 import type { ChatMessage } from "@/shared/types";
 
 describe("removeAssistantTurnAtPath", () => {
@@ -24,5 +29,47 @@ describe("removeAssistantTurnAtPath", () => {
     const next = removeAssistantTurnAtPath(history, [0]);
     expect(next).toEqual([]);
     expect(removeMessageAtPath(history, [0])).toEqual([]);
+  });
+});
+
+describe("applyUserMessageSave", () => {
+  it("appends a new branch at the end when editing an earlier branch", () => {
+    const history: ChatMessage[] = [
+      { role: "user", text: "a" },
+      { role: "ai", text: "reply a" },
+      {
+        role: "user",
+        activeUserBranch: 1,
+        userBranches: [
+          { text: "b1", continuation: [{ role: "ai", text: "reply b1" }] },
+          { text: "b2", continuation: [{ role: "ai", text: "reply b2" }] },
+        ],
+      },
+    ];
+
+    const switched = setActiveUserBranch(history, [2], 0);
+    const next = applyUserMessageSave(switched, [2], "b1 edited");
+
+    const fork = next[2]!;
+    expect(fork.userBranches?.map((b) => b.text)).toEqual(["b1", "b2", "b1 edited"]);
+    expect(fork.activeUserBranch).toBe(2);
+  });
+
+  it("still appends when editing the last branch with a tail", () => {
+    const history: ChatMessage[] = [
+      {
+        role: "user",
+        activeUserBranch: 1,
+        userBranches: [
+          { text: "v1", continuation: [] },
+          { text: "v2", continuation: [{ role: "ai", text: "ai v2" }] },
+        ],
+      },
+    ];
+
+    const next = applyUserMessageSave(history, [0], "v2 edited");
+    const fork = next[0]!;
+    expect(fork.userBranches?.map((b) => b.text)).toEqual(["v1", "v2", "v2 edited"]);
+    expect(fork.activeUserBranch).toBe(2);
   });
 });
