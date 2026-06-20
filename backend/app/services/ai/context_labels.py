@@ -27,7 +27,11 @@ from app.services.ai.context_label import (
 )
 from app.services.ai.context_turns import annotate_user_turns, compute_window_user_turns
 from app.services.ai.rolling_summary import reconcile_rolling_summary_fields
-from app.services.ai.summary_catalog import resolve_bundle_text
+from app.services.ai.summary_catalog import (
+    ensure_post_local_catalog_current,
+    latest_scope_version,
+    resolve_bundle_text,
+)
 
 THREAD_LABEL_STATE_KEY = "label_context"
 
@@ -717,7 +721,7 @@ def assemble_reply_messages_from_labels(
     window_pairs = take_prompt_window(valid_pairs)
     window_user_turns = compute_window_user_turns(valid_pairs)
 
-    latest_version = _latest_scope_version(catalog, scope=scope, post_id=post_id)
+    latest_version = latest_scope_version(catalog, scope=scope, post_id=post_id)
     thread_state, _, _ = resolve_label_thread_state(
         chat_meta,
         list(history or []),
@@ -798,19 +802,6 @@ def _local_versions_nonempty(catalog: Mapping[str, Any], post_id: str) -> bool:
         return False
     versions = local.get(post_id)
     return isinstance(versions, list) and len(versions) > 0
-
-
-def _latest_scope_version(catalog: Mapping[str, Any], *, scope: str, post_id: str | None) -> int:
-    if scope == "post" and post_id:
-        local = catalog.get("local")
-        if isinstance(local, Mapping):
-            versions = local.get(post_id)
-            if isinstance(versions, list) and versions:
-                return int(versions[-1].get("version") or 0)
-    global_versions = catalog.get("global") or []
-    if global_versions:
-        return int(global_versions[-1].get("version") or 0)
-    return 0
 
 
 def advance_label_thread_after_reply(

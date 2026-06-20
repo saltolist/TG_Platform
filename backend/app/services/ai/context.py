@@ -30,7 +30,10 @@ from app.services.ai.message_bundle import (
     resolve_bundle_from_profile_snapshot,
 )
 from app.services.ai.context_labels import assemble_reply_messages_from_labels
-from app.services.ai.summary_catalog import ensure_initial_global_version
+from app.services.ai.summary_catalog import (
+    ensure_initial_global_version,
+    ensure_post_local_catalog_current,
+)
 from app.services.ai.thread_context import resolve_thread_state
 
 def assemble_reply_messages(
@@ -57,6 +60,14 @@ def assemble_reply_messages(
         channel=channel_profile,
         telegram=telegram_profile,
     )
+    if scope == "post" and post_id:
+        catalog, _ = ensure_post_local_catalog_current(
+            catalog,
+            post_id=post_id,
+            channel=channel_profile,
+            telegram=telegram_profile,
+            post=post,
+        )
 
     label_messages = assemble_reply_messages_from_labels(
         ai_profile=ai_profile,

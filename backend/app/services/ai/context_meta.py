@@ -25,7 +25,7 @@ from app.services.ai.message_bundle import (
     compute_bundle_context_stamp,
     last_user_message_path,
 )
-from app.services.ai.summary_catalog import get_summary_catalog, normalize_catalog
+from app.services.ai.summary_catalog import get_summary_catalog, latest_scope_version, normalize_catalog
 from app.services.ai.thread_context import (
     GLOBAL_FINGERPRINT_KEY,
     flatten_thread_meta,
@@ -214,19 +214,6 @@ async def refresh_context_meta_after_reply(
     return meta
 
 
-def _latest_scope_version(catalog: Mapping[str, Any], *, scope: str, post_id: str | None) -> int:
-    if scope == "post" and post_id:
-        local = catalog.get("local")
-        if isinstance(local, Mapping):
-            versions = local.get(post_id)
-            if isinstance(versions, list) and versions:
-                return int(versions[-1].get("version") or 0)
-    global_versions = catalog.get("global") or []
-    if global_versions:
-        return int(global_versions[-1].get("version") or 0)
-    return 0
-
-
 async def _refresh_context_meta_labels(
     chat_meta: Mapping[str, Any] | None,
     *,
@@ -238,7 +225,7 @@ async def _refresh_context_meta_labels(
     post_id: str | None,
 ) -> dict[str, Any]:
     user_turn_count = count_user_turns(valid_pairs)
-    latest_version = _latest_scope_version(catalog, scope=scope, post_id=post_id)
+    latest_version = latest_scope_version(catalog, scope=scope, post_id=post_id)
     thread_state, thread_key, threads = resolve_label_thread_state(
         chat_meta,
         history,

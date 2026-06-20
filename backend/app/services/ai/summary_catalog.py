@@ -166,6 +166,41 @@ def resolve_bundle_text(
     return str(item.get("text") or "").strip()
 
 
+def latest_scope_version(
+    catalog: Mapping[str, Any],
+    *,
+    scope: str,
+    post_id: str | None,
+) -> int:
+    """Latest catalog version for the active scope (never mix global into post scope)."""
+    if scope == "post" and post_id:
+        return latest_local_version(catalog, post_id)
+    return latest_global_version(catalog)
+
+
+def ensure_post_local_catalog_current(
+    catalog: Mapping[str, Any] | None,
+    *,
+    post_id: str,
+    channel: Mapping[str, Any] | None,
+    telegram: Mapping[str, Any] | None,
+    post: Mapping[str, Any] | None,
+) -> tuple[dict[str, Any], int | None]:
+    """Ensure ``local[post_id]`` reflects current channel+post bundle (lazy on AI reply)."""
+    base = ensure_initial_global_version(
+        normalize_catalog(catalog),
+        channel=channel,
+        telegram=telegram,
+    )
+    return register_local_summary_version(
+        base,
+        post_id=post_id,
+        channel=channel,
+        telegram=telegram,
+        post=post,
+    )
+
+
 def ensure_initial_global_version(
     catalog: Mapping[str, Any] | None,
     *,

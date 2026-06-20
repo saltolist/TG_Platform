@@ -25,7 +25,11 @@ from app.services.ai.llm import stream_llm_sse
 from app.services.ai.orchestrator import resolve_orchestrator_llm
 from app.services.ai.providers import get_provider_spec
 from app.services.ai.sse import format_sse_meta, parse_sse_text_chunk, stream_stub_reply
-from app.services.ai.summary_catalog import catalog_from_profile, ensure_initial_global_version
+from app.services.ai.summary_catalog import (
+    catalog_from_profile,
+    ensure_initial_global_version,
+    ensure_post_local_catalog_current,
+)
 
 router = APIRouter(prefix="/ai", tags=["AI"])
 
@@ -261,6 +265,42 @@ async def _history_for_stamp(
     return list(history or [])
 
 
+async def _prepare_summary_catalog(
+    *,
+    session: DbSession,
+    profile: Profile | None,
+    payload: AiReplyRequest,
+    post_data: Mapping[str, Any] | None,
+    channel_profile: Mapping[str, Any],
+    telegram_profile: Mapping[str, Any],
+) -> dict[str, Any]:
+    catalog = ensure_initial_global_version(
+        catalog_from_profile(profile),
+        channel=channel_profile,
+        telegram=telegram_profile,
+    )
+    catalog_dirty = profile is not None and not profile.summary_catalog and catalog.get("global")
+
+    if payload.scope == "post" and post_data is not None:
+        post_id = str(post_data.get("id") or payload.post_id or "")
+        if post_id:
+            catalog, new_local = ensure_post_local_catalog_current(
+                catalog,
+                post_id=post_id,
+                channel=channel_profile,
+                telegram=telegram_profile,
+                post=post_data,
+            )
+            if new_local is not None:
+                catalog_dirty = True
+
+    if profile is not None and catalog_dirty:
+        profile.summary_catalog = catalog
+        await session.flush()
+
+    return catalog
+
+
 async def _finalize_context_meta(
     *,
     session: DbSession,
@@ -470,14 +510,14 @@ async def ai_reply(
 
     history, post_data, chat_meta = await _load_reply_context(payload, user, session)
 
-    summary_catalog = ensure_initial_global_version(
-        catalog_from_profile(profile),
-        channel=channel_profile,
-        telegram=telegram_profile,
+    summary_catalog = await _prepare_summary_catalog(
+        session=session,
+        profile=profile,
+        payload=payload,
+        post_data=post_data,
+        channel_profile=channel_profile,
+        telegram_profile=telegram_profile,
     )
-    if profile is not None and not profile.summary_catalog and summary_catalog.get("global"):
-        profile.summary_catalog = summary_catalog
-        await session.flush()
 
     if resolution.use_stub:
         return StreamingResponse(

@@ -627,6 +627,100 @@ def test_fill_llm_log_labels_for_window() -> None:
     assert labels[5] == "user [1-0-2]"
 
 
+POST = {
+    "id": "post-uuid-1",
+    "title": "Post",
+    "text": "Текст поста про инвестиции",
+    "status": "draft",
+}
+
+
+def test_latest_scope_version_post_does_not_fall_back_to_global() -> None:
+    from app.services.ai.summary_catalog import latest_global_version, latest_scope_version
+
+    catalog, _ = register_global_summary_version(None, channel=CHANNEL, telegram=None)
+    catalog, _ = register_global_summary_version(catalog, channel=CHANNEL_V2, telegram=None)
+    assert latest_global_version(catalog) == 2
+    assert latest_scope_version(catalog, scope="post", post_id="post-uuid-1") == 0
+
+
+def test_post_scope_primer_uses_local_bundle_not_global_head() -> None:
+    from app.services.ai.summary_catalog import ensure_post_local_catalog_current
+
+    catalog, _ = register_global_summary_version(None, channel=CHANNEL, telegram=None)
+    catalog, _ = register_global_summary_version(catalog, channel=CHANNEL_V2, telegram=None)
+    catalog, local_v1 = ensure_post_local_catalog_current(
+        catalog,
+        post_id="post-uuid-1",
+        channel=CHANNEL,
+        telegram=None,
+        post=POST,
+    )
+    assert local_v1 == 1
+
+    messages = assemble_reply_messages_from_labels(
+        ai_profile={},
+        user_text="Комментарий",
+        scope="post",
+        post_id="post-uuid-1",
+        history=[],
+        chat_meta={},
+        catalog=catalog,
+    )
+    assert messages is not None
+    primer = messages[1]["content"]
+    assert "Текст поста про инвестиции" in primer
+    assert "Финансы" in primer
+    assert "Крипто" not in primer
+
+
+def test_post_scope_channel_change_registers_local_and_attaches_pending() -> None:
+    from app.services.ai.summary_catalog import ensure_post_local_catalog_current
+
+    catalog, _ = register_global_summary_version(None, channel=CHANNEL, telegram=None)
+    catalog, _ = ensure_post_local_catalog_current(
+        catalog,
+        post_id="post-uuid-1",
+        channel=CHANNEL,
+        telegram=None,
+        post=POST,
+    )
+    catalog, _ = register_global_summary_version(catalog, channel=CHANNEL_V2, telegram=None)
+    catalog, local_v2 = ensure_post_local_catalog_current(
+        catalog,
+        post_id="post-uuid-1",
+        channel=CHANNEL_V2,
+        telegram=None,
+        post=POST,
+    )
+    assert local_v2 == 2
+
+    history = [
+        {"role": "user", "text": "u1", "contextLabel": "1-0-1"},
+        {"role": "ai", "text": "a1"},
+    ]
+    meta = {
+        "label_context": {
+            "": {"head_version": 1, "pending_version": 0, "pending_since_turn": 0, "pending_queue": []},
+        },
+    }
+    messages = assemble_reply_messages_from_labels(
+        ai_profile={},
+        user_text="u2",
+        scope="post",
+        post_id="post-uuid-1",
+        history=history,
+        chat_meta=meta,
+        catalog=catalog,
+    )
+    assert messages is not None
+    assert "Финансы" in messages[1]["content"]
+    assert "Крипто" not in messages[1]["content"]
+    u2 = next(m for m in messages[3:] if m["role"] == "user" and "u2" in m["content"])
+    assert "SUMMARY_BUNDLE:" in u2["content"]
+    assert "Крипто" in u2["content"]
+
+
 def test_catalog_from_profile_orm_shape() -> None:
     class _Profile:
         summary_catalog = {"global": [{"version": 1, "text": "x", "fingerprint": "fp"}]}
