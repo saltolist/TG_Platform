@@ -29,6 +29,7 @@ type Props = {
   onOpenMobileActions: () => void;
   onBumpBranch: (delta: number) => void;
   lockUserActions?: boolean;
+  canEdit?: boolean;
 };
 
 export default function ChatUserMessage({
@@ -52,6 +53,7 @@ export default function ChatUserMessage({
   onOpenMobileActions,
   onBumpBranch,
   lockUserActions = false,
+  canEdit = true,
 }: Props) {
   const showUserActions = ctx && !editing && !lockUserActions;
 
@@ -68,15 +70,17 @@ export default function ChatUserMessage({
             <div className={`msg-body${showUserActions ? " msg-body--user-actions" : ""}`}>
               {showUserActions ? (
                 <div className="msg-user-side-actions">
-                  <button
-                    type="button"
-                    className="ai-msg-action-btn"
-                    aria-label="Редактировать"
-                    title="Редактировать"
-                    onClick={onStartEdit}
-                  >
-                    <IcUserEdit />
-                  </button>
+                  {canEdit ? (
+                    <button
+                      type="button"
+                      className="ai-msg-action-btn"
+                      aria-label="Редактировать"
+                      title="Редактировать"
+                      onClick={onStartEdit}
+                    >
+                      <IcUserEdit />
+                    </button>
+                  ) : null}
                   <button
                     type="button"
                     className={`ai-msg-action-btn${copied ? " on" : ""}`}

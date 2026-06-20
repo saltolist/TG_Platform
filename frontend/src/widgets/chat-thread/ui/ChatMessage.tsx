@@ -14,6 +14,8 @@ export default function ChatMessage({
   ctx,
   isLastAssistantMessage = false,
   isPendingUserTurn = false,
+  lockUserEdit = false,
+  lockDelete = false,
 }: {
   message: ChatMessageType;
   ctx?: ChatMessageCtx;
@@ -21,6 +23,10 @@ export default function ChatMessage({
   isLastAssistantMessage?: boolean;
   /** Сообщение пользователя перед стримингом ответа — скрыть редактирование. */
   isPendingUserTurn?: boolean;
+  /** Первое user-сообщение в чате — без редактирования. */
+  lockUserEdit?: boolean;
+  /** User-turn выше имеет ветки — без удаления ответа ассистента. */
+  lockDelete?: boolean;
 }) {
   const chat = useChatMessage({ message, ctx });
   const isStreaming = isStreamingChatMessage(message);
@@ -48,6 +54,7 @@ export default function ChatMessage({
         onOpenMobileActions={chat.openUserActionsOnMobile}
         onBumpBranch={chat.bumpUserBranch}
         lockUserActions={isPendingUserTurn}
+        canEdit={!lockUserEdit}
       />
     );
   }
@@ -62,7 +69,11 @@ export default function ChatMessage({
       canGoVariantPrev={chat.aiVariantIdx > 0}
       canGoVariantNext={chat.aiVariantIdx < chat.aiVariantCount - 1}
       onBumpVariant={chat.bumpAiVariant}
-      onDelete={ctx && isLastAssistantMessage && !isStreaming ? chat.deleteMessage : undefined}
+      onDelete={
+        ctx && isLastAssistantMessage && !isStreaming && !lockDelete
+          ? chat.deleteMessage
+          : undefined
+      }
       isStreaming={isStreaming}
     />
   );

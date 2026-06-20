@@ -215,6 +215,16 @@ export function lastAssistantFlatIndex(
   return -1;
 }
 
+export function firstUserFlatIndex(
+  flat: Array<{ message: ChatMessage; path: number[] }>,
+): number {
+  return flat.findIndex(({ message }) => message.role === "user");
+}
+
+export function userMessageHasBranches(message: ChatMessage | undefined): boolean {
+  return message?.role === "user" && (message.userBranches?.length ?? 0) > 1;
+}
+
 export function lastUserPreviewFromVisibleHistory(history: ChatMessage[]): string {
   const flat = flattenVisibleWithPaths(history);
   for (let i = flat.length - 1; i >= 0; i--) {

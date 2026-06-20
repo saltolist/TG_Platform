@@ -2,9 +2,11 @@ import { describe, expect, it } from "vitest";
 
 import {
   applyUserMessageSave,
+  firstUserFlatIndex,
   removeAssistantTurnAtPath,
   removeMessageAtPath,
   setActiveUserBranch,
+  userMessageHasBranches,
 } from "@/shared/lib/chatPaths";
 import type { ChatMessage } from "@/shared/types";
 
@@ -71,5 +73,26 @@ describe("applyUserMessageSave", () => {
     const fork = next[0]!;
     expect(fork.userBranches?.map((b) => b.text)).toEqual(["v1", "v2", "v2 edited"]);
     expect(fork.activeUserBranch).toBe(2);
+  });
+});
+
+describe("message action guards", () => {
+  it("finds first user message in flat list", () => {
+    const flat = [
+      { message: { role: "ai" as const, text: "hi" }, path: [0] },
+      { message: { role: "user" as const, text: "u1" }, path: [1] },
+      { message: { role: "user" as const, text: "u2" }, path: [2] },
+    ];
+    expect(firstUserFlatIndex(flat)).toBe(1);
+  });
+
+  it("detects branched user messages", () => {
+    expect(userMessageHasBranches({ role: "user", text: "a" })).toBe(false);
+    expect(
+      userMessageHasBranches({
+        role: "user",
+        userBranches: [{ text: "a", continuation: [] }, { text: "b", continuation: [] }],
+      }),
+    ).toBe(true);
   });
 });

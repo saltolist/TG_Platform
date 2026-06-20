@@ -5,6 +5,7 @@ import { ChatMessage } from "@/widgets/chat-thread";
 import { PostMessageCard, type PostWorkspace } from "@/widgets/post-workspace";
 import { PostStatusBadge } from "@/entities/post";
 import { isStreamingChatMessage } from "@/shared/lib/streaming/streamingMessage";
+import { firstUserFlatIndex, userMessageHasBranches } from "@/shared/lib/chatPaths";
 import type { Post } from "@/shared/types";
 
 type Props = {
@@ -28,6 +29,7 @@ export default function PostChatView({ post, data, ui, actions }: Props) {
   const { isEditing, mediaItems, flatMessages, lastAssistantFlat, activeChat } = data;
   const { phoneFormat, chatScrollRef, postCardRef } = ui;
   const { startEdit, cancelEdit, savePost, openComments, sendPost } = actions;
+  const firstUserFlat = firstUserFlatIndex(flatMessages);
 
   return (
     <>
@@ -57,6 +59,7 @@ export default function PostChatView({ post, data, ui, actions }: Props) {
               />
               {flatMessages.map(({ message: m, path }, i) => {
                 const nextMessage = flatMessages[i + 1]?.message;
+                const prevMessage = flatMessages[i - 1]?.message;
                 return (
                   <ChatMessage
                     key={path.join("-")}
@@ -71,6 +74,8 @@ export default function PostChatView({ post, data, ui, actions }: Props) {
                       m.role === "ai" && i === lastAssistantFlat && !isStreamingChatMessage(m)
                     }
                     isPendingUserTurn={m.role === "user" && isStreamingChatMessage(nextMessage)}
+                    lockUserEdit={m.role === "user" && i === firstUserFlat}
+                    lockDelete={m.role === "ai" && userMessageHasBranches(prevMessage)}
                   />
                 );
               })}
