@@ -12,9 +12,14 @@ from app.services.ai.bundle_profile import (
 )
 from app.services.ai.context import assemble_reply_messages
 from app.services.ai.context_config import HISTORY_WINDOW, PROMPT_WINDOW, SUMMARY_BUNDLE_CATCHUP_MESSAGES
-from app.services.ai.context_meta import compute_window_user_turns, refresh_context_meta_after_reply
+from app.services.ai.context_meta import (
+    apply_rolling_summary_reconcile_to_chat_data,
+    refresh_context_meta_after_reply,
+)
+from app.services.ai.context_turns import compute_window_user_turns
 from app.services.ai.rolling_summary import (
     exchanges_from_messages,
+    reconcile_rolling_summary_fields,
     update_rolling_summary_template,
 )
 
@@ -274,9 +279,119 @@ async def test_refresh_context_meta_builds_rolling_summary_template() -> None:
         llm=None,
     )
     assert meta["rolling_summary"]
-    assert meta["rolling_summary_idx"] == len(pairs) - 5
+    assert meta["rolling_summary_idx"] == len(pairs) - PROMPT_WINDOW
     assert meta["active_thread_key"] == ""
     assert "" in meta["thread_context"]
+
+
+@pytest.mark.asyncio
+async def test_refresh_context_meta_summarizes_when_pairs_leave_prompt_window() -> None:
+    """Summary must start once prefix is non-empty (len > PROMPT_WINDOW), not after 9+ tuples."""
+    pairs = _pairs(4)
+    meta = await refresh_context_meta_after_reply(
+        {},
+        history=[],
+        valid_pairs=pairs,
+        current_bundle="Bundle",
+        current_fingerprint="fp",
+        llm=None,
+    )
+    assert meta["rolling_summary"]
+    assert meta["rolling_summary_idx"] == len(pairs) - PROMPT_WINDOW
+
+
+@pytest.mark.asyncio
+async def test_labels_path_summarizes_when_pairs_leave_prompt_window() -> None:
+    from app.services.ai.context_labels import assemble_reply_messages_from_labels
+    from app.services.ai.summary_catalog import register_global_summary_version
+
+    catalog, _ = register_global_summary_version(None, channel=CHANNEL, telegram=None)
+    pairs = _pairs(4)
+    meta = await refresh_context_meta_after_reply(
+        {},
+        history=[],
+        valid_pairs=pairs,
+        current_bundle="Bundle",
+        current_fingerprint="fp",
+        llm=None,
+        summary_catalog=catalog,
+        scope="global",
+    )
+    assert meta["rolling_summary"]
+    assert meta["rolling_summary_idx"] == len(pairs) - PROMPT_WINDOW
+
+    history: list[dict[str, str]] = []
+    for index in range(4):
+        history.append({"role": "user", "text": f"Вопрос {index + 1}"})
+        history.append({"role": "ai", "text": f"Ответ {index + 1}"})
+    messages = assemble_reply_messages_from_labels(
+        ai_profile={},
+        user_text="Вопрос 5",
+        scope="global",
+        history=history,
+        chat_meta=meta,
+        catalog=catalog,
+    )
+    assert messages is not None
+    assert "CONTEXT_SUMMARY:" in messages[1]["content"]
+
+
+@pytest.mark.asyncio
+async def test_reconcile_clears_summary_when_last_turn_deleted() -> None:
+    pairs = _pairs(4)
+    meta = await refresh_context_meta_after_reply(
+        {},
+        history=[],
+        valid_pairs=pairs,
+        current_bundle="Bundle",
+        current_fingerprint="fp",
+        llm=None,
+    )
+    assert meta["rolling_summary"]
+    assert meta["rolling_summary_idx"] == len(pairs) - PROMPT_WINDOW
+
+    shortened = pairs[:-2]
+    reconciled = reconcile_rolling_summary_fields(
+        {
+            "rolling_summary": meta["rolling_summary"],
+            "rolling_summary_idx": meta["rolling_summary_idx"],
+        },
+        shortened,
+    )
+    assert reconciled["rolling_summary"] == ""
+    assert reconciled["rolling_summary_idx"] == 0
+
+
+def test_reconcile_noop_when_prefix_still_covers_idx() -> None:
+    pairs = _pairs(4)
+    prefix_len = len(pairs) - PROMPT_WINDOW
+    state = {"rolling_summary": "Саммари диалога", "rolling_summary_idx": prefix_len}
+    reconciled = reconcile_rolling_summary_fields(state, pairs)
+    assert reconciled == state
+
+
+def test_reconcile_label_thread_does_not_touch_head_version() -> None:
+    pairs = _pairs(4)
+    chat_data = {
+        "active_thread_key": "",
+        "label_context": {
+            "": {
+                "head_version": 2,
+                "pending_version": 0,
+                "pending_since_turn": 0,
+                "pending_queue": [],
+                "rolling_summary": "Старое саммари",
+                "rolling_summary_idx": 3,
+            }
+        },
+        "rolling_summary": "Старое саммари",
+        "rolling_summary_idx": 3,
+    }
+    patch = apply_rolling_summary_reconcile_to_chat_data(chat_data, [])
+    assert patch["rolling_summary"] == ""
+    assert patch["rolling_summary_idx"] == 0
+    assert patch["label_context"][""]["head_version"] == 2
+    assert patch["label_context"][""]["pending_version"] == 0
 
 
 def test_update_rolling_summary_template_limits_growth() -> None:

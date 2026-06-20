@@ -10,6 +10,7 @@ from app.db.resolve import get_owned_post
 from app.schemas.requests import ReorderRequest
 from app.schemas.resources import PostIn
 from app.services.ai.chat_history import merge_history_stamps
+from app.services.ai.context_meta import apply_rolling_summary_reconcile_to_chat_data
 from app.services.ai.summary_catalog import catalog_from_profile, register_local_summary_version
 
 router = APIRouter(prefix="/posts", tags=["Posts"])
@@ -84,6 +85,12 @@ async def update_post(
                     list(existing.get("history") or []),
                     chat["history"],
                     strip_incoming=True,
+                )
+                chat_copy.update(
+                    apply_rolling_summary_reconcile_to_chat_data(
+                        {**dict(existing), **chat_copy},
+                        chat_copy["history"],
+                    )
                 )
             merged_chats.append(chat_copy)
         merged["chats"] = merged_chats

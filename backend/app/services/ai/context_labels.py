@@ -26,6 +26,7 @@ from app.services.ai.context_label import (
     resolve_turn_label,
 )
 from app.services.ai.context_turns import annotate_user_turns, compute_window_user_turns
+from app.services.ai.rolling_summary import reconcile_rolling_summary_fields
 from app.services.ai.summary_catalog import resolve_bundle_text
 
 THREAD_LABEL_STATE_KEY = "label_context"
@@ -181,7 +182,9 @@ def _reconcile_thread_state_with_history(
         "pending_queue": queue,
         "catalog_snapshot_at_fork": snapshot,
     }
-    return _sync_legacy_pending_fields(result)
+    result = _sync_legacy_pending_fields(result)
+    valid_pairs = filter_alternating_roles(linearize_for_llm(list(history or [])))
+    return reconcile_rolling_summary_fields(result, valid_pairs)
 
 
 def load_label_thread_context(meta: Mapping[str, Any] | None) -> dict[str, dict[str, Any]]:

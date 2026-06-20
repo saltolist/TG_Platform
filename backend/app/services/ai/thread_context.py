@@ -12,7 +12,8 @@ from app.services.ai.bundle_profile import (
     prepare_bundle_profile_for_assemble,
     recompute_bundle_profile_stub,
 )
-from app.services.ai.chat_history import active_thread_key, count_user_turns, linearize_for_llm
+from app.services.ai.chat_history import active_thread_key, count_user_turns, filter_alternating_roles, linearize_for_llm
+from app.services.ai.rolling_summary import reconcile_rolling_summary_fields
 
 THREAD_CONTEXT_KEY = "thread_context"
 ACTIVE_THREAD_KEY = "active_thread_key"
@@ -113,7 +114,9 @@ def resolve_thread_state(
     base_meta = dict(chat_meta) if isinstance(chat_meta, Mapping) else {}
     thread_key = active_thread_key(list(history or []))
     threads = load_thread_context(base_meta)
-    user_turn_count = count_user_turns(linearize_for_llm(list(history or [])))
+    raw_pairs = linearize_for_llm(list(history or []))
+    valid_pairs = filter_alternating_roles(raw_pairs)
+    user_turn_count = count_user_turns(valid_pairs)
 
     if thread_key not in threads:
         has_legacy_flat = bool(
@@ -168,6 +171,7 @@ def resolve_thread_state(
         parent_generations=state.get(PARENT_GENERATIONS_KEY),
     )
     state["rolling_summary_profile"] = profile
+    state = reconcile_rolling_summary_fields(state, valid_pairs)
     threads[thread_key] = state
     return state, thread_key, threads
 

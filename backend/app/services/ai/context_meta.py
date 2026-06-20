@@ -12,7 +12,7 @@ from app.db.resolve import get_owned_chat, get_owned_post
 from app.schemas.requests import AiReplyRequest
 from app.services.ai.bundle_profile import advance_bundle_profile
 from app.services.ai.chat_history import count_user_turns
-from app.services.ai.context_config import HISTORY_WINDOW, PROMPT_WINDOW
+from app.services.ai.context_config import PROMPT_WINDOW
 from app.services.ai.context_turns import compute_window_user_turns, maturation_window_user_turns
 from app.services.ai.context_label import enumerate_active_user_turns, resolve_turn_label
 from app.services.ai.context_labels import (
@@ -36,6 +36,7 @@ from app.services.ai.thread_context import (
 from app.services.ai.context_turns import annotate_user_turns
 from app.services.ai.rolling_summary import (
     exchanges_from_messages,
+    reconcile_rolling_summary_fields,
     update_rolling_summary_llm,
     update_rolling_summary_template,
 )
@@ -51,6 +52,68 @@ def split_prefix_and_window(
     if window_size <= 0 or len(pairs) <= window_size:
         return [], pairs
     return pairs[:-window_size], pairs[-window_size:]
+
+
+def apply_rolling_summary_reconcile_to_chat_data(
+    chat_data: Mapping[str, Any],
+    history: list[Mapping[str, Any]] | None,
+) -> dict[str, Any]:
+    """Return chat.data fields to merge after history changed (dialog summary only)."""
+    from app.services.ai.chat_history import (
+        active_thread_key,
+        filter_alternating_roles,
+        linearize_for_llm,
+    )
+    from app.services.ai.context_labels import (
+        flatten_label_thread_meta,
+        load_label_thread_context,
+    )
+    from app.services.ai.thread_context import (
+        flatten_thread_meta,
+        load_thread_context,
+    )
+
+    valid_pairs = filter_alternating_roles(linearize_for_llm(list(history or [])))
+    thread_key = active_thread_key(list(history or []))
+
+    label_threads = load_label_thread_context(chat_data)
+    if label_threads and thread_key in label_threads:
+        reconciled = reconcile_rolling_summary_fields(label_threads[thread_key], valid_pairs)
+        if reconciled == label_threads[thread_key]:
+            return {}
+        updated_threads = {**label_threads, thread_key: reconciled}
+        return flatten_label_thread_meta(
+            reconciled,
+            thread_key=thread_key,
+            threads=updated_threads,
+        )
+
+    threads = load_thread_context(chat_data)
+    if threads and thread_key in threads:
+        reconciled = reconcile_rolling_summary_fields(threads[thread_key], valid_pairs)
+        if reconciled == threads[thread_key]:
+            return {}
+        updated_threads = {**threads, thread_key: reconciled}
+        return flatten_thread_meta(
+            reconciled,
+            thread_key=thread_key,
+            threads=updated_threads,
+        )
+
+    flat_state = {
+        "rolling_summary": chat_data.get("rolling_summary"),
+        "rolling_summary_idx": chat_data.get("rolling_summary_idx"),
+    }
+    reconciled = reconcile_rolling_summary_fields(flat_state, valid_pairs)
+    if (
+        reconciled.get("rolling_summary") == chat_data.get("rolling_summary")
+        and reconciled.get("rolling_summary_idx") == chat_data.get("rolling_summary_idx")
+    ):
+        return {}
+    return {
+        "rolling_summary": reconciled.get("rolling_summary") or "",
+        "rolling_summary_idx": int(reconciled.get("rolling_summary_idx") or 0),
+    }
 
 
 async def refresh_context_meta_after_reply(
@@ -99,14 +162,15 @@ async def refresh_context_meta_after_reply(
     )
 
     prefix, _ = split_prefix_and_window(valid_pairs)
-    rolling_summary = str(thread_state.get("rolling_summary") or "").strip()
+    summary_state = reconcile_rolling_summary_fields(thread_state, valid_pairs)
+    rolling_summary = str(summary_state.get("rolling_summary") or "").strip()
     try:
-        summary_idx = int(thread_state.get("rolling_summary_idx") or 0)
+        summary_idx = int(summary_state.get("rolling_summary_idx") or 0)
     except (TypeError, ValueError):
         summary_idx = 0
     summary_idx = max(0, summary_idx)
 
-    if len(valid_pairs) > HISTORY_WINDOW and len(prefix) > summary_idx:
+    if len(prefix) > summary_idx:
         new_segment = prefix[summary_idx:]
         exchanges = exchanges_from_messages(new_segment)
         if exchanges:
@@ -197,14 +261,15 @@ async def _refresh_context_meta_labels(
     )
 
     prefix, _ = split_prefix_and_window(valid_pairs)
-    rolling_summary = str(thread_state.get("rolling_summary") or "").strip()
+    summary_state = reconcile_rolling_summary_fields(updated_thread, valid_pairs)
+    rolling_summary = str(summary_state.get("rolling_summary") or "").strip()
     try:
-        summary_idx = int(thread_state.get("rolling_summary_idx") or 0)
+        summary_idx = int(summary_state.get("rolling_summary_idx") or 0)
     except (TypeError, ValueError):
         summary_idx = 0
     summary_idx = max(0, summary_idx)
 
-    if len(valid_pairs) > HISTORY_WINDOW and len(prefix) > summary_idx:
+    if len(prefix) > summary_idx:
         new_segment = prefix[summary_idx:]
         exchanges = exchanges_from_messages(new_segment)
         if exchanges:

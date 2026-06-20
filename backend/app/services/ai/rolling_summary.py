@@ -3,9 +3,9 @@
 from __future__ import annotations
 
 import re
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Any, Mapping
 
-from app.services.ai.context_config import ROLLING_SUMMARY_SENTENCE_LIMIT
+from app.services.ai.context_config import PROMPT_WINDOW, ROLLING_SUMMARY_SENTENCE_LIMIT
 
 if TYPE_CHECKING:
     from app.services.ai.providers import ProviderSpec
@@ -33,6 +33,38 @@ def exchanges_from_messages(messages: list[tuple[str, str]]) -> list[tuple[str, 
             index += 1
         exchanges.append((content, assistant_text))
     return exchanges
+
+
+def prefix_pairs_outside_window(
+    pairs: list[tuple[str, str]],
+    *,
+    window_size: int = PROMPT_WINDOW,
+) -> list[tuple[str, str]]:
+    if window_size <= 0 or len(pairs) <= window_size:
+        return []
+    return pairs[:-window_size]
+
+
+def reconcile_rolling_summary_fields(
+    state: Mapping[str, Any],
+    valid_pairs: list[tuple[str, str]],
+) -> dict[str, Any]:
+    """Clear stale dialog summary when history was shortened (e.g. turn deleted).
+
+    Only touches ``rolling_summary`` / ``rolling_summary_idx``; bundle labels are unchanged.
+    """
+    prefix = prefix_pairs_outside_window(valid_pairs)
+    try:
+        summary_idx = int(state.get("rolling_summary_idx") or 0)
+    except (TypeError, ValueError):
+        summary_idx = 0
+    summary_idx = max(0, summary_idx)
+
+    rolling_summary = str(state.get("rolling_summary") or "").strip()
+    if not prefix or summary_idx > len(prefix):
+        if rolling_summary or summary_idx:
+            return {**dict(state), "rolling_summary": "", "rolling_summary_idx": 0}
+    return dict(state)
 
 
 def _limit_sentences(text: str, limit: int = ROLLING_SUMMARY_SENTENCE_LIMIT) -> str:

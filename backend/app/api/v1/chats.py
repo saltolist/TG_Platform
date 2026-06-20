@@ -9,6 +9,7 @@ from app.core.deps import CurrentUser, CurrentWriter, DbSession
 from app.db.models import GlobalChat
 from app.db.resolve import get_owned_chat
 from app.services.ai.chat_history import merge_history_stamps
+from app.services.ai.context_meta import apply_rolling_summary_reconcile_to_chat_data
 from app.schemas.requests import MessageRequest
 from app.schemas.resources import GlobalChatIn
 from app.services.ai import generate_reply
@@ -71,6 +72,9 @@ async def update_chat(
             list(chat.data.get("history") or []),
             patch["history"],
             strip_incoming=True,
+        )
+        merged.update(
+            apply_rolling_summary_reconcile_to_chat_data(merged, merged["history"])
         )
     merged["id"] = chat.data.get("id", str(chat.id))
     chat.data = merged
