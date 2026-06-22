@@ -19,14 +19,17 @@ from app.services.ai.context_label import (
 )
 from app.services.ai.context_label import format_context_label, parse_context_label
 from app.services.ai.context_labels import (
+    _find_label_thread_parent,
+    _is_edit_fork_at_turn,
     _merge_fork_metadata,
+    _merge_pending_queues,
+    _pending_queue_from_stamps,
     advance_label_thread_after_reply,
     empty_label_thread_state,
     flatten_label_thread_meta,
     load_label_thread_context,
     maturation_state_for_planning,
     plan_context_label_for_turn,
-    planned_context_label_at_turn,
     primer_head_from_stamps,
     reconcile_rolling_summary_fields,
 )
@@ -111,6 +114,241 @@ def _is_fresh_post_label_thread(state: Mapping[str, Any]) -> bool:
     return True
 
 
+def _path_indices(path_str: str) -> list[int]:
+    return [int(part) for part in path_str.split(".") if part]
+
+
+def _fork_message_for_thread_key(
+    history: list[Mapping[str, Any]] | None,
+    thread_key: str,
+) -> Mapping[str, Any] | None:
+    """User fork message that created ``thread_key`` (last comma segment)."""
+    if not history or not thread_key or "@" not in thread_key:
+        return None
+    segments = thread_key.split(",")
+    parsed: list[tuple[str, int]] = []
+    for segment in segments:
+        if "@" not in segment:
+            return None
+        path_part, branch_part = segment.rsplit("@", 1)
+        try:
+            parsed.append((path_part, int(branch_part)))
+        except ValueError:
+            return None
+    path0, _ = parsed[0]
+    head_indices = _path_indices(path0)
+    if not head_indices:
+        return None
+    if head_indices[0] >= len(history):
+        return None
+    message = history[head_indices[0]]
+    if not isinstance(message, Mapping):
+        return None
+    if len(parsed) == 1:
+        return message
+    for index in range(1, len(parsed)):
+        _, prev_branch = parsed[index - 1]
+        path_part, _ = parsed[index]
+        cont_indices = _path_indices(path_part)
+        if not cont_indices:
+            return None
+        cont_idx = cont_indices[-1]
+        branches = message.get("userBranches")
+        if not isinstance(branches, list) or prev_branch >= len(branches):
+            return None
+        branch = branches[prev_branch]
+        if not isinstance(branch, Mapping):
+            return None
+        continuation = branch.get("continuation")
+        if not isinstance(continuation, list) or cont_idx >= len(continuation):
+            return None
+        message = continuation[cont_idx]
+        if not isinstance(message, Mapping):
+            return None
+    return message
+
+
+def _fork_turn_for_thread_key(
+    history: list[Mapping[str, Any]] | None,
+    thread_key: str,
+) -> int | None:
+    if not history or not thread_key or "@" not in thread_key:
+        return None
+    fork_path = thread_key.split(",")[-1].rsplit("@", 1)[0]
+    target = _path_indices(fork_path)
+    for entry in enumerate_active_user_turns(list(history)):
+        if entry.get("path") == target:
+            return int(entry["turn"])
+    return None
+
+
+def _fork_anchor_from_branch_zero_post_label(
+    history: list[Mapping[str, Any]] | None,
+    *,
+    thread_key: str,
+    latest_global: int,
+) -> tuple[int, int, int, int, int, int, int, bool] | None:
+    """Head/attach per layer from branch 0 on the fork that created ``thread_key``."""
+    fork_message = _fork_message_for_thread_key(history, thread_key)
+    if fork_message is None:
+        return None
+    branches = fork_message.get("userBranches")
+    if not isinstance(branches, list) or len(branches) < 2:
+        return None
+    branch0 = branches[0]
+    if not isinstance(branch0, Mapping):
+        return None
+    parsed = read_stamped_post_label_parts(
+        fork_message,
+        branch_index=0,
+        legacy_global_version=latest_global,
+    )
+    if parsed is None:
+        candidate = branch0.get("contextLabel") or branch0.get("context_label")
+        if isinstance(candidate, str):
+            parsed = read_stamped_post_label_parts(
+                {"contextLabel": candidate},
+                legacy_global_version=latest_global,
+            )
+    if parsed is None:
+        return None
+    gh, lh, ga, la, turn_part = parsed
+    pg = ga if ga > gh else 0
+    pl = la if la > lh else 0
+    fork_turn = _fork_turn_for_thread_key(history, thread_key) or 0
+    pg_since = fork_turn if pg else 0
+    pl_since = fork_turn if pl else 0
+    return (gh, lh, pg, pl, pg_since, pl_since, fork_turn, "(" in turn_part)
+
+
+def _merge_layer_pending_queue(
+    parent_queue: list[dict[str, int]],
+    *,
+    head: int,
+    history: list[Mapping[str, Any]] | None,
+    user_turn_count: int,
+    latest_global: int,
+    layer: str,
+    anchor_version: int,
+    anchor_since: int,
+    edit_fork: bool,
+) -> list[dict[str, int]]:
+    synthetic = _post_layer_synthetic_history(
+        history,
+        layer=layer,
+        latest_global=latest_global,
+    )
+    queue = _merge_pending_queues(
+        parent_queue,
+        _pending_queue_from_stamps(synthetic, head=head, up_to_turn=user_turn_count),
+        (
+            [{"version": anchor_version, "since_turn": anchor_since}]
+            if anchor_version > head and anchor_since > 0
+            else []
+        ),
+        head=head,
+    )
+    if edit_fork:
+        queue = [item for item in queue if int(item["since_turn"]) != user_turn_count]
+    return queue
+
+
+def seed_post_label_thread_from_parent(
+    parent: Mapping[str, Any],
+    *,
+    thread_key: str,
+    user_turn_count: int,
+    history: list[Mapping[str, Any]] | None,
+    latest_global: int,
+    latest_local: int,
+) -> dict[str, Any]:
+    """Fork: inherit compound heads from branch 0 label at the fork (global-chat parity)."""
+    state = empty_post_label_thread_state()
+    gh = int(parent.get("head_global") or 0)
+    lh = max(1, int(parent.get("head_local") or 1))
+    pg = int(parent.get("pending_global_version") or 0)
+    pl = int(parent.get("pending_local_version") or 0)
+    pg_since = int(parent.get("pending_global_since_turn") or 0)
+    pl_since = int(parent.get("pending_local_since_turn") or 0)
+
+    anchor = _fork_anchor_from_branch_zero_post_label(
+        history,
+        thread_key=thread_key,
+        latest_global=latest_global,
+    )
+    edit_fork = _is_edit_fork_at_turn(history, user_turn_count)
+    if anchor is not None:
+        a_gh, a_lh, a_pg, a_pl, a_pg_since, a_pl_since, _fork_turn, nested_fork = anchor
+        parent_gh = int(parent.get("fork_branch_zero_head_global") or parent.get("head_global") or 0)
+        parent_lh = max(1, int(parent.get("fork_branch_zero_head_local") or parent.get("head_local") or 1))
+        gh, lh = a_gh, max(1, a_lh)
+        if nested_fork and parent_gh > 0 and a_pg == 0 and a_pl == 0 and a_gh > parent_gh:
+            gh, lh = parent_gh, parent_lh
+            state["fork_suppress_attach_global_up_to"] = a_gh
+            if a_lh > lh:
+                state["fork_suppress_attach_local_up_to"] = a_lh
+        pg, pl, pg_since, pl_since = a_pg, a_pl, a_pg_since, a_pl_since
+        state["fork_branch_zero_head_global"] = gh
+        state["fork_branch_zero_head_local"] = lh
+        if nested_fork and parent_gh > gh:
+            state["fork_suppress_attach_global_up_to"] = parent_gh
+        if nested_fork and parent_lh > lh:
+            state["fork_suppress_attach_local_up_to"] = parent_lh
+        if edit_fork:
+            pg, pl, pg_since, pl_since = 0, 0, 0, 0
+
+    if pg > 0 and pg_since > user_turn_count:
+        pg, pg_since = 0, 0
+    if pl > 0 and pl_since > user_turn_count:
+        pl, pl_since = 0, 0
+
+    parent_gq = [
+        dict(item)
+        for item in list(parent.get("pending_global_queue") or [])
+        if int(item.get("since_turn") or 0) <= user_turn_count
+    ]
+    parent_lq = [
+        dict(item)
+        for item in list(parent.get("pending_local_queue") or [])
+        if int(item.get("since_turn") or 0) <= user_turn_count
+    ]
+    if edit_fork:
+        parent_gq = [item for item in parent_gq if int(item["since_turn"]) != user_turn_count]
+        parent_lq = [item for item in parent_lq if int(item["since_turn"]) != user_turn_count]
+
+    gq = _merge_layer_pending_queue(
+        parent_gq,
+        head=gh,
+        history=history,
+        user_turn_count=user_turn_count,
+        latest_global=latest_global,
+        layer="global",
+        anchor_version=pg,
+        anchor_since=pg_since,
+        edit_fork=edit_fork,
+    )
+    lq = _merge_layer_pending_queue(
+        parent_lq,
+        head=lh,
+        history=history,
+        user_turn_count=user_turn_count,
+        latest_global=latest_global,
+        layer="local",
+        anchor_version=pl,
+        anchor_since=pl_since,
+        edit_fork=edit_fork,
+    )
+
+    state["head_global"] = gh
+    state["head_local"] = lh
+    state["pending_global_queue"] = gq
+    state["pending_local_queue"] = lq
+    if edit_fork:
+        state["catalog_snapshot_at_fork"] = 0
+        state["catalog_snapshot_local_at_fork"] = 0
+    return _sync_post_pending_legacy(state)
+
+
 def _post_layer_thread_state(stored: Mapping[str, Any], layer: str) -> dict[str, Any]:
     """Map compound thread state to single-layer global-chat state."""
     base = empty_label_thread_state()
@@ -124,12 +362,64 @@ def _post_layer_thread_state(stored: Mapping[str, Any], layer: str) -> dict[str,
             base["head_version"] = max(1, int(stored.get("head_local") or 0))
         base["pending_queue"] = [dict(item) for item in list(stored.get("pending_local_queue") or [])]
     merged = _merge_fork_metadata(base, stored)
-    if layer == "local":
-        # Global channel snapshot must not suppress local post attach on the same turn.
+    if layer == "global":
+        merged.pop("catalog_snapshot_local_at_fork", None)
+        fork_gh = int(stored.get("fork_branch_zero_head_global") or 0)
+        if fork_gh > 0:
+            merged["fork_branch_zero_head"] = fork_gh
+        suppress = int(stored.get("fork_suppress_attach_global_up_to") or 0)
+        if suppress > 0:
+            merged["fork_suppress_attach_up_to"] = suppress
+    else:
         merged.pop("catalog_snapshot_at_fork", None)
         local_snapshot = int(stored.get("catalog_snapshot_local_at_fork") or 0)
         if local_snapshot > 0:
             merged["catalog_snapshot_at_fork"] = local_snapshot
+        fork_lh = int(stored.get("fork_branch_zero_head_local") or 0)
+        if fork_lh > 0:
+            merged["fork_branch_zero_head"] = fork_lh
+        suppress = int(stored.get("fork_suppress_attach_local_up_to") or 0)
+        if suppress > 0:
+            merged["fork_suppress_attach_up_to"] = suppress
+    return merged
+
+
+def _maturation_state_for_post_layer(
+    stored: Mapping[str, Any],
+    synthetic_history: list[Mapping[str, Any]] | None,
+    *,
+    user_turn_count: int,
+) -> dict[str, Any]:
+    """Stamp-derived layer state; fork-zero head caps polluted stamps on nested paths."""
+    merged = maturation_state_for_planning(
+        stored,
+        synthetic_history,
+        user_turn_count=user_turn_count,
+    )
+    fork_head = int(stored.get("fork_branch_zero_head") or 0)
+    head = int(merged.get("head_version") or 0)
+    if fork_head > 0 and head > fork_head:
+        merged = {**merged, "head_version": fork_head}
+    return merged
+
+
+def _maturation_state_for_post_layer_assembly(
+    stored: Mapping[str, Any],
+    synthetic_history: list[Mapping[str, Any]] | None,
+    *,
+    user_turn_count: int,
+) -> dict[str, Any]:
+    from app.services.ai.context_labels import maturation_state_for_assembly
+
+    merged = maturation_state_for_assembly(
+        stored,
+        synthetic_history,
+        user_turn_count=user_turn_count,
+    )
+    fork_head = int(stored.get("fork_branch_zero_head") or 0)
+    head = int(merged.get("head_version") or 0)
+    if fork_head > 0 and head > fork_head:
+        merged = {**merged, "head_version": fork_head}
     return merged
 
 
@@ -176,8 +466,62 @@ def _post_layer_synthetic_history(
         else:
             head, attached = lh, la
         flat = format_context_label(head, attached, str(entry["turn_label"]))
-        synthetic.append({**dict(message), "contextLabel": flat})
+        # Branch-free nodes: label readers prefer userBranches over contextLabel.
+        synthetic.append({"role": "user", "contextLabel": flat})
     return synthetic
+
+
+def _immediate_label_thread_parent(
+    threads: Mapping[str, Mapping[str, Any]],
+    thread_key: str,
+) -> Mapping[str, Any] | None:
+    parts = thread_key.split(",")
+    if len(parts) <= 1:
+        return threads.get("")
+    parent_key = ",".join(parts[:-1])
+    parent = threads.get(parent_key)
+    if parent is not None:
+        return parent
+    return threads.get("")
+
+
+def _repair_post_fork_thread_state(
+    state: Mapping[str, Any],
+    *,
+    thread_key: str,
+    parent: Mapping[str, Any] | None,
+    user_turn_count: int,
+    history: list[Mapping[str, Any]] | None,
+    latest_global: int,
+    latest_local: int,
+) -> dict[str, Any]:
+    """Re-align fork thread heads with branch-zero anchor for this thread key."""
+    if "@" not in thread_key or thread_key.count(",") < 1:
+        return dict(state)
+    seeded = seed_post_label_thread_from_parent(
+        parent or empty_post_label_thread_state(),
+        thread_key=thread_key,
+        user_turn_count=user_turn_count,
+        history=history,
+        latest_global=latest_global,
+        latest_local=latest_local,
+    )
+    if int(seeded.get("fork_branch_zero_head_global") or 0) <= 0:
+        return dict(state)
+    if (
+        int(state.get("head_global") or 0) == int(seeded.get("head_global") or 0)
+        and int(state.get("head_local") or 0) == int(seeded.get("head_local") or 0)
+        and int(state.get("fork_branch_zero_head_global") or 0)
+        == int(seeded.get("fork_branch_zero_head_global") or 0)
+        and int(state.get("fork_branch_zero_head_local") or 0)
+        == int(seeded.get("fork_branch_zero_head_local") or 0)
+    ):
+        return dict(state)
+    return {
+        **seeded,
+        "rolling_summary": str(state.get("rolling_summary") or ""),
+        "rolling_summary_idx": int(state.get("rolling_summary_idx") or 0),
+    }
 
 
 def plan_post_context_label_for_turn(
@@ -204,12 +548,12 @@ def plan_post_context_label_for_turn(
     )
     stored_global = _post_layer_thread_state(base, "global")
     stored_local = _post_layer_thread_state(base, "local")
-    planning_global = maturation_state_for_planning(
+    planning_global = _maturation_state_for_post_layer(
         stored_global,
         synth_global,
         user_turn_count=user_turn_count,
     )
-    planning_local = maturation_state_for_planning(
+    planning_local = _maturation_state_for_post_layer(
         stored_local,
         synth_local,
         user_turn_count=user_turn_count,
@@ -245,45 +589,15 @@ def planned_post_label_at_turn(
     history: list[Mapping[str, Any]] | None = None,
 ) -> str:
     """Compose ``gHead.lHead-gAtt.lAtt-turn`` from two global-chat planners."""
-    base = _migrate_legacy_post_state(
+    gh, lh, ga, la, _ = plan_post_context_label_for_turn(
         state,
+        user_turn_count=user_turn_count,
+        turn_label=turn_label,
         latest_global=latest_global,
         latest_local=latest_local,
-    )
-    synth_global = _post_layer_synthetic_history(
-        history, layer="global", latest_global=latest_global
-    )
-    synth_local = _post_layer_synthetic_history(
-        history, layer="local", latest_global=latest_global
-    )
-    label_global = planned_context_label_at_turn(
-        _post_layer_thread_state(base, "global"),
-        user_turn_count=user_turn_count,
-        turn_label=turn_label,
-        latest_version=latest_global,
         window_user_turns=window_user_turns,
-        history=synth_global,
+        history=history,
     )
-    label_local = planned_context_label_at_turn(
-        _post_layer_thread_state(base, "local"),
-        user_turn_count=user_turn_count,
-        turn_label=turn_label,
-        latest_version=max(1, latest_local),
-        window_user_turns=window_user_turns,
-        history=synth_local,
-    )
-    parsed_global = parse_context_label(label_global)
-    parsed_local = parse_context_label(label_local)
-    if parsed_global is None or parsed_local is None:
-        return format_post_context_label(
-            latest_global,
-            max(1, latest_local),
-            0,
-            0,
-            turn_label,
-        )
-    gh, ga, _ = parsed_global
-    lh, la, _ = parsed_local
     return format_post_context_label(gh, max(1, lh), ga, la, turn_label)
 
 
@@ -489,13 +803,48 @@ def resolve_post_label_thread_state(
     base_meta = dict(meta) if isinstance(meta, Mapping) else {}
     thread_key = active_thread_key(list(history or []))
     threads = load_label_thread_context(base_meta)
+    prev_key = base_meta.get("active_thread_key")
+    parent = _find_label_thread_parent(
+        threads,
+        thread_key,
+        prev_key if isinstance(prev_key, str) else None,
+    )
+    user_turn_count = count_user_turns(
+        filter_alternating_roles(linearize_for_llm(list(history or [])))
+    )
+    hist = list(history or [])
     if thread_key not in threads:
-        threads[thread_key] = empty_post_label_thread_state(head_local=1)
+        if parent is not None:
+            threads[thread_key] = seed_post_label_thread_from_parent(
+                parent,
+                thread_key=thread_key,
+                user_turn_count=user_turn_count,
+                history=hist,
+                latest_global=latest_global,
+                latest_local=latest_local,
+            )
+        else:
+            threads[thread_key] = empty_post_label_thread_state(head_local=1)
     threads[thread_key] = _migrate_legacy_post_state(
         threads[thread_key],
         latest_global=latest_global,
         latest_local=latest_local,
     )
+    prefix_parts = thread_key.split(",") if thread_key else []
+    for index in range(1, len(prefix_parts) + 1):
+        prefix_key = ",".join(prefix_parts[:index])
+        if "@" not in prefix_key or prefix_key not in threads:
+            continue
+        prefix_parent = _immediate_label_thread_parent(threads, prefix_key)
+        threads[prefix_key] = _repair_post_fork_thread_state(
+            threads[prefix_key],
+            thread_key=prefix_key,
+            parent=prefix_parent,
+            user_turn_count=user_turn_count,
+            history=hist,
+            latest_global=latest_global,
+            latest_local=latest_local,
+        )
     valid_pairs = filter_alternating_roles(linearize_for_llm(list(history or [])))
     threads[thread_key] = reconcile_rolling_summary_fields(threads[thread_key], valid_pairs)
     return dict(threads[thread_key]), thread_key, threads

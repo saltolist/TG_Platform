@@ -941,7 +941,7 @@ def test_latest_scope_version_post_does_not_fall_back_to_global() -> None:
     assert latest_scope_version(catalog, scope="post", post_id="post-uuid-1") == 0
 
 
-def test_post_scope_primer_uses_local_bundle_not_global_head() -> None:
+def test_post_scope_primer_uses_global_channel_and_local_post_sections() -> None:
     from app.services.ai.summary_catalog import ensure_post_local_catalog_current
 
     catalog, _ = register_global_summary_version(None, channel=CHANNEL, telegram=None)
@@ -967,8 +967,8 @@ def test_post_scope_primer_uses_local_bundle_not_global_head() -> None:
     assert messages is not None
     primer = messages[1]["content"]
     assert "Текст поста про инвестиции" in primer
-    assert "Финансы" in primer
-    assert "Крипто" not in primer
+    assert "Крипто" in primer
+    assert "Финансы" not in primer
 
 
 def test_post_scope_channel_change_registers_local_and_attaches_pending() -> None:

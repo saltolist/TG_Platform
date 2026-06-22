@@ -161,7 +161,30 @@ def resolve_post_bundle_text(
     global_version: int,
     local_version: int,
 ) -> str:
-    """Full post bundle for compound label ``g.l`` primer head (local entry preferred)."""
+    """Primer bundle: global channel at ``global_version`` + post section at ``local_version``.
+
+    Local catalog entries embed a channel snapshot from registration time; the compound
+    label head can mature global ahead of that snapshot, so never use the local entry's
+    ``## Канал`` block when ``global_version`` is set.
+    """
+    parts: list[str] = []
+    if global_version > 0:
+        global_text = resolve_bundle_text(
+            catalog,
+            scope="global",
+            post_id=None,
+            version=global_version,
+        )
+        if global_text:
+            parts.append(global_text)
+    if local_version > 0:
+        item = find_local_version(catalog, post_id, local_version)
+        if item is not None:
+            post_text = _extract_post_section_from_bundle(str(item.get("text") or ""))
+            if post_text:
+                parts.append(f"## Пост\n{post_text}")
+    if parts:
+        return "\n\n".join(parts)
     if local_version > 0:
         item = find_local_version(catalog, post_id, local_version)
         if item is not None:

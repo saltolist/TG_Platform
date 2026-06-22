@@ -15,11 +15,15 @@ from app.services.ai.context_labels_post import (
     plan_post_context_label_for_turn,
     planned_post_label_at_turn,
     primer_post_heads_from_state,
+    _post_layer_synthetic_history,
+    resolve_post_label_thread_state,
 )
+from app.services.ai.context_labels import _max_stamped_attached_on_path
 from app.services.ai.summary_catalog import (
     ensure_post_local_catalog_current,
     register_global_summary_version,
     register_local_summary_version,
+    resolve_post_bundle_text,
     resolve_post_float_bundle_text,
 )
 
@@ -89,6 +93,41 @@ def test_post_scope_primer_uses_compound_label() -> None:
     assert messages is not None
     assert log_labels[1] == "user/primer [1.1-0.0-0]"
     assert "Текст поста" in messages[1]["content"]
+
+
+def test_primer_bundle_uses_global_channel_not_stale_local_snapshot() -> None:
+    """Head ``15.8`` must show global v15 channel text, not channel baked into local v8."""
+    catalog, _ = register_global_summary_version(None, channel=CHANNEL, telegram=None)
+    for idx in range(2, 16):
+        catalog, _ = register_global_summary_version(
+            catalog,
+            channel={**CHANNEL, "core": {"topic": f"Сводка {idx}"}},
+            telegram=None,
+        )
+    catalog, _ = ensure_post_local_catalog_current(
+        catalog,
+        post_id="post-uuid-1",
+        channel={**CHANNEL, "core": {"topic": "Сводка 14"}},
+        telegram=None,
+        post=POST,
+    )
+    for idx in range(2, 9):
+        catalog, _ = register_local_summary_version(
+            catalog,
+            post_id="post-uuid-1",
+            channel={**CHANNEL, "core": {"topic": "Сводка 14"}},
+            telegram=None,
+            post={**POST, "text": f"Версия {idx}"},
+        )
+    text = resolve_post_bundle_text(
+        catalog,
+        post_id="post-uuid-1",
+        global_version=15,
+        local_version=8,
+    )
+    assert "Сводка 15" in text
+    assert "Сводка 14" not in text
+    assert "Версия 8" in text
 
 
 def test_rebuild_primer_uses_latest_catalog_heads() -> None:
@@ -383,6 +422,272 @@ def test_local_head_matures_after_post_float_like_global_chat() -> None:
         history=history,
     )
     assert label == "13.7-0.0-9"
+
+
+def test_post_layer_synthetic_history_strips_branches_for_local_attach() -> None:
+    """Layer projection must not leak compound branch stamps into local maturation."""
+    history = [
+        {
+            "role": "user",
+            "activeUserBranch": 1,
+            "userBranches": [
+                {"text": "16.12-0.0-5", "contextLabel": "16.12-0.0-5"},
+                {"text": "16.12-17.14-5.2", "contextLabel": "16.12-17.14-5.2"},
+            ],
+        },
+    ]
+    synth = _post_layer_synthetic_history(history, layer="local", latest_global=16)
+    assert len(synth) == 1
+    assert "userBranches" not in synth[0]
+    assert synth[0]["contextLabel"].startswith("12-14-")
+    assert _max_stamped_attached_on_path(synth) == 14
+
+
+def test_nested_fork_anchor_uses_creating_fork_not_latest_on_path() -> None:
+    """Thread 8@1,8.1@0 must anchor turn-6 branch 0 (16.13), not turn-8 branch 0 (17.14)."""
+    from app.services.ai.context_labels_post import _fork_anchor_from_branch_zero_post_label
+
+    padding: list[dict[str, Any]] = []
+    for i in range(1, 5):
+        padding.append({"role": "user", "text": f"u{i}", "contextLabel": f"16.12-0.0-{i}"})
+        padding.append({"role": "ai", "text": f"a{i}"})
+    history = padding + [
+        {
+            "role": "user",
+            "activeUserBranch": 1,
+            "userBranches": [
+                {"text": "16.12-0.0-5", "contextLabel": "16.12-0.0-5"},
+                {
+                    "text": "16.12-17.14-5.2",
+                    "contextLabel": "16.12-17.14-5.2",
+                    "continuation": [
+                        {"role": "ai", "text": "a5"},
+                        {
+                            "role": "user",
+                            "activeUserBranch": 0,
+                            "userBranches": [
+                                {
+                                    "text": "16.13-0.0-5.2(6)",
+                                    "contextLabel": "16.13-0.0-5.2(6)",
+                                    "continuation": [
+                                        {"role": "ai", "text": "a6"},
+                                        {
+                                            "role": "user",
+                                            "text": "16.13-0.15-5.2(7)",
+                                            "contextLabel": "16.13-0.15-5.2(6(7))",
+                                        },
+                                        {"role": "ai", "text": "a7"},
+                                        {
+                                            "role": "user",
+                                            "activeUserBranch": 1,
+                                            "userBranches": [
+                                                {
+                                                    "text": "17.14-0.0-5.2(8)",
+                                                    "contextLabel": "17.14-0.0-5.2(6(8))",
+                                                },
+                                                {
+                                                    "text": "17.14-18.16-5.2(8.5)",
+                                                    "contextLabel": "17.14-18.16-5.2(6(8.5))",
+                                                    "continuation": [],
+                                                },
+                                            ],
+                                        },
+                                    ],
+                                },
+                                {"text": "alt", "contextLabel": "16.12-0.0-5.2(6.2)"},
+                            ],
+                        },
+                    ],
+                },
+            ],
+        },
+    ]
+    turn6_anchor = _fork_anchor_from_branch_zero_post_label(
+        history, thread_key="8@1,8.1@0", latest_global=18
+    )
+    turn8_anchor = _fork_anchor_from_branch_zero_post_label(
+        history, thread_key="8@1,8.1@0,8.1.3@1", latest_global=18
+    )
+    assert turn6_anchor is not None
+    assert turn6_anchor[:2] == (16, 13)
+    assert turn8_anchor is not None
+    assert turn8_anchor[:2] == (17, 14)
+
+
+def test_repair_fork_thread_restores_branch_zero_heads_from_history() -> None:
+    """Stale fork thread without fork metadata must pick up lh=13 from branch 0, not 12."""
+    catalog, _ = register_global_summary_version(
+        None, channel={**CHANNEL, "core": {"topic": "Сводка 16"}}, telegram=None
+    )
+    catalog, _ = ensure_post_local_catalog_current(
+        catalog, post_id="post-uuid-1", channel=CHANNEL, telegram=None, post=POST
+    )
+    for idx in range(2, 16):
+        catalog, _ = register_local_summary_version(
+            catalog,
+            post_id="post-uuid-1",
+            channel=CHANNEL,
+            telegram=None,
+            post={**POST, "text": f"Версия {idx}"},
+        )
+
+    history = [
+        {"role": "user", "text": "u1", "contextLabel": "16.12-0.0-1"},
+        {"role": "ai", "text": "a1"},
+        {"role": "user", "text": "u2", "contextLabel": "16.12-0.0-2"},
+        {"role": "ai", "text": "a2"},
+        {"role": "user", "text": "u3", "contextLabel": "16.12-0.13-3"},
+        {"role": "ai", "text": "a3"},
+        {"role": "user", "text": "u4", "contextLabel": "16.12-0.0-4"},
+        {"role": "ai", "text": "a4"},
+        {
+            "role": "user",
+            "activeUserBranch": 1,
+            "userBranches": [
+                {"text": "16.12-0.0-5", "contextLabel": "16.12-0.0-5"},
+                {
+                    "text": "16.12-17.14-5.2",
+                    "contextLabel": "16.12-17.14-5.2",
+                    "continuation": [
+                        {"role": "ai", "text": "a5"},
+                        {
+                            "role": "user",
+                            "activeUserBranch": 4,
+                            "userBranches": [
+                                {
+                                    "text": "16.13-0.0-5.2(6)",
+                                    "contextLabel": "16.13-0.0-5.2(6)",
+                                    "continuation": [],
+                                },
+                                {
+                                    "text": "16.13-0.15-5.2(6.2)",
+                                    "contextLabel": "16.12-0.0-5.2(6.2)",
+                                    "continuation": [],
+                                },
+                                {
+                                    "text": "16.13-0.15-5.2(6.5)",
+                                    "contextLabel": "16.12-0.0-5.2(6.5)",
+                                    "continuation": [{"role": "ai", "text": "a6"}],
+                                },
+                            ],
+                        },
+                    ],
+                },
+            ],
+        },
+    ]
+    meta = {
+        "active_thread_key": "8@1,8.1@2",
+        "label_context": {
+            "8@1,8.1@2": {
+                "head_global": 16,
+                "head_local": 12,
+                "pending_local_queue": [{"version": 13, "since_turn": 3}],
+                "pending_global_queue": [],
+            },
+        },
+    }
+    state, thread_key, _ = resolve_post_label_thread_state(
+        meta,
+        history,
+        latest_global=16,
+        latest_local=15,
+    )
+    assert thread_key == "8@1,8.1@2"
+    assert state["fork_branch_zero_head_local"] == 13
+    log_labels: dict[int, str] = {}
+    messages = assemble_reply_messages_from_post_labels(
+        ai_profile={},
+        user_text="next",
+        history=history,
+        chat_meta=meta,
+        catalog=catalog,
+        post_id="post-uuid-1",
+        log_labels=log_labels,
+    )
+    assert messages is not None
+    assert log_labels[7] == "user [16.13-0.15-7]"
+
+
+def test_edit_fork_attaches_local_post_without_dropping_head() -> None:
+    """Edit 16.13-0.0-5.2(6) → 16.13-0.15-5.2(6.2); head local stays 13, not branch-zero 12."""
+    catalog, _ = register_global_summary_version(
+        None, channel={**CHANNEL, "core": {"topic": "Сводка 16"}}, telegram=None
+    )
+    catalog, _ = ensure_post_local_catalog_current(
+        catalog, post_id="post-uuid-1", channel=CHANNEL, telegram=None, post=POST
+    )
+    for idx in range(2, 16):
+        catalog, _ = register_local_summary_version(
+            catalog,
+            post_id="post-uuid-1",
+            channel=CHANNEL,
+            telegram=None,
+            post={**POST, "text": f"Версия {idx}"},
+        )
+
+    history = [
+        {"role": "user", "text": "u1", "contextLabel": "16.12-0.0-1"},
+        {"role": "ai", "text": "a1"},
+        {"role": "user", "text": "u2", "contextLabel": "16.12-0.0-2"},
+        {"role": "ai", "text": "a2"},
+        {"role": "user", "text": "u3", "contextLabel": "16.13-0.0-3"},
+        {"role": "ai", "text": "a3"},
+        {"role": "user", "text": "u4", "contextLabel": "16.13-0.0-4"},
+        {"role": "ai", "text": "a4"},
+        {
+            "role": "user",
+            "activeUserBranch": 1,
+            "userBranches": [
+                {"text": "16.12-0.0-5", "contextLabel": "16.12-0.0-5"},
+                {
+                    "text": "16.13-0.0-5.2",
+                    "contextLabel": "16.13-0.0-5.2",
+                    "continuation": [
+                        {"role": "ai", "text": "a5"},
+                        {
+                            "role": "user",
+                            "activeUserBranch": 1,
+                            "userBranches": [
+                                {
+                                    "text": "16.13-0.0-5.2(6)",
+                                    "contextLabel": "16.13-0.0-5.2(6)",
+                                    "continuation": [],
+                                },
+                                {"text": "16.13-0.15-5.2(6.2)", "continuation": []},
+                            ],
+                        },
+                    ],
+                },
+            ],
+        },
+    ]
+    meta = {
+        "active_thread_key": "8@1,8.1@1",
+        "label_context": {
+            "8@1,8.1@1": {
+                "head_global": 16,
+                "head_local": 13,
+                "pending_global_queue": [],
+                "pending_local_queue": [],
+            },
+        },
+    }
+    log_labels: dict[int, str] = {}
+    messages = assemble_reply_messages_from_post_labels(
+        ai_profile={},
+        user_text="16.13-0.15-5.2(6.2)",
+        history=history,
+        chat_meta=meta,
+        catalog=catalog,
+        post_id="post-uuid-1",
+        log_labels=log_labels,
+    )
+    assert messages is not None
+    assert log_labels[7] == "user [16.13-0.15-5.2(6.2)]"
+    edited = messages[-1]
+    assert "SUMMARY_BUNDLE:" in edited["content"]
+    assert "Версия 15" in edited["content"]
 
 
 def test_simultaneous_bump_after_channel_only_float_uses_independent_local_snapshot() -> None:
