@@ -29,12 +29,32 @@ from app.services.ai.message_bundle import (
     resolve_bundle_from_messages,
     resolve_bundle_from_profile_snapshot,
 )
-from app.services.ai.context_labels import assemble_reply_messages_from_labels
+from app.services.ai.context_labels import (
+    assemble_reply_messages_from_labels,
+    load_label_thread_context,
+)
+from app.services.ai.context_label import stamped_labels_by_turn
 from app.services.ai.summary_catalog import (
     ensure_initial_global_version,
     ensure_post_local_catalog_current,
+    normalize_catalog,
 )
 from app.services.ai.thread_context import resolve_thread_state
+
+
+def _uses_label_catalog_assembly(
+    chat_meta: Mapping[str, Any] | None,
+    history: list[Mapping[str, Any]] | None,
+    summary_catalog: Mapping[str, Any] | None,
+) -> bool:
+    """Label catalog path only for chats on stamp/label mechanics (not legacy bundle profile)."""
+    if load_label_thread_context(chat_meta):
+        return True
+    if stamped_labels_by_turn(list(history or [])):
+        return True
+    catalog = normalize_catalog(summary_catalog)
+    return bool(catalog.get("global") or catalog.get("local"))
+
 
 def assemble_reply_messages(
     *,
@@ -69,16 +89,18 @@ def assemble_reply_messages(
             post=post,
         )
 
-    label_messages = assemble_reply_messages_from_labels(
-        ai_profile=ai_profile,
-        user_text=user_text,
-        scope=scope,
-        history=history,
-        chat_meta=chat_meta,
-        catalog=catalog,
-        post_id=post_id if scope == "post" else None,
-        log_labels=log_labels,
-    )
+    label_messages: list[dict[str, str]] | None = None
+    if _uses_label_catalog_assembly(chat_meta, history, summary_catalog):
+        label_messages = assemble_reply_messages_from_labels(
+            ai_profile=ai_profile,
+            user_text=user_text,
+            scope=scope,
+            history=history,
+            chat_meta=chat_meta,
+            catalog=catalog,
+            post_id=post_id if scope == "post" else None,
+            log_labels=log_labels,
+        )
     if label_messages is not None:
         return label_messages
 

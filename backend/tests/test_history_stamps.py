@@ -166,6 +166,87 @@ def test_merge_preserves_labels_in_branch_continuation() -> None:
     assert cont[1]["contextLabel"] == "4-5-2.2(5.2)(7.2)(9)"
 
 
+def test_merge_preserves_stamps_when_linear_existing_becomes_branched() -> None:
+    """Fork PATCH: DB still linear while client sends branched tree."""
+    existing = [
+        {"role": "user", "text": "7-0-1", "contextLabel": "7-0-1"},
+        {"role": "ai", "text": "a1"},
+        {"role": "user", "text": "7-0-2", "contextLabel": "7-0-2"},
+        {"role": "ai", "text": "a2"},
+        {"role": "user", "text": "7-0-3", "contextLabel": "7-0-3"},
+        {"role": "ai", "text": "a3"},
+        {"role": "user", "text": "7-8-4", "contextLabel": "7-8-4"},
+    ]
+    incoming = [
+        {"role": "user", "text": "7-0-1"},
+        {"role": "ai", "text": "a1"},
+        {
+            "role": "user",
+            "activeUserBranch": 1,
+            "userBranches": [
+                {
+                    "text": "7-0-2",
+                    "continuation": [
+                        {"role": "ai", "text": "a2"},
+                        {"role": "user", "text": "7-0-3"},
+                        {"role": "ai", "text": "a3"},
+                        {"role": "user", "text": "7-8-4"},
+                    ],
+                },
+                {"text": "7-10-2.2", "continuation": []},
+            ],
+        },
+    ]
+    merged = merge_history_stamps(existing, incoming, strip_incoming=True)
+    fork = merged[2]
+    assert fork["userBranches"][0]["contextLabel"] == "7-0-2"
+    cont = fork["userBranches"][0]["continuation"]
+    assert cont[1]["contextLabel"] == "7-0-3"
+    assert cont[3]["contextLabel"] == "7-8-4"
+
+
+def test_merge_preserves_stamps_when_orphan_siblings_normalized() -> None:
+    """Orphan top-level messages after a fork must not lose stamps on PATCH."""
+    existing = [
+        {"role": "user", "text": "3-0-1", "contextLabel": "3-0-1"},
+        {"role": "ai", "text": "a1"},
+        {
+            "role": "user",
+            "activeUserBranch": 1,
+            "userBranches": [
+                {"text": "3-0-2", "contextLabel": "3-0-2", "continuation": []},
+                {"text": "3-0-2.2", "contextLabel": "3-0-2.2", "continuation": []},
+            ],
+        },
+        {"role": "user", "text": "3-4-3", "contextLabel": "3-4-3"},
+        {"role": "ai", "text": "a3"},
+    ]
+    incoming = [
+        {"role": "user", "text": "3-0-1"},
+        {"role": "ai", "text": "a1"},
+        {
+            "role": "user",
+            "activeUserBranch": 1,
+            "userBranches": [
+                {
+                    "text": "3-0-2",
+                    "continuation": [
+                        {"role": "user", "text": "3-4-3"},
+                        {"role": "ai", "text": "a3"},
+                    ],
+                },
+                {"text": "3-0-2.2", "continuation": []},
+            ],
+        },
+    ]
+    merged = merge_history_stamps(existing, incoming, strip_incoming=True)
+    fork = merged[2]
+    assert fork["userBranches"][0]["contextLabel"] == "3-0-2"
+    assert fork["userBranches"][1]["contextLabel"] == "3-0-2.2"
+    cont_user = fork["userBranches"][0]["continuation"][0]
+    assert cont_user["contextLabel"] == "3-4-3"
+
+
 def test_stamp_context_label_is_immutable() -> None:
     history = [{"role": "user", "text": "x", "contextLabel": "3-4-9"}]
     stamped = stamp_context_label_on_path(history, [0], head=3, attached=0, turn_label="9")

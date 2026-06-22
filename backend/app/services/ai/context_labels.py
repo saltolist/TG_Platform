@@ -21,6 +21,7 @@ from app.services.ai.context_config import SUMMARY_BUNDLE_CATCHUP_MESSAGES
 from app.services.ai.context_label import (
     enumerate_active_user_turns,
     format_context_label,
+    parse_context_label,
     read_stamped_attached_version,
     read_stamped_context_label,
     resolve_turn_label,
@@ -34,6 +35,12 @@ from app.services.ai.summary_catalog import (
 )
 
 THREAD_LABEL_STATE_KEY = "label_context"
+
+_FORK_METADATA_KEYS = (
+    "fork_branch_zero_head",
+    "fork_suppress_attach_up_to",
+    "catalog_snapshot_at_fork",
+)
 
 
 def empty_label_thread_state() -> dict[str, Any]:
@@ -50,7 +57,7 @@ def empty_label_thread_state() -> dict[str, Any]:
 def _pending_queue_from_state(state: Mapping[str, Any]) -> list[dict[str, int]]:
     """Pending catalog versions with anchor turns, oldest first."""
     raw = state.get("pending_queue")
-    if isinstance(raw, list):
+    if isinstance(raw, list) and raw:
         items: list[dict[str, int]] = []
         for entry in raw:
             if not isinstance(entry, Mapping):
@@ -59,7 +66,8 @@ def _pending_queue_from_state(state: Mapping[str, Any]) -> list[dict[str, int]]:
             since_turn = int(entry.get("since_turn") or 0)
             if version > 0 and since_turn > 0:
                 items.append({"version": version, "since_turn": since_turn})
-        return sorted(items, key=lambda item: (item["since_turn"], item["version"]))
+        if items:
+            return sorted(items, key=lambda item: (item["since_turn"], item["version"]))
 
     pending = int(state.get("pending_version") or 0)
     pending_since = int(state.get("pending_since_turn") or 0)
@@ -136,15 +144,45 @@ def _resolve_pending_queue(
     up_to_turn: int | None = None,
     user_turn_count: int | None = None,
 ) -> list[dict[str, int]]:
+    """Pending queue for maturation/reconcile — stamps first, thread state fills gaps."""
     head = int(state.get("head_version") or 0)
     from_stamps = _pending_queue_from_stamps(history, head=head, up_to_turn=up_to_turn)
     if history is not None:
-        queue = from_stamps
+        queue = _merge_pending_queues(
+            from_stamps,
+            _pending_queue_from_state(state),
+            head=head,
+        )
     else:
         queue = _merge_pending_queues(_pending_queue_from_state(state), from_stamps, head=head)
     clip = user_turn_count if user_turn_count is not None else up_to_turn
     if clip is not None:
         queue = [item for item in queue if int(item["since_turn"]) <= clip]
+    return queue
+
+
+def _pending_queue_for_label_plan(
+    state: Mapping[str, Any],
+    history: list[Mapping[str, Any]] | None = None,
+    *,
+    user_turn_count: int | None = None,
+) -> list[dict[str, int]]:
+    """Pending queue for stamping — merge thread state with stamps (fork seed, unreconciled)."""
+    head = int(state.get("head_version") or 0)
+    from_stamps = _pending_queue_from_stamps(history, head=head)
+    queue = _merge_pending_queues(_pending_queue_from_state(state), from_stamps, head=head)
+    if user_turn_count is not None:
+        queue = [item for item in queue if int(item["since_turn"]) <= user_turn_count]
+    if history is not None:
+        queue = [
+            item
+            for item in queue
+            if not _turn_definitively_not_anchoring_version(
+                int(item["since_turn"]),
+                int(item["version"]),
+                history,
+            )
+        ]
     return queue
 
 
@@ -160,6 +198,34 @@ def _active_attached_versions_in_history(
         if attached > head:
             versions.add(attached)
     return versions
+
+
+def _active_pending_versions(
+    queue: list[dict[str, int]],
+    history: list[Mapping[str, Any]] | None,
+    *,
+    user_turn_count: int,
+) -> set[int]:
+    """Catalog versions already anchored on an earlier stamped turn, or queued ahead."""
+    active: set[int] = set()
+    for item in queue:
+        since_turn = int(item["since_turn"])
+        version = int(item["version"])
+        if since_turn > user_turn_count:
+            active.add(version)
+            continue
+        if history is None:
+            if since_turn < user_turn_count:
+                active.add(version)
+            continue
+        for entry in enumerate_active_user_turns(history):
+            if int(entry["turn"]) != since_turn:
+                continue
+            branch_index = entry["branch_index"] if entry.get("branched") else None
+            if read_stamped_attached_version(entry["message"], branch_index=branch_index) == version:
+                active.add(version)
+            break
+    return active
 
 
 def _reconcile_thread_state_with_history(
@@ -179,7 +245,14 @@ def _reconcile_thread_state_with_history(
     snapshot = int(state.get("catalog_snapshot_at_fork") or 0)
     active_attached = _active_attached_versions_in_history(history, head=head)
     if snapshot > head and snapshot not in active_attached:
-        snapshot = max((version for version in active_attached if version > head), default=head)
+        max_pending = max(
+            (int(item["version"]) for item in queue if int(item["version"]) > head),
+            default=0,
+        )
+        snapshot = max(
+            max((version for version in active_attached if version > head), default=head),
+            max_pending,
+        )
 
     result = {
         **dict(state),
@@ -247,6 +320,7 @@ def seed_label_thread_from_parent(
     pending_since = int(parent.get("pending_since_turn") or 0)
 
     anchor = _fork_anchor_from_branch_zero_label(history)
+    edit_fork = _is_edit_fork_at_turn(history, user_turn_count)
     if anchor is not None:
         head, pending, pending_since, nested_fork = anchor
         parent_head = int(parent.get("head_version") or 0)
@@ -254,6 +328,10 @@ def seed_label_thread_from_parent(
         # Nested fork: parent may have matured versions the branch-0 label never saw.
         if nested_fork and parent_head > head:
             state["fork_suppress_attach_up_to"] = parent_head
+        if edit_fork:
+            # Branch 1+ is a fresh line — do not inherit branch 0's float anchor at fork turn.
+            pending = 0
+            pending_since = 0
 
     if pending > 0 and pending_since > user_turn_count:
         pending = 0
@@ -265,13 +343,21 @@ def seed_label_thread_from_parent(
         for item in _resolve_pending_queue(parent, history, up_to_turn=user_turn_count)
         if int(item["since_turn"]) <= user_turn_count
     ]
+    if edit_fork:
+        parent_queue = [
+            item for item in parent_queue if int(item["since_turn"]) != user_turn_count
+        ]
     queue = _merge_pending_queues(
         parent_queue,
         _pending_queue_from_stamps(history, head=head, up_to_turn=user_turn_count),
         ([{"version": pending, "since_turn": pending_since}] if pending > head and pending_since > 0 else []),
         head=head,
     )
+    if edit_fork:
+        queue = [item for item in queue if int(item["since_turn"]) != user_turn_count]
     state["pending_queue"] = queue
+    if edit_fork:
+        state["catalog_snapshot_at_fork"] = 0
     return _sync_legacy_pending_fields(state)
 
 
@@ -290,11 +376,18 @@ def _find_label_thread_parent(
     return threads.get("")
 
 
-def _max_stamped_head_on_path(history: list[Mapping[str, Any]] | None) -> int:
+def _max_stamped_head_on_path(
+    history: list[Mapping[str, Any]] | None,
+    *,
+    up_to_turn: int | None = None,
+) -> int:
     from app.services.ai.context_label import parse_context_label
 
     max_head = 0
     for entry in enumerate_active_user_turns(list(history or [])):
+        turn = int(entry["turn"])
+        if up_to_turn is not None and turn > up_to_turn:
+            continue
         branch_index = entry["branch_index"] if entry.get("branched") else None
         raw = read_stamped_context_label(entry["message"], branch_index=branch_index)
         if raw is None:
@@ -306,56 +399,170 @@ def _max_stamped_head_on_path(history: list[Mapping[str, Any]] | None) -> int:
     return max_head
 
 
-def _repair_premature_stored_head(
-    stored: Mapping[str, Any],
-    *,
-    parent: Mapping[str, Any] | None,
+def _max_stamped_attached_on_path(
     history: list[Mapping[str, Any]] | None,
-    user_turn_count: int,
-    window_user_turns: set[int] | None,
+    *,
+    up_to_turn: int | None = None,
+) -> int:
+    max_attached = 0
+    for entry in enumerate_active_user_turns(list(history or [])):
+        turn = int(entry["turn"])
+        if up_to_turn is not None and turn > up_to_turn:
+            continue
+        branch_index = entry["branch_index"] if entry.get("branched") else None
+        attached = read_stamped_attached_version(entry["message"], branch_index=branch_index)
+        max_attached = max(max_attached, attached)
+    return max_attached
+
+
+def _merge_fork_metadata(
+    base: dict[str, Any],
+    stored: Mapping[str, Any],
 ) -> dict[str, Any]:
-    """Demote head that was persisted before maturation guards or wrong window."""
-    stored_head = int(stored.get("head_version") or 0)
-    if not history:
-        return dict(stored)
+    for key in _FORK_METADATA_KEYS:
+        if key in stored:
+            base[key] = stored[key]
+    return base
 
-    anchor = _fork_anchor_from_branch_zero_label(history)
-    if anchor is not None and parent is not None:
-        baseline = seed_label_thread_from_parent(
-            parent,
-            user_turn_count=user_turn_count,
-            history=list(history or []),
+
+def _has_stamped_turns_on_path(
+    history: list[Mapping[str, Any]] | None,
+    *,
+    up_to_turn: int | None = None,
+) -> bool:
+    for entry in enumerate_active_user_turns(list(history or [])):
+        turn = int(entry["turn"])
+        if up_to_turn is not None and turn > up_to_turn:
+            continue
+        branch_index = entry["branch_index"] if entry.get("branched") else None
+        if read_stamped_context_label(entry["message"], branch_index=branch_index) is not None:
+            return True
+    return False
+
+
+def derive_maturation_state_from_stamps(
+    history: list[Mapping[str, Any]] | None,
+    *,
+    up_to_turn: int | None = None,
+) -> dict[str, Any]:
+    """Build head/pending purely from stamped labels on the active path."""
+    max_head = _max_stamped_head_on_path(history, up_to_turn=up_to_turn)
+    queue = _pending_queue_from_stamps(history, head=max_head, up_to_turn=up_to_turn)
+    state = {
+        **empty_label_thread_state(),
+        "head_version": max_head,
+        "pending_queue": queue,
+    }
+    return _sync_legacy_pending_fields(state)
+
+
+def maturation_state_for_assembly(
+    stored: Mapping[str, Any],
+    history: list[Mapping[str, Any]] | None,
+    *,
+    user_turn_count: int,
+) -> dict[str, Any]:
+    """Stamp-derived maturation state for read-path assembly (fork metadata from cache)."""
+    if _has_stamped_turns_on_path(history, up_to_turn=user_turn_count):
+        derived = derive_maturation_state_from_stamps(history, up_to_turn=user_turn_count)
+        head = int(derived.get("head_version") or 0)
+        queue = _merge_pending_queues(
+            _pending_queue_from_state(derived),
+            _pending_queue_from_state(stored),
+            head=head,
         )
+        if history:
+            queue = [
+                item
+                for item in queue
+                if not _turn_definitively_not_anchoring_version(
+                    int(item["since_turn"]),
+                    int(item["version"]),
+                    history,
+                )
+            ]
+        merged = {**empty_label_thread_state(), **derived, "pending_queue": queue}
+        merged = _sync_legacy_pending_fields(merged)
+        merged = _merge_fork_metadata(merged, stored)
     else:
-        max_stamped_head = _max_stamped_head_on_path(history)
-        if max_stamped_head <= 0:
-            return dict(stored)
-        baseline = {
-            **empty_label_thread_state(),
-            "head_version": max_stamped_head,
-            "pending_queue": _merge_pending_queues(
-                _pending_queue_from_stamps(history, head=max_stamped_head),
-                _pending_queue_from_state(stored),
-                head=max_stamped_head,
-            ),
-        }
+        merged = _merge_fork_metadata(
+            {**empty_label_thread_state(), **dict(stored)},
+            stored,
+        )
+        merged = _sync_legacy_pending_fields(merged)
+    if not int(merged.get("catalog_snapshot_at_fork") or 0):
+        max_attached = _max_stamped_attached_on_path(history, up_to_turn=user_turn_count)
+        head = int(merged.get("head_version") or 0)
+        if max_attached > head:
+            merged["catalog_snapshot_at_fork"] = max_attached
+    return merged
 
-    corrected = mature_head_version(
-        baseline,
+
+def maturation_state_for_planning(
+    stored: Mapping[str, Any],
+    history: list[Mapping[str, Any]] | None,
+    *,
+    user_turn_count: int,
+) -> dict[str, Any]:
+    """Stamp-derived state before stamping ``user_turn_count`` (write-path / unstamped turns)."""
+    clip = max(0, user_turn_count - 1)
+    if _has_stamped_turns_on_path(history, up_to_turn=clip):
+        derived = derive_maturation_state_from_stamps(history, up_to_turn=clip)
+        head = int(derived.get("head_version") or 0)
+        queue = _merge_pending_queues(
+            _pending_queue_from_state(derived),
+            _pending_queue_from_state(stored),
+            _pending_queue_from_stamps(history, head=head, up_to_turn=clip),
+            head=head,
+        )
+        merged = {**empty_label_thread_state(), **derived, "pending_queue": queue}
+        merged = _sync_legacy_pending_fields(merged)
+        merged = _merge_fork_metadata(merged, stored)
+    else:
+        merged = _merge_fork_metadata(
+            {**empty_label_thread_state(), **dict(stored)},
+            stored,
+        )
+        merged = _sync_legacy_pending_fields(merged)
+    if not int(merged.get("catalog_snapshot_at_fork") or 0):
+        max_attached = _max_stamped_attached_on_path(history, up_to_turn=clip)
+        head = int(merged.get("head_version") or 0)
+        if max_attached > head:
+            merged["catalog_snapshot_at_fork"] = max_attached
+    if _is_edit_fork_at_turn(history, user_turn_count):
+        queue = list(merged.get("pending_queue") or [])
+        merged["pending_queue"] = [
+            item for item in queue if int(item["since_turn"]) != user_turn_count
+        ]
+        merged = _sync_legacy_pending_fields(merged)
+    return merged
+
+
+def _sync_thread_state_cache(
+    stored: Mapping[str, Any],
+    history: list[Mapping[str, Any]] | None,
+    *,
+    user_turn_count: int,
+    window_user_turns: set[int] | None = None,
+) -> dict[str, Any]:
+    """Align stored thread cache with stamp-derived head/pending (never above stamps)."""
+    if not _has_stamped_turns_on_path(history, up_to_turn=user_turn_count):
+        return dict(stored)
+    derived = maturation_state_for_assembly(stored, history, user_turn_count=user_turn_count)
+    matured = mature_head_version(
+        derived,
         user_turn_count=user_turn_count,
         window_user_turns=window_user_turns,
         history=list(history or []),
     )
-    corrected_head = int(corrected.get("head_version") or 0)
-    if stored_head <= corrected_head:
-        return dict(stored)
-
-    merged = {
+    result = {
         **dict(stored),
-        "head_version": corrected_head,
-        "pending_queue": corrected.get("pending_queue") or [],
+        "head_version": matured["head_version"],
+        "pending_queue": matured["pending_queue"],
+        "pending_version": matured["pending_version"],
+        "pending_since_turn": matured["pending_since_turn"],
     }
-    return _sync_legacy_pending_fields(merged)
+    return _merge_fork_metadata(result, stored)
 
 
 def resolve_label_thread_state(
@@ -395,10 +602,9 @@ def resolve_label_thread_state(
     )
 
     if thread_key in threads and threads[thread_key] is not None:
-        threads[thread_key] = _repair_premature_stored_head(
+        threads[thread_key] = _sync_thread_state_cache(
             threads[thread_key],
-            parent=parent,
-            history=list(history or []),
+            list(history or []),
             user_turn_count=user_turn_count,
             window_user_turns=window_user_turns,
         )
@@ -413,6 +619,84 @@ def _is_fork_edit_reply(history: list[Mapping[str, Any]] | None) -> bool:
         return False
     last = entries[-1]
     return bool(last.get("branched")) and int(last.get("branch_index") or 0) > 0
+
+
+def _is_edit_fork_at_turn(
+    history: list[Mapping[str, Any]] | None,
+    user_turn_count: int,
+) -> bool:
+    """True when ``user_turn_count`` is an edited branch (branch_index > 0) on the active path."""
+    for entry in enumerate_active_user_turns(list(history or [])):
+        if int(entry["turn"]) != user_turn_count:
+            continue
+        return bool(entry.get("branched")) and int(entry.get("branch_index") or 0) > 0
+    return False
+
+
+def _active_path_has_user_turn(
+    history: list[Mapping[str, Any]] | None,
+    turn: int,
+) -> bool:
+    for entry in enumerate_active_user_turns(list(history or [])):
+        if int(entry["turn"]) == turn:
+            return True
+    return False
+
+
+def _catalog_versions_visible_in_window(
+    history: list[Mapping[str, Any]] | None,
+    *,
+    head_version: int,
+    window_user_turns: set[int] | None,
+) -> set[int]:
+    """Catalog versions already present in the LLM prompt window (primer head + stamped floats)."""
+    visible: set[int] = set()
+    if head_version > 0:
+        visible.add(head_version)
+    if not history or not window_user_turns:
+        return visible
+    for entry in enumerate_active_user_turns(history):
+        turn = int(entry["turn"])
+        if turn not in window_user_turns:
+            continue
+        branch_index = entry["branch_index"] if entry.get("branched") else None
+        attached = read_stamped_attached_version(entry["message"], branch_index=branch_index)
+        if attached > 0:
+            visible.add(attached)
+    return visible
+
+
+def _latest_unseen_catalog_version(
+    *,
+    head: int,
+    latest: int,
+    visible: set[int],
+) -> int:
+    """Latest catalog version not yet represented in the prompt window (skip superseded gaps)."""
+    max_visible = max(visible) if visible else head
+    baseline = max(head, max_visible)
+    if latest <= baseline:
+        return 0
+    return latest
+
+
+def _attached_obsolete_in_window(
+    attached: int,
+    *,
+    head_version: int,
+    history: list[Mapping[str, Any]] | None,
+    window_user_turns: set[int] | None,
+) -> bool:
+    """True when a newer (or same) bundle version is already visible in the prompt window."""
+    if attached <= 0:
+        return False
+    visible = _catalog_versions_visible_in_window(
+        history,
+        head_version=head_version,
+        window_user_turns=window_user_turns,
+    )
+    baseline = max(head_version, max(visible) if visible else head_version)
+    return attached <= baseline
 
 
 def _attached_version_visible_in_window(
@@ -523,8 +807,12 @@ def plan_context_label_for_turn(
     )
     head = int(matured.get("head_version") or 0)
     attached = 0
-    queue = _resolve_pending_queue(matured, history, user_turn_count=user_turn_count)
-    queued_versions = {item["version"] for item in queue}
+    queue = _pending_queue_for_label_plan(matured, history, user_turn_count=user_turn_count)
+    queued_versions = _active_pending_versions(
+        queue,
+        history,
+        user_turn_count=user_turn_count,
+    )
 
     if head <= 0 and latest_catalog_version > 0:
         head = latest_catalog_version
@@ -540,12 +828,23 @@ def plan_context_label_for_turn(
         else:
             snapshot = int(matured.get("catalog_snapshot_at_fork") or 0)
             catalog_is_new = snapshot <= 0 or latest_catalog_version > snapshot
-        if catalog_is_new and latest_catalog_version not in queued_versions:
+        if (
+            catalog_is_new
+            and latest_catalog_version not in queued_versions
+            and not _pending_anchors_version_on_earlier_turn(
+                latest_catalog_version,
+                user_turn_count=user_turn_count,
+                thread_state=matured,
+                history=history,
+            )
+        ):
+            # Only the current catalog version is pending — no intermediate queue.
             queue = [
-                *queue,
-                {"version": latest_catalog_version, "since_turn": user_turn_count},
+                item for item in queue if int(item["version"]) <= head
             ]
-            queue.sort(key=lambda item: (item["since_turn"], item["version"]))
+            queue.append(
+                {"version": latest_catalog_version, "since_turn": user_turn_count}
+            )
             attached = latest_catalog_version
             matured = {
                 **matured,
@@ -584,6 +883,380 @@ def floating_bundles_from_labels(
     return injections
 
 
+def _stamped_attached_by_turn(
+    history: list[Mapping[str, Any]],
+) -> dict[int, int]:
+    by_turn: dict[int, int] = {}
+    for entry in enumerate_active_user_turns(history):
+        branch_index = entry["branch_index"] if entry.get("branched") else None
+        by_turn[int(entry["turn"])] = read_stamped_attached_version(
+            entry["message"],
+            branch_index=branch_index,
+        )
+    return by_turn
+
+
+def _attached_blocked_by_earlier_anchor(
+    attached: int,
+    *,
+    user_turn_count: int,
+    thread_state: Mapping[str, Any],
+    history: list[Mapping[str, Any]] | None,
+) -> bool:
+    """True when an earlier user-turn already has this version stamped as attached."""
+    if attached <= 0:
+        return False
+    for turn, stamped in _stamped_attached_by_turn(list(history or [])).items():
+        if turn < user_turn_count and stamped == attached:
+            return True
+    return False
+
+
+def _turn_definitively_not_anchoring_version(
+    turn: int,
+    version: int,
+    history: list[Mapping[str, Any]] | None,
+) -> bool:
+    """True when a stamped turn proves this catalog version is not anchored there."""
+    if not history:
+        return False
+    for entry in enumerate_active_user_turns(history):
+        if int(entry["turn"]) != turn:
+            continue
+        branch_index = entry["branch_index"] if entry.get("branched") else None
+        if read_stamped_context_label(entry["message"], branch_index=branch_index) is None:
+            return False
+        return read_stamped_attached_version(entry["message"], branch_index=branch_index) != version
+    return False
+
+
+def _pending_anchors_version_on_earlier_turn(
+    version: int,
+    *,
+    user_turn_count: int,
+    thread_state: Mapping[str, Any],
+    history: list[Mapping[str, Any]] | None,
+) -> bool:
+    for item in _pending_queue_for_label_plan(
+        thread_state,
+        history,
+        user_turn_count=user_turn_count,
+    ):
+        if int(item["version"]) != version:
+            continue
+        since_turn = int(item["since_turn"])
+        if since_turn >= user_turn_count:
+            continue
+        if _turn_definitively_not_anchoring_version(since_turn, version, history):
+            continue
+        return True
+    return False
+
+
+def _attached_already_stamped_on_earlier_turn(
+    attached: int,
+    *,
+    user_turn_count: int,
+    history: list[Mapping[str, Any]] | None,
+) -> bool:
+    return _attached_blocked_by_earlier_anchor(
+        attached,
+        user_turn_count=user_turn_count,
+        thread_state={},
+        history=history,
+    )
+
+
+def _attached_already_anchored_on_earlier_turn(
+    attached: int,
+    *,
+    user_turn_count: int,
+    thread_state: Mapping[str, Any],
+    history: list[Mapping[str, Any]] | None,
+) -> bool:
+    """True when this version is already stamped or pending on an earlier user-turn."""
+    if attached <= 0:
+        return False
+    if _attached_already_stamped_on_earlier_turn(
+        attached,
+        user_turn_count=user_turn_count,
+        history=history,
+    ):
+        return True
+    return _pending_anchors_version_on_earlier_turn(
+        attached,
+        user_turn_count=user_turn_count,
+        thread_state=thread_state,
+        history=history,
+    )
+
+
+def _full_pending_queue(
+    state: Mapping[str, Any],
+    history: list[Mapping[str, Any]] | None,
+) -> list[dict[str, int]]:
+    """Pending queue without clipping to the current turn (for retroactive label checks)."""
+    head = int(state.get("head_version") or 0)
+    from_stamps = _pending_queue_from_stamps(history, head=head)
+    return _merge_pending_queues(_pending_queue_from_state(state), from_stamps, head=head)
+
+
+def _attached_introduced_after_turn(
+    attached: int,
+    *,
+    user_turn_count: int,
+    thread_state: Mapping[str, Any],
+    history: list[Mapping[str, Any]] | None,
+) -> bool:
+    """True when this catalog version is first introduced on a later user-turn."""
+    if attached <= 0:
+        return False
+    for item in _full_pending_queue(thread_state, history):
+        since_turn = int(item["since_turn"])
+        if int(item["version"]) == attached and since_turn > user_turn_count:
+            if not _active_path_has_user_turn(history, since_turn):
+                continue
+            return True
+    for turn, stamped in _stamped_attached_by_turn(list(history or [])).items():
+        if turn > user_turn_count and stamped == attached:
+            return True
+    return False
+
+
+def _effective_attached_for_turn(
+    thread_state: Mapping[str, Any],
+    *,
+    user_turn_count: int,
+    turn_label: str,
+    latest_version: int,
+    window_user_turns: set[int] | None = None,
+    history: list[Mapping[str, Any]] | None = None,
+) -> tuple[int, int]:
+    label = planned_context_label_at_turn(
+        thread_state,
+        user_turn_count=user_turn_count,
+        turn_label=turn_label,
+        latest_version=latest_version,
+        window_user_turns=window_user_turns,
+        history=history,
+    )
+    parsed = parse_context_label(label)
+    if parsed is None:
+        return 0, 0
+    return parsed[0], parsed[1]
+
+
+def planned_context_label_at_turn(
+    thread_state: Mapping[str, Any],
+    *,
+    user_turn_count: int,
+    turn_label: str,
+    latest_version: int,
+    window_user_turns: set[int] | None = None,
+    history: list[Mapping[str, Any]] | None = None,
+) -> str:
+    """Plan label for an unstamped turn from stamp-derived state (never stored head alone)."""
+    edit_fork = _is_edit_fork_at_turn(history, user_turn_count)
+    planning_state = maturation_state_for_planning(
+        thread_state,
+        history,
+        user_turn_count=user_turn_count,
+    )
+    head, attached, planned = plan_context_label_for_turn(
+        planning_state,
+        user_turn_count=user_turn_count,
+        turn_label=turn_label,
+        latest_catalog_version=latest_version,
+        window_user_turns=window_user_turns,
+        history=history,
+    )
+    if attached <= 0 and not edit_fork:
+        matured_head = int(planned.get("head_version") or head)
+        for item in _pending_queue_for_label_plan(
+            planned,
+            history,
+            user_turn_count=user_turn_count,
+        ):
+            if int(item["since_turn"]) != user_turn_count:
+                continue
+            version = int(item["version"])
+            if version <= matured_head:
+                continue
+            if _turn_definitively_not_anchoring_version(user_turn_count, version, history):
+                continue
+            attached = version
+            head = matured_head
+            break
+    if attached > 0 and _attached_already_anchored_on_earlier_turn(
+        attached,
+        user_turn_count=user_turn_count,
+        thread_state=planning_state,
+        history=history,
+    ):
+        attached = 0
+    elif attached > 0 and _attached_introduced_after_turn(
+        attached,
+        user_turn_count=user_turn_count,
+        thread_state=planning_state,
+        history=history,
+    ):
+        attached = 0
+    if edit_fork and attached <= 0:
+        matured_head = int(planned.get("head_version") or head)
+        visible = _catalog_versions_visible_in_window(
+            history,
+            head_version=matured_head,
+            window_user_turns=window_user_turns,
+        )
+        unseen = _latest_unseen_catalog_version(
+            head=matured_head,
+            latest=latest_version,
+            visible=visible,
+        )
+        if unseen > matured_head:
+            attached = unseen
+            head = matured_head
+    if attached > 0 and _attached_obsolete_in_window(
+        attached,
+        head_version=head,
+        history=history,
+        window_user_turns=window_user_turns,
+    ):
+        attached = 0
+    return format_context_label(head, attached, turn_label)
+
+
+def _inject_bundle_at_turn(
+    floating: dict[int, str],
+    *,
+    turn: int,
+    version: int,
+    catalog: Mapping[str, Any],
+    scope: str,
+    post_id: str | None,
+) -> None:
+    if turn in floating or version <= 0:
+        return
+    text = resolve_bundle_text(
+        catalog,
+        scope=scope,
+        post_id=post_id,
+        version=version,
+    )
+    if text:
+        floating[turn] = text
+
+
+def _floating_bundles_for_assemble(
+    *,
+    history: list[Mapping[str, Any]],
+    thread_state: Mapping[str, Any],
+    catalog: Mapping[str, Any],
+    scope: str,
+    post_id: str | None,
+    window_user_turns: set[int],
+    user_turn_count: int,
+    latest_version: int,
+) -> dict[int, str]:
+    """Floating bundles: stamped attached first; plan only for unstamped window turns."""
+    floating = floating_bundles_from_labels(
+        history,
+        catalog=catalog,
+        scope=scope,
+        post_id=post_id,
+        window_user_turns=window_user_turns,
+    )
+
+    for entry in enumerate_active_user_turns(history):
+        turn = int(entry["turn"])
+        if turn not in window_user_turns:
+            continue
+        branch_index = entry["branch_index"] if entry.get("branched") else None
+        if read_stamped_context_label(entry["message"], branch_index=branch_index) is not None:
+            continue
+        turn_label = str(entry["turn_label"])
+        label = planned_context_label_at_turn(
+            thread_state,
+            user_turn_count=turn,
+            turn_label=turn_label,
+            latest_version=latest_version,
+            window_user_turns=window_user_turns,
+            history=history,
+        )
+        parsed = parse_context_label(label)
+        if parsed is None:
+            continue
+        _head, attached, _turn = parsed
+        if attached > 0:
+            _inject_bundle_at_turn(
+                floating,
+                turn=turn,
+                version=attached,
+                catalog=catalog,
+                scope=scope,
+                post_id=post_id,
+            )
+
+    stamped_turns = {
+        int(entry["turn"])
+        for entry in enumerate_active_user_turns(history)
+        if read_stamped_context_label(
+            entry["message"],
+            branch_index=entry["branch_index"] if entry.get("branched") else None,
+        )
+        is not None
+    }
+    if user_turn_count in window_user_turns and user_turn_count not in stamped_turns:
+        turn_label = resolve_turn_label(history, user_turn_count)
+        label = planned_context_label_at_turn(
+            thread_state,
+            user_turn_count=user_turn_count,
+            turn_label=turn_label,
+            latest_version=latest_version,
+            window_user_turns=window_user_turns,
+            history=history,
+        )
+        parsed = parse_context_label(label)
+        if parsed is not None:
+            _head, attached, _turn = parsed
+            if attached > 0:
+                _inject_bundle_at_turn(
+                    floating,
+                    turn=user_turn_count,
+                    version=attached,
+                    catalog=catalog,
+                    scope=scope,
+                    post_id=post_id,
+                )
+    return floating
+
+
+def primer_head_from_stamps(
+    stored: Mapping[str, Any],
+    *,
+    user_turn_count: int,
+    latest_catalog_version: int,
+    window_user_turns: set[int] | None = None,
+    history: list[Mapping[str, Any]] | None = None,
+) -> int:
+    """Primer head from stamp-derived maturation state (stored head never overrides stamps)."""
+    state = maturation_state_for_assembly(
+        stored,
+        list(history or []),
+        user_turn_count=user_turn_count,
+    )
+    matured = mature_head_version(
+        state,
+        user_turn_count=user_turn_count,
+        window_user_turns=window_user_turns,
+        history=list(history or []),
+    )
+    head = int(matured.get("head_version") or 0)
+    if head <= 0:
+        return latest_catalog_version
+    return head
+
+
 def primer_head_from_thread(
     state: Mapping[str, Any],
     *,
@@ -592,16 +1265,13 @@ def primer_head_from_thread(
     window_user_turns: set[int] | None = None,
     history: list[Mapping[str, Any]] | None = None,
 ) -> int:
-    matured = mature_head_version(
+    return primer_head_from_stamps(
         state,
         user_turn_count=user_turn_count,
+        latest_catalog_version=latest_catalog_version,
         window_user_turns=window_user_turns,
         history=history,
     )
-    head = int(matured.get("head_version") or 0)
-    if head <= 0:
-        return latest_catalog_version
-    return head
 
 
 def primer_log_label(head_version: int) -> str:
@@ -620,15 +1290,14 @@ def _label_for_turn_label(
 ) -> str:
     if turn_label in labels_by_turn_label:
         return labels_by_turn_label[turn_label]
-    head, attached, _ = plan_context_label_for_turn(
+    return planned_context_label_at_turn(
         thread_state,
         user_turn_count=user_turn_count,
         turn_label=turn_label,
-        latest_catalog_version=latest_version,
+        latest_version=latest_version,
         window_user_turns=window_user_turns,
         history=history,
     )
-    return format_context_label(head, attached, turn_label)
 
 
 def fill_llm_log_labels(
@@ -742,33 +1411,16 @@ def assemble_reply_messages_from_labels(
     )
     rolling_summary = str(thread_state.get("rolling_summary") or "").strip()
 
-    floating = floating_bundles_from_labels(
-        list(history or []),
+    floating = _floating_bundles_for_assemble(
+        history=list(history or []),
+        thread_state=thread_state,
         catalog=catalog,
         scope=scope,
         post_id=post_id,
         window_user_turns=window_user_turns,
-    )
-
-    # Pending attached on current turn (not yet stamped on history)
-    turn_label = resolve_turn_label(list(history or []), user_turn_count)
-    _head, attached_now, _ = plan_context_label_for_turn(
-        thread_state,
         user_turn_count=user_turn_count,
-        turn_label=turn_label,
-        latest_catalog_version=latest_version,
-        window_user_turns=window_user_turns,
-        history=list(history or []),
+        latest_version=latest_version,
     )
-    if attached_now > 0 and user_turn_count in window_user_turns:
-        pending_text = resolve_bundle_text(
-            catalog,
-            scope=scope,
-            post_id=post_id,
-            version=attached_now,
-        )
-        if pending_text:
-            floating[user_turn_count] = pending_text
 
     messages: list[dict[str, str]] = [
         {"role": "system", "content": system_prompt},
@@ -813,14 +1465,27 @@ def advance_label_thread_after_reply(
     window_user_turns: set[int] | None = None,
     history: list[Mapping[str, Any]] | None = None,
 ) -> tuple[int, int, dict[str, Any]]:
-    head, attached, next_state = plan_context_label_for_turn(
+    planning_state = maturation_state_for_planning(
         state,
+        list(history or []),
+        user_turn_count=user_turn_count,
+    )
+    head, attached, next_state = plan_context_label_for_turn(
+        planning_state,
         user_turn_count=user_turn_count,
         turn_label=turn_label,
         latest_catalog_version=latest_catalog_version,
         window_user_turns=window_user_turns,
         history=history,
     )
+    if attached > 0:
+        if _attached_already_anchored_on_earlier_turn(
+            attached,
+            user_turn_count=user_turn_count,
+            thread_state=planning_state,
+            history=history,
+        ):
+            attached = 0
     next_state = mature_head_version(
         next_state,
         user_turn_count=user_turn_count,
@@ -831,7 +1496,11 @@ def advance_label_thread_after_reply(
     if matured_head != head:
         head = matured_head
         attached = 0
-    return head, attached, next_state
+    next_state = {
+        **dict(state),
+        **next_state,
+    }
+    return head, attached, _merge_fork_metadata(next_state, state)
 
 
 def flatten_label_thread_meta(

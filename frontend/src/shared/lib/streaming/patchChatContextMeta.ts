@@ -43,6 +43,7 @@ function applyContextLabelStamp(history: ChatMessage[], stamp: ContextLabelStamp
       const bi = clampActiveBranchIndex(message);
       const existing = branches[bi]?.contextLabel ?? (bi === 0 ? message.contextLabel : undefined);
       if (existing === contextLabel) return message;
+      if (existing) return message;
       const { contextLabel: _parentLabel, ...rest } = message;
       return {
         ...rest,
@@ -52,6 +53,7 @@ function applyContextLabelStamp(history: ChatMessage[], stamp: ContextLabelStamp
       };
     }
     if (message.contextLabel === contextLabel) return message;
+    if (message.contextLabel) return message;
     return { ...message, contextLabel };
   });
 }

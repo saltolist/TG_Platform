@@ -124,6 +124,56 @@ def _strip_message_stamps(message: Mapping[str, Any]) -> dict[str, Any]:
     return stripped
 
 
+def normalize_branched_history(history: list[Mapping[str, Any]] | None) -> list[dict[str, Any]]:
+    """Fold linear siblings after a branched user node into branch 0 continuation.
+
+    Mirrors frontend ``normalizeBranchedHistory`` so PATCH merge aligns tree shape.
+    """
+
+    def normalize_list(items: list[Mapping[str, Any]]) -> list[dict[str, Any]]:
+        out: list[dict[str, Any]] = []
+        index = 0
+        while index < len(items):
+            message = items[index]
+            if not isinstance(message, Mapping):
+                out.append(message)  # type: ignore[arg-type]
+                index += 1
+                continue
+            current = dict(message)
+            if current.get("role") == "user":
+                branches = current.get("userBranches")
+                if isinstance(branches, list) and branches:
+                    orphans = [
+                        dict(item) if isinstance(item, Mapping) else item
+                        for item in items[index + 1 :]
+                    ]
+                    new_branches: list[dict[str, Any]] = []
+                    for branch_index, branch in enumerate(branches):
+                        if not isinstance(branch, Mapping):
+                            new_branches.append(
+                                dict(branch) if isinstance(branch, Mapping) else branch
+                            )
+                            continue
+                        branch_copy = dict(branch)
+                        continuation = branch_copy.get("continuation")
+                        cont_list = list(continuation) if isinstance(continuation, list) else []
+                        if branch_index == 0:
+                            branch_copy["continuation"] = normalize_list(cont_list + orphans)
+                        else:
+                            branch_copy["continuation"] = normalize_list(cont_list)
+                        new_branches.append(branch_copy)
+                    current["userBranches"] = new_branches
+                    out.append(current)
+                    return out
+            out.append(current)
+            index += 1
+        return out
+
+    if not isinstance(history, list) or not history:
+        return []
+    return normalize_list(list(history))
+
+
 def _merge_user_message_stamps(
     existing: Mapping[str, Any] | None,
     incoming: Mapping[str, Any],
@@ -181,6 +231,113 @@ def _merge_user_message_stamps(
     return merged
 
 
+def _align_existing_history_for_merge(
+    existing: list[Mapping[str, Any]],
+    incoming: list[Mapping[str, Any]],
+) -> list[dict[str, Any]]:
+    """Fold existing linear tails into branch continuations when incoming has branches.
+
+    After a client-side fork the DB may still store a flat history while PATCH sends
+    a branched tree. Index-based stamp merge would drop stamps on messages that moved
+    into branch continuations without this alignment step.
+    """
+
+    def align_level(
+        ex_items: list[Mapping[str, Any]],
+        inc_items: list[Mapping[str, Any]],
+    ) -> list[dict[str, Any]]:
+        aligned: list[Any] = [
+            dict(item) if isinstance(item, Mapping) else item for item in ex_items
+        ]
+        index = 0
+        while index < len(inc_items):
+            if index >= len(aligned):
+                break
+            inc = inc_items[index]
+            ex = aligned[index]
+            if not isinstance(inc, Mapping):
+                index += 1
+                continue
+            if inc.get("role") != "user":
+                index += 1
+                continue
+            inc_branches = inc.get("userBranches")
+            if not isinstance(inc_branches, list) or not inc_branches:
+                index += 1
+                continue
+
+            ex_branches = ex.get("userBranches") if isinstance(ex, Mapping) else None
+            if isinstance(ex_branches, list) and ex_branches:
+                ex_copy = dict(ex) if isinstance(ex, Mapping) else {}
+                merged_branches: list[dict[str, Any]] = []
+                for branch_index, inc_branch in enumerate(inc_branches):
+                    if not isinstance(inc_branch, Mapping):
+                        if branch_index < len(ex_branches):
+                            merged_branches.append(
+                                dict(ex_branches[branch_index])
+                                if isinstance(ex_branches[branch_index], Mapping)
+                                else ex_branches[branch_index]
+                            )
+                        continue
+                    ex_branch = (
+                        ex_branches[branch_index]
+                        if branch_index < len(ex_branches)
+                        else {}
+                    )
+                    branch_copy = dict(ex_branch) if isinstance(ex_branch, Mapping) else {}
+                    inc_cont = inc_branch.get("continuation")
+                    if isinstance(inc_cont, list):
+                        ex_cont = branch_copy.get("continuation")
+                        branch_copy["continuation"] = align_level(
+                            list(ex_cont) if isinstance(ex_cont, list) else [],
+                            inc_cont,
+                        )
+                    merged_branches.append(branch_copy)
+                ex_copy["userBranches"] = merged_branches
+                aligned[index] = ex_copy
+                index += 1
+                continue
+
+            if not isinstance(ex, Mapping) or ex.get("role") != "user":
+                index += 1
+                continue
+
+            tail = aligned[index + 1 :]
+            aligned = aligned[: index + 1]
+            ex_copy = dict(ex)
+            parent_label = ex_copy.pop("contextLabel", None)
+            parent_bundle = ex_copy.pop("bundleContext", None)
+            ex_copy.pop("text", None)
+            new_branches: list[dict[str, Any]] = []
+            for branch_index, inc_branch in enumerate(inc_branches):
+                if not isinstance(inc_branch, Mapping):
+                    new_branches.append({})
+                    continue
+                branch_copy: dict[str, Any] = {
+                    key: value for key, value in inc_branch.items() if key != "continuation"
+                }
+                inc_cont = inc_branch.get("continuation")
+                if branch_index == 0:
+                    branch_copy["text"] = str(ex.get("text") or inc_branch.get("text") or "")
+                    if parent_label:
+                        branch_copy["contextLabel"] = parent_label
+                    if parent_bundle:
+                        branch_copy["bundleContext"] = parent_bundle
+                    branch_copy["continuation"] = align_level(
+                        list(tail),
+                        inc_cont if isinstance(inc_cont, list) else [],
+                    )
+                elif isinstance(inc_cont, list):
+                    branch_copy["continuation"] = align_level([], inc_cont)
+                new_branches.append(branch_copy)
+            ex_copy["userBranches"] = new_branches
+            aligned[index] = ex_copy
+            return aligned
+        return aligned
+
+    return align_level(list(existing), list(incoming))
+
+
 def merge_history_stamps(
     existing: list[Mapping[str, Any]] | None,
     incoming: list[Mapping[str, Any]],
@@ -193,15 +350,21 @@ def merge_history_stamps(
             _strip_message_stamps(item) if isinstance(item, Mapping) else item
             for item in incoming
         ]
-    if not isinstance(existing, list) or not existing:
-        return [dict(item) if isinstance(item, Mapping) else item for item in incoming]
+    existing_norm = normalize_branched_history(existing)
+    incoming_norm = normalize_branched_history(incoming)
+    if not existing_norm:
+        return incoming_norm
+
+    existing_aligned = _align_existing_history_for_merge(existing_norm, incoming_norm)
 
     merged: list[dict[str, Any]] = []
-    for index, incoming_message in enumerate(incoming):
+    for index, incoming_message in enumerate(incoming_norm):
         if not isinstance(incoming_message, Mapping):
             merged.append(incoming_message)
             continue
-        existing_message = existing[index] if index < len(existing) else None
+        existing_message = (
+            existing_aligned[index] if index < len(existing_aligned) else None
+        )
         if isinstance(existing_message, Mapping):
             merged.append(_merge_user_message_stamps(existing_message, incoming_message))
         else:

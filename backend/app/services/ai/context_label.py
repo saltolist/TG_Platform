@@ -122,6 +122,19 @@ def read_stamped_context_label(
     return raw
 
 
+def stamped_labels_by_turn(
+    history: list[Mapping[str, Any]],
+) -> dict[int, str]:
+    """Map user-turn number → immutable contextLabel on the active path."""
+    labels: dict[int, str] = {}
+    for entry in enumerate_active_user_turns(history):
+        branch_index = entry["branch_index"] if entry.get("branched") else None
+        stamped = read_stamped_context_label(entry["message"], branch_index=branch_index)
+        if stamped is not None:
+            labels[int(entry["turn"])] = stamped
+    return labels
+
+
 def read_stamped_attached_version(
     message: Mapping[str, Any],
     *,
@@ -198,9 +211,8 @@ def turn_label_for_node(
 ) -> str:
     """Build nested turn label for one user message on the active path."""
     if branched:
-        # Nested fork (inside continuation): branch 0 keeps linear turn n → 3.2(4).
-        # Top-level fork: both branches get suffix → 3.1, 3.2.
-        if path_prefix is not None and branch_index == 0:
+        # Branch 0 (original) keeps linear n; edits start at n.2, n.3, …
+        if branch_index == 0:
             node = str(global_turn)
         else:
             node = f"{global_turn}.{branch_index + 1}"
@@ -211,6 +223,9 @@ def turn_label_for_node(
         return node
     if "(" in path_prefix:
         return f"{path_prefix[:-1]}({node}))"
+    # Branch 0 continuation after a top-level fork: global turn only (4, not 3(4)).
+    if "." not in path_prefix:
+        return node
     return f"{path_prefix}({node})"
 
 
