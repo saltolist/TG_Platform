@@ -273,42 +273,111 @@ def load_label_thread_context(meta: Mapping[str, Any] | None) -> dict[str, dict[
     return {str(key): dict(value) for key, value in raw.items() if isinstance(value, Mapping)}
 
 
+def _path_indices(path_str: str) -> list[int]:
+    return [int(part) for part in path_str.split(".") if part]
+
+
+def _fork_message_for_thread_key(
+    history: list[Mapping[str, Any]] | None,
+    thread_key: str,
+) -> Mapping[str, Any] | None:
+    """User fork message that created ``thread_key`` (last comma segment)."""
+    if not history or not thread_key or "@" not in thread_key:
+        return None
+    segments = thread_key.split(",")
+    parsed: list[tuple[str, int]] = []
+    for segment in segments:
+        if "@" not in segment:
+            return None
+        path_part, branch_part = segment.rsplit("@", 1)
+        try:
+            parsed.append((path_part, int(branch_part)))
+        except ValueError:
+            return None
+    path0, _ = parsed[0]
+    head_indices = _path_indices(path0)
+    if not head_indices:
+        return None
+    if head_indices[0] >= len(history):
+        return None
+    message = history[head_indices[0]]
+    if not isinstance(message, Mapping):
+        return None
+    if len(parsed) == 1:
+        return message
+    for index in range(1, len(parsed)):
+        _, prev_branch = parsed[index - 1]
+        path_part, _ = parsed[index]
+        cont_indices = _path_indices(path_part)
+        if not cont_indices:
+            return None
+        cont_idx = cont_indices[-1]
+        branches = message.get("userBranches")
+        if not isinstance(branches, list) or prev_branch >= len(branches):
+            return None
+        branch = branches[prev_branch]
+        if not isinstance(branch, Mapping):
+            return None
+        continuation = branch.get("continuation")
+        if not isinstance(continuation, list) or cont_idx >= len(continuation):
+            return None
+        message = continuation[cont_idx]
+        if not isinstance(message, Mapping):
+            return None
+    return message
+
+
 def _fork_anchor_from_branch_zero_label(
     history: list[Mapping[str, Any]] | None,
+    *,
+    thread_key: str | None = None,
 ) -> tuple[int, int, int, bool] | None:
-    """Head/pending from branch 0 stamp on the latest fork along the active path."""
+    """Head/pending from branch 0 stamp on the fork that created ``thread_key``."""
     from app.services.ai.context_label import parse_context_label, read_stamped_context_label
 
-    anchor: tuple[int, int, int, bool] | None = None
-    for entry in enumerate_active_user_turns(list(history or [])):
-        if not entry.get("branched"):
-            continue
-        message = entry["message"]
-        branches = message.get("userBranches")
-        if not isinstance(branches, list) or len(branches) < 2:
-            continue
-        branch0 = branches[0]
-        if not isinstance(branch0, Mapping):
-            continue
-        raw = read_stamped_context_label(message, branch_index=0)
-        if raw is None:
-            candidate = branch0.get("contextLabel") or branch0.get("context_label")
-            raw = candidate if isinstance(candidate, str) else None
-        if not raw:
-            continue
-        parsed = parse_context_label(raw)
-        if parsed is None:
-            continue
-        head, attached, turn_part = parsed
-        pending = attached if attached > head else 0
-        pending_since = int(entry["turn"]) if pending else 0
-        anchor = (head, pending, pending_since, "(" in turn_part)
-    return anchor
+    message: Mapping[str, Any] | None = None
+    fork_turn = 0
+    if thread_key:
+        message = _fork_message_for_thread_key(history, thread_key)
+        if message is not None:
+            for entry in enumerate_active_user_turns(list(history or [])):
+                if entry.get("message") is message:
+                    fork_turn = int(entry["turn"])
+                    break
+    else:
+        for entry in enumerate_active_user_turns(list(history or [])):
+            if not entry.get("branched"):
+                continue
+            message = entry["message"]
+            fork_turn = int(entry["turn"])
+
+    if message is None:
+        return None
+    branches = message.get("userBranches")
+    if not isinstance(branches, list) or len(branches) < 2:
+        return None
+    branch0 = branches[0]
+    if not isinstance(branch0, Mapping):
+        return None
+    raw = read_stamped_context_label(message, branch_index=0)
+    if raw is None:
+        candidate = branch0.get("contextLabel") or branch0.get("context_label")
+        raw = candidate if isinstance(candidate, str) else None
+    if not raw:
+        return None
+    parsed = parse_context_label(raw)
+    if parsed is None:
+        return None
+    head, attached, turn_part = parsed
+    pending = attached if attached > head else 0
+    pending_since = fork_turn if pending else 0
+    return head, pending, pending_since, "(" in turn_part
 
 
 def seed_label_thread_from_parent(
     parent: Mapping[str, Any],
     *,
+    thread_key: str = "",
     user_turn_count: int,
     history: list[Mapping[str, Any]] | None = None,
     latest_catalog_version: int = 0,
@@ -319,7 +388,10 @@ def seed_label_thread_from_parent(
     pending = int(parent.get("pending_version") or 0)
     pending_since = int(parent.get("pending_since_turn") or 0)
 
-    anchor = _fork_anchor_from_branch_zero_label(history)
+    anchor = _fork_anchor_from_branch_zero_label(
+        history,
+        thread_key=thread_key or None,
+    )
     edit_fork = _is_edit_fork_at_turn(history, user_turn_count)
     if anchor is not None:
         head, pending, pending_since, nested_fork = anchor
@@ -495,7 +567,11 @@ def maturation_state_for_assembly(
         head = int(merged.get("head_version") or 0)
         if max_attached > head:
             merged["catalog_snapshot_at_fork"] = max_attached
-    return merged
+    return _lock_edit_fork_head(
+        merged,
+        history=history,
+        user_turn_count=user_turn_count,
+    )
 
 
 def maturation_state_for_planning(
@@ -535,7 +611,11 @@ def maturation_state_for_planning(
             item for item in queue if int(item["since_turn"]) != user_turn_count
         ]
         merged = _sync_legacy_pending_fields(merged)
-    return merged
+    return _lock_edit_fork_head(
+        merged,
+        history=history,
+        user_turn_count=user_turn_count,
+    )
 
 
 def _sync_thread_state_cache(
@@ -588,6 +668,7 @@ def resolve_label_thread_state(
         if parent is not None:
             threads[thread_key] = seed_label_thread_from_parent(
                 parent,
+                thread_key=thread_key,
                 user_turn_count=user_turn_count,
                 history=list(history or []),
                 latest_catalog_version=int(latest_catalog_version or 0),
@@ -631,6 +712,37 @@ def _is_edit_fork_at_turn(
             continue
         return bool(entry.get("branched")) and int(entry.get("branch_index") or 0) > 0
     return False
+
+
+def _lock_edit_fork_head(
+    state: Mapping[str, Any],
+    *,
+    history: list[Mapping[str, Any]] | None,
+    user_turn_count: int,
+) -> dict[str, Any]:
+    """Edit fork: head is immutable — always branch-0 head at the creating fork."""
+    merged = dict(state)
+    if not history or not _is_edit_fork_at_turn(history, user_turn_count):
+        return merged
+    fork_head = int(merged.get("fork_branch_zero_head") or 0)
+    if fork_head > 0:
+        merged["head_version"] = fork_head
+        merged = _sync_legacy_pending_fields(merged)
+    return merged
+
+
+def locked_head_on_edit_fork(
+    head: int,
+    state: Mapping[str, Any],
+    *,
+    history: list[Mapping[str, Any]] | None,
+    user_turn_count: int,
+) -> int:
+    """Return ``head`` unchanged unless edit-fork locks it to ``fork_branch_zero_head``."""
+    if not history or not _is_edit_fork_at_turn(history, user_turn_count):
+        return head
+    fork_head = int(state.get("fork_branch_zero_head") or 0)
+    return fork_head if fork_head > 0 else head
 
 
 def _active_path_has_user_turn(
@@ -1506,6 +1618,12 @@ def advance_label_thread_after_reply(
     if matured_head != head:
         head = matured_head
         attached = 0
+    head = locked_head_on_edit_fork(
+        head,
+        _merge_fork_metadata(next_state, state),
+        history=history,
+        user_turn_count=user_turn_count,
+    )
     next_state = {
         **dict(state),
         **next_state,

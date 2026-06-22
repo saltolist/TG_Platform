@@ -51,6 +51,9 @@ def test_parse_turn_label_nested() -> None:
     assert parse_turn_label("3.2") == "3.2"
     assert parse_turn_label("3.2(4)") == "3.2(4)"
     assert parse_turn_label("3.2(4.2(5))") == "3.2(4.2(5))"
+    assert parse_turn_label("3.2(4.2)(5)") == "3.2(4.2)(5)"
+    assert parse_turn_label("3.2(4.2(5.2)(7))") == "3.2(4.2(5.2)(7))"
+    assert parse_context_label("7-21-3.2(4.2(5.2)(7))") == (7, 21, "3.2(4.2(5.2)(7))")
     assert parse_turn_label("3.2(4") is None
     assert parse_turn_label("3.2(4.2(5)") is None
 
@@ -71,6 +74,10 @@ def test_turn_label_for_node_nested() -> None:
     assert (
         turn_label_for_node(global_turn=5, branch_index=0, branched=False, path_prefix="3.2(4.2)")
         == "3.2(4.2(5))"
+    )
+    assert (
+        turn_label_for_node(global_turn=7, branch_index=0, branched=False, path_prefix="3.2(4.2(5.2))")
+        == "3.2(4.2(5.2)(7))"
     )
 
 
@@ -885,6 +892,55 @@ def test_sticky_floating_bundle_on_stamped_message_only() -> None:
     assert "SUMMARY_BUNDLE:" not in u3_msg["content"]
 
 
+def test_floating_bundle_on_sibling_turn_label_before_stamp() -> None:
+    """Regression: 3.2(4.2(5.2)(7)) must parse so v21 floats on unstamped turn 7."""
+    catalog: dict[str, Any] | None = None
+    for index in range(1, 22):
+        channel = {**CHANNEL, "core": {"topic": f"Сводка {index}"}}
+        catalog, _ = register_global_summary_version(catalog, channel=channel, telegram=None)
+    assert catalog is not None
+
+    history = [
+        {"role": "user", "text": "4-0-1", "contextLabel": "4-0-1"},
+        {"role": "ai", "text": "a1"},
+        {"role": "user", "text": "4-0-2", "contextLabel": "4-0-2"},
+        {"role": "ai", "text": "a2"},
+        {"role": "user", "text": "4-6-3.2", "contextLabel": "4-6-3.2"},
+        {"role": "ai", "text": "a3"},
+        {"role": "user", "text": "4-7-3.2(4.2)", "contextLabel": "4-7-3.2(4.2)"},
+        {"role": "ai", "text": "a4"},
+        {"role": "user", "text": "4-10-3.2(4.2)(5.2)", "contextLabel": "4-10-3.2(4.2(5.2))"},
+        {"role": "ai", "text": "a5"},
+        {"role": "user", "text": "6-0-3.2(4.2)(5.2)(6)", "contextLabel": "6-0-3.2(4.2(5.2)(6))"},
+        {"role": "ai", "text": "a6"},
+        {"role": "user", "text": "7-21-3.2(4.2)(5.2)(7)"},
+    ]
+    messages = assemble_reply_messages_from_labels(
+        ai_profile={},
+        user_text="",
+        scope="global",
+        history=history,
+        chat_meta={
+            "label_context": {
+                "": {
+                    "head_version": 7,
+                    "pending_queue": [
+                        {"version": 10, "since_turn": 5},
+                        {"version": 21, "since_turn": 7},
+                    ],
+                }
+            }
+        },
+        catalog=catalog,
+    )
+    assert messages is not None
+    turn7_msg = next(
+        m for m in messages[3:] if m["role"] == "user" and "7-21" in m["content"]
+    )
+    assert "SUMMARY_BUNDLE:" in turn7_msg["content"]
+    assert "Сводка 21" in turn7_msg["content"]
+
+
 def test_resolve_bundle_text_by_version() -> None:
     catalog, _ = register_global_summary_version(None, channel=CHANNEL, telegram=None)
     text = resolve_bundle_text(catalog, scope="global", post_id=None, version=1)
@@ -1274,6 +1330,105 @@ def test_edit_fork_attaches_latest_unseen_not_branch_zero_pending() -> None:
     assert "SUMMARY_BUNDLE:" in edited["content"]
     assert "Сводка 16" in edited["content"]
     assert "Сводка 14" not in edited["content"]
+
+
+def test_nested_edit_fork_keeps_branch_zero_head_not_ancestor_stamps() -> None:
+    """Edit fork: head is locked to branch 0 at the fork (never ancestor stamp clip)."""
+    def catalog_v(n: int) -> dict[str, Any]:
+        catalog: dict[str, Any] | None = None
+        for index in range(1, n + 1):
+            channel = {**CHANNEL, "core": {"topic": f"Сводка {index}"}}
+            catalog, _ = register_global_summary_version(catalog, channel=channel, telegram=None)
+        assert catalog is not None
+        return catalog
+
+    history = [
+        {"role": "user", "text": "4-0-1", "contextLabel": "4-0-1"},
+        {"role": "ai", "text": "a1"},
+        {"role": "user", "text": "4-0-2", "contextLabel": "4-0-2"},
+        {"role": "ai", "text": "a2"},
+        {
+            "role": "user",
+            "activeUserBranch": 1,
+            "userBranches": [
+                {"text": "4-6-3.2", "contextLabel": "4-6-3.2", "continuation": []},
+                {
+                    "text": "4-7-3.2(4.2)",
+                    "contextLabel": "4-7-3.2(4.2)",
+                    "continuation": [
+                        {"role": "ai", "text": "a3"},
+                        {
+                            "role": "user",
+                            "activeUserBranch": 1,
+                            "userBranches": [
+                                {
+                                    "text": "4-0-3.2(4.2)(5)",
+                                    "contextLabel": "4-0-3.2(4.2(5))",
+                                    "continuation": [],
+                                },
+                                {
+                                    "text": "4-10-3.2(4.2)(5.2)",
+                                    "contextLabel": "4-10-3.2(4.2(5.2))",
+                                    "continuation": [
+                                        {"role": "ai", "text": "a4"},
+                                        {"role": "user", "text": "6-0-3.2(4.2)(5.2)(6)", "contextLabel": "6-0-3.2(4.2(5.2)(6))"},
+                                        {"role": "ai", "text": "a5"},
+                                        {
+                                            "role": "user",
+                                            "activeUserBranch": 1,
+                                            "userBranches": [
+                                                {
+                                                    "text": "6-0-3.2(4.2)(5.2)(6)",
+                                                    "contextLabel": "6-0-3.2(4.2(5.2)(6))",
+                                                    "continuation": [],
+                                                },
+                                                {"text": "6-21-3.2(4.2)(5.2)(6)", "continuation": []},
+                                            ],
+                                        },
+                                    ],
+                                },
+                            ],
+                        },
+                    ],
+                },
+            ],
+        },
+    ]
+    parent = {
+        "head_version": 7,
+        "pending_queue": [
+            {"version": 10, "since_turn": 5},
+            {"version": 21, "since_turn": 7},
+        ],
+    }
+    catalog = catalog_v(21)
+    from app.services.ai.chat_history import active_thread_key
+
+    seeded = seed_label_thread_from_parent(
+        parent,
+        thread_key=active_thread_key(history),
+        user_turn_count=6,
+        history=history,
+        latest_catalog_version=21,
+    )
+    assert seeded["head_version"] == 6
+    assert seeded["fork_branch_zero_head"] == 6
+
+    entry = next(e for e in enumerate_active_user_turns(history) if e["turn"] == 6)
+    head, attached, _ = advance_label_thread_after_reply(
+        seeded,
+        user_turn_count=6,
+        turn_label=str(entry["turn_label"]),
+        latest_catalog_version=21,
+        history=history,
+    )
+    from app.services.ai.context_label import format_context_label
+
+    label = format_context_label(head, attached, entry["turn_label"])
+    assert head == 6
+    assert attached == 21
+    assert label.startswith("6-21-")
+    assert label.endswith("(6.2))")
 
 
 def test_edit_fork_does_not_attach_superseded_catalog_version() -> None:

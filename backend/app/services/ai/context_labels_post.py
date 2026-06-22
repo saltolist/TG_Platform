@@ -21,6 +21,7 @@ from app.services.ai.context_label import format_context_label, parse_context_la
 from app.services.ai.context_labels import (
     _find_label_thread_parent,
     _is_edit_fork_at_turn,
+    _lock_edit_fork_head,
     _merge_fork_metadata,
     _merge_pending_queues,
     _pending_queue_from_stamps,
@@ -28,10 +29,12 @@ from app.services.ai.context_labels import (
     empty_label_thread_state,
     flatten_label_thread_meta,
     load_label_thread_context,
+    maturation_state_for_assembly,
     maturation_state_for_planning,
     plan_context_label_for_turn,
     primer_head_from_stamps,
     reconcile_rolling_summary_fields,
+    _sync_legacy_pending_fields,
 )
 from app.services.ai.context_primer import (
     DEFAULT_SYSTEM_PROMPT,
@@ -389,6 +392,7 @@ def _maturation_state_for_post_layer(
     synthetic_history: list[Mapping[str, Any]] | None,
     *,
     user_turn_count: int,
+    source_history: list[Mapping[str, Any]] | None = None,
 ) -> dict[str, Any]:
     """Stamp-derived layer state; fork-zero head caps polluted stamps on nested paths."""
     merged = maturation_state_for_planning(
@@ -398,8 +402,15 @@ def _maturation_state_for_post_layer(
     )
     fork_head = int(stored.get("fork_branch_zero_head") or 0)
     head = int(merged.get("head_version") or 0)
-    if fork_head > 0 and head > fork_head:
+    if source_history and _is_edit_fork_at_turn(source_history, user_turn_count):
+        merged = _lock_edit_fork_head(
+            merged,
+            history=source_history,
+            user_turn_count=user_turn_count,
+        )
+    elif fork_head > 0 and head > fork_head:
         merged = {**merged, "head_version": fork_head}
+        merged = _sync_legacy_pending_fields(merged)
     return merged
 
 
@@ -408,9 +419,8 @@ def _maturation_state_for_post_layer_assembly(
     synthetic_history: list[Mapping[str, Any]] | None,
     *,
     user_turn_count: int,
+    source_history: list[Mapping[str, Any]] | None = None,
 ) -> dict[str, Any]:
-    from app.services.ai.context_labels import maturation_state_for_assembly
-
     merged = maturation_state_for_assembly(
         stored,
         synthetic_history,
@@ -418,8 +428,15 @@ def _maturation_state_for_post_layer_assembly(
     )
     fork_head = int(stored.get("fork_branch_zero_head") or 0)
     head = int(merged.get("head_version") or 0)
-    if fork_head > 0 and head > fork_head:
+    if source_history and _is_edit_fork_at_turn(source_history, user_turn_count):
+        merged = _lock_edit_fork_head(
+            merged,
+            history=source_history,
+            user_turn_count=user_turn_count,
+        )
+    elif fork_head > 0 and head > fork_head:
         merged = {**merged, "head_version": fork_head}
+        merged = _sync_legacy_pending_fields(merged)
     return merged
 
 
@@ -552,11 +569,13 @@ def plan_post_context_label_for_turn(
         stored_global,
         synth_global,
         user_turn_count=user_turn_count,
+        source_history=history,
     )
     planning_local = _maturation_state_for_post_layer(
         stored_local,
         synth_local,
         user_turn_count=user_turn_count,
+        source_history=history,
     )
     gh, ga, next_global = plan_context_label_for_turn(
         planning_global,
@@ -574,6 +593,13 @@ def plan_post_context_label_for_turn(
         window_user_turns=window_user_turns,
         history=synth_local,
     )
+    if history and _is_edit_fork_at_turn(history, user_turn_count):
+        fork_gh = int(base.get("fork_branch_zero_head_global") or 0)
+        fork_lh = max(1, int(base.get("fork_branch_zero_head_local") or 0))
+        if fork_gh > 0:
+            gh = fork_gh
+        if fork_lh > 0:
+            lh = fork_lh
     merged = _post_state_from_layer_states(next_global, next_local, base)
     return gh, max(1, lh), ga, la, merged
 
@@ -635,6 +661,13 @@ def primer_post_heads_from_state(
         window_user_turns=window_user_turns,
         history=synth_local,
     )
+    if history and _is_edit_fork_at_turn(history, user_turn_count):
+        fork_gh = int(base.get("fork_branch_zero_head_global") or 0)
+        fork_lh = max(1, int(base.get("fork_branch_zero_head_local") or 0))
+        if fork_gh > 0:
+            gh = fork_gh
+        if fork_lh > 0:
+            lh = fork_lh
     return gh, max(1, lh)
 
 
@@ -977,6 +1010,13 @@ def advance_post_label_thread_after_reply(
         window_user_turns=window_user_turns,
         history=synth_local,
     )
+    if history and _is_edit_fork_at_turn(history, user_turn_count):
+        fork_gh = int(base.get("fork_branch_zero_head_global") or 0)
+        fork_lh = max(1, int(base.get("fork_branch_zero_head_local") or 0))
+        if fork_gh > 0:
+            gh = fork_gh
+        if fork_lh > 0:
+            lh = fork_lh
     next_state = _post_state_from_layer_states(next_global, next_local, base)
     return gh, max(1, lh), ga, la, _merge_fork_metadata(next_state, base)
 

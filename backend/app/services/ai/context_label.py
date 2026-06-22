@@ -72,7 +72,7 @@ def normalize_context_label_parts(
 
 
 def parse_turn_label(raw: str) -> str | None:
-    """Parse nested turn path: 3, 3.2, 3.2(4), 3.2(4.2(5))."""
+    """Parse nested turn path: 3, 3.2, 3.2(4), 3.2(4.2(5)), 3.2(4.2(5.2)(7))."""
     text = raw.strip()
     if not text:
         return None
@@ -87,14 +87,20 @@ def parse_turn_label(raw: str) -> str | None:
         segment, pos = parse_segment(pos)
         if segment is None:
             return None, pos
-        if pos < len(text) and text[pos] == "(":
+        children: list[str] = []
+        while pos < len(text) and text[pos] == "(":
             inner, pos = parse_node(pos + 1)
             if inner is None:
                 return None, pos
             if pos >= len(text) or text[pos] != ")":
                 return None, pos
-            return f"{segment}({inner})", pos + 1
-        return segment, pos
+            children.append(inner)
+            pos += 1
+        if not children:
+            return segment, pos
+        if len(children) == 1:
+            return f"{segment}({children[0]})", pos
+        return segment + "".join(f"({child})" for child in children), pos
 
     parsed, end = parse_node(0)
     if parsed is None or end != len(text):
