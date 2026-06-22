@@ -44,6 +44,7 @@ from app.services.ai.context_primer import (
     take_prompt_window,
 )
 from app.services.ai.context_turns import annotate_user_turns, compute_window_user_turns
+from app.services.ai.rolling_summary import rolling_summary_for_assembly
 from app.services.ai.summary_catalog import (
     latest_global_version,
     latest_local_version,
@@ -932,7 +933,7 @@ def assemble_reply_messages_from_post_labels(
         global_version=head_g,
         local_version=head_l,
     )
-    rolling_summary = str(thread_state.get("rolling_summary") or "").strip()
+    rolling_summary = rolling_summary_for_assembly(thread_state, valid_pairs)
 
     floating = _floating_bundles_post(
         list(history or []),

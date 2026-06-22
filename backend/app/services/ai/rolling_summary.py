@@ -16,6 +16,26 @@ ROLLING_SUMMARY_SYSTEM = (
     "предложений. Сохраняй числа, имена и термины. Не добавляй вводных фраз."
 )
 
+_META_SUMMARY_MARKERS = (
+    "текущее саммари",
+    "нет реплик",
+    "новые реплики для включения",
+    "(пусто)",
+)
+
+
+def _is_invalid_rolling_summary_response(text: str) -> bool:
+    """Reject LLM meta-replies that echo the summarizer prompt instead of dialog."""
+    lowered = text.strip().lower()
+    if not lowered:
+        return True
+    return any(marker in lowered for marker in _META_SUMMARY_MARKERS)
+
+
+def is_meta_rolling_summary_response(text: str) -> bool:
+    """True when text looks like an LLM meta-reply, not a real dialog summary."""
+    return _is_invalid_rolling_summary_response(text)
+
 
 def exchanges_from_messages(messages: list[tuple[str, str]]) -> list[tuple[str, str]]:
     exchanges: list[tuple[str, str]] = []
@@ -65,6 +85,38 @@ def reconcile_rolling_summary_fields(
         if rolling_summary or summary_idx:
             return {**dict(state), "rolling_summary": "", "rolling_summary_idx": 0}
     return dict(state)
+
+
+def rolling_summary_for_assembly(
+    state: Mapping[str, Any],
+    valid_pairs: list[tuple[str, str]],
+) -> str:
+    """Effective CONTEXT_SUMMARY for the current request.
+
+    Bootstraps unstored prefix pairs with the template fallback so new fork
+    threads and pre-reply turns still get dialog summary in the primer.
+    Does not mutate stored thread state or touch bundle labels.
+    """
+    reconciled = reconcile_rolling_summary_fields(state, valid_pairs)
+    prefix = prefix_pairs_outside_window(valid_pairs)
+    try:
+        summary_idx = int(reconciled.get("rolling_summary_idx") or 0)
+    except (TypeError, ValueError):
+        summary_idx = 0
+    summary_idx = max(0, summary_idx)
+
+    rolling_summary = str(reconciled.get("rolling_summary") or "").strip()
+    if _is_invalid_rolling_summary_response(rolling_summary):
+        rolling_summary = ""
+        summary_idx = 0
+
+    if len(prefix) > summary_idx:
+        new_segment = prefix[summary_idx:]
+        exchanges = exchanges_from_messages(new_segment)
+        if exchanges:
+            rolling_summary = update_rolling_summary_template(rolling_summary, exchanges)
+
+    return rolling_summary.strip()
 
 
 def _limit_sentences(text: str, limit: int = ROLLING_SUMMARY_SENTENCE_LIMIT) -> str:
@@ -125,6 +177,9 @@ async def update_rolling_summary_llm(
 ) -> str:
     from app.services.ai.llm import complete_chat_completion
 
+    if not exchanges:
+        return existing_summary.strip()
+
     messages = build_rolling_summary_messages(existing_summary, exchanges)
     text = await complete_chat_completion(
         spec=spec,
@@ -133,4 +188,6 @@ async def update_rolling_summary_llm(
         messages=messages,
     )
     limited = _limit_sentences(text.strip())
+    if _is_invalid_rolling_summary_response(limited):
+        return update_rolling_summary_template(existing_summary, exchanges)
     return limited or update_rolling_summary_template(existing_summary, exchanges)

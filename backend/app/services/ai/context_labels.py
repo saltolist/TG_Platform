@@ -27,7 +27,10 @@ from app.services.ai.context_label import (
     resolve_turn_label,
 )
 from app.services.ai.context_turns import annotate_user_turns, compute_window_user_turns
-from app.services.ai.rolling_summary import reconcile_rolling_summary_fields
+from app.services.ai.rolling_summary import (
+    reconcile_rolling_summary_fields,
+    rolling_summary_for_assembly,
+)
 from app.services.ai.summary_catalog import (
     ensure_post_local_catalog_current,
     latest_scope_version,
@@ -1531,7 +1534,7 @@ def assemble_reply_messages_from_labels(
         post_id=post_id,
         version=head_version,
     )
-    rolling_summary = str(thread_state.get("rolling_summary") or "").strip()
+    rolling_summary = rolling_summary_for_assembly(thread_state, valid_pairs)
 
     floating = _floating_bundles_for_assemble(
         history=list(history or []),

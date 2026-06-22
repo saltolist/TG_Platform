@@ -19,6 +19,7 @@ from app.services.ai.chat_history import (
 )
 from app.services.ai.context_config import PRIMER_ACK, PROMPT_WINDOW
 from app.services.ai.context_turns import compute_window_user_turns
+from app.services.ai.rolling_summary import rolling_summary_for_assembly
 from app.services.ai.context_primer import (
     DEFAULT_SYSTEM_PROMPT,
     build_dialog_messages,
@@ -133,7 +134,7 @@ def assemble_reply_messages(
             list(history or []),
             global_fingerprint=fingerprint,
         )
-        rolling_summary = str(thread_state.get("rolling_summary") or "").strip()
+        rolling_summary = rolling_summary_for_assembly(thread_state, valid_pairs)
         bundle_profile = prepare_bundle_profile_for_assemble(
             thread_state.get("rolling_summary_profile"),
             user_turn_count=user_turn_count,

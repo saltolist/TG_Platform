@@ -19,7 +19,9 @@ from app.services.ai.context_meta import (
 from app.services.ai.context_turns import compute_window_user_turns
 from app.services.ai.rolling_summary import (
     exchanges_from_messages,
+    is_meta_rolling_summary_response,
     reconcile_rolling_summary_fields,
+    rolling_summary_for_assembly,
     update_rolling_summary_template,
 )
 
@@ -401,6 +403,78 @@ def test_update_rolling_summary_template_limits_growth() -> None:
     )
     assert "ETF" in summary
     assert "риски" in summary
+
+
+def test_is_meta_rolling_summary_response() -> None:
+    assert is_meta_rolling_summary_response("Нет реплик для включения. Текущее саммари пусто.")
+    assert not is_meta_rolling_summary_response("Я спрашивал про ETF. Ответ: кратко про ETF.")
+
+
+def test_rolling_summary_for_assembly_bootstraps_empty_fork_thread() -> None:
+    pairs = _pairs(4)
+    text = rolling_summary_for_assembly({"rolling_summary": "", "rolling_summary_idx": 0}, pairs)
+    assert text
+    assert "Вопрос 1" in text
+
+
+def test_rolling_summary_for_assembly_filters_stored_meta_text() -> None:
+    pairs = _pairs(4)
+    text = rolling_summary_for_assembly(
+        {
+            "rolling_summary": "Нет реплик для включения. Текущее саммари пусто.",
+            "rolling_summary_idx": 0,
+        },
+        pairs,
+    )
+    assert "Нет реплик" not in text
+    assert "Вопрос 1" in text
+
+
+def test_assemble_bootstraps_context_summary_on_new_fork_before_reply() -> None:
+    from app.services.ai.context_labels import assemble_reply_messages_from_labels
+    from app.services.ai.summary_catalog import register_global_summary_version
+
+    catalog, _ = register_global_summary_version(None, channel=CHANNEL, telegram=None)
+    history = [
+        {"role": "user", "text": "msg1", "contextLabel": "1-0-1"},
+        {"role": "ai", "text": "a1"},
+        {"role": "user", "text": "msg2", "contextLabel": "1-0-2"},
+        {"role": "ai", "text": "a2"},
+        {"role": "user", "text": "msg3", "contextLabel": "1-0-3"},
+        {"role": "ai", "text": "a3"},
+        {
+            "role": "user",
+            "activeUserBranch": 1,
+            "userBranches": [
+                {
+                    "text": "msg4",
+                    "contextLabel": "1-0-4",
+                    "continuation": [{"role": "ai", "text": "a4"}],
+                },
+                {"text": "msg4-edited"},
+            ],
+        },
+    ]
+    meta = {
+        "label_context": {
+            "": {
+                "head_version": 1,
+                "rolling_summary": "Саммари длинной ветки",
+                "rolling_summary_idx": 4,
+            }
+        }
+    }
+    messages = assemble_reply_messages_from_labels(
+        ai_profile={},
+        user_text="msg4-edited",
+        scope="global",
+        history=history,
+        chat_meta=meta,
+        catalog=catalog,
+    )
+    assert messages is not None
+    assert "CONTEXT_SUMMARY:" in messages[1]["content"]
+    assert "msg1" in messages[1]["content"]
 
 
 def test_bundle_fingerprint_changes_when_channel_changes() -> None:

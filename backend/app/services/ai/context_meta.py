@@ -36,6 +36,7 @@ from app.services.ai.thread_context import (
 from app.services.ai.context_turns import annotate_user_turns
 from app.services.ai.rolling_summary import (
     exchanges_from_messages,
+    is_meta_rolling_summary_response,
     reconcile_rolling_summary_fields,
     update_rolling_summary_llm,
     update_rolling_summary_template,
@@ -169,6 +170,9 @@ async def refresh_context_meta_after_reply(
     except (TypeError, ValueError):
         summary_idx = 0
     summary_idx = max(0, summary_idx)
+    if is_meta_rolling_summary_response(rolling_summary):
+        rolling_summary = ""
+        summary_idx = 0
 
     if len(prefix) > summary_idx:
         new_segment = prefix[summary_idx:]
@@ -185,7 +189,7 @@ async def refresh_context_meta_after_reply(
                 )
             else:
                 rolling_summary = update_rolling_summary_template(rolling_summary, exchanges)
-        summary_idx = len(prefix)
+            summary_idx = len(prefix)
 
     updated_thread_state = {
         **dict(thread_state),
@@ -281,6 +285,9 @@ async def _refresh_context_meta_labels(
     except (TypeError, ValueError):
         summary_idx = 0
     summary_idx = max(0, summary_idx)
+    if is_meta_rolling_summary_response(rolling_summary):
+        rolling_summary = ""
+        summary_idx = 0
 
     if len(prefix) > summary_idx:
         new_segment = prefix[summary_idx:]
@@ -297,7 +304,7 @@ async def _refresh_context_meta_labels(
                 )
             else:
                 rolling_summary = update_rolling_summary_template(rolling_summary, exchanges)
-        summary_idx = len(prefix)
+            summary_idx = len(prefix)
 
     updated_thread = {
         **updated_thread,
