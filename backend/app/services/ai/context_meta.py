@@ -225,11 +225,12 @@ async def _refresh_context_meta_labels(
     post_id: str | None,
 ) -> dict[str, Any]:
     user_turn_count = count_user_turns(valid_pairs)
-    latest_version = latest_scope_version(catalog, scope=scope, post_id=post_id)
+    latest_global = latest_scope_version(catalog, scope="global", post_id=None)
+    latest_local = latest_scope_version(catalog, scope=scope, post_id=post_id)
     thread_state, thread_key, threads = resolve_label_thread_state(
         chat_meta,
         history,
-        latest_catalog_version=latest_version,
+        latest_catalog_version=latest_local if scope == "post" else latest_global,
     )
 
     turn_entries = enumerate_active_user_turns(list(history or []))
@@ -238,14 +239,39 @@ async def _refresh_context_meta_labels(
     if turn_entries:
         stamp_path = turn_entries[-1]["path"]
 
-    head, attached, updated_thread = advance_label_thread_after_reply(
-        thread_state,
-        user_turn_count=user_turn_count,
-        turn_label=turn_label,
-        latest_catalog_version=latest_version,
-        window_user_turns=maturation_window_user_turns(valid_pairs),
-        history=list(history or []),
-    )
+    if scope == "post" and post_id:
+        from app.services.ai.context_labels_post import (
+            advance_post_label_thread_after_reply,
+            flatten_post_label_thread_meta,
+            resolve_post_label_thread_state,
+        )
+
+        thread_state, thread_key, threads = resolve_post_label_thread_state(
+            chat_meta,
+            history,
+            latest_global=latest_global,
+            latest_local=max(1, latest_local),
+        )
+        hg, hl, ag, al, updated_thread = advance_post_label_thread_after_reply(
+            thread_state,
+            user_turn_count=user_turn_count,
+            turn_label=turn_label,
+            latest_global=latest_global,
+            latest_local=max(1, latest_local),
+            window_user_turns=maturation_window_user_turns(valid_pairs),
+            history=list(history or []),
+        )
+        head, attached = hg, ag
+    else:
+        head, attached, updated_thread = advance_label_thread_after_reply(
+            thread_state,
+            user_turn_count=user_turn_count,
+            turn_label=turn_label,
+            latest_catalog_version=latest_local if scope == "post" else latest_global,
+            window_user_turns=maturation_window_user_turns(valid_pairs),
+            history=list(history or []),
+        )
+        hg = hl = ag = al = None
 
     prefix, _ = split_prefix_and_window(valid_pairs)
     summary_state = reconcile_rolling_summary_fields(updated_thread, valid_pairs)
@@ -279,15 +305,32 @@ async def _refresh_context_meta_labels(
         "rolling_summary_idx": summary_idx,
     }
     threads[thread_key] = updated_thread
-    meta = flatten_label_thread_meta(updated_thread, thread_key=thread_key, threads=threads)
+    if scope == "post" and post_id:
+        from app.services.ai.context_labels_post import flatten_post_label_thread_meta
+
+        meta = flatten_post_label_thread_meta(updated_thread, thread_key=thread_key, threads=threads)
+    else:
+        meta = flatten_label_thread_meta(updated_thread, thread_key=thread_key, threads=threads)
 
     if stamp_path is not None:
-        meta["context_label_stamp"] = {
+        stamp: dict[str, Any] = {
             "path": stamp_path,
-            "head": head,
-            "attached": attached,
             "turn": turn_label,
         }
+        if scope == "post" and post_id and hg is not None:
+            stamp.update(
+                {
+                    "head_global": hg,
+                    "head_local": hl,
+                    "attached_global": ag,
+                    "attached_local": al,
+                    "scope": "post",
+                }
+            )
+        else:
+            stamp["head"] = head
+            stamp["attached"] = attached
+        meta["context_label_stamp"] = stamp
     return meta
 
 

@@ -8,7 +8,47 @@ from typing import Any, Mapping
 from app.services.ai.chat_history import clamp_active_branch_index
 
 _LABEL_RE = re.compile(r"^(?P<head>\d+)-(?P<attached>\d+)-(?P<turn>.+)$")
+_POST_LABEL_RE = re.compile(
+    r"^(?P<gh>\d+)\.(?P<lh>\d+)-(?P<ga>\d+)\.(?P<la>\d+)-(?P<turn>.+)$"
+)
 _TURN_SEGMENT_RE = re.compile(r"^\d+(?:\.\d+)?")
+
+
+def format_post_context_label(
+    head_global: int,
+    head_local: int,
+    attached_global: int,
+    attached_local: int,
+    turn: str,
+) -> str:
+    """Post chat: ``{gHead}.{lHead}-{gAtt}.{lAtt}-{turn}`` (local part always ≥ 1)."""
+    lh = max(1, int(head_local))
+    la = max(0, int(attached_local))
+    gh = max(0, int(head_global))
+    ga = max(0, int(attached_global))
+    if ga <= 0 and la <= 0:
+        ga, la = 0, 0
+    return f"{gh}.{lh}-{ga}.{la}-{turn}"
+
+
+def parse_post_context_label(raw: str) -> tuple[int, int, int, int, str] | None:
+    match = _POST_LABEL_RE.match(raw.strip())
+    if not match:
+        return None
+    turn = parse_turn_label(match.group("turn"))
+    if turn is None:
+        return None
+    return (
+        int(match.group("gh")),
+        max(1, int(match.group("lh"))),
+        int(match.group("ga")),
+        int(match.group("la")),
+        turn,
+    )
+
+
+def is_post_compound_label(raw: str) -> bool:
+    return _POST_LABEL_RE.match(raw.strip()) is not None
 
 
 def format_context_label(
@@ -117,7 +157,7 @@ def read_stamped_context_label(
     raw = _read_label_raw(message, branch_index=branch_index)
     if raw is None:
         return None
-    if _LABEL_RE.match(raw) is None:
+    if _POST_LABEL_RE.match(raw) is None and _LABEL_RE.match(raw) is None:
         return None
     return raw
 
@@ -143,13 +183,41 @@ def read_stamped_attached_version(
     raw = _read_label_raw(message, branch_index=branch_index)
     if raw is None:
         return 0
+    post = parse_post_context_label(raw)
+    if post is not None:
+        return max(0, post[2])
     match = _LABEL_RE.match(raw)
     if match is None:
         return 0
     return max(0, int(match.group("attached")))
 
 
+def read_stamped_post_label_parts(
+    message: Mapping[str, Any],
+    *,
+    branch_index: int | None = None,
+    legacy_global_version: int = 0,
+) -> tuple[int, int, int, int, str] | None:
+    """Parse stamped post label; legacy ``g-l-turn`` maps local-only with ``legacy_global_version``."""
+    raw = _read_label_raw(message, branch_index=branch_index)
+    if raw is None:
+        return None
+    parsed = parse_post_context_label(raw)
+    if parsed is not None:
+        return parsed
+    flat = parse_context_label(raw)
+    if flat is None:
+        return None
+    head, attached, turn = flat
+    g_head = legacy_global_version if legacy_global_version > 0 else head
+    g_att = legacy_global_version if legacy_global_version > 0 and attached > 0 else attached
+    return g_head, max(1, head), g_att, max(0, attached), turn
+
+
 def _label_turn_part(raw: str) -> str | None:
+    post = parse_post_context_label(raw)
+    if post is not None:
+        return post[4]
     match = _LABEL_RE.match(raw.strip())
     if match is None:
         return None
@@ -307,13 +375,27 @@ def stamp_context_label_on_path(
     history: list[Mapping[str, Any]],
     path: list[int],
     *,
-    head: int,
-    attached: int,
-    turn_label: str,
+    head: int = 0,
+    attached: int = 0,
+    turn_label: str = "",
+    label: str | None = None,
+    head_global: int | None = None,
+    head_local: int | None = None,
+    attached_global: int | None = None,
+    attached_local: int | None = None,
 ) -> list[dict[str, Any]] | None:
     from app.services.ai.chat_history import map_message_at_path
 
-    label = format_context_label(head, attached, turn_label)
+    if label is None and head_global is not None and head_local is not None:
+        label = format_post_context_label(
+            head_global,
+            head_local,
+            int(attached_global or 0),
+            int(attached_local or 0),
+            turn_label,
+        )
+    if label is None:
+        label = format_context_label(head, attached, turn_label)
 
     def attach(message: Mapping[str, Any]) -> dict[str, Any]:
         if message.get("role") != "user":

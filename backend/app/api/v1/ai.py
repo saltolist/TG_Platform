@@ -29,6 +29,7 @@ from app.services.ai.summary_catalog import (
     catalog_from_profile,
     ensure_initial_global_version,
     ensure_post_local_catalog_current,
+    register_global_summary_version,
 )
 
 router = APIRouter(prefix="/ai", tags=["AI"])
@@ -279,7 +280,14 @@ async def _prepare_summary_catalog(
         channel=channel_profile,
         telegram=telegram_profile,
     )
-    catalog_dirty = profile is not None and not profile.summary_catalog and catalog.get("global")
+    catalog, new_global = register_global_summary_version(
+        catalog,
+        channel=channel_profile,
+        telegram=telegram_profile,
+    )
+    catalog_dirty = (
+        profile is not None and not profile.summary_catalog and catalog.get("global")
+    ) or new_global is not None
 
     if payload.scope == "post" and post_data is not None:
         post_id = str(post_data.get("id") or payload.post_id or "")
@@ -352,13 +360,27 @@ async def _finalize_context_meta(
         source_history = await _history_for_stamp(session, user, payload, history)
         path = label_stamp.get("path")
         if isinstance(path, list):
-            applied = stamp_context_label_on_path(
-                source_history,
-                [int(part) for part in path],
-                head=int(label_stamp.get("head") or 0),
-                attached=int(label_stamp.get("attached") or 0),
-                turn_label=str(label_stamp.get("turn") or ""),
-            )
+            stamp_kwargs: dict[str, Any] = {
+                "turn_label": str(label_stamp.get("turn") or ""),
+            }
+            if label_stamp.get("scope") == "post":
+                applied = stamp_context_label_on_path(
+                    source_history,
+                    [int(part) for part in path],
+                    head_global=int(label_stamp.get("head_global") or 0),
+                    head_local=int(label_stamp.get("head_local") or 1),
+                    attached_global=int(label_stamp.get("attached_global") or 0),
+                    attached_local=int(label_stamp.get("attached_local") or 0),
+                    **stamp_kwargs,
+                )
+            else:
+                applied = stamp_context_label_on_path(
+                    source_history,
+                    [int(part) for part in path],
+                    head=int(label_stamp.get("head") or 0),
+                    attached=int(label_stamp.get("attached") or 0),
+                    **stamp_kwargs,
+                )
             if applied is not None:
                 stamped_history = applied
     stamp = updated_meta.get("bundle_context_stamp")

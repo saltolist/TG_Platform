@@ -5,7 +5,7 @@ from __future__ import annotations
 from datetime import datetime, timezone
 from typing import Any, Mapping
 
-from app.services.ai.bundle import build_summary_bundle, bundle_fingerprint
+from app.services.ai.bundle import build_summary_bundle, bundle_fingerprint, post_content_fingerprint
 
 
 def empty_summary_catalog() -> dict[str, Any]:
@@ -126,26 +126,93 @@ def register_local_summary_version(
     telegram: Mapping[str, Any] | None,
     post: Mapping[str, Any] | None,
 ) -> tuple[dict[str, Any], int | None]:
-    """Append a post-scoped bundle version when post fingerprint changes."""
+    """Append a post-scoped bundle version when post content changes (not channel-only edits)."""
     base = get_summary_catalog({"summary_catalog": catalog})
     text = build_summary_bundle(channel, telegram=telegram, post=post)
     fingerprint = bundle_fingerprint(channel, telegram=telegram, post=post)
+    post_fp = post_content_fingerprint(post)
     versions = _local_versions(base, post_id)
     latest = versions[-1] if versions else None
-    if latest is not None and str(latest.get("fingerprint") or "") == fingerprint:
-        return base, None
+    if latest is not None:
+        latest_post_fp = str(latest.get("postFingerprint") or "")
+        if latest_post_fp and latest_post_fp == post_fp:
+            return base, None
+        if not latest_post_fp and str(latest.get("fingerprint") or "") == fingerprint:
+            return base, None
 
     next_version = latest_local_version(base, post_id) + 1
     entry = {
         "version": next_version,
         "text": text,
         "fingerprint": fingerprint,
+        "postFingerprint": post_fp,
         "globalVersion": latest_global_version(base) or None,
         "createdAt": datetime.now(timezone.utc).isoformat(),
     }
     local = dict(base.get("local") or {})
     local[post_id] = [*versions, entry]
     return {**base, "local": local}, next_version
+
+
+def resolve_post_bundle_text(
+    catalog: Mapping[str, Any],
+    *,
+    post_id: str,
+    global_version: int,
+    local_version: int,
+) -> str:
+    """Full post bundle for compound label ``g.l`` primer head (local entry preferred)."""
+    if local_version > 0:
+        item = find_local_version(catalog, post_id, local_version)
+        if item is not None:
+            return str(item.get("text") or "").strip()
+    if global_version > 0:
+        return resolve_bundle_text(catalog, scope="global", post_id=None, version=global_version)
+    return ""
+
+
+def _extract_post_section_from_bundle(bundle_text: str) -> str:
+    """``## Пост`` block only — for local-only floats without channel summary."""
+    text = str(bundle_text or "").strip()
+    marker = "## Пост"
+    if marker not in text:
+        return text
+    tail = text.split(marker, 1)[1]
+    if tail.startswith("\n"):
+        tail = tail[1:]
+    next_section = tail.find("\n## ")
+    if next_section >= 0:
+        tail = tail[:next_section]
+    return tail.strip()
+
+
+def resolve_post_float_bundle_text(
+    catalog: Mapping[str, Any],
+    *,
+    post_id: str,
+    attached_global: int,
+    attached_local: int,
+) -> str:
+    """Independent layer floats for post chat ``gAtt.lAtt`` (0 = layer not attached)."""
+    if attached_global <= 0 and attached_local <= 0:
+        return ""
+    parts: list[str] = []
+    if attached_global > 0:
+        global_text = resolve_bundle_text(
+            catalog,
+            scope="global",
+            post_id=None,
+            version=attached_global,
+        )
+        if global_text:
+            parts.append(global_text)
+    if attached_local > 0:
+        item = find_local_version(catalog, post_id, attached_local)
+        if item is not None:
+            post_text = _extract_post_section_from_bundle(str(item.get("text") or ""))
+            if post_text:
+                parts.append(post_text)
+    return "\n\n".join(parts)
 
 
 def resolve_bundle_text(

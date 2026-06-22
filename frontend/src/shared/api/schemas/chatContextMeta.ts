@@ -18,13 +18,24 @@ const threadStateSchema = z.object({
   rolling_summary_profile: bundleProfileSchema.optional(),
 });
 
+const pendingQueueItemSchema = z.object({
+  version: z.number(),
+  since_turn: z.number(),
+});
+
 const labelThreadStateSchema = z.object({
   head_version: z.number().optional(),
   pending_version: z.number().optional(),
   pending_since_turn: z.number().optional(),
-  pending_queue: z
-    .array(z.object({ version: z.number(), since_turn: z.number() }))
-    .optional(),
+  pending_queue: z.array(pendingQueueItemSchema).optional(),
+  head_global: z.number().optional(),
+  head_local: z.number().optional(),
+  pending_global_version: z.number().optional(),
+  pending_global_since_turn: z.number().optional(),
+  pending_local_version: z.number().optional(),
+  pending_local_since_turn: z.number().optional(),
+  pending_global_queue: z.array(pendingQueueItemSchema).optional(),
+  pending_local_queue: z.array(pendingQueueItemSchema).optional(),
   rolling_summary: z.string().optional(),
   rolling_summary_idx: z.number().optional(),
 });

@@ -79,10 +79,35 @@
 Нумерация **1-based**, монотонная внутри `global` и внутри `local[postId]`.
 Старые версии **не удаляются** — по метке всегда можно восстановить текст.
 
-**Global chat:** части `head` и `attached` ссылаются на `global[].version`.
+**Global chat:** части `head` и `attached` — целые номера из `global[].version`.
 
-**Post chat:** части `head` и `attached` ссылаются на `local[postId][].version`
-(полный bundle постового чата).
+**Post chat:** составная метка **`{gHead}.{lHead}-{gAtt}.{lAtt}-{turn}`**:
+
+| Часть | Смысл |
+|-------|--------|
+| `gHead.lHead` | головная сводка: global (канал) + local (пост) |
+| `gAtt.lAtt` | float: global + local на этом turn; `0.0` — нет |
+| `turn` | как в global chat |
+
+Примеры post chat:
+
+| Метка | Расшифровка |
+|-------|-------------|
+| `2.1-0.0-1` | первый turn, канал global v2, пост local v1 |
+| `2.3-3.3-4` | head 2.3; после правки канала global созрел до 3, пост v3 |
+| `2.3-3.3-3.2(4.2)` | float 3.3 на ветке |
+| `11.1-0.2-3` | float только local v2 (пост); global `0` — сводка канала не прикрепляется |
+| `11.1-3.0-3` | float только global v3 (канал); local `0` — пост не прикрепляется |
+
+- **Float-слои независимы:** `gAtt=0` — канал не float; `lAtt=0` — пост не float.
+- Primer head `gHead.lHead` — полный bundle (local preferred); float — раздельно по слоям.
+- **Local** нумерация с **`.1`** — пост уже есть при первом reply.
+- **Созревание** global head и local head — **два независимых** счётчика (по N user-turn на ветке).
+- Правка **только канала**: `2.3` → после созревания global **`3.3`** (local без изменений).
+- Правка **только поста**: `2.3` → `2.4` (global без изменений).
+- Старые post-метки `4-7-turn` (без точек) — fallback: local-only, global из `local.globalVersion`.
+
+**Global chat не меняется** — по-прежнему `4-7-3.2(4.2)`.
 
 ---
 

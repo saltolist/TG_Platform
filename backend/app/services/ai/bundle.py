@@ -140,6 +140,17 @@ def build_summary_bundle(
     return "\n\n".join(sections)
 
 
+def post_content_fingerprint(post: Mapping[str, Any] | None) -> str:
+    """Post-only fingerprint — local catalog versions bump on post edits, not channel changes."""
+    payload = {
+        "text": (post or {}).get("text"),
+        "metrics": (post or {}).get("metrics"),
+        "rubric": (post or {}).get("rubric"),
+    }
+    encoded = json.dumps(payload, ensure_ascii=False, sort_keys=True, default=str)
+    return hashlib.sha256(encoded.encode("utf-8")).hexdigest()[:16]
+
+
 def bundle_fingerprint(
     channel: Mapping[str, Any] | None,
     *,

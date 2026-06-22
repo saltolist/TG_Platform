@@ -1369,11 +1369,21 @@ def assemble_reply_messages_from_labels(
     log_labels: dict[int, str] | None = None,
 ) -> list[dict[str, str]] | None:
     """Build messages from label catalog; None if catalog is empty."""
-    global_versions = catalog.get("global") or []
     if scope == "post" and post_id:
-        if not _local_versions_nonempty(catalog, post_id) and not global_versions:
-            return None
-    elif not global_versions:
+        from app.services.ai.context_labels_post import assemble_reply_messages_from_post_labels
+
+        return assemble_reply_messages_from_post_labels(
+            ai_profile=ai_profile,
+            user_text=user_text,
+            history=history,
+            chat_meta=chat_meta,
+            catalog=catalog,
+            post_id=post_id,
+            log_labels=log_labels,
+        )
+
+    global_versions = catalog.get("global") or []
+    if not global_versions:
         return None
 
     system_prompt = str(ai_profile.get("systemPrompt") or "").strip() or DEFAULT_SYSTEM_PROMPT

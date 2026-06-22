@@ -44,7 +44,10 @@ export const aiVariantSchema = z.object({
   webCaption: z.string().optional(),
 });
 
-export const messageContextLabelSchema = z.string().regex(/^\d+-\d+-[\d().]+$/);
+/** Global: ``4-7-3.2(4.2)``; post compound: ``2.3-3.3-4`` or ``1.1-0.0-1``. */
+export const messageContextLabelSchema = z
+  .string()
+  .regex(/^(?:\d+-\d+|\d+\.\d+-\d+\.\d+)-[\d().]+$/);
 
 export const messageBundleContextSchema = z.object({
   headGenerationId: z.string(),

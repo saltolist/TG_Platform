@@ -990,15 +990,20 @@ def test_post_scope_channel_change_registers_local_and_attaches_pending() -> Non
         telegram=None,
         post=POST,
     )
-    assert local_v2 == 2
+    assert local_v2 is None
 
     history = [
-        {"role": "user", "text": "u1", "contextLabel": "1-0-1"},
+        {"role": "user", "text": "u1", "contextLabel": "1.1-0.0-1"},
         {"role": "ai", "text": "a1"},
     ]
     meta = {
         "label_context": {
-            "": {"head_version": 1, "pending_version": 0, "pending_since_turn": 0, "pending_queue": []},
+            "": {
+                "head_global": 1,
+                "head_local": 1,
+                "pending_global_queue": [],
+                "pending_local_queue": [],
+            },
         },
     }
     messages = assemble_reply_messages_from_labels(

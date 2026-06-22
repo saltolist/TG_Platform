@@ -10,6 +10,9 @@ export function resolvePostChatId(
 ): string | null {
   if (!chatId) return null;
   const post = getCachedPost(queryClient, postId);
-  if (!post?.chats.some((chat) => chat.id === chatId)) return null;
+  // If the post isn't cached yet (or cached under another scope), we can't reliably validate.
+  // In that case keep the id from URL/store so composer can still target the intended chat.
+  if (!post) return chatId;
+  if (!post.chats.some((chat) => chat.id === chatId)) return null;
   return chatId;
 }

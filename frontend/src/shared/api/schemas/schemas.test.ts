@@ -2,7 +2,7 @@ import { describe, expect, it } from "vitest";
 
 import { globalChatSchema } from "./chat";
 import { globalNoteSchema } from "./note";
-import { postSchema } from "./post";
+import { messageContextLabelSchema, postSchema } from "./post";
 
 const validPost = {
   id: "1",
@@ -29,9 +29,36 @@ const validGlobalNote = {
   body: "Body",
 };
 
+describe("messageContextLabelSchema", () => {
+  it("accepts global and post compound labels", () => {
+    expect(messageContextLabelSchema.parse("4-7-3.2(4.2)")).toBe("4-7-3.2(4.2)");
+    expect(messageContextLabelSchema.parse("1.1-0.0-1")).toBe("1.1-0.0-1");
+    expect(messageContextLabelSchema.parse("2.3-3.3-4")).toBe("2.3-3.3-4");
+  });
+});
+
 describe("postSchema", () => {
   it("accepts minimal valid post", () => {
     expect(postSchema.parse(validPost)).toMatchObject({ id: "1", status: "published" });
+  });
+
+  it("accepts post chat with compound context labels", () => {
+    const withCompoundChat = {
+      ...validPost,
+      chats: [
+        {
+          id: "38f0ad3d-f5e6-48a1-8617-aaa7454f6295",
+          title: "Chat",
+          preview: "Hi",
+          date: "2026-06-22T00:00:00.000Z",
+          ai: true,
+          history: [{ role: "user" as const, text: "Hi", contextLabel: "1.1-0.0-1" }],
+        },
+      ],
+    };
+    expect(postSchema.parse(withCompoundChat).chats[0]?.history[0]?.contextLabel).toBe(
+      "1.1-0.0-1",
+    );
   });
 
   it("rejects invalid status", () => {

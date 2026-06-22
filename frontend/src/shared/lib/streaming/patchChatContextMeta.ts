@@ -19,18 +19,36 @@ const bundleContextStampSchema = z.object({
   floatingGenerationId: z.string().optional(),
 });
 
-const contextLabelStampSchema = z.object({
+const globalContextLabelStampSchema = z.object({
   path: z.array(z.number()),
   head: z.number(),
   attached: z.number(),
   turn: z.string(),
 });
 
+const postContextLabelStampSchema = z.object({
+  path: z.array(z.number()),
+  scope: z.literal("post"),
+  head_global: z.number(),
+  head_local: z.number(),
+  attached_global: z.number(),
+  attached_local: z.number(),
+  turn: z.string(),
+});
+
+const contextLabelStampSchema = z.union([
+  postContextLabelStampSchema,
+  globalContextLabelStampSchema,
+]);
+
 export type BundleContextStamp = z.infer<typeof bundleContextStampSchema>;
 export type ContextLabelStamp = z.infer<typeof contextLabelStampSchema>;
 
 function formatContextLabelStamp(stamp: ContextLabelStamp): string {
-  return `${stamp.head}-${stamp.attached}-${stamp.turn}`;
+  if ("head" in stamp) {
+    return `${stamp.head}-${stamp.attached}-${stamp.turn}`;
+  }
+  return `${stamp.head_global}.${stamp.head_local}-${stamp.attached_global}.${stamp.attached_local}-${stamp.turn}`;
 }
 
 function applyContextLabelStamp(history: ChatMessage[], stamp: ContextLabelStamp): ChatMessage[] {
