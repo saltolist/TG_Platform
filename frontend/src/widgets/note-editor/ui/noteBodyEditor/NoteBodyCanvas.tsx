@@ -3,8 +3,8 @@
 import type { BodyLine, CellPos } from "@/shared/lib/noteEmbeds";
 import type { NoteFile } from "@/shared/types";
 
+import NoteMarkdownRenderer from "@/widgets/note-editor/ui/NoteMarkdownRenderer";
 import NoteBodyDocumentEdit from "./NoteBodyDocumentEdit";
-import NoteBodyDocumentView from "./NoteBodyDocumentView";
 import type { ImageDropSlot } from "./types";
 
 type Props = {
@@ -46,20 +46,5 @@ export default function NoteBodyCanvas({
     return <NoteBodyDocumentEdit body={body} onChange={onBodyChange} />;
   }
 
-  return (
-    <NoteBodyDocumentView
-      lines={lines}
-      files={files}
-      hasContent={hasContent}
-      dragFrom={dragFrom}
-      dropBefore={dropBefore}
-      imageDropSlot={imageDropSlot}
-      dropLineBefore={dropLineBefore}
-      dropGapActive={dropGapActive}
-      dropLineBeforeActive={dropLineBeforeActive}
-      applyLines={applyLines}
-      onTextEnter={onTextEnter}
-      onEmbedPointerDown={onEmbedPointerDown}
-    />
-  );
+  return <NoteMarkdownRenderer body={body} files={files} />;
 }

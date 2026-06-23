@@ -9,6 +9,7 @@ from app.db.models import GlobalNote
 from app.db.resolve import get_owned_note
 from app.db.seed_ids import seed_entity_uuid
 from app.schemas.resources import GlobalNoteIn
+from app.services.ai.rag_worker import enqueue_note_job
 
 router = APIRouter(prefix="/global-notes", tags=["GlobalNotes"])
 
@@ -48,6 +49,7 @@ async def upsert_note(
         raise HTTPException(status_code=404, detail="Note not found")
     else:
         note.data = data
+    await enqueue_note_job(session, user.id, "upsert", "global", note_id)
     await session.commit()
     return data
 
@@ -55,6 +57,7 @@ async def upsert_note(
 @router.delete("/{note_id}/", status_code=status.HTTP_204_NO_CONTENT)
 async def delete_note(note_id: str, user: CurrentWriter, session: DbSession) -> Response:
     note = await get_owned_note(session, user.id, note_id)
+    await enqueue_note_job(session, user.id, "delete", "global", note_id)
     await session.delete(note)
     await session.commit()
     return Response(status_code=status.HTTP_204_NO_CONTENT)

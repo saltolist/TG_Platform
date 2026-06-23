@@ -8,6 +8,9 @@ engine = create_async_engine(settings.database_url, echo=False, future=True, poo
 
 SessionLocal = async_sessionmaker(engine, class_=AsyncSession, expire_on_commit=False)
 
+# Alias used by the embedding worker and other background tasks
+async_session_factory = SessionLocal
+
 
 async def get_session() -> AsyncGenerator[AsyncSession, None]:
     async with SessionLocal() as session:

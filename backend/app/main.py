@@ -1,3 +1,4 @@
+import asyncio
 import logging
 from contextlib import asynccontextmanager
 
@@ -10,8 +11,9 @@ from starlette.exceptions import HTTPException as StarletteHTTPException
 
 from app.api.v1.router import api_router
 from app.core.config import settings
-from app.db.session import engine
+from app.db.session import engine, async_session_factory
 from app.services.ai.context_log import init_chat_filter
+from app.services.ai.rag_worker import embedding_worker
 
 logging.basicConfig(level=logging.INFO)
 _context_logger = logging.getLogger("tg.ai.context")
@@ -29,7 +31,21 @@ async def lifespan(app: FastAPI):
             _context_logger.info(
                 "AI context log ON — set chat: ./scripts/ai-log-chat.sh <chat-id>"
             )
+
+    stop_event = asyncio.Event()
+    worker_task = asyncio.create_task(
+        embedding_worker(async_session_factory, stop_event),
+        name="rag-embedding-worker",
+    )
+
     yield
+
+    stop_event.set()
+    worker_task.cancel()
+    try:
+        await worker_task
+    except asyncio.CancelledError:
+        pass
     await engine.dispose()
 
 

@@ -61,7 +61,6 @@ export default function ChatMessage({
 
   return (
     <ChatAiMessage
-      textHtml={chat.textHtml}
       plainAi={chat.plainAi}
       modelTitle={chat.modelTitle}
       ctx={ctx}

@@ -105,7 +105,9 @@ export function refreshBodyCanvasCursor(canvas: HTMLElement, isView: boolean): v
 
 /** Фокус строки тела заметки по координатам клика внутри canvas. */
 export function focusNoteBodyAtPoint(canvas: HTMLElement, clientX: number, clientY: number): boolean {
-  const ta = canvas.querySelector<HTMLTextAreaElement>(".note-body-document-edit--mirror");
+  const ta = canvas.querySelector<HTMLTextAreaElement>(
+    ".note-body-document-edit--markdown, .note-body-document-edit--mirror",
+  );
   if (!ta) return false;
   placeCaretInTextarea(ta, clientX, clientY);
   return true;

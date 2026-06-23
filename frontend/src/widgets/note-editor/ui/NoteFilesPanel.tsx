@@ -6,6 +6,15 @@ import { NoteIconImage } from "@/shared/ui/icons/note-header-icons";
 
 const EMBED_MIME = "application/x-note-embed";
 
+function noteFileMarkdown(file: NoteFile): string {
+  const id = file.id ?? file.name;
+  const name = file.name;
+  if (isNoteImageFile(file)) {
+    return `![${name}](attachment:${id})`;
+  }
+  return `[${name}](attachment:${id})`;
+}
+
 function NoteFileItemIcon({ file }: { file: NoteFile }) {
   if (isNoteImageFile(file)) {
     return (
@@ -27,7 +36,7 @@ export default function NoteFilesPanel({ files, draggable = false }: Props) {
   return (
     <div className="note-files">
       <div className="note-files-label">Вложения</div>
-      <p className="note-files-hint">Перетащите в текст заметки — в разметке появится [имя файла]</p>
+      <p className="note-files-hint">Перетащите в текст заметки или скопируйте ссылку на вложение</p>
       {files.map((f, i) => {
         const label = (
           <>
@@ -40,8 +49,9 @@ export default function NoteFilesPanel({ files, draggable = false }: Props) {
           ? {
               draggable: true,
               onDragStart: (e: React.DragEvent) => {
-                e.dataTransfer.setData(EMBED_MIME, f.name);
-                e.dataTransfer.setData("text/plain", `[${f.name}]`);
+                const md = noteFileMarkdown(f);
+                e.dataTransfer.setData(EMBED_MIME, f.id ?? f.name);
+                e.dataTransfer.setData("text/plain", md);
                 e.dataTransfer.effectAllowed = "copy";
               },
             }

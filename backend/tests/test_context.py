@@ -90,7 +90,10 @@ def test_assemble_reply_messages_includes_primer_and_window() -> None:
         channel_profile=CHANNEL,
     )
 
-    assert messages[0] == {"role": "system", "content": "Системный промпт"}
+    # Base platform prompt is always present; user prompt is appended after it
+    assert messages[0]["role"] == "system"
+    assert "Системный промпт" in messages[0]["content"]
+    assert "TG Platform" in messages[0]["content"]
 
     # Primer: скрытая двойка — user с bundle, затем assistant-подтверждение.
     primer_user = messages[1]

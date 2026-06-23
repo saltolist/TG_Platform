@@ -1,12 +1,12 @@
 "use client";
 
+import ChatMarkdown from "@/shared/ui/ChatMarkdown";
 import AiMessageToolbar from "./AiMessageToolbar";
 import AiTypingIndicator from "./AiTypingIndicator";
 import ChatAiVariantNav from "./ChatAiVariantNav";
 import type { ChatMessageCtx } from "@/entities/message";
 
 type Props = {
-  textHtml: string;
   plainAi: string;
   modelTitle: string;
   ctx?: ChatMessageCtx;
@@ -19,7 +19,6 @@ type Props = {
 };
 
 export default function ChatAiMessage({
-  textHtml,
   plainAi,
   modelTitle,
   ctx,
@@ -40,7 +39,9 @@ export default function ChatAiMessage({
         {showTyping ? (
           <AiTypingIndicator />
         ) : (
-          <div className="msg-text" dangerouslySetInnerHTML={{ __html: textHtml }} />
+          <div className="msg-text">
+            <ChatMarkdown text={plainAi} />
+          </div>
         )}
         {showFooter ? (
           <div className="ai-msg-footer">

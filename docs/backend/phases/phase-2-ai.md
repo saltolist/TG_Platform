@@ -127,22 +127,30 @@
 
 ---
 
-### Шаг 4 — RAG (опционально, под флагом)
+### Шаг 4 — RAG (опционально, под флагом) ✅ реализовано
 
-**Файлы:** `backend/app/core/config.py`, `backend/alembic/versions/00X_*.py`,
-`backend/app/services/ai/rag.py` (новый), `docker-compose.yml`.
+**Файлы:**
+- `backend/app/core/config.py` — `rag_enabled`, `rag_top_k`, `rag_min_similarity`, `rag_max_note_chars`, `embedding_model_local`, `embedding_provider_byok`
+- `backend/alembic/versions/005_pgvector_rag_tables.py` — расширение `vector`, таблицы `note_embeddings` и `embedding_jobs`
+- `backend/app/services/ai/embeddings.py` — `LocalEmbeddingBackend` (fastembed/e5-small), `RemoteEmbeddingBackend` (OpenAI-compatible), `resolve_embedding_backend`
+- `backend/app/services/ai/rag.py` — `markdown_to_index_text`, `content_hash`, `index_note`, `remove_note`, `retrieve_top_k`, `format_rag_context`
+- `backend/app/services/ai/rag_worker.py` — durable queue + asyncio worker (SKIP LOCKED), `enqueue_note_job`, `enqueue_backfill`
+- `backend/app/services/ai/providers.py` — `EmbeddingProviderSpec`, `EMBEDDING_PROVIDER_SPECS`
+- `docker-compose.yml` — образ `pgvector/pgvector:pg16`
+- `docs/dev/note-format.md` — спецификация markdown-формата заметок
 
-1. Флаг `RAG_ENABLED` в env; при выключенном — retrieval пропускается полностью.
-2. Образ БД → `pgvector/pgvector:pg16`; миграция: расширение `vector` + таблица
-   эмбеддингов.
-3. Индексирование **глобальных заметок и заметок постов** при upsert.
-4. Retrieval top-k → дописывается к последнему `user`-сообщению (см.
-   [сборку контекста](../../dev/ai-context-assembly.md#3-rag-заметки-и-веб)).
-5. Активен только при наличии пригодной реальной модели (env-ключ для
-   презентации/демо, BYOK для реального).
+**Архитектура:**
+1. Флаг `RAG_ENABLED=1` в env; при выключенном — хуки, воркер и retrieval пропускаются полностью.
+2. Образ БД: `pgvector/pgvector:pg16`; миграция создаёт расширение `vector` (soft-skip без pgvector), таблицы `note_embeddings` и `embedding_jobs`.
+3. При сохранении заметки (global или в посте) — `enqueue_note_job` добавляет задачу в `embedding_jobs` в той же транзакции.
+4. Воркер (asyncio task, lifespan) обрабатывает задачи с `SELECT … FOR UPDATE SKIP LOCKED`.
+5. Embeddings: `intfloat/multilingual-e5-small` (384d, CPU, fastembed) по умолчанию; BYOK через OpenAI-compatible `/v1/embeddings` при `EMBEDDING_PROVIDER_BYOK`.
+6. Retrieval: cosine top-k → `format_rag_context` → дописывается к последнему `user`-сообщению (`assemble_reply_messages(rag_context=...)`).
+7. Активен только для реального LLM (не заглушки), только при `RAG_ENABLED=1`.
 
-**Тесты:** флаг off → retrieval не вызывается; флаг on без модели → пропуск;
-флаг on + модель → top-k попадает в промпт.
+**Тесты:** `tests/test_rag.py` (38 тестов) — `markdown_to_index_text`, `content_hash`, `retrieve_top_k` (мок pgvector), дедупликация чанков, RAG-инъекция в контекст.
+
+**Формат заметок:** тела заметок переведены на CommonMark + GFM-таблицы; вложения — через `attachment:<id>`. Миграция данных: `alembic/versions/004_notes_markdown_migration.py` + `scripts/migrate_notes_to_markdown.py`. Frontend: `NoteMarkdownRenderer` (react-markdown + remark-gfm), drag-and-drop вставка вложений.
 
 ---
 

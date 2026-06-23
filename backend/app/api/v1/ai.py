@@ -16,8 +16,10 @@ from app.schemas.requests import AiReplyRequest
 from app.services.ai import resolve_model_api_key
 from app.services.ai.context import assemble_reply_messages
 from app.services.ai.context_log import get_chat_filter, should_log_llm_context
+from app.services.ai.embeddings import resolve_embedding_backend
 from app.services.ai.keys import KeyResolution, KeySource, get_account_mode
 from app.services.ai.providers import get_provider_spec
+from app.services.ai.rag import format_rag_context, retrieve_top_k
 from app.services.ai.reply_orchestrator import (
     ReplyContext,
     load_reply_context,
@@ -184,6 +186,34 @@ async def ai_reply(
     ctx.provider_name = provider_name
     ctx.log_context = log_context
 
+    # RAG retrieval: only for real LLM (not stub), when RAG_ENABLED=1
+    settings = get_settings()
+    rag_context: str | None = None
+    if settings.rag_enabled:
+        try:
+            embedding_backend = resolve_embedding_backend(user, ai_profile, settings)
+            query_vec = await embedding_backend.embed_query(payload.text)
+            top_k_results = await retrieve_top_k(
+                session=session,
+                user_id=user.id,
+                scope=payload.scope,
+                query_vec=query_vec,
+                model_key=embedding_backend.model_key,
+                k=settings.rag_top_k,
+                min_similarity=settings.rag_min_similarity,
+                post_id=payload.post_id,
+            )
+            rag_context = await format_rag_context(
+                session=session,
+                user_id=user.id,
+                results=top_k_results,
+                scope=payload.scope,
+                post_data=post_data,
+            )
+        except Exception as exc:
+            import logging
+            logging.getLogger(__name__).warning("RAG retrieval skipped: %s", exc)
+
     messages = assemble_reply_messages(
         ai_profile=ai_profile,
         user_text=payload.text,
@@ -195,6 +225,7 @@ async def ai_reply(
         chat_meta=chat_meta,
         summary_catalog=summary_catalog,
         log_labels=ctx.log_labels if log_context else None,
+        rag_context=rag_context or None,
     )
     return StreamingResponse(
         stream_reply_with_meta(ctx, messages),

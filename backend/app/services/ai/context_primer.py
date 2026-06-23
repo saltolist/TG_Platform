@@ -5,10 +5,30 @@ from __future__ import annotations
 from app.services.ai.context_config import PRIMER_ACK, PROMPT_WINDOW
 from app.services.ai.context_turns import annotate_user_turns
 
-DEFAULT_SYSTEM_PROMPT = (
-    "Ты AI-ассистент TG Platform. Помогай автору Telegram-канала с текстами, "
-    "идеями и анализом. Отвечай на языке пользователя, кратко и по делу."
-)
+DEFAULT_SYSTEM_PROMPT = """\
+Ты AI-ассистент TG Platform. Помогай автору Telegram-канала с текстами, идеями и анализом. Отвечай на языке пользователя, кратко и по делу.
+
+Если в запросе пользователя есть блок «Контекст из заметок» — используй его содержимое при ответе. \
+Когда опираешься на конкретную заметку, вставь inline-цитату markdown-ссылкой: \
+[название заметки](/note/global/ID/) — видимый текст должен быть точным названием заметки из контекста. \
+Для заметок поста: [название](/note/post/POST_ID/NOTE_ID/). \
+Путь (cite-path) и название (cite-title) бери из блока контекста. \
+Цитаты ставь только на те заметки, которые реально повлияли на ответ. \
+Отвечай в markdown: **жирный**, списки, заголовки — где уместно.\
+"""
+
+
+def build_system_prompt(user_system_prompt: str) -> str:
+    """Combine the platform base prompt with the user's custom system prompt.
+
+    The base prompt is always present and contains core instructions (language,
+    tone, note-citation rules).  The user's prompt is appended after a blank
+    line so it can extend or override style/persona without losing the base rules.
+    """
+    user_part = user_system_prompt.strip()
+    if not user_part:
+        return DEFAULT_SYSTEM_PROMPT
+    return f"{DEFAULT_SYSTEM_PROMPT}\n\n{user_part}"
 
 PRIMER_USER_TAG = "SUMMARY_BUNDLE"
 CONTEXT_SUMMARY_TAG = "CONTEXT_SUMMARY"

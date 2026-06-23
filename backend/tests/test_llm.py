@@ -63,7 +63,9 @@ def test_build_reply_messages_uses_profile_system_prompt() -> None:
         scope="global",
     )
     assert messages[0]["role"] == "system"
-    assert messages[0]["content"] == "Custom system"
+    # User prompt is appended after the base platform prompt
+    assert "Custom system" in messages[0]["content"]
+    assert "TG Platform" in messages[0]["content"]
     # Primer: скрытый user с bundle, затем assistant-подтверждение.
     assert messages[1]["role"] == "user"
     assert "SUMMARY_BUNDLE:" in messages[1]["content"]

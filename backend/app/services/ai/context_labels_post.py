@@ -42,10 +42,10 @@ from app.services.ai.context_labels import (
     reconcile_rolling_summary_fields,
 )
 from app.services.ai.context_primer import (
-    DEFAULT_SYSTEM_PROMPT,
     PRIMER_ACK,
     build_dialog_messages,
     build_primer_user_content,
+    build_system_prompt,
     take_prompt_window,
 )
 from app.services.ai.context_turns import annotate_user_turns, compute_window_user_turns
@@ -826,7 +826,7 @@ def assemble_reply_messages_from_post_labels(
     if latest_local <= 0 and latest_global <= 0:
         return None
 
-    system_prompt = str(ai_profile.get("systemPrompt") or "").strip() or DEFAULT_SYSTEM_PROMPT
+    system_prompt = build_system_prompt(str(ai_profile.get("systemPrompt") or ""))
     raw_pairs = linearize_for_llm(list(history or []))
     valid_pairs = filter_alternating_roles(raw_pairs)
     trimmed = user_text.strip()

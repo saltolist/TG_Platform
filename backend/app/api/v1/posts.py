@@ -12,6 +12,7 @@ from app.schemas.resources import PostIn
 from app.services.ai.chat_history import merge_history_stamps
 from app.services.ai.context_meta import apply_rolling_summary_reconcile_to_chat_data
 from app.services.ai.summary_catalog import catalog_from_profile, register_local_summary_version
+from app.services.ai.rag_worker import enqueue_note_job
 from app.services.profile_defaults import empty_channel_profile, empty_telegram_profile
 
 router = APIRouter(prefix="/posts", tags=["Posts"])
@@ -115,6 +116,15 @@ async def update_post(
         session.add(profile)
 
     post.data = merged
+    # Enqueue RAG indexing for any notes present in the patch
+    effective_post_id = str(merged.get("id") or post_id)
+    if isinstance(patch.get("notes"), list):
+        for note in patch["notes"]:
+            if isinstance(note, Mapping) and note.get("id"):
+                await enqueue_note_job(
+                    session, user.id, "upsert", "post",
+                    str(note["id"]), effective_post_id,
+                )
     await session.commit()
     return merged
 

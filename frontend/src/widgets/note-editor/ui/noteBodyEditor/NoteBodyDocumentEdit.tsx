@@ -1,12 +1,13 @@
 "use client";
 
-import { useCallback, useEffect, useRef, type ReactNode } from "react";
+import { useCallback, useEffect, useRef } from "react";
 
 import {
   focusNoteBodyAtPoint,
   shouldHandleBodyCanvasPointerDown,
 } from "@/widgets/note-editor/lib/noteBodyCanvasFocus";
-import { splitLineHighlightParts } from "@/shared/lib/noteEmbeds/lineHighlight";
+
+const EMBED_MIME = "application/x-note-embed";
 
 type Props = {
   body: string;
@@ -21,25 +22,11 @@ function autoGrow(el: HTMLTextAreaElement) {
   el.style.height = `${Math.max(contentHeight, minHeight)}px`;
 }
 
-function renderHighlight(body: string): ReactNode {
-  const parts = splitLineHighlightParts(body);
-  if (parts.length === 0) {
-    return "\u00a0";
-  }
-
-  const nodes: ReactNode[] = [];
-  parts.forEach((part, index) => {
-    if (part.type === "embed") {
-      nodes.push(
-        <span key={`embed-${index}`} className="note-embed-token">
-          {part.value}
-        </span>,
-      );
-      return;
-    }
-    nodes.push(part.value);
-  });
-  return nodes;
+/** Insert text at the textarea caret position. */
+function insertAtCaret(el: HTMLTextAreaElement, text: string): string {
+  const start = el.selectionStart ?? el.value.length;
+  const end = el.selectionEnd ?? el.value.length;
+  return el.value.slice(0, start) + text + el.value.slice(end);
 }
 
 export default function NoteBodyDocumentEdit({ body, onChange }: Props) {
@@ -59,6 +46,26 @@ export default function NoteBodyDocumentEdit({ body, onChange }: Props) {
     focusNoteBodyAtPoint(canvas, e.clientX, e.clientY);
   }, []);
 
+  const handleDragOver = useCallback((e: React.DragEvent) => {
+    if (e.dataTransfer.types.includes(EMBED_MIME) || e.dataTransfer.types.includes("text/plain")) {
+      e.preventDefault();
+      e.dataTransfer.dropEffect = "copy";
+    }
+  }, []);
+
+  const handleDrop = useCallback(
+    (e: React.DragEvent<HTMLTextAreaElement>) => {
+      const mdText = e.dataTransfer.getData("text/plain");
+      if (!mdText) return;
+      e.preventDefault();
+      const el = e.currentTarget;
+      el.focus();
+      const newBody = insertAtCaret(el, mdText);
+      onChange(newBody);
+    },
+    [onChange],
+  );
+
   return (
     <div className="note-body-document note-body-document--edit">
       <div
@@ -66,16 +73,16 @@ export default function NoteBodyDocumentEdit({ body, onChange }: Props) {
         className="note-body-document-edit-stack"
         onMouseDown={handleStackMouseDown}
       >
-        <div className="note-body-document-edit-highlight" aria-hidden>
-          {renderHighlight(body)}
-        </div>
         <textarea
           ref={textareaRef}
-          className="note-body-document-edit note-body-document-edit--mirror"
+          className="note-body-document-edit note-body-document-edit--markdown"
           value={body}
           rows={1}
           spellCheck
+          placeholder="Заметка в формате Markdown…"
           onChange={(e) => onChange(e.target.value)}
+          onDragOver={handleDragOver}
+          onDrop={handleDrop}
         />
       </div>
     </div>

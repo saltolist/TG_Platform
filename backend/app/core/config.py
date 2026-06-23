@@ -58,6 +58,21 @@ class Settings(BaseSettings):
     # Chat id for LLM debug logs: gc1, post chat id, or post:postId:chatId
     ai_context_log_chat: str = ""
 
+    # RAG parameters
+    rag_top_k: int = 4
+    # Minimum cosine similarity [0, 1] for a note to be included in retrieval results.
+    # MiniLM models typically score 0.35–0.55 for relevant hits; e5 models score higher.
+    rag_min_similarity: float = 0.38
+    # Hard cap on note text fed to the embedder (chars); long notes are chunked
+    rag_max_note_chars: int = 4000
+
+    # Embeddings configuration
+    # Local model name for fastembed (must be in TextEmbedding.list_supported_models())
+    embedding_model_local: str = "sentence-transformers/paraphrase-multilingual-MiniLM-L12-v2"
+    # Optional BYOK embeddings provider override (display name, e.g. "OpenAI")
+    # When set, the user's embeddings key for this provider is used; otherwise local model.
+    embedding_provider_byok: str = ""
+
     @field_validator("rag_enabled", "ai_context_log", mode="before")
     @classmethod
     def _parse_bool_fields(cls, value: Any) -> bool:

@@ -38,8 +38,9 @@ def assemble_reply_messages(
     chat_meta: Mapping[str, Any] | None = None,
     summary_catalog: Mapping[str, Any] | None = None,
     log_labels: dict[int, str] | None = None,
+    rag_context: str | None = None,
 ) -> list[dict[str, str]]:
-    """Build OpenAI-compatible messages: system → primer → dialog window."""
+    """Build OpenAI-compatible messages: system → primer → dialog window [→ RAG]."""
     post = post_data if scope == "post" else None
     post_id = str(post.get("id") or "") if isinstance(post, Mapping) and post.get("id") else None
 
@@ -57,7 +58,7 @@ def assemble_reply_messages(
             post=post,
         )
 
-    return assemble_reply_messages_from_labels(
+    messages = assemble_reply_messages_from_labels(
         ai_profile=ai_profile,
         user_text=user_text,
         scope=scope,
@@ -67,4 +68,16 @@ def assemble_reply_messages(
         post_id=post_id if scope == "post" else None,
         log_labels=log_labels,
     )
+
+    if rag_context:
+        # Append RAG context to the last user message
+        for i in range(len(messages) - 1, -1, -1):
+            if messages[i]["role"] == "user":
+                messages[i] = {
+                    "role": "user",
+                    "content": messages[i]["content"] + "\n\n" + rag_context,
+                }
+                break
+
+    return messages
 

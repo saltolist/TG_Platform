@@ -11,10 +11,10 @@ from app.services.ai.chat_history import (
     linearize_for_llm,
 )
 from app.services.ai.context_primer import (
-    DEFAULT_SYSTEM_PROMPT,
     PRIMER_ACK,
     build_dialog_messages,
     build_primer_user_content,
+    build_system_prompt,
     take_prompt_window,
 )
 from app.services.ai.context_config import SUMMARY_BUNDLE_CATCHUP_MESSAGES
@@ -1322,7 +1322,7 @@ def assemble_reply_messages_from_labels(
     if not global_versions:
         return None
 
-    system_prompt = str(ai_profile.get("systemPrompt") or "").strip() or DEFAULT_SYSTEM_PROMPT
+    system_prompt = build_system_prompt(str(ai_profile.get("systemPrompt") or ""))
     raw_pairs = linearize_for_llm(list(history or []))
     valid_pairs = filter_alternating_roles(raw_pairs)
     trimmed = user_text.strip()
