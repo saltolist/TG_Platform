@@ -18,13 +18,19 @@ from app.services.ai.context_label import (
     resolve_turn_label,
 )
 from app.services.ai.context_label import format_context_label, parse_context_label
-from app.services.ai.context_labels import (
+from app.services.ai.context_label_shared import (
     _find_label_thread_parent,
+    _fork_message_for_thread_key,
     _is_edit_fork_at_turn,
     _lock_edit_fork_head,
     _merge_fork_metadata,
     _merge_pending_queues,
+    _path_indices,
     _pending_queue_from_stamps,
+    _pending_queue_from_state,
+    _sync_legacy_pending_fields,
+)
+from app.services.ai.context_labels import (
     advance_label_thread_after_reply,
     empty_label_thread_state,
     flatten_label_thread_meta,
@@ -34,7 +40,6 @@ from app.services.ai.context_labels import (
     plan_context_label_for_turn,
     primer_head_from_stamps,
     reconcile_rolling_summary_fields,
-    _sync_legacy_pending_fields,
 )
 from app.services.ai.context_primer import (
     DEFAULT_SYSTEM_PROMPT,
@@ -117,59 +122,6 @@ def _is_fresh_post_label_thread(state: Mapping[str, Any]) -> bool:
         return False
     return True
 
-
-def _path_indices(path_str: str) -> list[int]:
-    return [int(part) for part in path_str.split(".") if part]
-
-
-def _fork_message_for_thread_key(
-    history: list[Mapping[str, Any]] | None,
-    thread_key: str,
-) -> Mapping[str, Any] | None:
-    """User fork message that created ``thread_key`` (last comma segment)."""
-    if not history or not thread_key or "@" not in thread_key:
-        return None
-    segments = thread_key.split(",")
-    parsed: list[tuple[str, int]] = []
-    for segment in segments:
-        if "@" not in segment:
-            return None
-        path_part, branch_part = segment.rsplit("@", 1)
-        try:
-            parsed.append((path_part, int(branch_part)))
-        except ValueError:
-            return None
-    path0, _ = parsed[0]
-    head_indices = _path_indices(path0)
-    if not head_indices:
-        return None
-    if head_indices[0] >= len(history):
-        return None
-    message = history[head_indices[0]]
-    if not isinstance(message, Mapping):
-        return None
-    if len(parsed) == 1:
-        return message
-    for index in range(1, len(parsed)):
-        _, prev_branch = parsed[index - 1]
-        path_part, _ = parsed[index]
-        cont_indices = _path_indices(path_part)
-        if not cont_indices:
-            return None
-        cont_idx = cont_indices[-1]
-        branches = message.get("userBranches")
-        if not isinstance(branches, list) or prev_branch >= len(branches):
-            return None
-        branch = branches[prev_branch]
-        if not isinstance(branch, Mapping):
-            return None
-        continuation = branch.get("continuation")
-        if not isinstance(continuation, list) or cont_idx >= len(continuation):
-            return None
-        message = continuation[cont_idx]
-        if not isinstance(message, Mapping):
-            return None
-    return message
 
 
 def _fork_turn_for_thread_key(
@@ -414,31 +366,6 @@ def _maturation_state_for_post_layer(
         merged = _sync_legacy_pending_fields(merged)
     return merged
 
-
-def _maturation_state_for_post_layer_assembly(
-    stored: Mapping[str, Any],
-    synthetic_history: list[Mapping[str, Any]] | None,
-    *,
-    user_turn_count: int,
-    source_history: list[Mapping[str, Any]] | None = None,
-) -> dict[str, Any]:
-    merged = maturation_state_for_assembly(
-        stored,
-        synthetic_history,
-        user_turn_count=user_turn_count,
-    )
-    fork_head = int(stored.get("fork_branch_zero_head") or 0)
-    head = int(merged.get("head_version") or 0)
-    if source_history and _is_edit_fork_at_turn(source_history, user_turn_count):
-        merged = _lock_edit_fork_head(
-            merged,
-            history=source_history,
-            user_turn_count=user_turn_count,
-        )
-    elif fork_head > 0 and head > fork_head:
-        merged = {**merged, "head_version": fork_head}
-        merged = _sync_legacy_pending_fields(merged)
-    return merged
 
 
 def _post_state_from_layer_states(

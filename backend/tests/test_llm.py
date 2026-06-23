@@ -211,7 +211,7 @@ async def test_ai_reply_llm_stream_with_mocked_http(
         yield format_sse_data(" LLM")
 
     settings = Settings(deepseek_api_key="sk-env-deepseek")
-    monkeypatch.setattr("app.api.v1.ai.stream_llm_sse", fake_stream_llm_sse)
+    monkeypatch.setattr("app.services.ai.reply_orchestrator.stream_llm_sse", fake_stream_llm_sse)
     monkeypatch.setattr("app.api.v1.ai.get_settings", lambda: settings)
     monkeypatch.setattr("app.services.ai.keys.get_settings", lambda: settings)
 
@@ -258,7 +258,7 @@ async def test_ai_reply_request_api_key_overrides_profile_for_demo(
         yield format_sse_data("BYOK")
 
     settings = Settings(openai_api_key="", deepseek_api_key="")
-    monkeypatch.setattr("app.api.v1.ai.stream_llm_sse", fake_stream_llm_sse)
+    monkeypatch.setattr("app.services.ai.reply_orchestrator.stream_llm_sse", fake_stream_llm_sse)
     monkeypatch.setattr("app.api.v1.ai.get_settings", lambda: settings)
     monkeypatch.setattr("app.services.ai.keys.get_settings", lambda: settings)
 
@@ -310,7 +310,7 @@ async def test_ai_reply_uses_client_provider_when_overlay_differs_from_db(
         yield format_sse_data("DeepSeek OK")
 
     settings = Settings(openai_api_key="", deepseek_api_key="")
-    monkeypatch.setattr("app.api.v1.ai.stream_llm_sse", fake_stream_llm_sse)
+    monkeypatch.setattr("app.services.ai.reply_orchestrator.stream_llm_sse", fake_stream_llm_sse)
     monkeypatch.setattr("app.api.v1.ai.get_settings", lambda: settings)
     monkeypatch.setattr("app.services.ai.keys.get_settings", lambda: settings)
 

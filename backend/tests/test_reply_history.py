@@ -2,7 +2,7 @@ import uuid
 
 import pytest
 
-from app.api.v1.ai import _load_reply_context, _prefers_server_chat_history
+from app.services.ai.reply_orchestrator import load_reply_context as _load_reply_context, prefers_server_chat_history as _prefers_server_chat_history
 from app.db.models import GlobalChat
 from app.schemas.requests import AiReplyRequest
 from tests.conftest import TestSessionLocal, sample_global_chat
