@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 
 import {
   citationChipLabel,
+  detachNoteCitations,
   isNoteCitationHref,
   resolveNoteCitationHref,
 } from "./noteCitation";
@@ -32,6 +33,26 @@ describe("isNoteCitationHref", () => {
     expect(isNoteCitationHref("/note/global/x/")).toBe(true);
     expect(isNoteCitationHref("note:global/x")).toBe(true);
     expect(isNoteCitationHref("https://example.com")).toBe(false);
+  });
+});
+
+describe("detachNoteCitations", () => {
+  it("moves embedded citation to sentence end", () => {
+    expect(detachNoteCitations("В [Работа](/note/global/1/) заметке сказано.")).toBe(
+      "В заметке сказано.[Работа](/note/global/1/)",
+    );
+  });
+
+  it("keeps citation already at sentence end", () => {
+    expect(detachNoteCitations("Нужно сделать X.[Работа](/note/global/1/)")).toBe(
+      "Нужно сделать X.[Работа](/note/global/1/)",
+    );
+  });
+
+  it("collects multiple citations at sentence end", () => {
+    expect(
+      detachNoteCitations("Текст [A](/note/global/1/) и [B](/note/global/2/) здесь."),
+    ).toBe("Текст и здесь.[A](/note/global/1/)[B](/note/global/2/)");
   });
 });
 

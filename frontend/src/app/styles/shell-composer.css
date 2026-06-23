@@ -733,19 +733,28 @@
 .chat-markdown-link:hover {
   opacity: 0.85;
 }
-/* Perplexity-style inline citation chips */
+/* Footnote-style citation markers (detached from sentence text) */
+.chat-citation-sup {
+  display: inline;
+  margin: 0;
+  padding: 0;
+  font-size: inherit;
+  font-weight: inherit;
+  line-height: 0;
+  vertical-align: super;
+  text-decoration: none;
+}
 .chat-citation-chip {
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
+  display: inline-block;
   max-width: 9.5em;
   min-height: 1.15em;
-  margin: 0 0.12em;
+  margin: 0 0 0 0.1em;
   padding: 0.1em 0.35em;
   font-size: 0.68em;
   font-weight: 600;
   line-height: 1.15;
-  vertical-align: super;
+  vertical-align: baseline;
+  text-align: start;
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;

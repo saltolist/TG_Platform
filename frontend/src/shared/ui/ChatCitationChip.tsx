@@ -8,17 +8,17 @@ type Props = {
   title?: string;
 };
 
-/** Perplexity-style inline citation chip — clickable, opens the note. */
+/** Footnote-style citation chip — references source, not part of sentence text. */
 export default function ChatCitationChip({ href, label, title }: Props) {
   const display = label.trim() || "Заметка";
   const fullTitle = title?.trim() || display;
-  const tooltip = fullTitle !== display ? fullTitle : "Открыть заметку";
+  const tooltip = fullTitle !== display ? fullTitle : "Источник: заметка";
   return (
     <Link
       href={href}
       className="chat-citation-chip"
       title={tooltip}
-      aria-label={`Открыть заметку: ${fullTitle}`}
+      aria-label={`Источник: ${fullTitle}`}
     >
       {display}
     </Link>

@@ -6,6 +6,7 @@ import remarkGfm from "remark-gfm";
 
 import {
   citationChipLabel,
+  detachNoteCitations,
   isNoteCitationHref,
   resolveNoteCitationHref,
 } from "@/shared/lib/noteCitation";
@@ -40,7 +41,11 @@ function ChatMarkdownLink({ href, children }: { href?: string; children?: ReactN
     const rawTitle = linkChildrenToText(children);
     const label = citationChipLabel(rawTitle);
     const fullTitle = rawTitle.trim() || undefined;
-    return <ChatCitationChip href={noteHref} label={label} title={fullTitle} />;
+    return (
+      <sup className="chat-citation-sup" role="doc-noteref">
+        <ChatCitationChip href={noteHref} label={label} title={fullTitle} />
+      </sup>
+    );
   }
 
   if (href.startsWith("/") || href.startsWith("http://") || href.startsWith("https://")) {
@@ -60,7 +65,8 @@ function ChatMarkdownLink({ href, children }: { href?: string; children?: ReactN
 }
 
 export default function ChatMarkdown({ text, className }: Props) {
-  if (!text.trim()) return null;
+  const prepared = detachNoteCitations(text);
+  if (!prepared.trim()) return null;
 
   return (
     <div className={`chat-markdown${className ? ` ${className}` : ""}`}>
@@ -87,7 +93,7 @@ export default function ChatMarkdown({ text, className }: Props) {
           ),
         }}
       >
-        {text}
+        {prepared}
       </ReactMarkdown>
     </div>
   );
