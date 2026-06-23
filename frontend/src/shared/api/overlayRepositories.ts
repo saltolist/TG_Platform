@@ -185,6 +185,7 @@ function overlayProfile(inner: ProfileRepository): ProfileRepository {
       return normalized;
     },
     revealAiModelApiKey: (modelId, field) => inner.revealAiModelApiKey(modelId, field),
+    revealTelegramSecret: (field) => inner.revealTelegramSecret(field),
     getTelegram: async () => {
       const base = normalizeTelegramProfileConfig(await inner.getTelegram());
       if (!isOverlayAccount()) return base;

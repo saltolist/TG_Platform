@@ -30,10 +30,9 @@ export default function TelegramBlock({ active = true }: { active?: boolean }) {
           apiIdMissing={tg.apiIdMissing}
           apiHashMissing={tg.apiHashMissing}
           credentialsFlashNonce={tg.credentialsFlashNonce}
-          apiHashVisible={tg.apiHashVisible}
+          saving={tg.savingCredentials}
           onApiIdChange={(apiId) => tg.update({ apiId })}
           onApiHashChange={(apiHash) => tg.update({ apiHash })}
-          onToggleApiHashVisible={() => tg.setApiHashVisible((v) => !v)}
           onSave={tg.saveApiCredentials}
           onCancel={tg.cancelApiCredentials}
         />
@@ -67,10 +66,9 @@ export default function TelegramBlock({ active = true }: { active?: boolean }) {
       <TelegramOmnibotSection
         cfg={tg.cfg}
         isBotConnected={tg.isBotConnected}
-        botApiTokenVisible={tg.botApiTokenVisible}
         addBotDisabled={tg.addBotDisabled}
+        connecting={tg.connectingBot}
         onBotTokenChange={(botApiToken) => tg.update({ botApiToken })}
-        onToggleBotTokenVisible={() => tg.setBotApiTokenVisible((v) => !v)}
         onConnectBot={tg.connectBot}
       />
     </div>

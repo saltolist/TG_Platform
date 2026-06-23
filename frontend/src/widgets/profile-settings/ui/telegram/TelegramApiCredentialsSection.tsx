@@ -1,9 +1,10 @@
 "use client";
 
 import { useRef, type ReactNode } from "react";
-import ProfileEyeIcon from "@/widgets/profile-settings/ui/ProfileEyeIcon";
 import type { TelegramProfileConfig } from "@/shared/types";
 import { useModSaveUndo } from "@/shared/lib/hooks/useModSaveUndo";
+import TelegramSecretCopyButton from "@/widgets/profile-settings/ui/telegram/TelegramSecretCopyButton";
+import { useSecretFieldEdit } from "@/widgets/profile-settings/ui/telegram/useSecretFieldEdit";
 
 type Props = {
   active?: boolean;
@@ -12,11 +13,10 @@ type Props = {
   apiIdMissing: boolean;
   apiHashMissing: boolean;
   credentialsFlashNonce: number;
-  apiHashVisible: boolean;
+  saving?: boolean;
   onApiIdChange: (apiId: string) => void;
   onApiHashChange: (apiHash: string) => void;
-  onToggleApiHashVisible: () => void;
-  onSave: () => void;
+  onSave: () => void | Promise<void>;
   onCancel: () => void;
 };
 
@@ -52,15 +52,15 @@ export default function TelegramApiCredentialsSection({
   apiIdMissing,
   apiHashMissing,
   credentialsFlashNonce,
-  apiHashVisible,
+  saving = false,
   onApiIdChange,
   onApiHashChange,
-  onToggleApiHashVisible,
   onSave,
   onCancel,
 }: Props) {
   const scopeRef = useRef<HTMLDivElement | null>(null);
   useModSaveUndo({ active, dirty: apiChangedFromSaved, onSave, scopeRef });
+  const apiHashField = useSecretFieldEdit(cfg.apiHash, onApiHashChange);
 
   return (
     <div
@@ -86,20 +86,16 @@ export default function TelegramApiCredentialsSection({
         <div className="telegram-input-wrap telegram-api-hash-input-wrap">
           <input
             className="profile-input profile-input-explicit telegram-input telegram-api-hash-input telegram-input-with-toggle"
-            type={apiHashVisible ? "text" : "password"}
-            value={cfg.apiHash}
+            type="text"
             placeholder="••••••••••••••••"
-            onChange={(e) => onApiHashChange(e.target.value)}
+            {...apiHashField.inputProps}
           />
-          <button
-            type="button"
-            className="profile-api-key-toggle"
-            aria-label={apiHashVisible ? "Скрыть api_hash" : "Показать api_hash"}
-            title={apiHashVisible ? "Скрыть api_hash" : "Показать api_hash"}
-            onClick={onToggleApiHashVisible}
-          >
-            <ProfileEyeIcon hidden={!apiHashVisible} />
-          </button>
+          <TelegramSecretCopyButton
+            value={cfg.apiHash}
+            field="apiHash"
+            disabled={!cfg.apiHash.trim()}
+            ariaLabel="Скопировать api_hash"
+          />
         </div>
       </div>
 
@@ -107,15 +103,15 @@ export default function TelegramApiCredentialsSection({
         <button
           className="btn btn-primary telegram-api-action-btn"
           type="button"
-          disabled={!apiChangedFromSaved}
-          onClick={onSave}
+          disabled={!apiChangedFromSaved || saving}
+          onClick={() => void onSave()}
         >
           Сохранить
         </button>
         <button
           className="btn btn-ghost telegram-api-action-btn telegram-api-action-btn--cancel"
           type="button"
-          disabled={!apiChangedFromSaved}
+          disabled={!apiChangedFromSaved || saving}
           onClick={onCancel}
         >
           Отменить

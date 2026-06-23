@@ -148,6 +148,11 @@ export function createHttpRepositories(): RepositoryBundle {
           method: "PUT",
           body: config,
         }).then(normalizeTelegramProfileConfig),
+      revealTelegramSecret: (field) =>
+        apiRequest<{ value: string }>(apiV1Path("profile/telegram/reveal-secret"), {
+          method: "POST",
+          body: { field },
+        }),
     },
     assistant: {
       streamGlobalChatReply: (text, onChunk, options) =>

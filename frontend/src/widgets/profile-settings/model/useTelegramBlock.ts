@@ -24,7 +24,7 @@ import {
 } from "@/app/model/store";
 import type { TelegramProfileConfig } from "@/shared/types";
 import { confirmDialog } from "@/shared/ui/dialog";
-import { showToast } from "@/shared/ui/toast";
+import { reportMutationError, showToast } from "@/shared/ui/toast";
 
 const RESEND_COOLDOWN_SECONDS = 60;
 
@@ -38,8 +38,8 @@ export function useTelegramBlock() {
   const queryClient = useQueryClient();
   const [code, setCode] = useState("");
   const [syncing, setSyncing] = useState(false);
-  const [apiHashVisible, setApiHashVisible] = useState(false);
-  const [botApiTokenVisible, setBotApiTokenVisible] = useState(false);
+  const [savingCredentials, setSavingCredentials] = useState(false);
+  const [connectingBot, setConnectingBot] = useState(false);
   const [resendCooldownSec, setResendCooldownSec] = useState(0);
   const [credentialsFlashNonce, setCredentialsFlashNonce] = useState(0);
   const syncTimerRef = useRef<number | null>(null);
@@ -234,8 +234,8 @@ export function useTelegramBlock() {
     }, 1800);
   };
 
-  const connectBot = () => {
-    if (addBotDisabled) return;
+  const connectBot = async () => {
+    if (addBotDisabled || connectingBot) return;
     const tokenHint = botTokenTrimmed.slice(0, 8);
     const next: Partial<TelegramProfileConfig> = {
       botStatus: "connected",
@@ -243,8 +243,21 @@ export function useTelegramBlock() {
       botLastActivity: new Date().toISOString(),
       botMessageCount: 0,
     };
+    const merged = { ...cfg, ...next };
+    const previousSnapshot = telegramSettingsSavedSnapshot;
     update(next);
-    applyPatch({ telegramSettingsSavedSnapshot: telegramConfigSnapshot({ ...cfg, ...next }) });
+    setConnectingBot(true);
+    try {
+      const saved = await updateTelegramProfile.mutateAsync(merged);
+      update(saved);
+      applyPatch({ telegramSettingsSavedSnapshot: telegramConfigSnapshot(saved) });
+    } catch (error) {
+      update(cfg);
+      applyPatch({ telegramSettingsSavedSnapshot: previousSnapshot });
+      reportMutationError(error, "Не удалось сохранить токен бота");
+    } finally {
+      setConnectingBot(false);
+    }
   };
 
   const reset = () => {
@@ -277,9 +290,23 @@ export function useTelegramBlock() {
     });
   };
 
-  const saveApiCredentials = () => {
-    if (!apiChangedFromSaved) return;
-    applyPatch({ telegramSettingsSavedSnapshot: telegramConfigSnapshot(cfg) });
+  const saveApiCredentials = async () => {
+    if (!apiChangedFromSaved || savingCredentials) return;
+    const previousSnapshot = telegramSettingsSavedSnapshot;
+    applyPatch({ telegramSettingsSavedSnapshot: currentSnap });
+    setSavingCredentials(true);
+    try {
+      const saved = await updateTelegramProfile.mutateAsync(cfg);
+      const savedSnap = telegramConfigSnapshot(saved);
+      update(saved);
+      applyPatch({ telegramSettingsSavedSnapshot: savedSnap });
+      showToast({ message: "API-данные Telegram сохранены", variant: "info" });
+    } catch (error) {
+      applyPatch({ telegramSettingsSavedSnapshot: previousSnapshot });
+      reportMutationError(error, "Не удалось сохранить API-данные");
+    } finally {
+      setSavingCredentials(false);
+    }
   };
 
   const cancelApiCredentials = () => {
@@ -296,10 +323,8 @@ export function useTelegramBlock() {
     syncing,
     code,
     setCode,
-    apiHashVisible,
-    setApiHashVisible,
-    botApiTokenVisible,
-    setBotApiTokenVisible,
+    savingCredentials,
+    connectingBot,
     resendCooldownSec,
     apiChangedFromSaved,
     apiIdMissing,

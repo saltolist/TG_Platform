@@ -50,6 +50,7 @@ export interface ProfileRepository {
   ): Promise<RevealAiModelApiKeyResponse>;
   getTelegram(): Promise<TelegramProfileConfig>;
   updateTelegram(config: TelegramProfileConfig): Promise<TelegramProfileConfig>;
+  revealTelegramSecret(field: string): Promise<{ value: string }>;
 }
 
 import type { ChatContextMeta } from "@/shared/api/schemas/chatContextMeta";

@@ -6,7 +6,12 @@ from app.core.deps import CurrentUser, CurrentWriter, DbSession
 from app.core.config import get_settings
 from app.db.models import Profile
 from app.core.constants import DEMO_CHANNEL_TITLE
-from app.schemas.requests import RevealAiModelApiKeyRequest, RevealAiModelApiKeyResponse
+from app.schemas.requests import (
+    RevealAiModelApiKeyRequest,
+    RevealAiModelApiKeyResponse,
+    RevealTelegramSecretRequest,
+    RevealTelegramSecretResponse,
+)
 from app.services.demo_channel import import_demo_kanal_posts, is_demo_channel_handle
 from app.services.ai.summary_catalog import (
     catalog_from_profile,
@@ -22,6 +27,11 @@ from app.services.ai.byok_profile import (
     encrypt_profile_keys,
     mask_profile_keys,
     reveal_model_api_key_from_profile,
+)
+from app.services.telegram.byok_telegram import (
+    encrypt_telegram_secrets,
+    mask_telegram_secrets,
+    reveal_telegram_secret,
 )
 
 router = APIRouter(prefix="/profile", tags=["Profile"])
@@ -102,9 +112,22 @@ async def put_ai(payload: dict[str, Any], user: CurrentWriter, session: DbSessio
 @router.get("/telegram/")
 async def get_telegram(user: CurrentUser, session: DbSession) -> dict[str, Any]:
     profile = await session.get(Profile, user.id)
-    if profile and profile.telegram:
-        return profile.telegram
-    return empty_telegram_profile()
+    stored = profile.telegram if profile and profile.telegram else empty_telegram_profile()
+    return mask_telegram_secrets(stored, get_settings())
+
+
+@router.post("/telegram/reveal-secret/", response_model=RevealTelegramSecretResponse)
+async def reveal_telegram_profile_secret(
+    payload: RevealTelegramSecretRequest,
+    user: CurrentUser,
+    session: DbSession,
+) -> RevealTelegramSecretResponse:
+    profile = await session.get(Profile, user.id)
+    stored = profile.telegram if profile and profile.telegram else {}
+    value = reveal_telegram_secret(stored, field=payload.field, settings=get_settings())
+    if not value:
+        raise HTTPException(status_code=404, detail="Secret not found for this field")
+    return RevealTelegramSecretResponse(value=value)
 
 
 @router.put("/telegram/")
@@ -115,7 +138,8 @@ async def put_telegram(
     previous = profile.telegram or {}
     was_connected = previous.get("channelStatus") == "connected"
 
-    profile.telegram = payload
+    settings = get_settings()
+    encrypted_payload = encrypt_telegram_secrets(payload, settings, previous_profile=previous)
 
     if (
         not was_connected
@@ -123,12 +147,13 @@ async def put_telegram(
         and is_demo_channel_handle(str(payload.get("channel", "")))
     ):
         count = await import_demo_kanal_posts(session, user.id)
-        payload = {
-            **payload,
-            "importedPosts": count,
-            "channelTitle": DEMO_CHANNEL_TITLE,
-        }
-        profile.telegram = payload
+        # Patch both the plaintext payload (for non-secret fields) and the
+        # encrypted copy (for secret fields already encrypted above).
+        patch = {"importedPosts": count, "channelTitle": DEMO_CHANNEL_TITLE}
+        payload = {**payload, **patch}
+        encrypted_payload = {**encrypted_payload, **patch}
+
+    profile.telegram = encrypted_payload
 
     channel = profile.channel if profile.channel else empty_channel_profile()
     telegram = profile.telegram if profile.telegram else empty_telegram_profile()
@@ -141,4 +166,4 @@ async def put_telegram(
         profile.summary_catalog = catalog
 
     await session.commit()
-    return payload
+    return mask_telegram_secrets(encrypted_payload, settings)

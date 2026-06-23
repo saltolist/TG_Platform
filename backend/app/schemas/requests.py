@@ -1,4 +1,4 @@
-from typing import Any, Literal
+from typing import Any, Literal, Optional
 
 from pydantic import BaseModel, ConfigDict, Field
 
@@ -46,6 +46,18 @@ class RevealAiModelApiKeyResponse(BaseModel):
     api_key: str = Field(serialization_alias="apiKey")
 
 
+class RevealTelegramSecretRequest(BaseModel):
+    model_config = ConfigDict(populate_by_name=True)
+
+    field: str
+
+
+class RevealTelegramSecretResponse(BaseModel):
+    model_config = ConfigDict(populate_by_name=True)
+
+    value: str
+
+
 __all__ = [
     "PostIn",
     "ReorderRequest",
@@ -54,4 +66,6 @@ __all__ = [
     "AiReplyResponse",
     "RevealAiModelApiKeyRequest",
     "RevealAiModelApiKeyResponse",
+    "RevealTelegramSecretRequest",
+    "RevealTelegramSecretResponse",
 ]

@@ -1,28 +1,29 @@
 "use client";
 
-import ProfileEyeIcon from "@/widgets/profile-settings/ui/ProfileEyeIcon";
 import type { TelegramProfileConfig } from "@/shared/types";
 import { formatStoredDate } from "@/shared/lib/helpers";
+import TelegramSecretCopyButton from "@/widgets/profile-settings/ui/telegram/TelegramSecretCopyButton";
+import { useSecretFieldEdit } from "@/widgets/profile-settings/ui/telegram/useSecretFieldEdit";
 
 type Props = {
   cfg: TelegramProfileConfig;
   isBotConnected: boolean;
-  botApiTokenVisible: boolean;
   addBotDisabled: boolean;
+  connecting?: boolean;
   onBotTokenChange: (token: string) => void;
-  onToggleBotTokenVisible: () => void;
-  onConnectBot: () => void;
+  onConnectBot: () => void | Promise<void>;
 };
 
 export default function TelegramOmnibotSection({
   cfg,
   isBotConnected,
-  botApiTokenVisible,
   addBotDisabled,
+  connecting = false,
   onBotTokenChange,
-  onToggleBotTokenVisible,
   onConnectBot,
 }: Props) {
+  const botTokenField = useSecretFieldEdit(cfg.botApiToken, onBotTokenChange);
+
   return (
     <div className="telegram-omnibot-section">
       <div className="telegram-omnibot-title">Омниканальный бот</div>
@@ -34,25 +35,21 @@ export default function TelegramOmnibotSection({
             <div className="telegram-input-wrap telegram-omnibot-token-wrap">
               <input
                 className="profile-input profile-input-explicit telegram-input telegram-input-with-toggle"
-                type={botApiTokenVisible ? "text" : "password"}
-                value={cfg.botApiToken}
+                type="text"
                 placeholder="••••••••••••••••"
-                onChange={(e) => onBotTokenChange(e.target.value)}
+                {...botTokenField.inputProps}
               />
-              <button
-                type="button"
-                className="profile-api-key-toggle"
-                aria-label={botApiTokenVisible ? "Скрыть API-токен" : "Показать API-токен"}
-                title={botApiTokenVisible ? "Скрыть API-токен" : "Показать API-токен"}
-                onClick={onToggleBotTokenVisible}
-              >
-                <ProfileEyeIcon hidden={!botApiTokenVisible} />
-              </button>
+              <TelegramSecretCopyButton
+                value={cfg.botApiToken}
+                field="botApiToken"
+                disabled={!cfg.botApiToken.trim()}
+                ariaLabel="Скопировать API-токен"
+              />
             </div>
             <button
               className="btn btn-ghost telegram-inline-button"
-              disabled={addBotDisabled}
-              onClick={onConnectBot}
+              disabled={addBotDisabled || connecting}
+              onClick={() => void onConnectBot()}
               type="button"
             >
               Добавить
@@ -68,25 +65,21 @@ export default function TelegramOmnibotSection({
             <div className="telegram-input-wrap">
               <input
                 className="profile-input profile-input-explicit telegram-input telegram-input-with-toggle"
-                type={botApiTokenVisible ? "text" : "password"}
-                value={cfg.botApiToken}
+                type="text"
                 placeholder="••••••••••••••••"
-                onChange={(e) => onBotTokenChange(e.target.value)}
+                {...botTokenField.inputProps}
               />
-              <button
-                type="button"
-                className="profile-api-key-toggle"
-                aria-label={botApiTokenVisible ? "Скрыть API-токен" : "Показать API-токен"}
-                title={botApiTokenVisible ? "Скрыть API-токен" : "Показать API-токен"}
-                onClick={onToggleBotTokenVisible}
-              >
-                <ProfileEyeIcon hidden={!botApiTokenVisible} />
-              </button>
+              <TelegramSecretCopyButton
+                value={cfg.botApiToken}
+                field="botApiToken"
+                disabled={!cfg.botApiToken.trim()}
+                ariaLabel="Скопировать API-токен"
+              />
             </div>
             <button
               className="btn btn-ghost telegram-inline-button"
-              disabled={addBotDisabled}
-              onClick={onConnectBot}
+              disabled={addBotDisabled || connecting}
+              onClick={() => void onConnectBot()}
               type="button"
             >
               Добавить

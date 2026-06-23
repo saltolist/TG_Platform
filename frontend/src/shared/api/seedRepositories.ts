@@ -140,6 +140,11 @@ export function createSeedRepositories(): RepositoryBundle {
         telegramProfile = config;
         return telegramProfile;
       },
+      async revealTelegramSecret(field) {
+        const value = (telegramProfile as Record<string, unknown>)[field];
+        if (!value || typeof value !== "string") throw new Error(`Secret not found: ${field}`);
+        return { value };
+      },
     },
     assistant: {
       async streamGlobalChatReply(text, onChunk, options) {
