@@ -18,6 +18,7 @@
 | Сессия | Telethon-сессия привязана к аккаунту (`TelegramProfileConfig`) |
 | Хранение сессии | В БД (зашифровано), не в файловой системе контейнера |
 | Бот | Опционально Telegram Bot API для уведомлений |
+| Секреты в профиле | `apiHash`, `botApiToken`, `sessionString` — Fernet at-rest (тот же `BYOK_ENCRYPTION_KEY`, что и для AI BYOK) |
 
 > Сид-аккаунты (презентация/демо) **не подключают реальный Telegram** — у них
 > данные канала остаются имитацией (overlay). Реальная интеграция — только для
@@ -27,6 +28,25 @@
 
 ## Шаги реализации
 
+### Шаг 0 — Шифрование credentials at-rest ✅ реализовано
+
+**Файлы:**
+- `backend/app/services/telegram/byok_telegram.py` — encrypt / mask / reveal
+- `backend/app/api/v1/profile.py` — `PUT /profile/telegram/` шифрует, `GET` маскирует
+- `POST /profile/telegram/reveal-secret/` — полное значение по полю (`apiHash`, `botApiToken`, `sessionString`)
+- `backend/alembic/versions/007_encrypt_profile_secrets_at_rest.py` — миграция данных
+- `frontend` — preview в полях, копирование через reveal-on-copy (`TelegramSecretCopyButton`)
+
+**Шифруются:** `apiHash`, `botApiToken`, `sessionString`.
+
+**Не шифруются:** `apiId`, `phone`, `channel`, статусы и метрики (не секреты).
+
+> Общий ключ шифрования: `BYOK_ENCRYPTION_KEY` (см. [Фаза 2, шаг 5](phase-2-ai.md#шаг-5--шифрование-ключей-at-rest--реализовано)).
+
+**Тесты:** `tests/test_byok_telegram_encryption.py`.
+
+---
+
 ### Шаг 1 — MTProto-авторизация
 
 **Эндпоинты:** `POST /api/v1/telegram/auth/*`.
@@ -35,7 +55,8 @@
    → сессия.
 2. Состояние авторизации синхронизировать с `TelegramProfileConfig.authStatus`
    (`idle` → `code-sent` → `authorized` → `connected`).
-3. Сессия шифруется и сохраняется в БД (привязка к `user_id`).
+3. Сессия шифруется и сохраняется в БД (привязка к `user_id`) — поле `sessionString`,
+   шифрование через `byok_telegram` (шаг 0).
 
 **Тесты:** мок Telethon-клиента; переходы статусов.
 
@@ -114,6 +135,10 @@ GET  /api/v1/analytics/top-posts
 - Реальный аккаунт подключает Telegram-канал через MTProto.
 - История импортируется; пост публикуется и планируется.
 - Метрики канала синхронизируются и отображаются в аналитике.
+- Telegram-секреты (`apiHash`, `botApiToken`) зашифрованы в БД; на фронт — preview.
+
+> CSP и продакшен-гигиена (`BYOK_ENCRYPTION_KEY`, KMS, ротация) — см.
+> [Фаза 2 — Безопасность, осталось сделать](phase-2-ai.md#безопасность--осталось-сделать).
 
 ---
 

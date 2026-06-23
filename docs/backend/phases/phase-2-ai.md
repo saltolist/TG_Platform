@@ -154,16 +154,33 @@
 
 ---
 
-### Шаг 5 — Шифрование ключей at-rest
+### Шаг 5 — Шифрование ключей at-rest ✅ реализовано
 
-**Файлы:** `backend/app/core/security.py` (или новый `crypto.py`),
-`backend/app/api/v1/profile.py`.
+**Файлы:**
+- `backend/app/core/crypto.py` — Fernet (`enc:v1:`), `encrypt_byok` / `decrypt_byok`
+- `backend/app/core/config.py` — `BYOK_ENCRYPTION_KEY`
+- `backend/app/services/ai/byok_profile.py` — encrypt / mask / reveal для `profiles.ai`
+- `backend/app/api/v1/profile.py` — `PUT /profile/ai/` шифрует, `GET` маскирует
+- `backend/alembic/versions/006_encrypt_byok_keys.py` — первая миграция данных
+- `backend/alembic/versions/007_encrypt_profile_secrets_at_rest.py` — все списки моделей + Telegram
+- `frontend` — preview в поле (`abc**********xyz`), копирование через reveal-on-copy
 
-1. BYOK-ключи реальных аккаунтов шифруются перед записью в Postgres (Fernet/KMS).
-2. Дешифровка только в момент резолва ключа на бэкенде.
-3. Миграция существующих значений (если есть).
+**Поведение:**
+1. BYOK-ключи реальных аккаунтов шифруются перед записью в Postgres (Fernet).
+2. При `GET` и ответе `PUT` на фронт уходят только preview-токены.
+3. Полный ключ — по `POST /profile/ai/reveal-key/` (только владелец аккаунта).
+4. Дешифровка только при резолве ключа на бэкенде (`keys.py`, `embeddings.py`).
+5. При сохранении preview-токена («не менять») значение восстанавливается из предыдущего
+   профиля по `id` модели и повторно шифруется (дозашифровка legacy plaintext).
+6. Пустой `BYOK_ENCRYPTION_KEY` — no-op (только dev/test).
 
-> Ссылки `env:<NAME>` шифровать не нужно — это не секрет.
+**Списки моделей:** `llmModels`, `webSearchModels`, `orchestratorModels`,
+`webReasonerModels`, `ragReasonerModels`, `visionModels`, `imageGenerationModels`,
+`embeddingsModel`.
+
+> Ссылки `env:<NAME>` и demo-фикстуры (`sk-openai-demo`, …) **не шифруются** — это не секреты.
+
+**Тесты:** `tests/test_byok_encryption.py`, `tests/test_migration_007_encrypt_profile_secrets.py`.
 
 ---
 
@@ -201,7 +218,34 @@
   (primer, bundle-версии, rolling summary, активная ветка).
 - Презентация/демо без env-ключей → заглушка; реальный аккаунт без ключа → `422`.
 - RAG включается/выключается флагом и корректно влияет на промпт.
-- BYOK-ключи зашифрованы в БД.
+- BYOK-ключи зашифрованы в БД; на фронт уходят только preview; reveal-on-copy работает.
+
+---
+
+## Безопасность — осталось сделать
+
+Текущая схема (шаг 5): маскирование + reveal-on-copy + Fernet at-rest. Ниже — задачи,
+которые **ещё не реализованы**.
+
+### CSP (отложено)
+
+- [ ] Настроить **Content-Security-Policy** на фронтенде (заголовки или meta).
+- Маскирование и reveal-on-copy **снижают** риск утечки ключей при XSS, но **не заменяют**
+  CSP: при внедрении вредоносного скрипта злоумышленник всё ещё может вызвать
+  `POST /profile/ai/reveal-key/` и `POST /profile/telegram/reveal-secret/` от имени
+  залогиненного пользователя.
+
+### Продакшен-гигиена (перед выкладкой в prod)
+
+- [ ] **Бэкап `BYOK_ENCRYPTION_KEY`** — без него все зашифрованные BYOK и Telegram-секреты
+  в БД **не расшифровать** (потеря ключа = потеря данных).
+- [ ] **Ротация ключа** — сейчас не реализована; потребуется скрипт re-encrypt всех
+  `enc:v1:` значений в `profiles.ai` и `profiles.telegram` новым Fernet-ключом.
+- [ ] **KMS / Vault** вместо env-переменной — для prod предпочтительнее, чем хранить
+  `BYOK_ENCRYPTION_KEY` в `.env` / docker-compose secrets.
+- [ ] **`.env` не в git** — server-side ключи (`DEEPSEEK_API_KEY`, `JWT_SECRET`,
+  `BYOK_ENCRYPTION_KEY`, …) только в локальных / CI secrets; в репозитории — только
+  `.env.example` с плейсхолдерами.
 
 ---
 
