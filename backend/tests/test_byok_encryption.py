@@ -161,21 +161,68 @@ class TestEncryptProfileKeys:
         result = encrypt_profile_keys(profile, s)
         assert result["llmModels"][0]["apiKey"] == enc
 
-    def test_preview_value_restores_from_previous(self):
+    def test_preview_value_restores_and_encrypts(self):
+        # If previous value was already encrypted, the result should also be
+        # encrypted and decrypt to the same plaintext (Fernet is non-deterministic).
         s = _settings()
         enc = encrypt_byok("sk-real", s)
         prev = self._make_profile(enc)
         new_payload = self._make_profile(mask_api_key_preview("sk-real"))
         result = encrypt_profile_keys(new_payload, s, previous_profile=prev)
-        assert result["llmModels"][0]["apiKey"] == enc
+        stored = result["llmModels"][0]["apiKey"]
+        assert stored.startswith(ENC_PREFIX)
+        assert decrypt_byok(stored, s) == "sk-real"
 
-    def test_masked_value_restores_from_previous(self):
+    def test_preview_value_with_plaintext_previous_gets_encrypted(self):
+        # Key was stored plaintext (e.g. written before BYOK_ENCRYPTION_KEY was set).
+        # On next save the client sends back a preview — old plaintext is restored
+        # and opportunistically encrypted so the DB value is no longer plaintext.
+        s = _settings()
+        prev = self._make_profile("sk-real")  # plaintext in previous
+        new_payload = self._make_profile(mask_api_key_preview("sk-real"))
+        result = encrypt_profile_keys(new_payload, s, previous_profile=prev)
+        stored = result["llmModels"][0]["apiKey"]
+        assert stored.startswith(ENC_PREFIX)
+        assert decrypt_byok(stored, s) == "sk-real"
+
+    def test_masked_value_restores_and_encrypts(self):
         s = _settings()
         enc = encrypt_byok("sk-real", s)
         prev = self._make_profile(enc)
         new_payload = self._make_profile(MASKED_VALUE)
         result = encrypt_profile_keys(new_payload, s, previous_profile=prev)
-        assert result["llmModels"][0]["apiKey"] == enc
+        stored = result["llmModels"][0]["apiKey"]
+        assert stored.startswith(ENC_PREFIX)
+        assert decrypt_byok(stored, s) == "sk-real"
+
+    def test_preview_restores_by_model_id_not_position(self):
+        # Models arrive in a different order than they were stored.
+        # Match must be by id, not positional index.
+        s = _settings()
+        enc_a = encrypt_byok("sk-key-A", s)
+        enc_b = encrypt_byok("sk-key-B", s)
+        prev = {
+            "llmModels": [
+                {"id": "model-A", "provider": "OpenAI", "model": "gpt-4o", "apiKey": enc_a},
+                {"id": "model-B", "provider": "DeepSeek", "model": "ds", "apiKey": enc_b},
+            ],
+            "webSearchModels": [],
+            "orchestratorModels": [],
+        }
+        # Client swapped the order and sent previews for both.
+        new_payload = {
+            "llmModels": [
+                {"id": "model-B", "provider": "DeepSeek", "model": "ds", "apiKey": mask_api_key_preview("sk-key-B")},
+                {"id": "model-A", "provider": "OpenAI", "model": "gpt-4o", "apiKey": mask_api_key_preview("sk-key-A")},
+            ],
+            "webSearchModels": [],
+            "orchestratorModels": [],
+        }
+        result = encrypt_profile_keys(new_payload, s, previous_profile=prev)
+        key_b = result["llmModels"][0]["apiKey"]
+        key_a = result["llmModels"][1]["apiKey"]
+        assert decrypt_byok(key_b, s) == "sk-key-B"
+        assert decrypt_byok(key_a, s) == "sk-key-A"
 
     def test_masked_value_without_previous_becomes_empty(self):
         profile = self._make_profile(MASKED_VALUE)

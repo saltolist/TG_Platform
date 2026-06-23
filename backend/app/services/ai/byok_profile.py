@@ -102,6 +102,11 @@ def _mask_key_for_response(api_key: str, settings: Settings | None) -> str:
     return mask_api_key_preview(api_key)
 
 
+def _build_prev_index(prev_models: list[dict[str, Any]]) -> dict[str, dict[str, Any]]:
+    """Return a mapping of model id → model dict for quick lookup."""
+    return {str(m.get("id", "")): m for m in prev_models if m.get("id")}
+
+
 def encrypt_profile_keys(
     profile: dict[str, Any],
     settings: Settings | None = None,
@@ -111,21 +116,29 @@ def encrypt_profile_keys(
     """Return a copy of *profile* with BYOK keys encrypted.
 
     When *previous_profile* is provided and a client sends a preview / legacy mask
-    as the key (meaning "don't change"), the original encrypted value is restored
-    from *previous_profile* instead of overwriting with the preview.
+    as the key (meaning "don't change"), the original value is restored from
+    *previous_profile* by model ``id`` (falling back to positional index) and then
+    always passed through :func:`_encrypt_key` so that previously-plaintext values
+    are opportunistically re-encrypted on next save.
     """
     result = copy.deepcopy(profile)
 
     for field in _LIST_FIELDS:
         models: list[dict[str, Any]] = result.get(field) or []
         prev_models: list[dict[str, Any]] = (previous_profile or {}).get(field) or []
+        prev_by_id = _build_prev_index(prev_models)
         for i, model in enumerate(models):
             raw = str(model.get("apiKey") or "")
             if is_api_key_preview(raw):
-                if i < len(prev_models):
-                    model["apiKey"] = prev_models[i].get("apiKey", "")
+                model_id = str(model.get("id", ""))
+                if model_id and model_id in prev_by_id:
+                    restored = prev_by_id[model_id].get("apiKey", "")
+                elif i < len(prev_models):
+                    restored = prev_models[i].get("apiKey", "")
                 else:
-                    model["apiKey"] = ""
+                    restored = ""
+                # Opportunistically encrypt previously-plaintext restored values.
+                model["apiKey"] = _encrypt_key(restored, settings)
             else:
                 model["apiKey"] = _encrypt_key(raw, settings)
 
@@ -136,7 +149,8 @@ def encrypt_profile_keys(
         prev_model = (previous_profile or {}).get(field) or {}
         raw = str(model.get("apiKey") or "")
         if is_api_key_preview(raw):
-            model["apiKey"] = prev_model.get("apiKey", "")
+            restored = prev_model.get("apiKey", "")
+            model["apiKey"] = _encrypt_key(restored, settings)
         else:
             model["apiKey"] = _encrypt_key(raw, settings)
 
