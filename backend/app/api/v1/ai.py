@@ -15,7 +15,7 @@ from app.schemas.requests import AiReplyRequest
 from app.services.ai import resolve_model_api_key
 from app.services.ai.bundle import build_summary_bundle, bundle_fingerprint
 from app.services.ai.chat_history import filter_alternating_roles, linearize_for_llm, merge_history_stamps
-from app.services.ai.context import assemble_reply_messages
+from app.services.ai.context import assemble_reply_messages, append_user_text_to_pairs
 from app.services.ai.context_log import get_chat_filter, log_llm_request, log_llm_response, should_log_llm_context
 from app.services.ai.context_meta import refresh_context_meta_after_reply, persist_chat_meta
 from app.services.ai.context_label import stamp_context_label_on_path
@@ -140,13 +140,7 @@ def _valid_pairs_with_assistant_reply(
 ) -> list[tuple[str, str]]:
     raw_pairs = linearize_for_llm(list(history or []))
     valid_pairs = filter_alternating_roles(raw_pairs)
-
-    trimmed_user_text = user_text.strip()
-    if trimmed_user_text:
-        if not valid_pairs or valid_pairs[-1][0] != "user":
-            valid_pairs.append(("user", trimmed_user_text))
-        elif valid_pairs[-1][1] != trimmed_user_text:
-            valid_pairs.append(("user", trimmed_user_text))
+    valid_pairs = append_user_text_to_pairs(valid_pairs, user_text)
 
     assistant_reply = assistant_text.strip()
     if assistant_reply:

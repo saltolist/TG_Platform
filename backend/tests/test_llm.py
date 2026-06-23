@@ -12,7 +12,7 @@ from httpx import AsyncClient
 
 from app.core.config import Settings
 from app.db.models import Profile, User
-from app.services.ai.context import build_reply_messages
+from app.services.ai.context import assemble_reply_messages
 from app.services.ai.llm import (
     parse_openai_stream_line,
     stream_chat_completion_tokens,
@@ -57,9 +57,9 @@ def test_parse_openai_stream_line(line: str, expected: str | None) -> None:
 
 
 def test_build_reply_messages_uses_profile_system_prompt() -> None:
-    messages = build_reply_messages(
-        {"systemPrompt": "Custom system"},
-        "Привет",
+    messages = assemble_reply_messages(
+        ai_profile={"systemPrompt": "Custom system"},
+        user_text="Привет",
         scope="global",
     )
     assert messages[0]["role"] == "system"
@@ -74,9 +74,9 @@ def test_build_reply_messages_uses_profile_system_prompt() -> None:
 
 
 def test_build_reply_messages_post_scope_includes_post_bundle() -> None:
-    messages = build_reply_messages(
-        {},
-        "Текст",
+    messages = assemble_reply_messages(
+        ai_profile={},
+        user_text="Текст",
         scope="post",
         post_data={"text": "Контент поста"},
         channel_profile={"core": {"topic": "Тема"}},

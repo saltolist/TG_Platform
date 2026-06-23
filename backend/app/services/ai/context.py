@@ -43,6 +43,21 @@ from app.services.ai.summary_catalog import (
 from app.services.ai.thread_context import resolve_thread_state
 
 
+def append_user_text_to_pairs(
+    valid_pairs: list[tuple[str, str]],
+    user_text: str,
+) -> list[tuple[str, str]]:
+    """Append a user turn to valid_pairs if not already the last entry with same text."""
+    trimmed = user_text.strip()
+    if not trimmed:
+        return valid_pairs
+    if not valid_pairs or valid_pairs[-1][0] != "user":
+        valid_pairs.append(("user", trimmed))
+    elif valid_pairs[-1][1] != trimmed:
+        valid_pairs.append(("user", trimmed))
+    return valid_pairs
+
+
 def _uses_label_catalog_assembly(
     chat_meta: Mapping[str, Any] | None,
     history: list[Mapping[str, Any]] | None,
@@ -114,13 +129,7 @@ def assemble_reply_messages(
 
     raw_pairs = linearize_for_llm(list(history or []))
     valid_pairs = filter_alternating_roles(raw_pairs)
-
-    trimmed_user_text = user_text.strip()
-    if trimmed_user_text:
-        if not valid_pairs or valid_pairs[-1][0] != "user":
-            valid_pairs.append(("user", trimmed_user_text))
-        elif valid_pairs[-1][1] != trimmed_user_text:
-            valid_pairs.append(("user", trimmed_user_text))
+    valid_pairs = append_user_text_to_pairs(valid_pairs, user_text)
 
     user_turn_count = count_user_turns(valid_pairs)
     window_pairs = take_prompt_window(valid_pairs)
@@ -216,22 +225,3 @@ def assemble_reply_messages(
 
     return messages
 
-
-def build_reply_messages(
-    ai_profile: Mapping[str, Any],
-    user_text: str,
-    scope: str = "global",
-    **kwargs: Any,
-) -> list[dict[str, str]]:
-    """Backward-compatible entry point (minimal context when kwargs omitted)."""
-    return assemble_reply_messages(
-        ai_profile=ai_profile,
-        user_text=user_text,
-        scope=scope,
-        history=kwargs.get("history"),
-        channel_profile=kwargs.get("channel_profile"),
-        telegram_profile=kwargs.get("telegram_profile"),
-        post_data=kwargs.get("post_data"),
-        chat_meta=kwargs.get("chat_meta"),
-        summary_catalog=kwargs.get("summary_catalog"),
-    )

@@ -11,13 +11,20 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.db.resolve import get_owned_chat, get_owned_post
 from app.schemas.requests import AiReplyRequest
 from app.services.ai.bundle_profile import advance_bundle_profile
-from app.services.ai.chat_history import count_user_turns
+from app.services.ai.chat_history import (
+    active_thread_key,
+    count_user_turns,
+    filter_alternating_roles,
+    linearize_for_llm,
+    merge_history_stamps,
+)
 from app.services.ai.context_config import PROMPT_WINDOW
-from app.services.ai.context_turns import compute_window_user_turns, maturation_window_user_turns
+from app.services.ai.context_turns import compute_window_user_turns
 from app.services.ai.context_label import enumerate_active_user_turns, resolve_turn_label
 from app.services.ai.context_labels import (
     advance_label_thread_after_reply,
     flatten_label_thread_meta,
+    load_label_thread_context,
     resolve_label_thread_state,
 )
 from app.services.ai.message_bundle import (
@@ -29,11 +36,15 @@ from app.services.ai.summary_catalog import get_summary_catalog, latest_scope_ve
 from app.services.ai.thread_context import (
     GLOBAL_FINGERPRINT_KEY,
     flatten_thread_meta,
+    load_thread_context,
     resolve_thread_state,
 )
-
-
-from app.services.ai.context_turns import annotate_user_turns
+from app.services.ai.context_labels_post import (
+    advance_post_label_thread_after_reply,
+    flatten_post_label_thread_meta,
+    resolve_post_label_thread_state,
+)
+from app.services.ai.context_turns import annotate_user_turns, maturation_window_user_turns
 from app.services.ai.rolling_summary import (
     exchanges_from_messages,
     is_meta_rolling_summary_response,
@@ -60,20 +71,6 @@ def apply_rolling_summary_reconcile_to_chat_data(
     history: list[Mapping[str, Any]] | None,
 ) -> dict[str, Any]:
     """Return chat.data fields to merge after history changed (dialog summary only)."""
-    from app.services.ai.chat_history import (
-        active_thread_key,
-        filter_alternating_roles,
-        linearize_for_llm,
-    )
-    from app.services.ai.context_labels import (
-        flatten_label_thread_meta,
-        load_label_thread_context,
-    )
-    from app.services.ai.thread_context import (
-        flatten_thread_meta,
-        load_thread_context,
-    )
-
     valid_pairs = filter_alternating_roles(linearize_for_llm(list(history or [])))
     thread_key = active_thread_key(list(history or []))
 
@@ -244,12 +241,6 @@ async def _refresh_context_meta_labels(
         stamp_path = turn_entries[-1]["path"]
 
     if scope == "post" and post_id:
-        from app.services.ai.context_labels_post import (
-            advance_post_label_thread_after_reply,
-            flatten_post_label_thread_meta,
-            resolve_post_label_thread_state,
-        )
-
         thread_state, thread_key, threads = resolve_post_label_thread_state(
             chat_meta,
             history,
@@ -313,8 +304,6 @@ async def _refresh_context_meta_labels(
     }
     threads[thread_key] = updated_thread
     if scope == "post" and post_id:
-        from app.services.ai.context_labels_post import flatten_post_label_thread_meta
-
         meta = flatten_post_label_thread_meta(updated_thread, thread_key=thread_key, threads=threads)
     else:
         meta = flatten_label_thread_meta(updated_thread, thread_key=thread_key, threads=threads)
@@ -355,8 +344,6 @@ async def persist_chat_meta(
 
     patch = {key: meta[key] for key in meta if key not in ("bundle_context_stamp", "context_label_stamp")}
     if history is not None:
-        from app.services.ai.chat_history import merge_history_stamps
-
         history = list(history)
 
     if payload.scope == "post" and payload.post_id and payload.post_chat_id:

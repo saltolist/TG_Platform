@@ -5,6 +5,16 @@ from pydantic import field_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
+def _parse_bool_env(value: Any) -> bool:
+    if isinstance(value, bool):
+        return value
+    if isinstance(value, (int, float)):
+        return bool(value)
+    if isinstance(value, str):
+        return value.strip().lower() in {"1", "true", "yes", "on"}
+    return False
+
+
 class Settings(BaseSettings):
     model_config = SettingsConfigDict(env_file=".env", extra="ignore")
 
@@ -48,27 +58,10 @@ class Settings(BaseSettings):
     # Chat id for LLM debug logs: gc1, post chat id, or post:postId:chatId
     ai_context_log_chat: str = ""
 
-    @field_validator("rag_enabled", mode="before")
+    @field_validator("rag_enabled", "ai_context_log", mode="before")
     @classmethod
-    def _parse_rag_enabled(cls, value: Any) -> bool:
-        if isinstance(value, bool):
-            return value
-        if isinstance(value, (int, float)):
-            return bool(value)
-        if isinstance(value, str):
-            return value.strip().lower() in {"1", "true", "yes", "on"}
-        return False
-
-    @field_validator("ai_context_log", mode="before")
-    @classmethod
-    def _parse_ai_context_log(cls, value: Any) -> bool:
-        if isinstance(value, bool):
-            return value
-        if isinstance(value, (int, float)):
-            return bool(value)
-        if isinstance(value, str):
-            return value.strip().lower() in {"1", "true", "yes", "on"}
-        return False
+    def _parse_bool_fields(cls, value: Any) -> bool:
+        return _parse_bool_env(value)
 
     @property
     def cors_origins_list(self) -> list[str]:
