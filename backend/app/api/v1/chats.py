@@ -14,6 +14,8 @@ from app.schemas.requests import MessageRequest
 from app.schemas.resources import GlobalChatIn
 from app.services.ai import generate_reply
 
+_CHAT_PREVIEW_LENGTH = 120
+
 router = APIRouter(prefix="/global-chats", tags=["GlobalChats"])
 
 
@@ -54,7 +56,7 @@ async def add_message(
     chat.data = {
         **chat.data,
         "history": history,
-        "preview": reply[:120],
+        "preview": reply[:_CHAT_PREVIEW_LENGTH],
         "date": datetime.now(timezone.utc).isoformat(),
     }
     await session.commit()

@@ -14,12 +14,12 @@ from app.core.deps import CurrentUser, DbSession
 from app.db.models import Profile
 from app.schemas.requests import AiReplyRequest
 from app.services.ai import resolve_model_api_key
-from app.services.ai.context_log import get_chat_filter, should_log_llm_context
 from app.services.ai.context import assemble_reply_messages
+from app.services.ai.context_log import get_chat_filter, should_log_llm_context
 from app.services.ai.keys import KeyResolution, KeySource, get_account_mode
 from app.services.ai.providers import get_provider_spec
 from app.services.ai.reply_orchestrator import (
-    finalize_context_meta,
+    ReplyContext,
     load_reply_context,
     prepare_summary_catalog,
     stream_reply_with_meta,
@@ -137,20 +137,22 @@ async def ai_reply(
         telegram_profile=telegram_profile,
     )
 
+    ctx = ReplyContext(
+        session=session,
+        user=user,
+        payload=payload,
+        ai_profile=ai_profile,
+        channel_profile=channel_profile,
+        telegram_profile=telegram_profile,
+        history=history,
+        post_data=post_data,
+        chat_meta=chat_meta,
+        summary_catalog=summary_catalog,
+    )
+
     if resolution.use_stub:
         return StreamingResponse(
-            stream_stub_with_meta(
-                session=session,
-                user=user,
-                payload=payload,
-                history=history,
-                post_data=post_data,
-                chat_meta=chat_meta,
-                channel_profile=channel_profile,
-                telegram_profile=telegram_profile,
-                ai_profile=ai_profile,
-                summary_catalog=summary_catalog,
-            ),
+            stream_stub_with_meta(ctx),
             media_type="text/event-stream",
             headers=_SSE_HEADERS,
         )
@@ -175,7 +177,13 @@ async def ai_reply(
         post_id=payload.post_id,
         post_chat_id=payload.post_chat_id,
     )
-    log_labels: dict[int, str] = {}
+
+    ctx.spec = spec
+    ctx.model_id = model_id
+    ctx.api_key = resolution.api_key
+    ctx.provider_name = provider_name
+    ctx.log_context = log_context
+
     messages = assemble_reply_messages(
         ai_profile=ai_profile,
         user_text=payload.text,
@@ -186,28 +194,10 @@ async def ai_reply(
         post_data=post_data,
         chat_meta=chat_meta,
         summary_catalog=summary_catalog,
-        log_labels=log_labels if log_context else None,
+        log_labels=ctx.log_labels if log_context else None,
     )
     return StreamingResponse(
-        stream_reply_with_meta(
-            session=session,
-            user=user,
-            payload=payload,
-            history=history,
-            post_data=post_data,
-            chat_meta=chat_meta,
-            channel_profile=channel_profile,
-            telegram_profile=telegram_profile,
-            ai_profile=ai_profile,
-            messages=messages,
-            spec=spec,
-            model_id=model_id,
-            api_key=resolution.api_key,
-            provider_name=provider_name,
-            log_context=log_context,
-            summary_catalog=summary_catalog,
-            log_labels=log_labels if log_context else None,
-        ),
+        stream_reply_with_meta(ctx, messages),
         media_type="text/event-stream",
         headers=_SSE_HEADERS,
     )

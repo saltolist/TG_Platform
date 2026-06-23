@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import uuid
 from collections.abc import AsyncIterator
+from dataclasses import dataclass, field
 from typing import Any, Mapping
 
 from fastapi import HTTPException
@@ -25,6 +26,7 @@ from app.services.ai.chat_history import (
 )
 from app.services.ai.context import append_user_text_to_pairs, assemble_reply_messages
 from app.services.ai.context_label import stamp_context_label_on_path
+from app.services.ai.context_labels import THREAD_LABEL_STATE_KEY
 from app.services.ai.context_log import (
     get_chat_filter,
     log_llm_request,
@@ -34,6 +36,7 @@ from app.services.ai.context_log import (
 from app.services.ai.context_meta import persist_chat_meta, refresh_context_meta_after_reply
 from app.services.ai.llm import stream_llm_sse
 from app.services.ai.orchestrator import resolve_orchestrator_llm
+from app.services.ai.providers import ProviderSpec
 from app.services.ai.sse import format_sse_meta, parse_sse_text_chunk, stream_stub_reply
 from app.services.ai.summary_catalog import (
     catalog_from_profile,
@@ -51,8 +54,37 @@ _CHAT_META_KEYS = (
     "active_thread_key",
     "thread_context",
     "global_fingerprint_at_last_refresh",
-    "label_context",
+    THREAD_LABEL_STATE_KEY,
 )
+
+
+@dataclass
+class ReplyContext:
+    """All resolved context for one AI reply request.
+
+    Built once in the endpoint, passed as a single object to streaming functions.
+    """
+
+    session: AsyncSession
+    user: User
+    payload: AiReplyRequest
+    ai_profile: dict[str, Any]
+    channel_profile: Mapping[str, Any]
+    telegram_profile: Mapping[str, Any]
+    history: list[Mapping[str, Any]] | None
+    post_data: Mapping[str, Any] | None
+    chat_meta: dict[str, Any]
+    summary_catalog: Mapping[str, Any]
+
+    # LLM parameters — set after model/key resolution, absent for stub mode
+    spec: ProviderSpec | None = None
+    model_id: str = ""
+    api_key: str = ""
+    provider_name: str = ""
+
+    # Logging
+    log_context: bool = False
+    log_labels: dict[int, str] = field(default_factory=dict)
 
 
 def prefers_server_chat_history(user: User) -> bool:
@@ -238,57 +270,44 @@ async def prepare_summary_catalog(
     return catalog
 
 
-async def finalize_context_meta(
-    *,
-    session: AsyncSession,
-    user: User,
-    payload: AiReplyRequest,
-    history: list[Mapping[str, Any]] | None,
-    post_data: Mapping[str, Any] | None,
-    chat_meta: dict[str, Any],
-    channel_profile: Mapping[str, Any],
-    telegram_profile: Mapping[str, Any],
-    assistant_text: str,
-    ai_profile: dict[str, Any],
-    summary_catalog: Mapping[str, Any] | None = None,
-) -> dict[str, Any]:
+async def _finalize_context_meta(ctx: ReplyContext, assistant_text: str) -> dict[str, Any]:
     """Refresh rolling summary, stamp label on history, persist to DB."""
-    post = post_data if payload.scope == "post" else None
+    post = ctx.post_data if ctx.payload.scope == "post" else None
     current_bundle = build_summary_bundle(
-        channel_profile,
-        telegram=telegram_profile,
+        ctx.channel_profile,
+        telegram=ctx.telegram_profile,
         post=post,
     )
-    fingerprint = bundle_fingerprint(channel_profile, telegram=telegram_profile, post=post)
-    valid_pairs = valid_pairs_with_assistant_reply(history, payload.text, assistant_text)
+    fingerprint = bundle_fingerprint(ctx.channel_profile, telegram=ctx.telegram_profile, post=post)
+    valid_pairs = valid_pairs_with_assistant_reply(ctx.history, ctx.payload.text, assistant_text)
 
-    summary_llm = resolve_orchestrator_llm(user, ai_profile)
+    summary_llm = resolve_orchestrator_llm(ctx.user, ctx.ai_profile)
 
     catalog = ensure_initial_global_version(
-        summary_catalog,
-        channel=channel_profile,
-        telegram=telegram_profile,
+        ctx.summary_catalog,
+        channel=ctx.channel_profile,
+        telegram=ctx.telegram_profile,
     )
-    profile_row = await session.get(Profile, user.id)
+    profile_row = await ctx.session.get(Profile, ctx.user.id)
     if profile_row is not None and not profile_row.summary_catalog and catalog.get("global"):
         profile_row.summary_catalog = catalog
 
     updated_meta = await refresh_context_meta_after_reply(
-        chat_meta,
-        history=history,
+        ctx.chat_meta,
+        history=ctx.history,
         valid_pairs=valid_pairs,
         current_bundle=current_bundle,
         current_fingerprint=fingerprint,
         llm=summary_llm,
         summary_catalog=catalog,
-        scope=payload.scope,
-        post_id=str(post.get("id") or "") if isinstance(post, Mapping) and post.get("id") else payload.post_id,
+        scope=ctx.payload.scope,
+        post_id=str(post.get("id") or "") if isinstance(post, Mapping) and post.get("id") else ctx.payload.post_id,
     )
 
     stamped_history: list[Mapping[str, Any]] | None = None
     label_stamp = updated_meta.get("context_label_stamp")
     if isinstance(label_stamp, Mapping):
-        source_history = await _history_for_stamp(session, user, payload, history)
+        source_history = await _history_for_stamp(ctx.session, ctx.user, ctx.payload, ctx.history)
         path = label_stamp.get("path")
         if isinstance(path, list):
             stamp_kwargs: dict[str, Any] = {
@@ -316,53 +335,34 @@ async def finalize_context_meta(
                 stamped_history = applied
 
     await persist_chat_meta(
-        session,
-        user.id,
-        payload,
+        ctx.session,
+        ctx.user.id,
+        ctx.payload,
         updated_meta,
         history=stamped_history,
     )
-    await session.commit()
+    await ctx.session.commit()
     return updated_meta
 
 
-async def stream_reply_with_meta(
-    *,
-    session: AsyncSession,
-    user: User,
-    payload: AiReplyRequest,
-    history: list[Mapping[str, Any]] | None,
-    post_data: Mapping[str, Any] | None,
-    chat_meta: dict[str, Any],
-    channel_profile: Mapping[str, Any],
-    telegram_profile: Mapping[str, Any],
-    ai_profile: dict[str, Any],
-    messages: list[dict[str, str]],
-    spec: Any,
-    model_id: str,
-    api_key: str,
-    provider_name: str,
-    log_context: bool = False,
-    summary_catalog: Mapping[str, Any] | None = None,
-    log_labels: dict[int, str] | None = None,
-) -> AsyncIterator[str]:
-    if log_context:
+async def stream_reply_with_meta(ctx: ReplyContext, messages: list[dict[str, str]]) -> AsyncIterator[str]:
+    if ctx.log_context:
         log_llm_request(
-            scope=payload.scope,
-            chat_id=payload.chat_id,
-            post_id=payload.post_id,
-            post_chat_id=payload.post_chat_id,
-            provider=provider_name,
-            model=model_id,
-            history=history,
+            scope=ctx.payload.scope,
+            chat_id=ctx.payload.chat_id,
+            post_id=ctx.payload.post_id,
+            post_chat_id=ctx.payload.post_chat_id,
+            provider=ctx.provider_name,
+            model=ctx.model_id,
+            history=ctx.history,
             messages=messages,
-            message_labels=log_labels,
+            message_labels=ctx.log_labels if ctx.log_labels else None,
         )
     accumulated: list[str] = []
     async for event in stream_llm_sse(
-        spec=spec,
-        model=model_id,
-        api_key=api_key,
+        spec=ctx.spec,
+        model=ctx.model_id,
+        api_key=ctx.api_key,
         messages=messages,
     ):
         chunk = parse_sse_text_chunk(event)
@@ -371,64 +371,28 @@ async def stream_reply_with_meta(
         yield event
 
     assistant_text = "".join(accumulated)
-    if log_context:
+    if ctx.log_context:
         log_llm_response(
-            scope=payload.scope,
-            chat_id=payload.chat_id,
-            post_id=payload.post_id,
-            post_chat_id=payload.post_chat_id,
-            provider=provider_name,
-            model=model_id,
+            scope=ctx.payload.scope,
+            chat_id=ctx.payload.chat_id,
+            post_id=ctx.payload.post_id,
+            post_chat_id=ctx.payload.post_chat_id,
+            provider=ctx.provider_name,
+            model=ctx.model_id,
             assistant_text=assistant_text,
         )
-    updated_meta = await finalize_context_meta(
-        session=session,
-        user=user,
-        payload=payload,
-        history=history,
-        post_data=post_data,
-        chat_meta=chat_meta,
-        channel_profile=channel_profile,
-        telegram_profile=telegram_profile,
-        assistant_text=assistant_text,
-        ai_profile=ai_profile,
-        summary_catalog=summary_catalog,
-    )
+    updated_meta = await _finalize_context_meta(ctx, assistant_text)
     yield format_sse_meta(updated_meta)
 
 
-async def stream_stub_with_meta(
-    *,
-    session: AsyncSession,
-    user: User,
-    payload: AiReplyRequest,
-    history: list[Mapping[str, Any]] | None,
-    post_data: Mapping[str, Any] | None,
-    chat_meta: dict[str, Any],
-    channel_profile: Mapping[str, Any],
-    telegram_profile: Mapping[str, Any],
-    ai_profile: dict[str, Any],
-    summary_catalog: Mapping[str, Any] | None = None,
-) -> AsyncIterator[str]:
+async def stream_stub_with_meta(ctx: ReplyContext) -> AsyncIterator[str]:
     accumulated: list[str] = []
-    async for event in stream_stub_reply(payload.text, scope=payload.scope):
+    async for event in stream_stub_reply(ctx.payload.text, scope=ctx.payload.scope):
         chunk = parse_sse_text_chunk(event)
         if chunk:
             accumulated.append(chunk)
         yield event
 
     assistant_text = "".join(accumulated)
-    updated_meta = await finalize_context_meta(
-        session=session,
-        user=user,
-        payload=payload,
-        history=history,
-        post_data=post_data,
-        chat_meta=chat_meta,
-        channel_profile=channel_profile,
-        telegram_profile=telegram_profile,
-        assistant_text=assistant_text,
-        ai_profile=ai_profile,
-        summary_catalog=summary_catalog,
-    )
+    updated_meta = await _finalize_context_meta(ctx, assistant_text)
     yield format_sse_meta(updated_meta)

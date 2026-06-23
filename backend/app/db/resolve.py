@@ -1,4 +1,5 @@
 import uuid
+from typing import TypeVar
 
 from fastapi import HTTPException
 from sqlalchemy import select
@@ -6,56 +7,41 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.db.models import GlobalChat, GlobalNote, Post
 
+_T = TypeVar("_T", Post, GlobalChat, GlobalNote)
 
-async def get_owned_post(session: AsyncSession, user_id: uuid.UUID, post_id: str) -> Post:
+
+async def _get_owned(
+    session: AsyncSession,
+    model: type[_T],
+    user_id: uuid.UUID,
+    entity_id: str,
+    not_found_detail: str,
+) -> _T:
+    """Resolve owned entity by UUID PK first, then by JSONB data['id'] fallback."""
     try:
-        pid = uuid.UUID(post_id)
-        post = await session.get(Post, pid)
-        if post is not None and post.user_id == user_id:
-            return post
+        eid = uuid.UUID(entity_id)
+        row = await session.get(model, eid)
+        if row is not None and row.user_id == user_id:
+            return row
     except ValueError:
         pass
 
     result = await session.execute(
-        select(Post).where(Post.user_id == user_id, Post.data["id"].astext == post_id)
+        select(model).where(model.user_id == user_id, model.data["id"].astext == entity_id)
     )
-    post = result.scalar_one_or_none()
-    if post is None:
-        raise HTTPException(status_code=404, detail="Post not found")
-    return post
+    row = result.scalar_one_or_none()
+    if row is None:
+        raise HTTPException(status_code=404, detail=not_found_detail)
+    return row
+
+
+async def get_owned_post(session: AsyncSession, user_id: uuid.UUID, post_id: str) -> Post:
+    return await _get_owned(session, Post, user_id, post_id, "Post not found")
 
 
 async def get_owned_chat(session: AsyncSession, user_id: uuid.UUID, chat_id: str) -> GlobalChat:
-    try:
-        cid = uuid.UUID(chat_id)
-        chat = await session.get(GlobalChat, cid)
-        if chat is not None and chat.user_id == user_id:
-            return chat
-    except ValueError:
-        pass
-
-    result = await session.execute(
-        select(GlobalChat).where(GlobalChat.user_id == user_id, GlobalChat.data["id"].astext == chat_id)
-    )
-    chat = result.scalar_one_or_none()
-    if chat is None:
-        raise HTTPException(status_code=404, detail="Chat not found")
-    return chat
+    return await _get_owned(session, GlobalChat, user_id, chat_id, "Chat not found")
 
 
 async def get_owned_note(session: AsyncSession, user_id: uuid.UUID, note_id: str) -> GlobalNote:
-    try:
-        nid = uuid.UUID(note_id)
-        note = await session.get(GlobalNote, nid)
-        if note is not None and note.user_id == user_id:
-            return note
-    except ValueError:
-        pass
-
-    result = await session.execute(
-        select(GlobalNote).where(GlobalNote.user_id == user_id, GlobalNote.data["id"].astext == note_id)
-    )
-    note = result.scalar_one_or_none()
-    if note is None:
-        raise HTTPException(status_code=404, detail="Note not found")
-    return note
+    return await _get_owned(session, GlobalNote, user_id, note_id, "Note not found")
