@@ -1,18 +1,32 @@
 "use client";
 
-import { useMemo, useState } from "react";
+import { useMemo, useRef, useState } from "react";
 import ModelPicker from "@/shared/ui/model-picker";
 import { MessageTrashIcon } from "@/entities/message";
+import {
+  copyTextToClipboard,
+  copyTextToClipboardFromPromise,
+} from "@/shared/lib/clipboard/copyToClipboard";
 import { confirmDialog } from "@/shared/ui/dialog";
+import { useRepositories } from "@/app/providers/RepositoryProvider";
 import {
   filterAvailableModels,
   filterAvailableProviders,
 } from "@/shared/lib/profile/filterAiModelOptions";
 import ProfileCheckbox from "@/widgets/profile-settings/ui/ProfileCheckbox";
-import ProfileEyeIcon from "@/widgets/profile-settings/ui/ProfileEyeIcon";
+import ProfileApiKeyCopyButton from "@/widgets/profile-settings/ui/ProfileApiKeyCopyButton";
+import type { AiModelListField } from "@/shared/lib/profile/aiModelListField";
+import {
+  apiKeyForDisplay,
+  canAttemptApiKeyCopy,
+  isApiKeyPreview,
+  isCopyableApiKey,
+} from "@/shared/lib/profile/maskedApiKey";
+import { reportMutationError } from "@/shared/ui/toast";
 import type { LlmModel } from "@/shared/types";
 
 type Props = {
+  modelField: AiModelListField;
   rowIndex: number;
   allModels: LlmModel[];
   model: LlmModel;
@@ -25,6 +39,7 @@ type Props = {
 };
 
 export default function AiModelRow({
+  modelField,
   rowIndex,
   allModels,
   model,
@@ -35,8 +50,14 @@ export default function AiModelRow({
   onRemove,
   onApiKeyBlur,
 }: Props) {
-  const [apiKeyVisible, setApiKeyVisible] = useState(false);
+  const { profile } = useRepositories();
+  const [editingKey, setEditingKey] = useState(false);
+  const [draftKey, setDraftKey] = useState("");
+  const [copied, setCopied] = useState(false);
+  const [copying, setCopying] = useState(false);
+  const copyTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const hasProvider = !!model.provider;
+  const displayValue = editingKey ? draftKey : apiKeyForDisplay(model.apiKey);
 
   const providerOptions = useMemo(() => {
     return filterAvailableProviders(providerMap, allModels, rowIndex).map((provider) => ({
@@ -53,6 +74,48 @@ export default function AiModelRow({
       }),
     );
   }, [allModels, model.provider, providerMap, rowIndex]);
+
+  const markCopied = () => {
+    if (copyTimer.current) clearTimeout(copyTimer.current);
+    setCopied(true);
+    copyTimer.current = setTimeout(() => {
+      setCopied(false);
+      copyTimer.current = null;
+    }, 1500);
+  };
+
+  const handleCopy = () => {
+    if (!canAttemptApiKeyCopy(model.apiKey) || copying) return;
+    setCopying(true);
+
+    const finish = (ok: boolean) => {
+      setCopying(false);
+      if (!ok) {
+        reportMutationError(new Error("clipboard write failed"), "Не удалось скопировать API key");
+        return;
+      }
+      markCopied();
+    };
+
+    if (isCopyableApiKey(model.apiKey)) {
+      void copyTextToClipboard(model.apiKey).then(finish);
+      return;
+    }
+
+    if (isApiKeyPreview(model.apiKey)) {
+      void copyTextToClipboardFromPromise(() =>
+        profile.revealAiModelApiKey(model.id, modelField).then((res) => res.apiKey),
+      )
+        .then(finish)
+        .catch((error) => {
+          setCopying(false);
+          reportMutationError(error, "Не удалось скопировать API key");
+        });
+      return;
+    }
+
+    setCopying(false);
+  };
 
   return (
     <div className="profile-model-row">
@@ -91,23 +154,32 @@ export default function AiModelRow({
       <div className="profile-model-key profile-model-key-wrap">
         <input
           className="profile-input profile-input-explicit profile-model-key-input"
-          type={apiKeyVisible ? "text" : "password"}
-          value={model.apiKey}
+          type="text"
+          value={displayValue}
           placeholder="API key"
           disabled={!hasProvider}
-          onChange={(e) => onChange({ apiKey: e.target.value })}
-          onBlur={() => onApiKeyBlur?.()}
+          onFocus={() => {
+            setEditingKey(true);
+            setDraftKey(isApiKeyPreview(model.apiKey) ? "" : model.apiKey || "");
+          }}
+          onChange={(e) => {
+            const next = e.target.value;
+            setDraftKey(next);
+            onChange({ apiKey: next });
+          }}
+          onBlur={() => {
+            setEditingKey(false);
+            if (isApiKeyPreview(model.apiKey) && !draftKey.trim()) {
+              onChange({ apiKey: model.apiKey });
+            }
+            onApiKeyBlur?.();
+          }}
         />
-        <button
-          type="button"
-          className="profile-api-key-toggle"
-          disabled={!hasProvider}
-          aria-label={apiKeyVisible ? "Скрыть API key" : "Показать API key"}
-          title={apiKeyVisible ? "Скрыть API key" : "Показать API key"}
-          onClick={() => setApiKeyVisible((value) => !value)}
-        >
-          <ProfileEyeIcon hidden={!apiKeyVisible} />
-        </button>
+        <ProfileApiKeyCopyButton
+          copied={copied}
+          disabled={!hasProvider || !canAttemptApiKeyCopy(model.apiKey) || copying}
+          onCopy={handleCopy}
+        />
       </div>
       <div className="profile-model-footer">
         <div className="profile-model-footer-checks">

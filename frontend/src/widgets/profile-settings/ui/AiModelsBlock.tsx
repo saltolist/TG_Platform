@@ -1,5 +1,6 @@
 "use client";
 
+import { useRef } from "react";
 import AiModelListSection from "@/widgets/profile-settings/ui/ai/AiModelListSection";
 import ProfileCheckbox from "@/widgets/profile-settings/ui/ProfileCheckbox";
 import { BrainIcon, ImageGenIcon, SearchIcon, VisionIcon } from "@/shared/ui/model-picker";
@@ -9,17 +10,28 @@ import {
   VISION_PROVIDER_MODELS,
   WEB_SEARCH_PROVIDER_MODELS,
 } from "@/shared/config/composer";
+import { useModSaveUndo } from "@/shared/lib/hooks/useModSaveUndo";
 import { useAiModelsBlock } from "@/widgets/profile-settings/model/useAiModelsBlock";
 
 export default function AiModelsBlock() {
+  const scopeRef = useRef<HTMLDivElement | null>(null);
   const ai = useAiModelsBlock();
   const { cfg } = ai;
 
+  useModSaveUndo({
+    dirty: ai.dirty,
+    onSave: () => {
+      void ai.save();
+    },
+    scopeRef,
+  });
+
   return (
-    <div className="profile-section profile-ai-engine-section">
+    <div className="profile-section profile-ai-engine-section" ref={scopeRef}>
       <div className="profile-section-title">ИИ-движок</div>
 
       <AiModelListSection
+        modelField="llmModels"
         icon={<BrainIcon />}
         title="LLM-модели"
         models={cfg.llmModels}
@@ -31,10 +43,10 @@ export default function AiModelsBlock() {
         }
         onModelRemove={(idx) => ai.setLlms(cfg.llmModels.filter((_, i) => i !== idx))}
         onAdd={ai.addLlm}
-        onApiKeyBlur={() => void ai.flushSave()}
       />
 
       <AiModelListSection
+        modelField="webSearchModels"
         icon={<SearchIcon />}
         title="Web Search модели"
         models={cfg.webSearchModels}
@@ -45,10 +57,10 @@ export default function AiModelsBlock() {
         }
         onModelRemove={(idx) => ai.setWebs(cfg.webSearchModels.filter((_, i) => i !== idx))}
         onAdd={ai.addWeb}
-        onApiKeyBlur={() => void ai.flushSave()}
       />
 
       <AiModelListSection
+        modelField="orchestratorModels"
         icon={<BrainIcon />}
         title="Оркестратор"
         models={cfg.orchestratorModels}
@@ -60,10 +72,10 @@ export default function AiModelsBlock() {
         }
         onModelRemove={(idx) => ai.setOrchestrators(cfg.orchestratorModels.filter((_, i) => i !== idx))}
         onAdd={ai.addOrchestrator}
-        onApiKeyBlur={() => void ai.flushSave()}
       />
 
       <AiModelListSection
+        modelField="webReasonerModels"
         icon={<SearchIcon />}
         title="Web Reasoner"
         models={cfg.webReasonerModels}
@@ -75,10 +87,10 @@ export default function AiModelsBlock() {
         }
         onModelRemove={(idx) => ai.setWebReasoners(cfg.webReasonerModels.filter((_, i) => i !== idx))}
         onAdd={ai.addWebReasoner}
-        onApiKeyBlur={() => void ai.flushSave()}
       />
 
       <AiModelListSection
+        modelField="ragReasonerModels"
         icon={<BrainIcon />}
         title="RAG Reasoner"
         models={cfg.ragReasonerModels}
@@ -90,10 +102,10 @@ export default function AiModelsBlock() {
         }
         onModelRemove={(idx) => ai.setRagReasoners(cfg.ragReasonerModels.filter((_, i) => i !== idx))}
         onAdd={ai.addRagReasoner}
-        onApiKeyBlur={() => void ai.flushSave()}
       />
 
       <AiModelListSection
+        modelField="visionModels"
         icon={<VisionIcon />}
         title="Модели компьютерного зрения"
         models={cfg.visionModels}
@@ -105,10 +117,10 @@ export default function AiModelsBlock() {
         }
         onModelRemove={(idx) => ai.setVisionModels(cfg.visionModels.filter((_, i) => i !== idx))}
         onAdd={ai.addVision}
-        onApiKeyBlur={() => void ai.flushSave()}
       />
 
       <AiModelListSection
+        modelField="imageGenerationModels"
         icon={<ImageGenIcon />}
         title="Модели генерации изображений"
         models={cfg.imageGenerationModels}
@@ -124,7 +136,6 @@ export default function AiModelsBlock() {
           ai.setImageGenerationModels(cfg.imageGenerationModels.filter((_, i) => i !== idx))
         }
         onAdd={ai.addImageGeneration}
-        onApiKeyBlur={() => void ai.flushSave()}
       />
 
       <div className="profile-ai-divider" />
@@ -147,6 +158,17 @@ export default function AiModelsBlock() {
             </>
           )}
         </div>
+      </div>
+
+      <div className="profile-action-buttons profile-action-buttons--ai">
+        <button className="btn btn-primary" disabled={!ai.dirty} onClick={() => void ai.save()} type="button">
+          Сохранить
+        </button>
+        {ai.dirty ? (
+          <button className="btn btn-ghost" onClick={ai.cancel} type="button">
+            Отменить
+          </button>
+        ) : null}
       </div>
     </div>
   );

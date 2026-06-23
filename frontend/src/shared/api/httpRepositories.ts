@@ -23,6 +23,7 @@ import type {
   Post,
   TelegramProfileConfig,
 } from "@/shared/types";
+import type { AiModelListField } from "@/shared/lib/profile/aiModelListField";
 
 function streamAiReply(
   scope: "global" | "post",
@@ -133,6 +134,11 @@ export function createHttpRepositories(): RepositoryBundle {
           method: "PUT",
           body: config,
         }).then(normalizeAiProfileConfigFromServer),
+      revealAiModelApiKey: (modelId, field) =>
+        apiRequest<{ apiKey: string }>(apiV1Path("profile/ai/reveal-key"), {
+          method: "POST",
+          body: { modelId, field },
+        }),
       getTelegram: () =>
         apiRequest<TelegramProfileConfig>(apiV1Path("profile/telegram")).then(
           normalizeTelegramProfileConfig,

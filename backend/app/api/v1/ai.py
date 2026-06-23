@@ -20,6 +20,7 @@ from app.services.ai.embeddings import resolve_embedding_backend
 from app.services.ai.keys import KeyResolution, KeySource, get_account_mode
 from app.services.ai.providers import get_provider_spec
 from app.services.ai.rag import format_rag_context, retrieve_top_k
+from app.services.ai.byok_profile import MASKED_VALUE, is_api_key_preview
 from app.services.ai.reply_orchestrator import (
     ReplyContext,
     load_reply_context,
@@ -85,7 +86,12 @@ def _resolve_reply_key(
     if model is None:
         mode = get_account_mode(user)
         return KeyResolution(api_key=None, source=KeySource.NONE, account_mode=mode)
-    if override_api_key and override_api_key.strip():
+    if (
+        override_api_key
+        and override_api_key.strip()
+        and override_api_key.strip() != MASKED_VALUE
+        and not is_api_key_preview(override_api_key.strip())
+    ):
         model = {**model, "apiKey": override_api_key.strip()}
     return resolve_model_api_key(model, user, settings)
 

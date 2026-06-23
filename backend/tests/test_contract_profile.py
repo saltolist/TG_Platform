@@ -62,6 +62,45 @@ async def test_profile_ai_roundtrip(client: AsyncClient, writer_auth_headers: di
 
 
 @pytest.mark.asyncio
+async def test_profile_ai_byok_key_revealed_to_owner(client: AsyncClient, writer_auth_headers: dict) -> None:
+    payload = {
+        "llmModels": [
+            {
+                "id": "llm-1",
+                "provider": "OpenAI",
+                "model": "gpt-4o",
+                "apiKey": "sk-owner-secret-key",
+                "active": True,
+                "includeInMulti": False,
+            }
+        ],
+        "webSearchModels": [],
+        "visionModels": [],
+        "imageGenerationModels": [],
+        "orchestratorModels": [],
+        "webReasonerModels": [],
+        "ragReasonerModels": [],
+        "multiResponseEnabled": False,
+        "systemPrompt": "",
+    }
+    put = await client.put("/api/v1/profile/ai/", headers=writer_auth_headers, json=payload)
+    assert put.status_code == 200
+    assert put.json()["llmModels"][0]["apiKey"] == "sk-**********key"
+
+    get = await client.get("/api/v1/profile/ai/", headers=writer_auth_headers)
+    assert get.status_code == 200
+    assert get.json()["llmModels"][0]["apiKey"] == "sk-**********key"
+
+    reveal = await client.post(
+        "/api/v1/profile/ai/reveal-key/",
+        headers=writer_auth_headers,
+        json={"modelId": "llm-1", "field": "llmModels"},
+    )
+    assert reveal.status_code == 200
+    assert reveal.json()["apiKey"] == "sk-owner-secret-key"
+
+
+@pytest.mark.asyncio
 async def test_profile_telegram_roundtrip(client: AsyncClient, writer_auth_headers: dict) -> None:
     payload = {
         "authStatus": "idle",

@@ -3,7 +3,6 @@
 import { useCallback, useMemo, useState } from "react";
 import { useNavigation } from "@/app/model/store";
 import { useUiStore } from "@/app/model/store";
-import { flushAiModelsAutosave } from "@/shared/lib/profile/aiModelsAutosave";
 import { useCompactHeader1000 } from "@/shared/lib/hooks/useCompactHeader1000";
 import { useMobile760 } from "@/shared/lib/hooks/useMobile760";
 import { confirmDialog } from "@/shared/ui/dialog";
@@ -24,7 +23,6 @@ export function useProfileScreen() {
 
   const switchTab = useCallback(
     async (next: number) => {
-      await flushAiModelsAutosave();
       const dirtyMap = useUiStore.getState().dirtyMap;
       const settingsDirty =
         dirtyMap["profile-ai"] || dirtyMap["profile-prompt"] || dirtyMap["profile-telegram"];

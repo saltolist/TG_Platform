@@ -5,7 +5,6 @@ import type { AppRouterInstance } from "next/dist/shared/lib/app-router-context.
 import { useNavigationStore } from "@/app/model/store/navigation-store";
 import { useUiStore } from "@/app/model/store";
 import { useProfileDraftStore } from "@/app/model/store/profile-draft-store";
-import { flushAiModelsAutosave } from "@/shared/lib/profile/aiModelsAutosave";
 import { confirmLeaveNote } from "@/shared/lib/noteLeave";
 import { screenFromPath } from "@/shared/lib/routes";
 import { confirmDialog } from "@/shared/ui/dialog";
@@ -49,8 +48,6 @@ export async function confirmProfileScreenLeave(): Promise<boolean> {
   if (typeof window === "undefined") return true;
   const pathname = window.location.pathname || "/";
   if (screenFromPath(pathname) !== "profile") return true;
-
-  await flushAiModelsAutosave();
 
   const { dirty, channelDirty, settingsDirty } = getProfileDirtyState();
   if (!dirty) return true;

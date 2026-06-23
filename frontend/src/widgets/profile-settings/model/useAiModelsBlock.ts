@@ -7,15 +7,14 @@ import {
   snapshotAiConfig,
   updateExclusiveModel,
 } from "@/shared/lib/profile/aiModelsSnapshot";
-import { reportMutationError } from "@/shared/ui/toast";
-import { registerAiModelsAutosaveFlush } from "@/shared/lib/profile/aiModelsAutosave";
+import { reportMutationError, showToast } from "@/shared/ui/toast";
+import { restoreAiConfigFromSnapshot } from "@/shared/lib/profileDiscard";
 import { buildMultiResponsePairs } from "@/shared/config/composer";
 import { randomId } from "@/shared/lib/randomId";
 import {
   domainActions,
   selectAiProfileConfig,
   selectModelSettingsSavedSnapshot,
-  useDomainActions,
   useDomainDispatch,
   useDomainSelector,
   useUi,
@@ -28,7 +27,6 @@ export function useAiModelsBlock() {
   const cfg = useDomainSelector(selectAiProfileConfig);
   const modelSettingsSavedSnapshot = useDomainSelector(selectModelSettingsSavedSnapshot);
   const dispatch = useDomainDispatch();
-  const { applyPatch } = useDomainActions();
   const { setDirty } = useUi();
   const updateAiProfile = useUpdateAiProfile();
 
@@ -41,7 +39,7 @@ export function useAiModelsBlock() {
   const currentSnapshot = snapshotAiConfig(cfg);
   const dirty = currentSnapshot !== modelSettingsSavedSnapshot;
 
-  const flushSave = useCallback(async () => {
+  const save = useCallback(async () => {
     const state = useProfileDraftStore.getState();
     if (!state.hydrated) return;
 
@@ -57,24 +55,26 @@ export function useAiModelsBlock() {
       const savedSnapshot = snapshotAiConfig(normalizeAiProfileConfig(saved));
       state.applyPatch({ modelSettingsSavedSnapshot: savedSnapshot });
       dispatch(domainActions.updateAiConfig(normalizeAiProfileConfig(saved)));
+      showToast({ message: "Настройки ИИ-движка сохранены", variant: "info" });
     } catch (error) {
       state.applyPatch({ modelSettingsSavedSnapshot: previousSnapshot });
       reportMutationError(error, "Не удалось сохранить настройки ИИ");
     }
   }, [dispatch, updateAiProfile]);
 
+  const cancel = useCallback(() => {
+    if (!dirty) return;
+    const restored = restoreAiConfigFromSnapshot(cfg, modelSettingsSavedSnapshot);
+    dispatch(domainActions.updateAiConfig(restored));
+  }, [cfg, dirty, dispatch, modelSettingsSavedSnapshot]);
+
   useEffect(() => {
     setDirty("profile-ai", dirty);
   }, [dirty, setDirty]);
 
   useEffect(() => {
-    registerAiModelsAutosaveFlush(flushSave);
-    return () => {
-      registerAiModelsAutosaveFlush(null);
-      void flushSave();
-      setDirty("profile-ai", false);
-    };
-  }, [flushSave, setDirty]);
+    return () => setDirty("profile-ai", false);
+  }, [setDirty]);
 
   const setLlms = (llmModels: LlmModel[]) => update({ ...cfg, llmModels });
   const setWebs = (webSearchModels: LlmModel[]) => update({ ...cfg, webSearchModels });
@@ -133,10 +133,12 @@ export function useAiModelsBlock() {
 
   return {
     cfg,
+    dirty,
     multiEligible,
     multiResponsePairs,
     update,
-    flushSave,
+    save,
+    cancel,
     setLlms,
     setWebs,
     setVisionModels,

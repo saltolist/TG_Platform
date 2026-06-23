@@ -4,6 +4,7 @@ import {
 } from "@/shared/config/composer";
 import { getApiErrorMessage } from "@/shared/api/getApiErrorMessage";
 import { isAbortError } from "@/shared/lib/isAbortError";
+import { apiKeyForClientRequest } from "@/shared/lib/profile/maskedApiKey";
 import type { AiProfileConfig, AiVariant, ChatMessage, ComposerScope, LlmModel } from "@/shared/types";
 
 export function resolveLlmLabel(cfg: AiProfileConfig, id: string): string {
@@ -50,7 +51,7 @@ export function resolveLlmTarget(
   if (!selected) return { llmId };
   const provider = selected.provider?.trim();
   const model = selected.model?.trim();
-  const apiKey = selected.apiKey?.trim();
+  const apiKey = apiKeyForClientRequest(selected.apiKey);
   return {
     llmId: selected.id,
     provider: provider || undefined,

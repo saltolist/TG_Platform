@@ -18,6 +18,7 @@ import type {
   Post,
   TelegramProfileConfig,
 } from "@/shared/types";
+import type { AiModelListField } from "@/shared/lib/profile/aiModelListField";
 
 export function createSeedRepositories(): RepositoryBundle {
   let posts = [...initialPosts];
@@ -125,6 +126,12 @@ export function createSeedRepositories(): RepositoryBundle {
       async updateAi(config) {
         aiProfile = config;
         return aiProfile;
+      },
+      async revealAiModelApiKey(modelId, field) {
+        const models = aiProfile[field] as Array<{ id: string; apiKey: string }>;
+        const model = models.find((entry) => entry.id === modelId);
+        if (!model?.apiKey) throw new Error(`API key not found for model ${modelId}`);
+        return { apiKey: model.apiKey };
       },
       async getTelegram() {
         return telegramProfile;

@@ -189,6 +189,20 @@ export const handlers = [
     return HttpResponse.json(store.aiProfile);
   }),
 
+  http.post(apiV1MswPath("profile/ai/reveal-key"), async ({ request }) => {
+    const store = requireStore(request);
+    if (!store) return unauthorized();
+    const body = (await request.json()) as { modelId?: string; field?: keyof typeof store.aiProfile };
+    const field = body.field;
+    const modelId = body.modelId;
+    if (!field || !modelId || !Array.isArray(store.aiProfile[field])) {
+      return new HttpResponse(null, { status: 404 });
+    }
+    const model = store.aiProfile[field].find((entry) => entry.id === modelId);
+    if (!model?.apiKey) return new HttpResponse(null, { status: 404 });
+    return HttpResponse.json({ apiKey: model.apiKey });
+  }),
+
   http.get(apiV1MswPath("profile/telegram"), ({ request }) => {
     const store = requireStore(request);
     if (!store) return unauthorized();

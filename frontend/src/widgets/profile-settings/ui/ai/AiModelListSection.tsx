@@ -3,9 +3,11 @@
 import type { ReactNode } from "react";
 import AiModelRow from "@/widgets/profile-settings/ui/ai/AiModelRow";
 import { hasAvailableModelSlots } from "@/shared/lib/profile/filterAiModelOptions";
+import type { AiModelListField } from "@/shared/lib/profile/aiModelListField";
 import type { LlmModel } from "@/shared/types";
 
 type Props = {
+  modelField: AiModelListField;
   icon: ReactNode;
   title: string;
   models: LlmModel[];
@@ -21,6 +23,7 @@ type Props = {
 };
 
 export default function AiModelListSection({
+  modelField,
   icon,
   title,
   models,
@@ -51,6 +54,7 @@ export default function AiModelListSection({
         {models.map((m, idx) => (
           <AiModelRow
             key={m.id}
+            modelField={modelField}
             rowIndex={idx}
             allModels={models}
             model={m}

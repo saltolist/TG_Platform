@@ -1,10 +1,12 @@
 from typing import Any
 
-from fastapi import APIRouter
+from fastapi import APIRouter, HTTPException
 
 from app.core.deps import CurrentUser, CurrentWriter, DbSession
+from app.core.config import get_settings
 from app.db.models import Profile
 from app.core.constants import DEMO_CHANNEL_TITLE
+from app.schemas.requests import RevealAiModelApiKeyRequest, RevealAiModelApiKeyResponse
 from app.services.demo_channel import import_demo_kanal_posts, is_demo_channel_handle
 from app.services.ai.summary_catalog import (
     catalog_from_profile,
@@ -15,6 +17,11 @@ from app.services.profile_defaults import (
     empty_ai_profile,
     empty_channel_profile,
     empty_telegram_profile,
+)
+from app.services.ai.byok_profile import (
+    encrypt_profile_keys,
+    mask_profile_keys,
+    reveal_model_api_key_from_profile,
 )
 
 router = APIRouter(prefix="/profile", tags=["Profile"])
@@ -58,17 +65,38 @@ async def put_channel(
 @router.get("/ai/")
 async def get_ai(user: CurrentUser, session: DbSession) -> dict[str, Any]:
     profile = await session.get(Profile, user.id)
-    if profile and profile.ai:
-        return profile.ai
-    return empty_ai_profile()
+    stored = profile.ai if profile and profile.ai else empty_ai_profile()
+    return mask_profile_keys(stored, get_settings())
+
+
+@router.post("/ai/reveal-key/", response_model=RevealAiModelApiKeyResponse)
+async def reveal_ai_model_api_key(
+    payload: RevealAiModelApiKeyRequest,
+    user: CurrentUser,
+    session: DbSession,
+) -> RevealAiModelApiKeyResponse:
+    profile = await session.get(Profile, user.id)
+    stored = profile.ai if profile and profile.ai else {}
+    settings = get_settings()
+    api_key = reveal_model_api_key_from_profile(
+        stored,
+        model_id=payload.model_id,
+        field=payload.field,
+        settings=settings,
+    )
+    if not api_key:
+        raise HTTPException(status_code=404, detail="API key not found for this model")
+    return RevealAiModelApiKeyResponse(api_key=api_key)
 
 
 @router.put("/ai/")
 async def put_ai(payload: dict[str, Any], user: CurrentWriter, session: DbSession) -> dict[str, Any]:
     profile = await _get_or_create(session, user.id)
-    profile.ai = payload
+    previous = profile.ai or {}
+    encrypted_payload = encrypt_profile_keys(payload, previous_profile=previous)
+    profile.ai = encrypted_payload
     await session.commit()
-    return payload
+    return mask_profile_keys(encrypted_payload, get_settings())
 
 
 @router.get("/telegram/")

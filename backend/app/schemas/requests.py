@@ -33,10 +33,25 @@ class AiReplyResponse(BaseModel):
     text: str
 
 
+class RevealAiModelApiKeyRequest(BaseModel):
+    model_config = ConfigDict(populate_by_name=True)
+
+    model_id: str = Field(validation_alias="modelId")
+    field: str
+
+
+class RevealAiModelApiKeyResponse(BaseModel):
+    model_config = ConfigDict(populate_by_name=True)
+
+    api_key: str = Field(serialization_alias="apiKey")
+
+
 __all__ = [
     "PostIn",
     "ReorderRequest",
     "MessageRequest",
     "AiReplyRequest",
     "AiReplyResponse",
+    "RevealAiModelApiKeyRequest",
+    "RevealAiModelApiKeyResponse",
 ]

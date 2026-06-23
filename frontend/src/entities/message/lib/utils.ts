@@ -50,14 +50,7 @@ export function modelTooltipText(message: ChatMessage): string {
   return (message.targetLabel ?? "").trim();
 }
 
-export async function copyPlainText(text: string): Promise<boolean> {
-  try {
-    await navigator.clipboard.writeText(text);
-    return true;
-  } catch {
-    return false;
-  }
-}
+export { copyTextToClipboard as copyPlainText } from "@/shared/lib/clipboard/copyToClipboard";
 
 export function measureUserEditTextWidth(
   text: string,

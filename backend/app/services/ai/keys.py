@@ -8,9 +8,19 @@ from typing import Any, Mapping
 
 from app.core.config import Settings, get_settings
 from app.core.constants import DEMO_EMAIL, PRESENTATION_EMAIL
+from app.core.crypto import decrypt_byok, is_encrypted
 from app.db.models import User
 
 ENV_REF_PREFIX = "env:"
+
+_PREVIEW_STARS = "*" * 10
+
+
+def _is_api_key_preview(value: str) -> bool:
+    if not value or value == "__masked__":
+        return bool(value)
+    pos = value.find(_PREVIEW_STARS)
+    return pos > 0 and pos <= 3
 
 # Fixture/demo profile keys (demo-full.json, presentation.json) — not real BYOK.
 DEMO_FIXTURE_API_KEYS = frozenset(
@@ -135,6 +145,13 @@ def resolve_api_key(
     settings = settings or get_settings()
     mode = get_account_mode(user)
     raw_key = (model.api_key or "").strip()
+
+    # Decrypt at-rest encrypted BYOK keys before resolving.
+    if is_encrypted(raw_key):
+        raw_key = decrypt_byok(raw_key, settings)
+
+    if _is_api_key_preview(raw_key):
+        raw_key = ""
 
     if raw_key and not is_env_ref(raw_key):
         if mode == AccountMode.DEMO and is_demo_fixture_api_key(raw_key):

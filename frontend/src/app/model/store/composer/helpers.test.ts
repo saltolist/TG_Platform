@@ -61,6 +61,27 @@ describe("resolveLlmTarget", () => {
       apiKey: "sk-test",
     });
   });
+
+  it("omits masked apiKey from outbound target", () => {
+    const cfg = multiCfg({
+      llmModels: [
+        {
+          id: "ds-1",
+          provider: "DeepSeek",
+          model: "deepseek-chat",
+          apiKey: "sk-**********key",
+          active: true,
+          includeInMulti: false,
+        },
+      ],
+    });
+    expect(resolveLlmTarget(cfg, "ds-1")).toEqual({
+      llmId: "ds-1",
+      provider: "DeepSeek",
+      model: "deepseek-chat",
+      apiKey: undefined,
+    });
+  });
 });
 
 describe("buildAiReplyMessage", () => {

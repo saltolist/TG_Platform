@@ -46,6 +46,11 @@ class Settings(BaseSettings):
     s3_secret_key: str = ""
     s3_bucket: str = "tg-media"
 
+    # BYOK key encryption (Phase 2, step 5) — Fernet base64-encoded key.
+    # Generate with: python -c "from cryptography.fernet import Fernet; print(Fernet.generate_key().decode())"
+    # If empty, BYOK keys are stored as plaintext (dev/test fallback only).
+    byok_encryption_key: str = ""
+
     # AI provider keys (Phase 2) — empty by default; presentation/demo use stubs
     openai_api_key: str = ""
     deepseek_api_key: str = ""

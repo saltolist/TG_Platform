@@ -7,6 +7,10 @@ import type {
   Post,
   TelegramProfileConfig,
 } from "@/shared/types";
+import type {
+  AiModelListField,
+  RevealAiModelApiKeyResponse,
+} from "@/shared/lib/profile/aiModelListField";
 
 export type GlobalChatPatch = Partial<
   Pick<GlobalChat, "title" | "preview" | "date" | "history">
@@ -40,6 +44,10 @@ export interface ProfileRepository {
   updateChannel(config: ChannelProfileConfig): Promise<ChannelProfileConfig>;
   getAi(): Promise<AiProfileConfig>;
   updateAi(config: AiProfileConfig): Promise<AiProfileConfig>;
+  revealAiModelApiKey(
+    modelId: string,
+    field: AiModelListField,
+  ): Promise<RevealAiModelApiKeyResponse>;
   getTelegram(): Promise<TelegramProfileConfig>;
   updateTelegram(config: TelegramProfileConfig): Promise<TelegramProfileConfig>;
 }
