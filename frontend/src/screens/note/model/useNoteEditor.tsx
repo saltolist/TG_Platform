@@ -11,7 +11,6 @@ import {
 } from "@/entities/post/model/usePostNoteMutations";
 import { useUpsertGlobalNote } from "@/entities/note";
 import { randomId } from "@/shared/lib/randomId";
-import { normalizeNoteBody } from "@/shared/lib/noteEmbeds";
 import {
   buildNoteSnapshot,
   draftNoteTitle,
@@ -43,13 +42,12 @@ export function useNoteEditor(note: ActiveNote) {
   );
 
   const noteFiles = useMemo(() => (Array.isArray(note.files) ? note.files : []), [note.files]);
-  const initialBody = normalizeNoteBody(note.body, noteFiles);
   const [title, setTitle] = useState(note.title);
-  const [body, setBody] = useState(initialBody);
+  const [body, setBody] = useState(note.body ?? "");
   const [files, setFiles] = useState<NoteFile[]>([...noteFiles]);
   const [bodyFocusRequest, setBodyFocusRequest] = useState(0);
   const [baselineSnapshot, setBaselineSnapshot] = useState(() =>
-    buildNoteSnapshot(note.title, initialBody, note.ai, noteFiles),
+    buildNoteSnapshot(note.title, note.body ?? "", note.ai, noteFiles),
   );
 
   const titleRef = useRef<HTMLTextAreaElement>(null);
@@ -57,7 +55,7 @@ export function useNoteEditor(note: ActiveNote) {
 
   useEffect(() => {
     const nextFiles = Array.isArray(note.files) ? [...note.files] : [];
-    const nextBody = normalizeNoteBody(note.body, nextFiles);
+    const nextBody = note.body ?? "";
     setTitle(note.title);
     setBody(nextBody);
     setFiles(nextFiles);
@@ -89,7 +87,7 @@ export function useNoteEditor(note: ActiveNote) {
   }, [patchNote]);
 
   const cancel = useCallback(() => {
-    const nextBody = normalizeNoteBody(note.body, noteFiles);
+    const nextBody = note.body ?? "";
     const nextFiles = [...noteFiles];
     setTitle(note.title);
     setBody(nextBody);
@@ -178,6 +176,7 @@ export function useNoteEditor(note: ActiveNote) {
 
   const addFile = useCallback((file: File) => {
     const entry: NoteFile = {
+      id: randomId(),
       name: file.name,
       type: file.type || "file",
       url: URL.createObjectURL(file),

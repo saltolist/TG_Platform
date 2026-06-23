@@ -2,18 +2,10 @@
 
 import type { NoteFile } from "@/shared/types";
 import { isNoteImageFile } from "@/shared/lib/noteDraft";
+import { attachmentMarkdown } from "@/widgets/note-editor/lib/noteMarkdownBridge";
 import { NoteIconImage } from "@/shared/ui/icons/note-header-icons";
 
 const EMBED_MIME = "application/x-note-embed";
-
-function noteFileMarkdown(file: NoteFile): string {
-  const id = file.id ?? file.name;
-  const name = file.name;
-  if (isNoteImageFile(file)) {
-    return `![${name}](attachment:${id})`;
-  }
-  return `[${name}](attachment:${id})`;
-}
 
 function NoteFileItemIcon({ file }: { file: NoteFile }) {
   if (isNoteImageFile(file)) {
@@ -49,7 +41,7 @@ export default function NoteFilesPanel({ files, draggable = false }: Props) {
           ? {
               draggable: true,
               onDragStart: (e: React.DragEvent) => {
-                const md = noteFileMarkdown(f);
+                const md = attachmentMarkdown(f);
                 e.dataTransfer.setData(EMBED_MIME, f.id ?? f.name);
                 e.dataTransfer.setData("text/plain", md);
                 e.dataTransfer.effectAllowed = "copy";

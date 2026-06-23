@@ -265,6 +265,79 @@
   display: flex;
   flex-direction: column;
 }
+.note-body-edit-canvas .note-block-editor {
+  flex: 1 1 auto;
+  min-height: 100%;
+}
+
+.note-block-editor {
+  width: 100%;
+  min-height: 500px;
+  font-size: 15px;
+  line-height: var(--note-body-line-height, 1.55);
+  color: var(--text);
+}
+
+.note-block-editor--loading {
+  min-height: 500px;
+}
+
+.note-block-editor .bn-container {
+  --bn-colors-editor-background: transparent;
+  --bn-colors-editor-text: var(--text);
+  --bn-colors-menu-background: var(--bg2);
+  --bn-colors-menu-text: var(--text);
+  --bn-colors-border: var(--border);
+  --bn-colors-hovered-background: var(--bg3);
+  --bn-colors-selected-background: color-mix(in srgb, var(--accent) 16%, transparent);
+  --bn-colors-selected-text: var(--text);
+  --bn-colors-tooltip-background: var(--bg2);
+  --bn-colors-tooltip-text: var(--text);
+  --bn-font-family: var(--font);
+  min-height: 500px;
+}
+
+.note-block-editor .bn-editor {
+  padding-inline: 0;
+}
+
+.note-block-editor .bn-block-column-list {
+  width: 100%;
+}
+
+.note-body-document--markdown .note-table-wrapper {
+  overflow-x: auto;
+  margin: 0.75em 0;
+}
+
+.note-body-document--markdown .note-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 14px;
+}
+
+.note-body-document--markdown .note-table th,
+.note-body-document--markdown .note-table td {
+  border: 1px solid var(--border);
+  padding: 6px 10px;
+  text-align: left;
+}
+
+.note-body-document--markdown .note-image-grid-row {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: var(--note-embed-image-gap, 8px);
+  margin: 0.35em 0;
+}
+
+.note-body-document--markdown .note-inline-image {
+  display: block;
+  width: 100%;
+  height: auto;
+  border-radius: var(--rs);
+  border: 1px solid var(--border);
+}
+
 .note-body-edit-canvas .note-body-document--edit {
   flex: 1 1 auto;
   min-height: 100%;

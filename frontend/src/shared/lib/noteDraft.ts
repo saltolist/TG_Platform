@@ -1,5 +1,5 @@
 import type { ActiveNote, NoteFile } from "@/shared/types";
-import { canonicalNoteBody } from "./noteEmbeds";
+import { canonicalNoteBody } from "./canonicalNoteBody";
 
 export function draftNoteTitle(title: string) {
   return title.trim() || "Без названия";
