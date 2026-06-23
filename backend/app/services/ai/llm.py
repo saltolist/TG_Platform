@@ -11,8 +11,6 @@ import httpx
 from app.services.ai.providers import ProviderSpec, chat_completions_url
 from app.services.ai.sse import format_sse_data
 
-from app.services.ai.context import DEFAULT_SYSTEM_PROMPT, build_reply_messages
-
 _HTTP_TIMEOUT = httpx.Timeout(120.0, connect=30.0)
 
 _LLM_ERROR_GENERIC = (

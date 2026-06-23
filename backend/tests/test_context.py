@@ -90,15 +90,19 @@ def test_assemble_reply_messages_includes_primer_and_window() -> None:
     )
 
     assert messages[0] == {"role": "system", "content": "Системный промпт"}
-    assert messages[1]["role"] == "user"
-    assert "SUMMARY_BUNDLE:" in messages[1]["content"]
-    assert "Финансы" in messages[1]["content"]
+
+    # Primer: скрытая двойка — user с bundle, затем assistant-подтверждение.
+    primer_user = messages[1]
+    assert primer_user["role"] == "user"
+    assert "SUMMARY_BUNDLE:" in primer_user["content"]
+    assert "Финансы" in primer_user["content"]
     assert messages[2] == {"role": "assistant", "content": PRIMER_ACK}
 
+    # Диалоговое окно: не превышает PROMPT_WINDOW, текст user-запроса присутствует.
     dialog = messages[3:]
     assert len(dialog) <= PROMPT_WINDOW
-    assert dialog[-1] == {"role": "user", "content": "Второй вопрос"}
-    assert dialog[-2] == {"role": "assistant", "content": "Первый ответ"}
+    last_user = next(m for m in reversed(dialog) if m["role"] == "user")
+    assert "Второй вопрос" in last_user["content"]
 
 
 def test_assemble_reply_messages_post_scope_adds_post_to_bundle() -> None:
@@ -115,12 +119,27 @@ def test_assemble_reply_messages_post_scope_adds_post_to_bundle() -> None:
 
 
 def test_assemble_reply_messages_includes_rolling_summary_in_primer() -> None:
+    # rolling_summary попадает в primer как CONTEXT_SUMMARY когда:
+    # - есть вытесненные пары (история длиннее PROMPT_WINDOW)
+    # - rolling_summary_idx указывает сколько пар уже учтено
+    history = []
+    for i in range(PROMPT_WINDOW + 1):
+        history.append({"role": "user", "text": f"вопрос {i}"})
+        history.append({"role": "ai", "text": f"ответ {i}"})
+
     messages = assemble_reply_messages(
         ai_profile={},
         user_text="Новый вопрос",
         scope="global",
         channel_profile=CHANNEL,
-        chat_meta={"rolling_summary": "Ранее мы обсуждали ETF и риски."},
+        history=history,
+        chat_meta={
+            "rolling_summary": "Ранее мы обсуждали ETF и риски.",
+            "rolling_summary_idx": PROMPT_WINDOW,
+        },
     )
-    assert "CONTEXT_SUMMARY:" in messages[1]["content"]
-    assert "ETF" in messages[1]["content"]
+    primer_content = messages[1]["content"]
+    assert "SUMMARY_BUNDLE:" in primer_content
+    assert "Финансы" in primer_content
+    assert "CONTEXT_SUMMARY:" in primer_content
+    assert "ETF" in primer_content

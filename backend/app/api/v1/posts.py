@@ -12,6 +12,7 @@ from app.schemas.resources import PostIn
 from app.services.ai.chat_history import merge_history_stamps
 from app.services.ai.context_meta import apply_rolling_summary_reconcile_to_chat_data
 from app.services.ai.summary_catalog import catalog_from_profile, register_local_summary_version
+from app.services.profile_defaults import empty_channel_profile, empty_telegram_profile
 
 router = APIRouter(prefix="/posts", tags=["Posts"])
 

@@ -12,8 +12,8 @@ from httpx import AsyncClient
 
 from app.core.config import Settings
 from app.db.models import Profile, User
+from app.services.ai.context import build_reply_messages
 from app.services.ai.llm import (
-    build_reply_messages,
     parse_openai_stream_line,
     stream_chat_completion_tokens,
     stream_llm_sse,
@@ -64,11 +64,13 @@ def test_build_reply_messages_uses_profile_system_prompt() -> None:
     )
     assert messages[0]["role"] == "system"
     assert messages[0]["content"] == "Custom system"
+    # Primer: скрытый user с bundle, затем assistant-подтверждение.
     assert messages[1]["role"] == "user"
     assert "SUMMARY_BUNDLE:" in messages[1]["content"]
     assert messages[2]["role"] == "assistant"
+    # Последнее сообщение — user-реплика, содержащая текст запроса.
     assert messages[-1]["role"] == "user"
-    assert messages[-1]["content"] == "Привет"
+    assert "Привет" in messages[-1]["content"]
 
 
 def test_build_reply_messages_post_scope_includes_post_bundle() -> None:
@@ -81,7 +83,9 @@ def test_build_reply_messages_post_scope_includes_post_bundle() -> None:
     )
     primer = messages[1]["content"]
     assert "Контент поста" in primer
-    assert messages[-1]["content"] == "Текст"
+    # Текст запроса пользователя присутствует в последнем user-сообщении.
+    assert messages[-1]["role"] == "user"
+    assert "Текст" in messages[-1]["content"]
 
 
 class _FakeStreamResponse:

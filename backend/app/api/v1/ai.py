@@ -567,7 +567,8 @@ async def ai_reply(
 
     provider_name, model_id = _validate_model_for_llm(model)
     spec = get_provider_spec(provider_name)
-    assert spec is not None and resolution.api_key
+    if spec is None or not resolution.api_key:
+        raise HTTPException(status_code=422, detail="AI недоступен: не удалось определить провайдер или API ключ")
 
     settings = get_settings()
     log_context = should_log_llm_context(
