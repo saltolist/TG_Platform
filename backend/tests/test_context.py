@@ -19,6 +19,7 @@ CHANNEL = {
 }
 
 POST = {
+    "id": "post-1",
     "text": "Текст поста про инвестиции",
     "metrics": {"views": "1 000", "reposts": 5, "reactions": [{"emoji": "🔥", "count": 10}]},
 }
@@ -127,16 +128,23 @@ def test_assemble_reply_messages_includes_rolling_summary_in_primer() -> None:
         history.append({"role": "user", "text": f"вопрос {i}"})
         history.append({"role": "ai", "text": f"ответ {i}"})
 
+    # В label-пути rolling_summary хранится внутри label_context (THREAD_LABEL_STATE_KEY).
+    chat_meta = {
+        "active_thread_key": "",
+        "label_context": {
+            "": {
+                "rolling_summary": "Ранее мы обсуждали ETF и риски.",
+                "rolling_summary_idx": PROMPT_WINDOW,
+            }
+        },
+    }
     messages = assemble_reply_messages(
         ai_profile={},
         user_text="Новый вопрос",
         scope="global",
         channel_profile=CHANNEL,
         history=history,
-        chat_meta={
-            "rolling_summary": "Ранее мы обсуждали ETF и риски.",
-            "rolling_summary_idx": PROMPT_WINDOW,
-        },
+        chat_meta=chat_meta,
     )
     primer_content = messages[1]["content"]
     assert "SUMMARY_BUNDLE:" in primer_content

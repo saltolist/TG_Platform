@@ -78,7 +78,7 @@ def test_build_reply_messages_post_scope_includes_post_bundle() -> None:
         ai_profile={},
         user_text="Текст",
         scope="post",
-        post_data={"text": "Контент поста"},
+        post_data={"id": "p1", "text": "Контент поста"},
         channel_profile={"core": {"topic": "Тема"}},
     )
     primer = messages[1]["content"]

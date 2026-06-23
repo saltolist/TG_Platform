@@ -10,7 +10,6 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.db.resolve import get_owned_chat, get_owned_post
 from app.schemas.requests import AiReplyRequest
-from app.services.ai.bundle_profile import advance_bundle_profile
 from app.services.ai.chat_history import (
     active_thread_key,
     count_user_turns,
@@ -19,7 +18,7 @@ from app.services.ai.chat_history import (
     merge_history_stamps,
 )
 from app.services.ai.context_config import PROMPT_WINDOW
-from app.services.ai.context_turns import compute_window_user_turns
+from app.services.ai.context_turns import annotate_user_turns, compute_window_user_turns, maturation_window_user_turns
 from app.services.ai.context_label import enumerate_active_user_turns, resolve_turn_label
 from app.services.ai.context_labels import (
     advance_label_thread_after_reply,
@@ -27,24 +26,12 @@ from app.services.ai.context_labels import (
     load_label_thread_context,
     resolve_label_thread_state,
 )
-from app.services.ai.message_bundle import (
-    apply_bundle_context_stamp_to_history,
-    compute_bundle_context_stamp,
-    last_user_message_path,
-)
-from app.services.ai.summary_catalog import get_summary_catalog, latest_scope_version, normalize_catalog
-from app.services.ai.thread_context import (
-    GLOBAL_FINGERPRINT_KEY,
-    flatten_thread_meta,
-    load_thread_context,
-    resolve_thread_state,
-)
+from app.services.ai.summary_catalog import latest_scope_version, normalize_catalog
 from app.services.ai.context_labels_post import (
     advance_post_label_thread_after_reply,
     flatten_post_label_thread_meta,
     resolve_post_label_thread_state,
 )
-from app.services.ai.context_turns import annotate_user_turns, maturation_window_user_turns
 from app.services.ai.rolling_summary import (
     exchanges_from_messages,
     is_meta_rolling_summary_response,
@@ -86,18 +73,6 @@ def apply_rolling_summary_reconcile_to_chat_data(
             threads=updated_threads,
         )
 
-    threads = load_thread_context(chat_data)
-    if threads and thread_key in threads:
-        reconciled = reconcile_rolling_summary_fields(threads[thread_key], valid_pairs)
-        if reconciled == threads[thread_key]:
-            return {}
-        updated_threads = {**threads, thread_key: reconciled}
-        return flatten_thread_meta(
-            reconciled,
-            thread_key=thread_key,
-            threads=updated_threads,
-        )
-
     flat_state = {
         "rolling_summary": chat_data.get("rolling_summary"),
         "rolling_summary_idx": chat_data.get("rolling_summary_idx"),
@@ -126,93 +101,20 @@ async def refresh_context_meta_after_reply(
     scope: str = "global",
     post_id: str | None = None,
 ) -> dict[str, Any]:
-    """Update rolling summary and bundle profile after a completed assistant reply.
+    """Update rolling summary and label thread after a completed assistant reply.
 
     ``llm`` — resolved orchestrator (provider, model, api_key), not the reply model.
     """
     catalog = normalize_catalog(summary_catalog)
-    if catalog.get("global"):
-        return await _refresh_context_meta_labels(
-            chat_meta,
-            history=history,
-            valid_pairs=valid_pairs,
-            catalog=catalog,
-            llm=llm,
-            scope=scope,
-            post_id=post_id,
-        )
-
-    thread_state, thread_key, threads = resolve_thread_state(
+    return await _refresh_context_meta_labels(
         chat_meta,
-        history,
-        global_fingerprint=current_fingerprint,
+        history=history,
+        valid_pairs=valid_pairs,
+        catalog=catalog,
+        llm=llm,
+        scope=scope,
+        post_id=post_id,
     )
-    user_turn_count = count_user_turns(valid_pairs)
-    window_user_turns = compute_window_user_turns(valid_pairs)
-
-    bundle_profile, global_fingerprint = advance_bundle_profile(
-        thread_state.get("rolling_summary_profile"),
-        current_bundle=current_bundle,
-        current_fingerprint=current_fingerprint,
-        global_fingerprint_at_last_refresh=thread_state.get(GLOBAL_FINGERPRINT_KEY),
-        user_turn_count=user_turn_count,
-        window_user_turns=window_user_turns,
-    )
-
-    prefix, _ = split_prefix_and_window(valid_pairs)
-    summary_state = reconcile_rolling_summary_fields(thread_state, valid_pairs)
-    rolling_summary = str(summary_state.get("rolling_summary") or "").strip()
-    try:
-        summary_idx = int(summary_state.get("rolling_summary_idx") or 0)
-    except (TypeError, ValueError):
-        summary_idx = 0
-    summary_idx = max(0, summary_idx)
-    if is_meta_rolling_summary_response(rolling_summary):
-        rolling_summary = ""
-        summary_idx = 0
-
-    if len(prefix) > summary_idx:
-        new_segment = prefix[summary_idx:]
-        exchanges = exchanges_from_messages(new_segment)
-        if exchanges:
-            if llm is not None:
-                spec, model, api_key = llm
-                rolling_summary = await update_rolling_summary_llm(
-                    rolling_summary,
-                    exchanges,
-                    spec=spec,
-                    model=model,
-                    api_key=api_key,
-                )
-            else:
-                rolling_summary = update_rolling_summary_template(rolling_summary, exchanges)
-            summary_idx = len(prefix)
-
-    updated_thread_state = {
-        **dict(thread_state),
-        "rolling_summary": rolling_summary,
-        "rolling_summary_idx": summary_idx,
-        "rolling_summary_profile": bundle_profile,
-        GLOBAL_FINGERPRINT_KEY: global_fingerprint,
-    }
-    threads[thread_key] = updated_thread_state
-    meta = flatten_thread_meta(
-        updated_thread_state,
-        thread_key=thread_key,
-        threads=threads,
-    )
-    stamp_path = last_user_message_path(history)
-    if stamp_path is not None:
-        stamp = compute_bundle_context_stamp(
-            bundle_profile,
-            user_turn_count=user_turn_count,
-            window_user_turns=window_user_turns,
-        )
-        meta["bundle_context_stamp"] = {
-            "path": stamp_path,
-            **stamp,
-        }
-    return meta
 
 
 async def _refresh_context_meta_labels(

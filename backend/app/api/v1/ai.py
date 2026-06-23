@@ -19,7 +19,6 @@ from app.services.ai.context import assemble_reply_messages, append_user_text_to
 from app.services.ai.context_log import get_chat_filter, log_llm_request, log_llm_response, should_log_llm_context
 from app.services.ai.context_meta import refresh_context_meta_after_reply, persist_chat_meta
 from app.services.ai.context_label import stamp_context_label_on_path
-from app.services.ai.message_bundle import apply_bundle_context_stamp_to_history
 from app.services.ai.keys import KeyResolution, KeySource, get_account_mode
 from app.services.ai.llm import stream_llm_sse
 from app.services.ai.orchestrator import resolve_orchestrator_llm
@@ -377,12 +376,6 @@ async def _finalize_context_meta(
                 )
             if applied is not None:
                 stamped_history = applied
-    stamp = updated_meta.get("bundle_context_stamp")
-    if stamped_history is None and isinstance(stamp, Mapping):
-        source_history = await _history_for_stamp(session, user, payload, history)
-        applied = apply_bundle_context_stamp_to_history(source_history, stamp)
-        if applied is not None:
-            stamped_history = applied
     await persist_chat_meta(
         session,
         user.id,
