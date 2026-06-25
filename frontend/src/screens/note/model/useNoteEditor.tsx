@@ -49,7 +49,7 @@ export function useNoteEditor(note: ActiveNote) {
   const [bodyFocusRequest, setBodyFocusRequest] = useState(0);
   const [editorResetKey, setEditorResetKey] = useState(0);
   const [baselineSnapshot, setBaselineSnapshot] = useState(() =>
-    buildNoteSnapshot(note.title, initialBody, note.ai, noteFiles),
+    buildNoteSnapshot(note.title, initialBody, note.ai, noteFiles, initialDoc),
   );
 
   const titleRef = useRef<HTMLTextAreaElement>(null);
@@ -62,7 +62,7 @@ export function useNoteEditor(note: ActiveNote) {
     setDoc(Array.isArray(note.doc) ? note.doc : undefined);
     setFiles(nextFiles);
     setEditorResetKey(0);
-    setBaselineSnapshot(buildNoteSnapshot(note.title, nextBody, note.ai, nextFiles));
+    setBaselineSnapshot(buildNoteSnapshot(note.title, nextBody, note.ai, nextFiles, Array.isArray(note.doc) ? note.doc : undefined));
   }, [noteKey]); // eslint-disable-line react-hooks/exhaustive-deps -- reset draft only when note identity changes
 
   useEffect(() => {
@@ -70,8 +70,8 @@ export function useNoteEditor(note: ActiveNote) {
   }, [note.ai]);
 
   const changed = useMemo(
-    () => buildNoteSnapshot(title, body, note.ai, files) !== baselineSnapshot,
-    [title, body, note.ai, files, baselineSnapshot],
+    () => buildNoteSnapshot(title, body, note.ai, files, doc) !== baselineSnapshot,
+    [title, body, note.ai, files, doc, baselineSnapshot],
   );
 
   useEffect(() => {
@@ -89,7 +89,7 @@ export function useNoteEditor(note: ActiveNote) {
     setDoc(Array.isArray(note.doc) ? note.doc : undefined);
     setFiles(nextFiles);
     setEditorResetKey((key) => key + 1);
-    setBaselineSnapshot(buildNoteSnapshot(note.title, nextBody, note.ai, nextFiles));
+    setBaselineSnapshot(buildNoteSnapshot(note.title, nextBody, note.ai, nextFiles, Array.isArray(note.doc) ? note.doc : undefined));
     setNoteDirty(false);
   }, [note, noteFiles, setNoteDirty]);
 
@@ -98,76 +98,80 @@ export function useNoteEditor(note: ActiveNote) {
     setBody(content.body);
   }, []);
 
-  const save = useCallback(() => {
+  const save = useCallback(async () => {
     const finalTitle = draftNoteTitle(title);
-    const snapshot = buildNoteSnapshot(finalTitle, body, note.ai, files);
+    const snapshot = buildNoteSnapshot(finalTitle, body, note.ai, files, doc);
     if (snapshot === baselineSnapshot) return;
 
-    if (note.isNew) {
+    try {
+      if (note.isNew) {
+        if (note.isGlobal) {
+          const saved = {
+            id: randomId(),
+            title: finalTitle,
+            body,
+            doc,
+            ai: note.ai,
+            date: new Date().toISOString(),
+            files,
+          };
+          await upsertGlobalNote.mutateAsync(saved);
+          patchNote({
+            currentNote: { ...saved, isGlobal: true, files },
+            noteMode: "view",
+            noteSavedSnapshot: buildNoteSnapshot(finalTitle, body, note.ai, files, doc),
+          });
+        } else {
+          const saved = {
+            id: randomId(),
+            title: finalTitle,
+            body,
+            doc,
+            ai: note.ai,
+            date: new Date().toISOString(),
+            files,
+          };
+          await addPostNote(note.postId, saved);
+          patchNote({
+            currentNote: { ...saved, isGlobal: false, postId: note.postId, files },
+            noteMode: "view",
+            noteSavedSnapshot: buildNoteSnapshot(finalTitle, body, note.ai, files, doc),
+          });
+        }
+        setBaselineSnapshot(snapshot);
+        setNoteDirty(false);
+        return;
+      }
+
       if (note.isGlobal) {
-        const saved = {
-          id: randomId(),
+        const next = {
+          id: note.id,
           title: finalTitle,
           body,
           doc,
           ai: note.ai,
-          date: new Date().toISOString(),
+          date: note.date,
           files,
         };
-        void upsertGlobalNote.mutateAsync(saved);
+        await upsertGlobalNote.mutateAsync(next);
         patchNote({
-          currentNote: { ...saved, isGlobal: true, files },
+          currentNote: { ...next, isGlobal: true, files },
           noteMode: "view",
-          noteSavedSnapshot: buildNoteSnapshot(finalTitle, body, note.ai, files),
+          noteSavedSnapshot: buildNoteSnapshot(finalTitle, body, note.ai, files, doc),
         });
       } else {
-        const saved = {
-          id: randomId(),
-          title: finalTitle,
-          body,
-          doc,
-          ai: note.ai,
-          date: new Date().toISOString(),
-          files,
-        };
-        void addPostNote(note.postId, saved);
+        await updatePostNote(note.postId, note.id, { title: finalTitle, body, doc, files });
         patchNote({
-          currentNote: { ...saved, isGlobal: false, postId: note.postId, files },
+          currentNote: { ...note, title: finalTitle, body, doc, files },
           noteMode: "view",
-          noteSavedSnapshot: buildNoteSnapshot(finalTitle, body, note.ai, files),
+          noteSavedSnapshot: buildNoteSnapshot(finalTitle, body, note.ai, files, doc),
         });
       }
       setBaselineSnapshot(snapshot);
       setNoteDirty(false);
-      return;
+    } catch (error) {
+      console.error("Failed to save note", error);
     }
-
-    if (note.isGlobal) {
-      const next = {
-        id: note.id,
-        title: finalTitle,
-        body,
-        doc,
-        ai: note.ai,
-        date: note.date,
-        files,
-      };
-      void upsertGlobalNote.mutateAsync(next);
-      patchNote({
-        currentNote: { ...next, isGlobal: true, files },
-        noteMode: "view",
-        noteSavedSnapshot: buildNoteSnapshot(finalTitle, body, note.ai, files),
-      });
-    } else {
-      void updatePostNote(note.postId, note.id, { title: finalTitle, body, doc, files });
-      patchNote({
-        currentNote: { ...note, title: finalTitle, body, doc, files },
-        noteMode: "view",
-        noteSavedSnapshot: buildNoteSnapshot(finalTitle, body, note.ai, files),
-      });
-    }
-    setBaselineSnapshot(snapshot);
-    setNoteDirty(false);
   }, [
     addPostNote,
     baselineSnapshot,

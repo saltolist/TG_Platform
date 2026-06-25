@@ -3,7 +3,7 @@ import {
   normalizeChannelProfileConfig,
   normalizeTelegramProfileConfig,
 } from "@/shared/lib/profile/normalizeProfileConfig";
-import { isOverlayAccount } from "@/shared/lib/overlay/isOverlayAccount";
+import { shouldPersistLocally } from "@/shared/lib/overlay/isOverlayAccount";
 import { mergeEntityList } from "@/shared/lib/overlay/mergeEntities";
 import { mutateOverlay, readOverlay } from "@/shared/lib/overlay/overlayStorage";
 import type {
@@ -27,12 +27,12 @@ function overlayPosts(inner: PostsRepository): PostsRepository {
   return {
     list: async () => {
       const base = await inner.list();
-      if (!isOverlayAccount()) return base;
+      if (!shouldPersistLocally()) return base;
       const overlay = readOverlay();
       return mergeEntityList(base, overlay.posts, overlay.posts.order);
     },
     create: async (post) => {
-      if (!isOverlayAccount()) return inner.create(post);
+      if (!shouldPersistLocally()) return inner.create(post);
       mutateOverlay((overlay) => {
         overlay.posts.upserts[post.id] = post;
         const order = overlay.posts.order ?? [];
@@ -41,7 +41,7 @@ function overlayPosts(inner: PostsRepository): PostsRepository {
       return post;
     },
     update: async (id, patch) => {
-      if (!isOverlayAccount()) return inner.update(id, patch);
+      if (!shouldPersistLocally()) return inner.update(id, patch);
       const list = await overlayPosts(inner).list();
       const current = list.find((post) => post.id === id);
       if (!current) throw new Error(`Post ${id} not found`);
@@ -52,7 +52,7 @@ function overlayPosts(inner: PostsRepository): PostsRepository {
       return updated;
     },
     reorder: async (posts) => {
-      if (!isOverlayAccount()) return inner.reorder(posts);
+      if (!shouldPersistLocally()) return inner.reorder(posts);
       mutateOverlay((overlay) => {
         overlay.posts.order = posts.map((post) => post.id);
         for (const post of posts) {
@@ -62,7 +62,7 @@ function overlayPosts(inner: PostsRepository): PostsRepository {
       return posts;
     },
     remove: async (id) => {
-      if (!isOverlayAccount()) return inner.remove(id);
+      if (!shouldPersistLocally()) return inner.remove(id);
       mutateOverlay((overlay) => {
         if (!overlay.posts.removedIds.includes(id)) {
           overlay.posts.removedIds.push(id);
@@ -79,7 +79,7 @@ function overlayPosts(inner: PostsRepository): PostsRepository {
 function overlayChats(inner: ChatsRepository): ChatsRepository {
   const listMerged = async (): Promise<GlobalChat[]> => {
     const base = await inner.listGlobal();
-    if (!isOverlayAccount()) return base;
+    if (!shouldPersistLocally()) return base;
     const overlay = readOverlay();
     return mergeEntityList(base, overlay.globalChats);
   };
@@ -87,14 +87,14 @@ function overlayChats(inner: ChatsRepository): ChatsRepository {
   return {
     listGlobal: listMerged,
     create: async (chat) => {
-      if (!isOverlayAccount()) return inner.create(chat);
+      if (!shouldPersistLocally()) return inner.create(chat);
       mutateOverlay((overlay) => {
         overlay.globalChats.upserts[chat.id] = chat;
       });
       return chat;
     },
     pushMessage: async (chatId, text) => {
-      if (!isOverlayAccount()) return inner.pushMessage(chatId, text);
+      if (!shouldPersistLocally()) return inner.pushMessage(chatId, text);
       const chat = (await listMerged()).find((item) => item.id === chatId);
       if (!chat) throw new Error(`Chat ${chatId} not found`);
       const updated = await overlayChats(inner).update(chatId, {
@@ -103,7 +103,7 @@ function overlayChats(inner: ChatsRepository): ChatsRepository {
       return updated;
     },
     update: async (chatId, patch) => {
-      if (!isOverlayAccount()) return inner.update(chatId, patch);
+      if (!shouldPersistLocally()) return inner.update(chatId, patch);
       const list = await listMerged();
       const current = list.find((chat) => chat.id === chatId);
       if (!current) throw new Error(`Chat ${chatId} not found`);
@@ -115,7 +115,7 @@ function overlayChats(inner: ChatsRepository): ChatsRepository {
     },
     rename: async (chatId, title) => overlayChats(inner).update(chatId, { title }),
     remove: async (chatId) => {
-      if (!isOverlayAccount()) return inner.remove(chatId);
+      if (!shouldPersistLocally()) return inner.remove(chatId);
       mutateOverlay((overlay) => {
         if (!overlay.globalChats.removedIds.includes(chatId)) {
           overlay.globalChats.removedIds.push(chatId);
@@ -130,19 +130,19 @@ function overlayNotes(inner: NotesRepository): NotesRepository {
   return {
     listGlobal: async () => {
       const base = await inner.listGlobal();
-      if (!isOverlayAccount()) return base;
+      if (!shouldPersistLocally()) return base;
       const overlay = readOverlay();
       return mergeEntityList(base, overlay.globalNotes);
     },
     upsert: async (note) => {
-      if (!isOverlayAccount()) return inner.upsert(note);
+      if (!shouldPersistLocally()) return inner.upsert(note);
       mutateOverlay((overlay) => {
         overlay.globalNotes.upserts[note.id] = note;
       });
       return note;
     },
     remove: async (noteId) => {
-      if (!isOverlayAccount()) return inner.remove(noteId);
+      if (!shouldPersistLocally()) return inner.remove(noteId);
       mutateOverlay((overlay) => {
         if (!overlay.globalNotes.removedIds.includes(noteId)) {
           overlay.globalNotes.removedIds.push(noteId);
@@ -157,14 +157,14 @@ function overlayProfile(inner: ProfileRepository): ProfileRepository {
   return {
     getChannel: async () => {
       const base = normalizeChannelProfileConfig(await inner.getChannel());
-      if (!isOverlayAccount()) return base;
+      if (!shouldPersistLocally()) return base;
       const overlay = readOverlay().profile?.channel;
       return overlay ? normalizeChannelProfileConfig({ ...base, ...overlay }) : base;
     },
     updateChannel: async (config) => {
       const normalized = normalizeChannelProfileConfig(config);
       const saved = normalizeChannelProfileConfig(await inner.updateChannel(normalized));
-      if (isOverlayAccount()) {
+      if (shouldPersistLocally()) {
         mutateOverlay((overlay) => {
           overlay.profile = { ...overlay.profile, channel: saved };
         });
@@ -173,12 +173,12 @@ function overlayProfile(inner: ProfileRepository): ProfileRepository {
     },
     getAi: async () => {
       const base = await inner.getAi();
-      if (!isOverlayAccount()) return normalizeAiProfileConfig(base);
+      if (!shouldPersistLocally()) return normalizeAiProfileConfig(base);
       return normalizeAiProfileConfig(readOverlay().profile?.ai ?? base);
     },
     updateAi: async (config) => {
       const normalized = normalizeAiProfileConfig(config);
-      if (!isOverlayAccount()) return inner.updateAi(normalized);
+      if (!shouldPersistLocally()) return inner.updateAi(normalized);
       mutateOverlay((overlay) => {
         overlay.profile = { ...overlay.profile, ai: normalized };
       });
@@ -188,12 +188,12 @@ function overlayProfile(inner: ProfileRepository): ProfileRepository {
     revealTelegramSecret: (field) => inner.revealTelegramSecret(field),
     getTelegram: async () => {
       const base = normalizeTelegramProfileConfig(await inner.getTelegram());
-      if (!isOverlayAccount()) return base;
+      if (!shouldPersistLocally()) return base;
       const overlay = readOverlay().profile?.telegram;
       return overlay ? normalizeTelegramProfileConfig({ ...base, ...overlay }) : base;
     },
     updateTelegram: async (config) => {
-      if (!isOverlayAccount()) return inner.updateTelegram(config);
+      if (!shouldPersistLocally()) return inner.updateTelegram(config);
       mutateOverlay((overlay) => {
         overlay.profile = { ...overlay.profile, telegram: config };
       });

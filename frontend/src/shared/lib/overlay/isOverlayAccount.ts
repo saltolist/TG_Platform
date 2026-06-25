@@ -1,3 +1,4 @@
+import { USE_MSW } from "@/shared/config/dataSource";
 import { DEMO_EMAIL } from "@/shared/lib/auth/constants";
 import { getGuestOverlayKey } from "@/shared/lib/auth/queryAccountScope";
 import { isGuestBrowsing, readSession } from "@/shared/lib/auth/session";
@@ -16,4 +17,9 @@ export function isOverlayAccount(accountId = getOverlayAccountKey()): boolean {
   if (isGuestBrowsing()) return true;
   const session = readSession();
   return session?.email?.toLowerCase() === DEMO_EMAIL;
+}
+
+/** Demo/guest overlay, or MSW dev — persist writes in localStorage across reloads. */
+export function shouldPersistLocally(): boolean {
+  return isOverlayAccount() || USE_MSW;
 }

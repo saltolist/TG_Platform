@@ -281,22 +281,22 @@
   grid-template-columns: minmax(0, 1fr) auto;
   align-items: center;
   gap: 14px;
-  padding: 18px 22px;
+  padding: 18px 23px;
   border-bottom: 1px solid var(--border);
 }
 
 #screen-note .note-shell-content {
-  padding: 20px 22px;
+  padding: 20px 23px;
 }
 
 @media (max-width: 760px) {
   #screen-note .note-shell-header {
     gap: 8px;
-    padding: 12px 14px;
+    padding: 12px 15px;
   }
 
   #screen-note .note-shell-content {
-    padding: 16px 14px;
+    padding: 16px 15px;
   }
 }
 

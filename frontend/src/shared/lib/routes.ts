@@ -286,7 +286,7 @@ export function buildRoutePatch(
         currentNote: { ...n, isGlobal: true, files },
         noteFrom: "notes",
         noteMode: "view",
-        noteSavedSnapshot: buildNoteSnapshot(n.title, n.body, n.ai, files),
+        noteSavedSnapshot: buildNoteSnapshot(n.title, n.body, n.ai, files, n.doc),
       };
     }
     if (parsed.notePostId != null && parsed.noteId != null) {
@@ -301,7 +301,7 @@ export function buildRoutePatch(
         currentNote: { ...n, isGlobal: false, postId: parsed.notePostId, files },
         noteFrom: noteFromFallback,
         noteMode: "view",
-        noteSavedSnapshot: buildNoteSnapshot(n.title, n.body, n.ai, files),
+        noteSavedSnapshot: buildNoteSnapshot(n.title, n.body, n.ai, files, n.doc),
       };
     }
   }

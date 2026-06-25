@@ -16,12 +16,19 @@ export function snapshotNoteFiles(files: NoteFile[]) {
     .sort((a, b) => a.name.localeCompare(b.name, "ru"));
 }
 
-export function buildNoteSnapshot(title: string, body: string, ai: boolean, files: NoteFile[]) {
+export function buildNoteSnapshot(
+  title: string,
+  body: string,
+  ai: boolean,
+  files: NoteFile[],
+  doc?: unknown[],
+) {
   return JSON.stringify({
     title: title.trim(),
     body: canonicalNoteBody(body),
     ai,
     files: snapshotNoteFiles(files),
+    doc: Array.isArray(doc) ? doc : null,
   });
 }
 
@@ -40,7 +47,8 @@ export const EMPTY_NOTE_SNAPSHOT = buildNoteSnapshot("", "", false, []);
 
 export function isNoteDirty(note: ActiveNote, savedSnapshot: string): boolean {
   const files = Array.isArray(note.files) ? note.files : [];
-  return savedSnapshot !== buildNoteSnapshot(note.title, note.body, note.ai, files);
+  const doc = Array.isArray(note.doc) ? note.doc : undefined;
+  return savedSnapshot !== buildNoteSnapshot(note.title, note.body, note.ai, files, doc);
 }
 
 export function isNoteImageFile(file: NoteFile): boolean {
