@@ -312,12 +312,9 @@
   flex-shrink: 0;
 }
 
-#screen-note .note-body-canvas.note-body-view {
-  cursor: default;
-}
-
-#screen-note .note-body-edit-canvas {
+#screen-note .note-shell-content {
   cursor: text;
+  min-height: 500px;
 }
 
 /* Светлая тема: перебить screen-specific bg2 у поста и заметки (идёт после правил выше) */

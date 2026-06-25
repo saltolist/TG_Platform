@@ -33,6 +33,7 @@ export const localNoteSchema = z.object({
   date: z.string(),
   ai: z.boolean(),
   body: z.string(),
+  doc: z.array(z.unknown()).optional(),
   files: z.array(noteFileSchema).optional(),
 });
 

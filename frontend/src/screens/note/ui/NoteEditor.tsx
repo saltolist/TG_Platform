@@ -1,11 +1,18 @@
 "use client";
 
+import dynamic from "next/dynamic";
 import { useRef } from "react";
-import { NoteBodyEditor, NoteFilesPanel, NoteHeaderToolbar } from "@/widgets/note-editor";
+
+import { NoteHeaderToolbar } from "@/widgets/note-editor";
 import { useNoteEditor } from "@/screens/note/model/useNoteEditor";
 import type { ActiveNote } from "@/shared/types";
 import { formatStoredDate } from "@/shared/lib/helpers";
+import { noteIdentityKey } from "@/shared/lib/noteDraft";
 import { useModSaveUndo } from "@/shared/lib/hooks/useModSaveUndo";
+
+const NoteBlockNote = dynamic(() => import("@/widgets/note-editor/ui/NoteBlockNote"), {
+  ssr: false,
+});
 
 export default function NoteEditor({ note }: { note: ActiveNote }) {
   const editor = useNoteEditor(note);
@@ -35,11 +42,6 @@ export default function NoteEditor({ note }: { note: ActiveNote }) {
             </div>
           </div>
           <NoteHeaderToolbar
-            mode={editor.isView ? "view" : "edit"}
-            showAttach={!editor.isView}
-            onAttach={() => editor.fileInputRef.current?.click()}
-            showModeToggle
-            onToggleMode={editor.isView ? editor.setEditMode : editor.setViewMode}
             onSave={editor.save}
             onCancel={editor.cancel}
             saveDisabled={!editor.changed}
@@ -47,30 +49,21 @@ export default function NoteEditor({ note }: { note: ActiveNote }) {
           />
         </div>
         <div className="note-shell-content">
-          <NoteBodyEditor
+          <NoteBlockNote
+            key={noteIdentityKey(note)}
+            doc={editor.doc}
             body={editor.body}
             files={editor.files}
-            isView={editor.isView}
-            onBodyChange={editor.setBody}
-            onAddFile={editor.addFile}
-            onEditRequest={editor.setEditMode}
+            onChange={editor.setContent}
+            onUploadFile={editor.addFile}
             focusRequest={editor.bodyFocusRequest}
           />
-          <NoteFilesPanel files={editor.files} draggable />
         </div>
       </div>
       <div className="note-timestamps">
         Создана: {formatStoredDate(note.date)} &nbsp;•&nbsp; Изменена:{" "}
         {editor.changed ? "сейчас" : formatStoredDate(note.date)}
       </div>
-      {!editor.isView ? (
-        <input
-          type="file"
-          ref={editor.fileInputRef}
-          style={{ display: "none" }}
-          onChange={editor.onFilePicked}
-        />
-      ) : null}
     </div>
   );
 }
