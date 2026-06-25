@@ -99,7 +99,8 @@
 ════════════════════════════════ */
 .note-page {
   overflow-y: auto;
-  padding: 20px 24px 28px;
+  --note-page-inset: 29px;
+  padding: var(--note-page-inset);
   display: flex;
   justify-content: center;
   align-items: flex-start;
@@ -113,9 +114,6 @@
   flex-direction: column;
   gap: 10px;
   --note-body-line-height: 1.55;
-  /* Left gutter shared by the title and the body so their text starts at the
-     same x, while leaving room for the BlockNote add/drag handles. */
-  --note-gutter: 36px;
 }
 .note-shell {
   width: 100%;
@@ -148,8 +146,6 @@
   flex-direction: column;
   justify-content: center;
   align-self: center;
-  /* Align the title's text start with the body's text start (see --note-gutter). */
-  padding-left: var(--note-gutter);
 }
 .note-title-static,
 .note-title-edit {
@@ -263,8 +259,6 @@
 .note-body-canvas.note-body-view {
   cursor: default;
   user-select: none;
-  /* Match the title/edit-body text start. */
-  padding-left: var(--note-gutter);
 }
 .note-body-edit-canvas {
   min-height: 500px;
@@ -1089,7 +1083,7 @@ button.filter-tab {
 
   .note-page {
     --note-body-inset: 0;
-    padding: 16px max(12px, var(--content-card-shadow-gutter)) 18px;
+    padding: var(--note-page-inset, 29px);
   }
 
   .note-shell {
@@ -1153,7 +1147,19 @@ button.filter-tab {
   color: var(--text);
 }
 .note-shell-content .bn-editor {
-  padding-inline: var(--note-gutter) 14px;
+  padding-inline: 0;
+}
+/* Side menu (+ and drag handle): default BlockNote colors; hover tints icon only. */
+.note-shell-content .bn-side-menu .mantine-UnstyledButton-root:not(.mantine-Menu-item) svg {
+  transition: color 0.12s ease;
+}
+.note-shell-content .bn-side-menu .mantine-UnstyledButton-root:not(.mantine-Menu-item):hover,
+.note-shell-content .bn-side-menu .mantine-UnstyledButton-root:not(.mantine-Menu-item):active {
+  background-color: transparent !important;
+}
+.note-shell-content .bn-side-menu .mantine-UnstyledButton-root:not(.mantine-Menu-item):hover svg,
+.note-shell-content .bn-side-menu .mantine-UnstyledButton-root:not(.mantine-Menu-item):active svg {
+  color: color-mix(in srgb, var(--bn-colors-side-menu) 82%, var(--text) 18%);
 }
 /* Safari: flex + contenteditable stretches inline text boxes on wrapped lines. */
 @supports (-webkit-touch-callout: none) {

@@ -47,6 +47,7 @@ export function useNoteEditor(note: ActiveNote) {
   const [doc, setDoc] = useState<unknown[] | undefined>(initialDoc);
   const [files, setFiles] = useState<NoteFile[]>([...noteFiles]);
   const [bodyFocusRequest, setBodyFocusRequest] = useState(0);
+  const [editorResetKey, setEditorResetKey] = useState(0);
   const [baselineSnapshot, setBaselineSnapshot] = useState(() =>
     buildNoteSnapshot(note.title, initialBody, note.ai, noteFiles),
   );
@@ -60,6 +61,7 @@ export function useNoteEditor(note: ActiveNote) {
     setBody(nextBody);
     setDoc(Array.isArray(note.doc) ? note.doc : undefined);
     setFiles(nextFiles);
+    setEditorResetKey(0);
     setBaselineSnapshot(buildNoteSnapshot(note.title, nextBody, note.ai, nextFiles));
   }, [noteKey]); // eslint-disable-line react-hooks/exhaustive-deps -- reset draft only when note identity changes
 
@@ -86,6 +88,7 @@ export function useNoteEditor(note: ActiveNote) {
     setBody(nextBody);
     setDoc(Array.isArray(note.doc) ? note.doc : undefined);
     setFiles(nextFiles);
+    setEditorResetKey((key) => key + 1);
     setBaselineSnapshot(buildNoteSnapshot(note.title, nextBody, note.ai, nextFiles));
     setNoteDirty(false);
   }, [note, noteFiles, setNoteDirty]);
@@ -210,6 +213,7 @@ export function useNoteEditor(note: ActiveNote) {
     files,
     changed,
     bodyFocusRequest,
+    editorResetKey,
     titleRef,
     save,
     cancel,

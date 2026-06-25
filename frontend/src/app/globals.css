@@ -247,7 +247,8 @@
   justify-content: center;
   align-items: flex-start;
   overflow-y: auto;
-  padding: 20px 24px 28px;
+  --note-page-inset: 29px;
+  padding: var(--note-page-inset);
   flex: 1;
   min-height: 0;
   width: 100%;
@@ -289,10 +290,6 @@
 }
 
 @media (max-width: 760px) {
-  #screen-note .note-page {
-    padding: 16px max(12px, var(--content-card-shadow-gutter)) 18px;
-  }
-
   #screen-note .note-shell-header {
     gap: 8px;
     padding: 12px 14px;

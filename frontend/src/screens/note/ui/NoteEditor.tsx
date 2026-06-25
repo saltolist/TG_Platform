@@ -50,7 +50,7 @@ export default function NoteEditor({ note }: { note: ActiveNote }) {
         </div>
         <div className="note-shell-content">
           <NoteBlockNote
-            key={noteIdentityKey(note)}
+            key={`${noteIdentityKey(note)}:${editor.editorResetKey}`}
             doc={editor.doc}
             body={editor.body}
             files={editor.files}
