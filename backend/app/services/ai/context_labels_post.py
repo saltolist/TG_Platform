@@ -40,6 +40,8 @@ from app.services.ai.context_labels import (
     plan_context_label_for_turn,
     primer_head_from_stamps,
     reconcile_rolling_summary_fields,
+    _catalog_versions_visible_in_window,
+    _latest_unseen_catalog_version,
 )
 from app.services.ai.context_primer import (
     PRIMER_ACK,
@@ -242,9 +244,9 @@ def seed_post_label_thread_from_parent(
         pg, pl, pg_since, pl_since = a_pg, a_pl, a_pg_since, a_pl_since
         state["fork_branch_zero_head_global"] = gh
         state["fork_branch_zero_head_local"] = lh
-        if nested_fork and parent_gh > gh:
+        if nested_fork and not edit_fork and parent_gh > gh:
             state["fork_suppress_attach_global_up_to"] = parent_gh
-        if nested_fork and parent_lh > lh:
+        if nested_fork and not edit_fork and parent_lh > lh:
             state["fork_suppress_attach_local_up_to"] = parent_lh
         if edit_fork:
             pg, pl, pg_since, pl_since = 0, 0, 0, 0
@@ -465,6 +467,30 @@ def _repair_post_fork_thread_state(
     }
 
 
+def _edit_fork_unseen_layer_attach(
+    attached: int,
+    *,
+    head: int,
+    latest: int,
+    synth_history: list[Mapping[str, Any]],
+    window_user_turns: set[int] | None,
+) -> int:
+    """Edit fork: attach latest unseen catalog version per layer (global-chat parity)."""
+    if attached > 0 or latest <= head:
+        return attached
+    visible = _catalog_versions_visible_in_window(
+        synth_history,
+        head_version=head,
+        window_user_turns=window_user_turns,
+    )
+    unseen = _latest_unseen_catalog_version(
+        head=head,
+        latest=latest,
+        visible=visible,
+    )
+    return unseen if unseen > head else attached
+
+
 def plan_post_context_label_for_turn(
     state: Mapping[str, Any],
     *,
@@ -524,6 +550,20 @@ def plan_post_context_label_for_turn(
             gh = fork_gh
         if fork_lh > 0:
             lh = fork_lh
+        ga = _edit_fork_unseen_layer_attach(
+            ga,
+            head=gh,
+            latest=latest_global,
+            synth_history=synth_global,
+            window_user_turns=window_user_turns,
+        )
+        la = _edit_fork_unseen_layer_attach(
+            la,
+            head=max(1, lh),
+            latest=max(1, latest_local),
+            synth_history=synth_local,
+            window_user_turns=window_user_turns,
+        )
     merged = _post_state_from_layer_states(next_global, next_local, base)
     return gh, max(1, lh), ga, la, merged
 

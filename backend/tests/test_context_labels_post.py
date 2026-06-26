@@ -934,3 +934,75 @@ def test_nested_edit_fork_keeps_branch_zero_head_not_stale_parent() -> None:
     assert thread_key == "4@1"
     assert state["head_global"] == 6
     assert state["head_local"] == 7
+
+
+def test_edit_fork_unseen_attach_survives_fork_suppress_metadata() -> None:
+    """Edit fork must float 6.8 even when fork_suppress_attach blocks layer planners."""
+    catalog, _ = register_global_summary_version(None, channel=CHANNEL, telegram=None)
+    for idx in range(2, 7):
+        catalog, _ = register_global_summary_version(
+            catalog,
+            channel={**CHANNEL, "core": {"topic": f"Сводка {idx}"}},
+            telegram=None,
+        )
+    catalog, _ = ensure_post_local_catalog_current(
+        catalog, post_id="post-uuid-1", channel=CHANNEL, telegram=None, post=POST
+    )
+    for idx in range(2, 9):
+        catalog, _ = register_local_summary_version(
+            catalog,
+            post_id="post-uuid-1",
+            channel=CHANNEL,
+            telegram=None,
+            post={**POST, "text": f"Версия {idx}"},
+        )
+
+    history = [
+        {"role": "user", "text": "u1", "contextLabel": "5.7-0.0-1"},
+        {"role": "ai", "text": "a1"},
+        {"role": "user", "text": "u2", "contextLabel": "5.7-0.0-2"},
+        {"role": "ai", "text": "a2"},
+        {"role": "user", "text": "u3", "contextLabel": "5.7-0.0-3"},
+        {"role": "ai", "text": "a3"},
+        {"role": "user", "text": "u4", "contextLabel": "5.7-0.0-4"},
+        {"role": "ai", "text": "a4"},
+        {"role": "user", "text": "u5", "contextLabel": "5.7-0.0-5"},
+        {"role": "ai", "text": "a5"},
+        {
+            "role": "user",
+            "activeUserBranch": 1,
+            "userBranches": [
+                {"text": "u6", "contextLabel": "5.7-0.0-6"},
+                {"text": "u6.2", "continuation": []},
+            ],
+        },
+    ]
+    meta = {
+        "active_thread_key": "10@1",
+        "label_context": {
+            "10@1": {
+                "head_global": 5,
+                "head_local": 7,
+                "fork_branch_zero_head_global": 5,
+                "fork_branch_zero_head_local": 7,
+                "fork_suppress_attach_global_up_to": 6,
+                "fork_suppress_attach_local_up_to": 8,
+            },
+        },
+    }
+    log_labels: dict[int, str] = {}
+    messages = assemble_reply_messages_from_post_labels(
+        ai_profile={},
+        user_text="u6.2",
+        history=history,
+        chat_meta=meta,
+        catalog=catalog,
+        post_id="post-uuid-1",
+        log_labels=log_labels,
+    )
+    assert messages is not None
+    assert log_labels[7] == "user [5.7-6.8-6.2]"
+    edited = messages[-1]
+    assert "Обновлённый профиль канала:" in edited["content"] or "Обновлённый пост:" in edited["content"]
+    assert "Сводка 6" in edited["content"]
+    assert "Версия 8" in edited["content"]
