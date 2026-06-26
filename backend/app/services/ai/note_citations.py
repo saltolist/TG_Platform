@@ -33,24 +33,20 @@ def normalize_note_citation_markdown(text: str) -> str:
     return out
 
 
-def _detach_citations_in_sentence(sentence: str) -> str:
+def _detach_citations_in_paragraph(paragraph: str) -> str:
     cites: list[str] = []
 
     def repl(match: re.Match[str]) -> str:
         cites.append(f"[{match.group(1)}]({match.group(2)})")
         return " "
 
-    body = NOTE_CITE_LINK_RE.sub(repl, sentence)
-    body = re.sub(r"\s+", " ", body).strip()
+    body = NOTE_CITE_LINK_RE.sub(repl, paragraph)
+    body = re.sub(r"[ \t]+", " ", body)
+    body = re.sub(r"\n+", " ", body).strip()
     if not cites:
-        return sentence.strip()
+        return paragraph.strip()
 
-    end_punct = ""
-    if body and body[-1] in ".!?…":
-        end_punct = body[-1]
-        body = body[:-1].rstrip()
-
-    return f"{body}{end_punct} {' '.join(cites)}".strip()
+    return f"{body} {' '.join(cites)}".strip()
 
 
 def detach_note_citations(text: str) -> str:
@@ -63,14 +59,13 @@ def detach_note_citations(text: str) -> str:
         if re.fullmatch(r"\n+", chunk or ""):
             out.append(chunk)
             continue
-        sentences = re.split(r"(?<=[.!?…])\s+", chunk)
-        out.append(" ".join(_detach_citations_in_sentence(s) for s in sentences if s))
+        out.append(_detach_citations_in_paragraph(chunk))
     return "".join(out)
 
 
-def _sentence_has_cite(sentence: str, cite: NoteCite) -> bool:
+def _paragraph_has_cite(paragraph: str, cite: NoteCite) -> bool:
     paths = {cite.path, cite.path.rstrip("/")}
-    return any(path in sentence for path in paths)
+    return any(path in paragraph for path in paths)
 
 
 def inject_missing_note_citations(text: str, cites: list[NoteCite]) -> str:
@@ -86,36 +81,32 @@ def inject_missing_note_citations(text: str, cites: list[NoteCite]) -> str:
             out.append(chunk)
             continue
 
-        sentences = re.split(r"(?<=[.!?…])\s+", chunk)
-        processed: list[str] = []
-        for sentence in sentences:
-            if not sentence.strip():
+        paragraph = chunk.strip()
+        if not paragraph:
+            continue
+
+        additions: list[str] = []
+        for cite in cites:
+            if _paragraph_has_cite(paragraph, cite):
                 continue
-            additions: list[str] = []
-            for cite in cites:
-                if _sentence_has_cite(sentence, cite):
-                    continue
-                title = cite.title.strip()
-                if title and title.lower() in sentence.lower():
-                    additions.append(f"[{title}]({cite.path})")
-            if (
-                not additions
-                and not has_any_cite_link
-                and len(cites) == 1
-                and sentence is sentences[-1]
-            ):
-                cite = cites[0]
-                title = cite.title.strip() or "Заметка"
+            title = cite.title.strip()
+            if title and title.lower() in paragraph.lower():
                 additions.append(f"[{title}]({cite.path})")
-            if additions:
-                stripped = sentence.rstrip()
-                end_punct = ""
-                if stripped and stripped[-1] in ".!?…":
-                    end_punct = stripped[-1]
-                    stripped = stripped[:-1].rstrip()
-                sentence = f"{stripped}{end_punct} {' '.join(additions)}".strip()
-            processed.append(sentence)
-        out.append(" ".join(processed))
+
+        if not additions and not has_any_cite_link and len(cites) == 1:
+            cite = cites[0]
+            title = cite.title.strip() or "Заметка"
+            additions.append(f"[{title}]({cite.path})")
+
+        if additions:
+            stripped = paragraph.rstrip()
+            end_punct = ""
+            if stripped and stripped[-1] in ".!?…":
+                end_punct = stripped[-1]
+                stripped = stripped[:-1].rstrip()
+            paragraph = f"{stripped}{end_punct} {' '.join(additions)}".strip()
+
+        out.append(paragraph)
 
     return "".join(out)
 

@@ -51,10 +51,18 @@ describe("detachNoteCitations", () => {
     );
   });
 
-  it("collects multiple citations at sentence end", () => {
+  it("collects multiple citations at paragraph end", () => {
     expect(
       detachNoteCitations("Текст [A](/note/global/1/) и [B](/note/global/2/) здесь."),
     ).toBe("Текст и здесь. [A](/note/global/1/) [B](/note/global/2/)");
+  });
+
+  it("moves citations from multiple sentences to paragraph end", () => {
+    expect(
+      detachNoteCitations(
+        "В [A](/note/global/1/) первом предложении. Во [B](/note/global/2/) втором.",
+      ),
+    ).toBe("В первом предложении. Во втором. [A](/note/global/1/) [B](/note/global/2/)");
   });
 });
 

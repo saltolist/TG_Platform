@@ -733,46 +733,54 @@
 .chat-markdown-link:hover {
   opacity: 0.85;
 }
-/* Footnote-style citation markers (detached from sentence text) */
-.chat-citation-sup {
-  display: inline;
-  margin: 0;
-  padding: 0;
-  font-size: inherit;
-  font-weight: inherit;
-  line-height: inherit;
-  vertical-align: baseline;
-  text-decoration: none;
-}
+/* Inline note-source chips at paragraph end (same line as text) */
 .chat-markdown-inline {
   display: inline;
 }
-.chat-citation-chip {
-  display: inline-block;
-  max-width: 9.5em;
-  min-height: 1.15em;
-  margin: 0 0 0 0.1em;
-  padding: 0.1em 0.35em;
-  font-size: 0.68em;
-  font-weight: 600;
-  line-height: 1.15;
+.chat-citation-group {
+  display: inline;
+  white-space: nowrap;
+}
+.chat-citation-inline {
+  display: inline;
   vertical-align: baseline;
-  text-align: start;
+}
+.chat-citation-inline + .chat-citation-inline {
+  margin-left: 0.2em;
+}
+.chat-citation-chip {
+  display: inline;
+  max-width: 10em;
+  padding: 0.2em 0.5em;
+  font-size: 0.78em;
+  font-weight: 400;
+  line-height: inherit;
+  vertical-align: baseline;
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
   color: var(--text2);
   background: var(--bg3);
-  border: 1px solid var(--border);
+  border: none;
   border-radius: 4px;
   text-decoration: none;
   cursor: pointer;
-  transition: background 0.15s ease, color 0.15s ease, border-color 0.15s ease;
+  transition: background 0.15s ease, color 0.15s ease;
 }
+/* Hover: slightly lighter chip, text color unchanged */
 .chat-citation-chip:hover {
-  color: #fff;
-  background: var(--accent, #3b82f6);
-  border-color: var(--accent, #3b82f6);
+  background: color-mix(in srgb, var(--bg3) 55%, #fff 45%);
+  color: var(--text2);
+}
+:root[data-theme="light"] .chat-citation-chip:hover {
+  background: color-mix(in srgb, var(--bg3) 45%, #fff 55%);
+  color: var(--text2);
+}
+@media (prefers-color-scheme: light) {
+  :root[data-theme="system"] .chat-citation-chip:hover {
+    background: color-mix(in srgb, var(--bg3) 45%, #fff 55%);
+    color: var(--text2);
+  }
 }
 .ai-msg-action-btn:disabled {
   opacity: 0.35;

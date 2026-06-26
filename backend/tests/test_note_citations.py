@@ -12,9 +12,16 @@ def test_normalize_cite_path_metadata() -> None:
     assert normalize_note_citation_markdown(text) == "Ответ [Работа](/note/global/1/)\nдальше."
 
 
-def test_detach_moves_inline_citation_to_sentence_end() -> None:
+def test_detach_moves_inline_citation_to_paragraph_end() -> None:
     text = "В [Работа](/note/global/1/) заметке сказано."
     assert detach_note_citations(text) == "В заметке сказано. [Работа](/note/global/1/)"
+
+
+def test_detach_moves_citations_from_multiple_sentences_to_paragraph_end() -> None:
+    text = "В [A](/note/global/1/) первом. Во [B](/note/global/2/) втором."
+    assert detach_note_citations(text) == (
+        "В первом. Во втором. [A](/note/global/1/) [B](/note/global/2/)"
+    )
 
 
 def test_inject_missing_citation_when_title_mentioned() -> None:

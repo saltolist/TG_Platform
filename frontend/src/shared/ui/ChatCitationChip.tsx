@@ -8,7 +8,7 @@ type Props = {
   title?: string;
 };
 
-/** Footnote-style citation chip — references source, not part of sentence text. */
+/** Inline source chip at the end of an AI reply paragraph. */
 export default function ChatCitationChip({ href, label, title }: Props) {
   const display = label.trim() || "Заметка";
   const fullTitle = title?.trim() || display;

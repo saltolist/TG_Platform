@@ -63,25 +63,24 @@ export function normalizeNoteCitationMarkdown(text: string): string {
   return out;
 }
 
-function detachCitationsInSentence(sentence: string): string {
+function detachCitationsInParagraph(paragraph: string): string {
   const cites: string[] = [];
-  const body = sentence
+  const body = paragraph
     .replace(NOTE_CITE_LINK_RE, (_match, title: string, href: string) => {
       cites.push(`[${title}](${href})`);
       return " ";
     })
-    .replace(/\s+/g, " ")
+    .replace(/[ \t]+/g, " ")
+    .replace(/\n+/g, " ")
     .trim();
 
-  if (!cites.length) return sentence.trim();
+  if (!cites.length) return paragraph.trim();
 
-  const endPunct = body.match(/[.!?…]$/)?.[0] ?? "";
-  const core = endPunct ? body.slice(0, -1).trimEnd() : body;
-  return `${core}${endPunct} ${cites.join(" ")}`.replace(/\s+/g, " ").trim();
+  return `${body} ${cites.join(" ")}`.replace(/\s+/g, " ").trim();
 }
 
 /**
- * Pull note citation links out of sentence grammar and append them as trailing refs.
+ * Pull note citation links out of paragraph text and append them at the paragraph end.
  * "В [Работа](/note/…) заметке …" → "В заметке сказано. [Работа](/note/…)"
  */
 export function detachNoteCitations(text: string): string {
@@ -93,10 +92,7 @@ export function detachNoteCitations(text: string): string {
   return chunks
     .map((chunk) => {
       if (/^\n+$/.test(chunk)) return chunk;
-      return chunk
-        .split(/(?<=[.!?…])\s+/)
-        .map((sentence) => detachCitationsInSentence(sentence))
-        .join(" ");
+      return detachCitationsInParagraph(chunk);
     })
     .join("");
 }

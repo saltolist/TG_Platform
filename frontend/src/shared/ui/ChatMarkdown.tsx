@@ -32,9 +32,9 @@ function renderCitationSegment(seg: Extract<NoteCitationSegment, { type: "cite" 
   const label = citationChipLabel(seg.title);
 
   return (
-    <sup key={key} className="chat-citation-sup" role="doc-noteref">
+    <span key={key} className="chat-citation-inline">
       <ChatCitationChip href={noteHref} label={label} title={fullTitle} />
-    </sup>
+    </span>
   );
 }
 
@@ -126,20 +126,33 @@ function MarkdownBlock({ text }: { text: string }) {
 
 function renderParagraphSegments(paragraph: string, keyPrefix: string): ReactNode {
   const segments = splitNoteCitationSegments(paragraph);
-  const hasCite = segments.some((seg) => seg.type === "cite");
+  const firstCiteIdx = segments.findIndex((seg) => seg.type === "cite");
 
-  if (!hasCite) {
+  if (firstCiteIdx < 0) {
     return <MarkdownBlock key={keyPrefix} text={paragraph} />;
   }
 
+  const bodySegments = segments.slice(0, firstCiteIdx);
+  const citeSegments = segments
+    .slice(firstCiteIdx)
+    .filter((seg): seg is Extract<NoteCitationSegment, { type: "cite" }> => seg.type === "cite");
+
   return (
     <p key={keyPrefix} className="chat-markdown-p">
-      {segments.map((seg, index) => {
-        if (seg.type === "cite") {
-          return renderCitationSegment(seg, `${keyPrefix}-cite-${index}`);
-        }
+      {bodySegments.map((seg, index) => {
+        if (seg.type !== "text") return null;
         return <MarkdownInline key={`${keyPrefix}-text-${index}`} text={seg.text} />;
       })}
+      {citeSegments.length > 0 ? (
+        <>
+          {bodySegments.some((seg) => seg.type === "text" && seg.text.trim()) ? " " : null}
+          <span className="chat-citation-group">
+            {citeSegments.map((seg, index) =>
+              renderCitationSegment(seg, `${keyPrefix}-cite-${index}`),
+            )}
+          </span>
+        </>
+      ) : null}
     </p>
   );
 }
