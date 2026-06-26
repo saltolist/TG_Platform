@@ -239,11 +239,6 @@ def seed_post_label_thread_from_parent(
         parent_gh = int(parent.get("fork_branch_zero_head_global") or parent.get("head_global") or 0)
         parent_lh = max(1, int(parent.get("fork_branch_zero_head_local") or parent.get("head_local") or 1))
         gh, lh = a_gh, max(1, a_lh)
-        if nested_fork and parent_gh > 0 and a_pg == 0 and a_pl == 0 and a_gh > parent_gh:
-            gh, lh = parent_gh, parent_lh
-            state["fork_suppress_attach_global_up_to"] = a_gh
-            if a_lh > lh:
-                state["fork_suppress_attach_local_up_to"] = a_lh
         pg, pl, pg_since, pl_since = a_pg, a_pl, a_pg_since, a_pl_since
         state["fork_branch_zero_head_global"] = gh
         state["fork_branch_zero_head_local"] = lh

@@ -15,9 +15,11 @@ from app.services.ai.context_labels_post import (
     plan_post_context_label_for_turn,
     planned_post_label_at_turn,
     primer_post_heads_from_state,
+    seed_post_label_thread_from_parent,
     _post_layer_synthetic_history,
     resolve_post_label_thread_state,
 )
+from app.services.ai.chat_history import active_thread_key, count_user_turns, filter_alternating_roles, linearize_for_llm
 from app.services.ai.context_labels import _max_stamped_attached_on_path
 from app.services.ai.summary_catalog import (
     ensure_post_local_catalog_current,
@@ -847,3 +849,88 @@ def test_post_only_float_0_2_attaches_local_post_not_channel() -> None:
     float_block = u3["content"].split("Обновлённый пост:", 1)[-1]
     assert "Тема:" not in float_block
     assert "Крипто" not in float_block
+
+
+def test_nested_edit_fork_keeps_branch_zero_head_not_stale_parent() -> None:
+    """Edit fork must inherit branch-0 heads, not clip to stale parent thread (cd4477cf)."""
+    catalog, _ = register_global_summary_version(
+        None, channel={**CHANNEL, "core": {"topic": "Сводка 2"}}, telegram=None
+    )
+    for idx in range(3, 7):
+        catalog, _ = register_global_summary_version(
+            catalog,
+            channel={**CHANNEL, "core": {"topic": f"Сводка {idx}"}},
+            telegram=None,
+        )
+    catalog, _ = ensure_post_local_catalog_current(
+        catalog, post_id="post-uuid-1", channel=CHANNEL, telegram=None, post=POST
+    )
+    for idx in range(2, 8):
+        catalog, _ = register_local_summary_version(
+            catalog,
+            post_id="post-uuid-1",
+            channel=CHANNEL,
+            telegram=None,
+            post={**POST, "text": f"Версия {idx}"},
+        )
+
+    history = [
+        {"role": "user", "text": "u1", "contextLabel": "2.1-0.0-1"},
+        {"role": "ai", "text": "a1"},
+        {"role": "user", "text": "u2", "contextLabel": "6.7-0.0-2"},
+        {"role": "ai", "text": "a2"},
+        {
+            "role": "user",
+            "activeUserBranch": 1,
+            "userBranches": [
+                {"text": "u3", "contextLabel": "6.7-0.0-3"},
+                {"text": "u3.2", "continuation": []},
+            ],
+        },
+    ]
+    meta = {
+        "active_thread_key": "4@1",
+        "label_context": {
+            "": {"head_global": 2, "head_local": 1},
+            "2@0,2.1@0,2.1.3@2,2.1.3.3@0": {"head_global": 2, "head_local": 1},
+            "4@1": {"head_global": 6, "head_local": 7},
+        },
+    }
+    user_turn_count = count_user_turns(filter_alternating_roles(linearize_for_llm(history)))
+    stale_parent = {"head_global": 2, "head_local": 1}
+    seeded = seed_post_label_thread_from_parent(
+        stale_parent,
+        thread_key=active_thread_key(history),
+        user_turn_count=user_turn_count,
+        history=history,
+        latest_global=6,
+        latest_local=7,
+    )
+    assert seeded["fork_branch_zero_head_global"] == 6
+    assert seeded["fork_branch_zero_head_local"] == 7
+    assert seeded["head_global"] == 6
+    assert seeded["head_local"] == 7
+
+    log_labels: dict[int, str] = {}
+    messages = assemble_reply_messages_from_post_labels(
+        ai_profile={},
+        user_text="u3.2",
+        history=history,
+        chat_meta=meta,
+        catalog=catalog,
+        post_id="post-uuid-1",
+        log_labels=log_labels,
+    )
+    assert messages is not None
+    assert log_labels[1].startswith("user/primer [6.")
+    assert "2.1-" not in log_labels[1]
+
+    state, thread_key, _ = resolve_post_label_thread_state(
+        meta,
+        history,
+        latest_global=6,
+        latest_local=7,
+    )
+    assert thread_key == "4@1"
+    assert state["head_global"] == 6
+    assert state["head_local"] == 7
