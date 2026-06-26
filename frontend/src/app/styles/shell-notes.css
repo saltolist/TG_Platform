@@ -1149,9 +1149,65 @@ button.filter-tab {
 .note-shell-content .bn-editor {
   padding-inline: 0;
 }
-.note-shell-content .bn-block-column-list {
-  gap: 1rem;
+
+/* Safari: caret fix for wrapped lines — skip empty blocks (placeholder uses ::after on .bn-block-content). */
+html.note-webkit-safari
+  .note-shell-content
+  .bn-block-outer:has(.bn-inline-content:not(:has(> .ProseMirror-trailingBreak:only-child))) {
+  line-height: normal;
+  padding-block: 0.2em;
 }
+html.note-webkit-safari
+  .note-shell-content
+  .bn-inline-content:not(:has(> .ProseMirror-trailingBreak:only-child)) {
+  display: block;
+  line-height: 1.5;
+}
+
+.note-shell-content .bn-block-content:has(.ProseMirror-trailingBreak:only-child) {
+  align-items: baseline;
+}
+
+.note-shell-content .bn-block-content:has(.ProseMirror-trailingBreak:only-child)::after {
+  line-height: 1.5;
+  align-self: baseline;
+}
+
+/* Safari-only: text-only drag ghost (noteSafariFixes.ts). */
+.note-safari-drag-ghost {
+  color: var(--text);
+  background: transparent !important;
+  border: none !important;
+  box-shadow: none !important;
+  outline: none !important;
+}
+
+.note-safari-drag-ghost,
+.note-safari-drag-ghost * {
+  background: transparent !important;
+  border: none !important;
+  box-shadow: none !important;
+  outline: none !important;
+}
+
+.note-safari-drag-ghost .bn-block-content::before {
+  display: none !important;
+}
+
+.note-safari-drag-ghost.note-safari-drag-ghost--captured {
+  opacity: 0.001 !important;
+  pointer-events: none !important;
+}
+
+body.note-safari-block-dragging .note-shell-content .bn-block-outer[data-safari-drag-source] {
+  visibility: hidden;
+}
+
+body.note-safari-block-dragging .bn-drag-preview {
+  display: none !important;
+  pointer-events: none !important;
+}
+
 /* Side menu (+ and drag handle): default BlockNote colors; hover tints icon only. */
 .note-shell-content .bn-side-menu .mantine-UnstyledButton-root:not(.mantine-Menu-item) svg {
   transition: color 0.12s ease;
@@ -1166,10 +1222,11 @@ button.filter-tab {
 }
 /* Safari: flex + contenteditable stretches inline text boxes on wrapped lines. */
 @supports (-webkit-touch-callout: none) {
-  .note-shell-content .bn-block-content {
+  .note-shell-content .bn-block-content:not(:has(.ProseMirror-trailingBreak:only-child)) {
     align-items: flex-start;
   }
-  .note-shell-content .bn-inline-content {
+  .note-shell-content
+    .bn-inline-content:not(:has(> .ProseMirror-trailingBreak:only-child)) {
     align-self: flex-start;
   }
 }

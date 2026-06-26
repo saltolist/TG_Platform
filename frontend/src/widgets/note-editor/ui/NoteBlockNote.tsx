@@ -1,7 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useRef } from "react";
-import { BlockNoteSchema, combineByGroup, type PartialBlock } from "@blocknote/core";
+import type { PartialBlock } from "@blocknote/core";
 import { filterSuggestionItems } from "@blocknote/core/extensions";
 import { ru } from "@blocknote/core/locales";
 import { BlockNoteView } from "@blocknote/mantine";
@@ -10,12 +10,6 @@ import {
   SuggestionMenuController,
   useCreateBlockNote,
 } from "@blocknote/react";
-import {
-  getMultiColumnSlashMenuItems,
-  locales as multiColumnLocales,
-  multiColumnDropCursor,
-  withMultiColumn,
-} from "@blocknote/xl-multi-column";
 import { useTheme } from "next-themes";
 
 import "@blocknote/core/fonts/inter.css";
@@ -31,15 +25,9 @@ import {
   resolveDocAttachments,
   restoreDocAttachments,
 } from "@/widgets/note-editor/lib/noteDocAttachments";
+import { useSafariNoteEditorFixes } from "@/widgets/note-editor/lib/noteSafariFixes";
 
 export type NoteBlockNoteChange = { doc: unknown[]; body: string };
-
-const noteEditorSchema = withMultiColumn(BlockNoteSchema.create());
-
-const noteEditorDictionary = {
-  ...ru,
-  multi_column: multiColumnLocales.ru,
-};
 
 type Props = {
   doc?: unknown[];
@@ -78,26 +66,20 @@ export default function NoteBlockNote({
   }, [doc, files]);
 
   const editor = useCreateBlockNote({
-    schema: noteEditorSchema,
     initialContent,
     trailingBlock: false,
-    dropCursor: multiColumnDropCursor,
-    dictionary: noteEditorDictionary,
+    dictionary: ru,
     uploadFile: async (file: File) => {
       const entry = await onUploadRef.current(file);
       return entry.url ?? `${ATTACHMENT_PREFIX}${entry.id ?? entry.name}`;
     },
   });
 
+  useSafariNoteEditorFixes(editor);
+
   const getSlashMenuItems = useMemo(
     () => async (query: string) =>
-      filterSuggestionItems(
-        combineByGroup(
-          getDefaultReactSlashMenuItems(editor),
-          getMultiColumnSlashMenuItems(editor),
-        ),
-        query,
-      ),
+      filterSuggestionItems(getDefaultReactSlashMenuItems(editor), query),
     [editor],
   );
 

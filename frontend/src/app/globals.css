@@ -276,6 +276,11 @@
   overflow: hidden;
 }
 
+/* WebKit setDragImage captures wrong pixels inside overflow:hidden. */
+#screen-note .note-shell:has(.bn-editor) {
+  overflow: visible;
+}
+
 #screen-note .note-shell-header {
   display: grid;
   grid-template-columns: minmax(0, 1fr) auto;
