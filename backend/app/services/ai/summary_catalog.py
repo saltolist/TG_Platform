@@ -154,6 +154,54 @@ def register_local_summary_version(
     return {**base, "local": local}, next_version
 
 
+def resolve_post_bundle_parts(
+    catalog: Mapping[str, Any],
+    *,
+    post_id: str,
+    global_version: int,
+    local_version: int,
+) -> tuple[str, str]:
+    """Channel and post texts separately for labeled primer assembly."""
+    channel_text = ""
+    post_text = ""
+    if global_version > 0:
+        channel_text = resolve_bundle_text(
+            catalog,
+            scope="global",
+            post_id=None,
+            version=global_version,
+        )
+    if local_version > 0:
+        item = find_local_version(catalog, post_id, local_version)
+        if item is not None:
+            post_text = _extract_post_section_from_bundle(str(item.get("text") or ""))
+    return channel_text, post_text
+
+
+def resolve_post_float_bundle_parts(
+    catalog: Mapping[str, Any],
+    *,
+    post_id: str,
+    attached_global: int,
+    attached_local: int,
+) -> tuple[str, str]:
+    """Channel/post texts for independent layer floats."""
+    channel_text = ""
+    post_text = ""
+    if attached_global > 0:
+        channel_text = resolve_bundle_text(
+            catalog,
+            scope="global",
+            post_id=None,
+            version=attached_global,
+        )
+    if attached_local > 0:
+        item = find_local_version(catalog, post_id, attached_local)
+        if item is not None:
+            post_text = _extract_post_section_from_bundle(str(item.get("text") or ""))
+    return channel_text, post_text
+
+
 def resolve_post_bundle_text(
     catalog: Mapping[str, Any],
     *,

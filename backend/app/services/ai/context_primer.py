@@ -18,37 +18,95 @@ DEFAULT_SYSTEM_PROMPT = """\
 Отвечай в markdown: **жирный**, списки, заголовки — где уместно.\
 """
 
+POST_SCOPE_SYSTEM_ADDENDUM = (
+    "Сейчас ассистент работает в контексте конкретного поста канала. "
+    "Учитывай текст поста и сводки в запросе пользователя."
+)
 
-def build_system_prompt(user_system_prompt: str) -> str:
+LABEL_CHANNEL_HEAD = "Профиль канала"
+LABEL_CHANNEL_UPDATED = "Обновлённый профиль канала"
+LABEL_POST_HEAD = "Пост"
+LABEL_POST_UPDATED = "Обновлённый пост"
+LABEL_USER_REQUEST = "Мой текущий запрос"
+LABEL_DIALOG_SUMMARY = "Сводка по диалогу"
+
+# Legacy tags — kept for tests/docs that reference the old primer format.
+PRIMER_USER_TAG = "SUMMARY_BUNDLE"
+CONTEXT_SUMMARY_TAG = "CONTEXT_SUMMARY"
+
+
+def build_system_prompt(user_system_prompt: str, *, scope: str = "global") -> str:
     """Combine the platform base prompt with the user's custom system prompt.
 
     The base prompt is always present and contains core instructions (language,
     tone, note-citation rules).  The user's prompt is appended after a blank
     line so it can extend or override style/persona without losing the base rules.
     """
+    base = DEFAULT_SYSTEM_PROMPT
+    if scope == "post":
+        base = f"{base}\n\n{POST_SCOPE_SYSTEM_ADDENDUM}"
     user_part = user_system_prompt.strip()
     if not user_part:
-        return DEFAULT_SYSTEM_PROMPT
-    return f"{DEFAULT_SYSTEM_PROMPT}\n\n{user_part}"
+        return base
+    return f"{base}\n\n{user_part}"
 
-PRIMER_USER_TAG = "SUMMARY_BUNDLE"
-CONTEXT_SUMMARY_TAG = "CONTEXT_SUMMARY"
+
+def format_labeled_section(label: str, body: str) -> str:
+    text = body.strip()
+    if not text:
+        return ""
+    return f"{label}:\n{text}"
+
+
+def format_channel_summary(text: str, *, updated: bool = False) -> str:
+    label = LABEL_CHANNEL_UPDATED if updated else LABEL_CHANNEL_HEAD
+    return format_labeled_section(label, text)
+
+
+def format_post_summary(text: str, *, updated: bool = False) -> str:
+    label = LABEL_POST_UPDATED if updated else LABEL_POST_HEAD
+    return format_labeled_section(label, text)
+
+
+def format_bundle_sections(
+    *,
+    channel_text: str = "",
+    post_text: str = "",
+    channel_updated: bool = False,
+    post_updated: bool = False,
+    dialog_summary: str = "",
+) -> str:
+    parts: list[str] = []
+    if channel_text.strip():
+        parts.append(format_channel_summary(channel_text, updated=channel_updated))
+    if post_text.strip():
+        parts.append(format_post_summary(post_text, updated=post_updated))
+    if dialog_summary.strip():
+        parts.append(format_labeled_section(LABEL_DIALOG_SUMMARY, dialog_summary))
+    return "\n\n".join(parts)
+
+
+def wrap_user_request(user_text: str) -> str:
+    text = user_text.strip()
+    if not text:
+        return f"{LABEL_USER_REQUEST}:"
+    return f"{LABEL_USER_REQUEST}:\n{text}"
 
 
 def build_primer_user_content(bundle_text: str, rolling_summary: str = "") -> str:
-    parts = [f"{PRIMER_USER_TAG}:", bundle_text.strip()]
+    parts = [bundle_text.strip()]
     summary = rolling_summary.strip()
     if summary:
-        parts.extend(["", f"{CONTEXT_SUMMARY_TAG}:", summary])
-    return "\n".join(parts)
+        parts.append(format_labeled_section(LABEL_DIALOG_SUMMARY, summary))
+    return "\n\n".join(part for part in parts if part)
 
 
 def attach_floating_bundle_to_user_message(bundle_text: str, user_text: str) -> str:
-    bundle_block = f"{PRIMER_USER_TAG}:\n{bundle_text.strip()}"
-    text = user_text.strip()
-    if not text:
-        return bundle_block
-    return f"{bundle_block}\n\n{text}"
+    bundle_block = bundle_text.strip()
+    request = wrap_user_request(user_text)
+    if not bundle_block:
+        return request
+    return f"{bundle_block}\n\n{request}"
 
 
 def take_prompt_window(
@@ -73,7 +131,10 @@ def build_dialog_messages(
 
     messages: list[dict[str, str]] = []
     for user_turn, role, content in window_annotated:
-        if role == "user" and user_turn is not None and user_turn in floating_bundles:
-            content = attach_floating_bundle_to_user_message(floating_bundles[user_turn], content)
+        if role == "user":
+            if user_turn is not None and user_turn in floating_bundles:
+                content = attach_floating_bundle_to_user_message(floating_bundles[user_turn], content)
+            else:
+                content = wrap_user_request(content)
         messages.append({"role": role, "content": content})
     return messages

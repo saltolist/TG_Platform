@@ -98,7 +98,7 @@ def test_assemble_reply_messages_includes_primer_and_window() -> None:
     # Primer: скрытая двойка — user с bundle, затем assistant-подтверждение.
     primer_user = messages[1]
     assert primer_user["role"] == "user"
-    assert "SUMMARY_BUNDLE:" in primer_user["content"]
+    assert "Профиль канала:" in primer_user["content"]
     assert "Финансы" in primer_user["content"]
     assert messages[2] == {"role": "assistant", "content": PRIMER_ACK}
 
@@ -119,6 +119,8 @@ def test_assemble_reply_messages_post_scope_adds_post_to_bundle() -> None:
     )
     primer = messages[1]["content"]
     assert "Текст поста про инвестиции" in primer
+    assert "Пост:" in primer
+    assert "конкретного поста канала" in messages[0]["content"]
     assert "[Чат поста" not in primer
 
 
@@ -150,7 +152,7 @@ def test_assemble_reply_messages_includes_rolling_summary_in_primer() -> None:
         chat_meta=chat_meta,
     )
     primer_content = messages[1]["content"]
-    assert "SUMMARY_BUNDLE:" in primer_content
+    assert "Профиль канала:" in primer_content
     assert "Финансы" in primer_content
-    assert "CONTEXT_SUMMARY:" in primer_content
+    assert "Сводка по диалогу:" in primer_content
     assert "ETF" in primer_content

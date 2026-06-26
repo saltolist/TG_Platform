@@ -163,7 +163,8 @@ def test_rebuild_primer_uses_latest_catalog_heads() -> None:
     assert log_labels[3] == "user [12.3-0.0-1]"
     assert "Версия 3" in messages[1]["content"]
     u1 = messages[3]
-    assert "SUMMARY_BUNDLE:" not in u1["content"]
+    assert "Обновлённый профиль канала:" not in u1["content"]
+    assert "Обновлённый пост:" not in u1["content"]
 
 
 def test_post_channel_change_attaches_compound_float() -> None:
@@ -212,7 +213,7 @@ def test_post_channel_change_attaches_compound_float() -> None:
     assert log_labels[3] == "user [1.1-0.0-1]"
     assert log_labels[5] == "user [1.1-2.0-2]"
     u2 = next(m for m in messages[3:] if "u2" in m["content"])
-    assert "SUMMARY_BUNDLE:" in u2["content"]
+    assert "Обновлённый профиль канала:" in u2["content"] or "Обновлённый пост:" in u2["content"]
     assert "Крипто" in u2["content"]
 
 
@@ -300,10 +301,11 @@ def test_turn4_keeps_turn3_stamped_local_float_in_assembly() -> None:
     assert messages is not None
     assert log_labels[5] == "user [11.2-0.3-3]"
     u3 = next(m for m in messages[3:] if m["role"] == "user" and "u3" in m["content"])
-    assert "SUMMARY_BUNDLE:" in u3["content"]
+    assert "Обновлённый профиль канала:" in u3["content"] or "Обновлённый пост:" in u3["content"]
     assert "Версия 3" in u3["content"]
     u4 = next(m for m in messages[3:] if m["role"] == "user" and "u4" in m["content"])
-    assert "SUMMARY_BUNDLE:" not in u4["content"]
+    assert "Обновлённый профиль канала:" not in u4["content"]
+    assert "Обновлённый пост:" not in u4["content"]
 
 
 def test_simultaneous_channel_and_post_bump_attaches_12_3() -> None:
@@ -378,7 +380,7 @@ def test_simultaneous_channel_and_post_bump_attaches_12_3() -> None:
         log_labels=log_labels,
     )
     u4 = messages[-1]
-    assert "SUMMARY_BUNDLE:" in u4["content"]
+    assert "Обновлённый профиль канала:" in u4["content"] or "Обновлённый пост:" in u4["content"]
     assert "Сводка 12" in u4["content"]
     assert "Версия 3" in u4["content"]
     assert log_labels[7] == "user [11.1-12.3-4]"
@@ -686,7 +688,7 @@ def test_edit_fork_attaches_local_post_without_dropping_head() -> None:
     assert messages is not None
     assert log_labels[7] == "user [16.13-0.15-5.2(6.2)]"
     edited = messages[-1]
-    assert "SUMMARY_BUNDLE:" in edited["content"]
+    assert "Обновлённый профиль канала:" in edited["content"] or "Обновлённый пост:" in edited["content"]
     assert "Версия 15" in edited["content"]
 
 
@@ -791,7 +793,7 @@ def test_channel_only_bump_after_post_float_attaches_global_not_local() -> None:
     assert log_labels[7] == "user [12.4-13.0-4]"
     u4 = messages[-1]
     assert "Сводка 13" in u4["content"]
-    assert "## Пост" not in u4["content"].split("SUMMARY_BUNDLE:", 1)[-1][:20]
+    assert "Пост:" not in u4["content"].split("Обновлённый профиль канала:", 1)[-1][:30]
 
 
 def test_post_only_float_0_2_attaches_local_post_not_channel() -> None:
@@ -840,8 +842,8 @@ def test_post_only_float_0_2_attaches_local_post_not_channel() -> None:
     )
     assert messages is not None
     u3 = next(m for m in messages[3:] if m["role"] == "user" and "u3" in m["content"])
-    assert "SUMMARY_BUNDLE:" in u3["content"]
+    assert "Обновлённый пост:" in u3["content"]
     assert "Новый текст поста" in u3["content"]
-    float_block = u3["content"].split("SUMMARY_BUNDLE:", 1)[-1]
+    float_block = u3["content"].split("Обновлённый пост:", 1)[-1]
     assert "Тема:" not in float_block
     assert "Крипто" not in float_block

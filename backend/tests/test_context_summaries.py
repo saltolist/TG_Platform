@@ -124,7 +124,7 @@ async def test_labels_path_summarizes_when_pairs_leave_prompt_window() -> None:
         catalog=catalog,
     )
     assert messages is not None
-    assert "CONTEXT_SUMMARY:" in messages[1]["content"]
+    assert "Сводка по диалогу:" in messages[1]["content"]
 
 
 @pytest.mark.asyncio
@@ -262,7 +262,7 @@ def test_assemble_bootstraps_context_summary_on_new_fork_before_reply() -> None:
         catalog=catalog,
     )
     assert messages is not None
-    assert "CONTEXT_SUMMARY:" in messages[1]["content"]
+    assert "Сводка по диалогу:" in messages[1]["content"]
     assert "msg1" in messages[1]["content"]
 
 

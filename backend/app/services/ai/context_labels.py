@@ -15,6 +15,8 @@ from app.services.ai.context_primer import (
     build_dialog_messages,
     build_primer_user_content,
     build_system_prompt,
+    format_bundle_sections,
+    format_channel_summary,
     take_prompt_window,
 )
 from app.services.ai.context_config import SUMMARY_BUNDLE_CATCHUP_MESSAGES
@@ -815,7 +817,7 @@ def floating_bundles_from_labels(
             version=attached,
         )
         if text:
-            injections[turn] = text
+            injections[turn] = format_channel_summary(text, updated=True)
     return injections
 
 
@@ -1080,7 +1082,7 @@ def _inject_bundle_at_turn(
         version=version,
     )
     if text:
-        floating[turn] = text
+        floating[turn] = format_channel_summary(text, updated=True)
 
 
 def _floating_bundles_for_assemble(
@@ -1322,7 +1324,7 @@ def assemble_reply_messages_from_labels(
     if not global_versions:
         return None
 
-    system_prompt = build_system_prompt(str(ai_profile.get("systemPrompt") or ""))
+    system_prompt = build_system_prompt(str(ai_profile.get("systemPrompt") or ""), scope=scope)
     raw_pairs = linearize_for_llm(list(history or []))
     valid_pairs = filter_alternating_roles(raw_pairs)
     trimmed = user_text.strip()
@@ -1349,11 +1351,13 @@ def assemble_reply_messages_from_labels(
         window_user_turns=window_user_turns,
         history=list(history or []),
     )
-    head_text = resolve_bundle_text(
-        catalog,
-        scope=scope,
-        post_id=post_id,
-        version=head_version,
+    head_text = format_channel_summary(
+        resolve_bundle_text(
+            catalog,
+            scope=scope,
+            post_id=post_id,
+            version=head_version,
+        )
     )
     rolling_summary = rolling_summary_for_assembly(thread_state, valid_pairs)
 

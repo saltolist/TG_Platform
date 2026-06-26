@@ -68,7 +68,7 @@ def test_build_reply_messages_uses_profile_system_prompt() -> None:
     assert "TG Platform" in messages[0]["content"]
     # Primer: скрытый user с bundle, затем assistant-подтверждение.
     assert messages[1]["role"] == "user"
-    assert "SUMMARY_BUNDLE:" in messages[1]["content"]
+    assert "Профиль канала:" in messages[1]["content"]
     assert messages[2]["role"] == "assistant"
     # Последнее сообщение — user-реплика, содержащая текст запроса.
     assert messages[-1]["role"] == "user"

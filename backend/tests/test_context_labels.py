@@ -584,7 +584,8 @@ def test_stamped_turn_with_attached_zero_rejects_stale_pending_bundle() -> None:
     )
     turn5 = next(m for m in messages[3:] if m["role"] == "user" and "5-0-5" in m["content"])
     assert labels[5] == "user [5-0-5]"
-    assert "SUMMARY_BUNDLE:" not in turn5["content"]
+    assert "Обновлённый профиль канала:" not in turn5["content"]
+    assert "Обновлённый пост:" not in turn5["content"]
 
 
 def test_log_label_does_not_retroactively_attach_before_anchor_turn() -> None:
@@ -887,9 +888,10 @@ def test_sticky_floating_bundle_on_stamped_message_only() -> None:
     dialog = messages[3:]
     u2_msg = next(m for m in dialog if m["role"] == "user" and "u2" in m["content"])
     u3_msg = next(m for m in dialog if m["role"] == "user" and "u3" in m["content"])
-    assert "SUMMARY_BUNDLE:" in u2_msg["content"]
+    assert "Обновлённый профиль канала:" in u2_msg["content"] or "Обновлённый пост:" in u2_msg["content"]
     assert "Крипто" in u2_msg["content"]
-    assert "SUMMARY_BUNDLE:" not in u3_msg["content"]
+    assert "Обновлённый профиль канала:" not in u3_msg["content"]
+    assert "Обновлённый пост:" not in u3_msg["content"]
 
 
 def test_floating_bundle_on_sibling_turn_label_before_stamp() -> None:
@@ -937,7 +939,7 @@ def test_floating_bundle_on_sibling_turn_label_before_stamp() -> None:
     turn7_msg = next(
         m for m in messages[3:] if m["role"] == "user" and "7-21" in m["content"]
     )
-    assert "SUMMARY_BUNDLE:" in turn7_msg["content"]
+    assert "Обновлённый профиль канала:" in turn7_msg["content"] or "Обновлённый пост:" in turn7_msg["content"]
     assert "Сводка 21" in turn7_msg["content"]
 
 
@@ -1075,7 +1077,7 @@ def test_post_scope_channel_change_registers_local_and_attaches_pending() -> Non
     assert "Финансы" in messages[1]["content"]
     assert "Крипто" not in messages[1]["content"]
     u2 = next(m for m in messages[3:] if m["role"] == "user" and "u2" in m["content"])
-    assert "SUMMARY_BUNDLE:" in u2["content"]
+    assert "Обновлённый профиль канала:" in u2["content"] or "Обновлённый пост:" in u2["content"]
     assert "Крипто" in u2["content"]
 
 
@@ -1165,9 +1167,10 @@ def test_float_bundle_stays_on_turn4_when_editing_turn5() -> None:
     assert messages is not None
     turn4 = next(m for m in messages[3:] if m["role"] == "user" and "2-3-4" in m["content"])
     turn5 = next(m for m in messages[3:] if m["role"] == "user" and "2-0-5.2" in m["content"])
-    assert "SUMMARY_BUNDLE:" in turn4["content"]
+    assert "Обновлённый профиль канала:" in turn4["content"] or "Обновлённый пост:" in turn4["content"]
     assert "Сводка 3" in turn4["content"]
-    assert "SUMMARY_BUNDLE:" not in turn5["content"]
+    assert "Обновлённый профиль канала:" not in turn5["content"]
+    assert "Обновлённый пост:" not in turn5["content"]
 
 
 def test_float_bundle_uses_pending_anchor_when_stamp_lost_on_turn4() -> None:
@@ -1215,8 +1218,9 @@ def test_float_bundle_uses_pending_anchor_when_stamp_lost_on_turn4() -> None:
     assert messages is not None
     turn4 = next(m for m in messages[3:] if m["role"] == "user" and "2-3-4" in m["content"])
     turn5 = next(m for m in messages[3:] if m["role"] == "user" and "2-0-5.2" in m["content"])
-    assert "SUMMARY_BUNDLE:" in turn4["content"]
-    assert "SUMMARY_BUNDLE:" not in turn5["content"]
+    assert "Обновлённый профиль канала:" in turn4["content"] or "Обновлённый пост:" in turn4["content"]
+    assert "Обновлённый профиль канала:" not in turn5["content"]
+    assert "Обновлённый пост:" not in turn5["content"]
 
 
 def test_log_labels_show_planned_label_only_for_current_unstamped_turn() -> None:
@@ -1327,7 +1331,7 @@ def test_edit_fork_attaches_latest_unseen_not_branch_zero_pending() -> None:
     assert messages is not None
     assert log_labels[7] == "user [11-16-3.2(4.2)]"
     edited = next(m for m in messages[3:] if "11-16-3.2(4.2)" in m["content"])
-    assert "SUMMARY_BUNDLE:" in edited["content"]
+    assert "Обновлённый профиль канала:" in edited["content"] or "Обновлённый пост:" in edited["content"]
     assert "Сводка 16" in edited["content"]
     assert "Сводка 14" not in edited["content"]
 
@@ -1497,7 +1501,8 @@ def test_edit_fork_does_not_attach_superseded_catalog_version() -> None:
     assert messages is not None
     assert log_labels[7] == "user [2-0-3.2(5.2)]"
     turn52 = next(m for m in messages[3:] if "5.2" in m["content"])
-    assert "SUMMARY_BUNDLE:" not in turn52["content"]
+    assert "Обновлённый профиль канала:" not in turn52["content"]
+    assert "Обновлённый пост:" not in turn52["content"]
     assert "Сводка 3" not in turn52["content"]
 
 

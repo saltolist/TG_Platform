@@ -144,10 +144,11 @@ def _llm_message_label(index: int, role: str, content: str) -> str:
         return "system"
     if role == "assistant" and index == 2 and content.startswith("Понял"):
         return "assistant/primer-ack"
-    if role == "user" and content.startswith("SUMMARY_BUNDLE:"):
-        if index <= 2:
+    if role == "user":
+        if index == 1:
             return "user/primer"
-        return "user/floating-bundle"
+        if content.startswith("Обновлённый профиль канала:") or content.startswith("Обновлённый пост:"):
+            return "user/floating-bundle"
     return role
 
 

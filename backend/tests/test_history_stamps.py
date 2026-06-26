@@ -309,9 +309,10 @@ def test_floating_bundle_uses_immutable_stamped_label() -> None:
         for m in messages[3:]
         if m["role"] == "user" and "3-4-2.2(5.2)(7.2)(9)" in m["content"]
     )
-    assert "SUMMARY_BUNDLE:" in stamped_turn["content"]
+    assert "Обновлённый профиль канала:" in stamped_turn["content"] or "Обновлённый пост:" in stamped_turn["content"]
     assert "Сводка 4" in stamped_turn["content"]
     current_turn = next(
         m for m in messages[3:] if m["role"] == "user" and "3-0-2.2(5.2)(7.2)(10)" in m["content"]
     )
-    assert "SUMMARY_BUNDLE:" not in current_turn["content"]
+    assert "Обновлённый профиль канала:" not in current_turn["content"]
+    assert "Обновлённый пост:" not in current_turn["content"]

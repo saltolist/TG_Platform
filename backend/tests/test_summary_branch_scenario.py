@@ -418,7 +418,7 @@ def test_65aa088c_edit_fork_attaches_new_catalog_version() -> None:
 
     dialog = messages[3:]
     edited_turn = next(m for m in dialog if m["role"] == "user" and "3-0-3.2(4.2)" in m["content"])
-    assert "SUMMARY_BUNDLE:" in edited_turn["content"]
+    assert "Обновлённый профиль канала:" in edited_turn["content"] or "Обновлённый пост:" in edited_turn["content"]
     assert "Сводка 4" in edited_turn["content"]
     assert log_labels[7] == "user [3-4-3.2(4.2)]"
 
@@ -474,7 +474,7 @@ def test_426f71d9_top_level_fork_attaches_new_catalog_version() -> None:
 
     dialog = messages[3:]
     edited_turn = next(m for m in dialog if m["role"] == "user" and "4-0-2.2" in m["content"])
-    assert "SUMMARY_BUNDLE:" in edited_turn["content"]
+    assert "Обновлённый профиль канала:" in edited_turn["content"] or "Обновлённый пост:" in edited_turn["content"]
     assert "Сводка 5" in edited_turn["content"]
     assert log_labels[5] == "user [4-5-2.2]"
 
@@ -592,7 +592,7 @@ def test_c13ee3f2_edit_turn5_keeps_head_while_float_in_window() -> None:
     assert "Сводка 4" not in messages[1]["content"]
     dialog = messages[3:]
     float_turn = next(m for m in dialog if m["role"] == "user" and "3-4-3" in m["content"])
-    assert "SUMMARY_BUNDLE:" in float_turn["content"]
+    assert "Обновлённый профиль канала:" in float_turn["content"] or "Обновлённый пост:" in float_turn["content"]
 
     history, meta, label = _finalize_ai_reply(meta, history, latest_catalog_version=4)
     assert label == "3-0-5.2"
@@ -771,7 +771,7 @@ def test_c2aa3653_edit_turn6_keeps_head_while_float_in_window() -> None:
     assert "Сводка 5" not in messages[1]["content"]
     dialog = messages[3:]
     float_turn = next(m for m in dialog if m["role"] == "user" and "4-5-4" in m["content"])
-    assert "SUMMARY_BUNDLE:" in float_turn["content"]
+    assert "Обновлённый профиль канала:" in float_turn["content"] or "Обновлённый пост:" in float_turn["content"]
 
     history, meta, label = _finalize_ai_reply_production(meta, history, latest_catalog_version=5)
     assert label == "4-0-6.2"
@@ -806,7 +806,7 @@ def test_delete_turn_with_float_reattaches_on_rewrite() -> None:
     )
     assert messages is not None
     assert log_labels[7] == "user [4-5-4]"
-    assert "SUMMARY_BUNDLE:" in messages[-1]["content"]
+    assert "Обновлённый профиль канала:" in messages[-1]["content"] or "Обновлённый пост:" in messages[-1]["content"]
     assert "Сводка 5" in messages[-1]["content"]
 
     history, meta, label = _finalize_ai_reply(meta, history, latest_catalog_version=5)

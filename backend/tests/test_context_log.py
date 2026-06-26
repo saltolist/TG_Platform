@@ -66,7 +66,7 @@ def test_format_active_thread_uses_only_active_branch() -> None:
 def test_format_llm_messages_labels_primer() -> None:
     messages = [
         {"role": "system", "content": "System prompt"},
-        {"role": "user", "content": "SUMMARY_BUNDLE:\nChannel info"},
+        {"role": "user", "content": "Профиль канала:\nChannel info"},
         {"role": "assistant", "content": "Понял, учту при ответах."},
         {"role": "user", "content": "Hello"},
     ]
@@ -74,7 +74,7 @@ def test_format_llm_messages_labels_primer() -> None:
     assert "[0] system" in formatted
     assert "[1] user/primer" in formatted
     assert "[2] assistant/primer-ack" in formatted
-    assert "SUMMARY_BUNDLE:" in formatted
+    assert "Профиль канала:" in formatted
     assert "Hello" in formatted
 
 

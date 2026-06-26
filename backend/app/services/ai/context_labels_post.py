@@ -46,6 +46,7 @@ from app.services.ai.context_primer import (
     build_dialog_messages,
     build_primer_user_content,
     build_system_prompt,
+    format_bundle_sections,
     take_prompt_window,
 )
 from app.services.ai.context_turns import annotate_user_turns, compute_window_user_turns
@@ -53,8 +54,8 @@ from app.services.ai.rolling_summary import rolling_summary_for_assembly
 from app.services.ai.summary_catalog import (
     latest_global_version,
     latest_local_version,
-    resolve_post_bundle_text,
-    resolve_post_float_bundle_text,
+    resolve_post_bundle_parts,
+    resolve_post_float_bundle_parts,
 )
 
 
@@ -603,6 +604,27 @@ def primer_post_log_label(head_global: int, head_local: int) -> str:
     return f"user/primer [{format_post_context_label(head_global, head_local, 0, 0, '0')}]"
 
 
+def _format_post_float_bundle(
+    catalog: Mapping[str, Any],
+    *,
+    post_id: str,
+    attached_global: int,
+    attached_local: int,
+) -> str:
+    channel_text, post_text = resolve_post_float_bundle_parts(
+        catalog,
+        post_id=post_id,
+        attached_global=attached_global,
+        attached_local=attached_local,
+    )
+    return format_bundle_sections(
+        channel_text=channel_text,
+        post_text=post_text,
+        channel_updated=attached_global > 0,
+        post_updated=attached_local > 0,
+    )
+
+
 def _floating_bundles_post(
     history: list[Mapping[str, Any]],
     *,
@@ -628,7 +650,7 @@ def _floating_bundles_post(
         if parsed is not None:
             _gh, _lh, ga, la, _ = parsed
             if ga > 0 or la > 0:
-                text = resolve_post_float_bundle_text(
+                text = _format_post_float_bundle(
                     catalog,
                     post_id=post_id,
                     attached_global=ga,
@@ -652,7 +674,7 @@ def _floating_bundles_post(
             continue
         _gh, _lh, ga, la, _ = parts
         if ga > 0 or la > 0:
-            text = resolve_post_float_bundle_text(
+            text = _format_post_float_bundle(
                 catalog,
                 post_id=post_id,
                 attached_global=ga,
@@ -684,7 +706,7 @@ def _floating_bundles_post(
         if parts is not None:
             _gh, _lh, ga, la, _ = parts
             if ga > 0 or la > 0:
-                text = resolve_post_float_bundle_text(
+                text = _format_post_float_bundle(
                     catalog,
                     post_id=post_id,
                     attached_global=ga,
@@ -826,7 +848,7 @@ def assemble_reply_messages_from_post_labels(
     if latest_local <= 0 and latest_global <= 0:
         return None
 
-    system_prompt = build_system_prompt(str(ai_profile.get("systemPrompt") or ""))
+    system_prompt = build_system_prompt(str(ai_profile.get("systemPrompt") or ""), scope="post")
     raw_pairs = linearize_for_llm(list(history or []))
     valid_pairs = filter_alternating_roles(raw_pairs)
     trimmed = user_text.strip()
@@ -854,11 +876,15 @@ def assemble_reply_messages_from_post_labels(
         window_user_turns=window_user_turns,
         history=list(history or []),
     )
-    head_text = resolve_post_bundle_text(
+    channel_text, post_text = resolve_post_bundle_parts(
         catalog,
         post_id=post_id,
         global_version=head_g,
         local_version=head_l,
+    )
+    head_text = format_bundle_sections(
+        channel_text=channel_text,
+        post_text=post_text,
     )
     rolling_summary = rolling_summary_for_assembly(thread_state, valid_pairs)
 
