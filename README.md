@@ -111,6 +111,14 @@ app → screens → widgets → features → entities → shared
 
 Каждый слой зависит только от нижележащих. Подробнее — в [docs/dev/architecture.md](./docs/dev/architecture.md).
 
+## Лицензия
+
+TG Platform распространяется под лицензией [GNU GPL v3.0 or later](./LICENSE).
+
+Вы можете свободно использовать, изменять и распространять проект при соблюдении
+условий GPL. См. также [THIRD_PARTY_NOTICES.md](./THIRD_PARTY_NOTICES.md) для
+зависимостей с отдельными лицензиями (в т.ч. BlockNote).
+
 ## Документация
 
 → [docs/README.md](./docs/README.md)
