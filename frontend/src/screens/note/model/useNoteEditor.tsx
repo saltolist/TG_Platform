@@ -21,6 +21,8 @@ import { usePreventIosInputZoom } from "@/shared/lib/hooks/usePreventIosInputZoo
 import { useMobile760 } from "@/shared/lib/hooks/useMobile760";
 import { registerNotePersist } from "@/shared/lib/notePersistRegistry";
 import { useFitTitleSize } from "@/shared/lib/use-fit-title";
+import { readNoteFileAsDataUrl } from "@/widgets/note-editor/lib/noteFilePersistence";
+import { restoreDocAttachments } from "@/widgets/note-editor/lib/noteDocAttachments";
 import type { ActiveNote, NoteFile } from "@/shared/types";
 
 export function useNoteEditor(note: ActiveNote) {
@@ -46,6 +48,7 @@ export function useNoteEditor(note: ActiveNote) {
   const [body, setBody] = useState(initialBody);
   const [doc, setDoc] = useState<unknown[] | undefined>(initialDoc);
   const [files, setFiles] = useState<NoteFile[]>([...noteFiles]);
+  const filesRef = useRef<NoteFile[]>([...noteFiles]);
   const [bodyFocusRequest, setBodyFocusRequest] = useState(0);
   const [editorResetKey, setEditorResetKey] = useState(0);
   const [baselineSnapshot, setBaselineSnapshot] = useState(() =>
@@ -61,6 +64,7 @@ export function useNoteEditor(note: ActiveNote) {
     setBody(nextBody);
     setDoc(Array.isArray(note.doc) ? note.doc : undefined);
     setFiles(nextFiles);
+    filesRef.current = nextFiles;
     setEditorResetKey(0);
     setBaselineSnapshot(buildNoteSnapshot(note.title, nextBody, note.ai, nextFiles, Array.isArray(note.doc) ? note.doc : undefined));
   }, [noteKey]); // eslint-disable-line react-hooks/exhaustive-deps -- reset draft only when note identity changes
@@ -88,6 +92,7 @@ export function useNoteEditor(note: ActiveNote) {
     setBody(nextBody);
     setDoc(Array.isArray(note.doc) ? note.doc : undefined);
     setFiles(nextFiles);
+    filesRef.current = nextFiles;
     setEditorResetKey((key) => key + 1);
     setBaselineSnapshot(buildNoteSnapshot(note.title, nextBody, note.ai, nextFiles, Array.isArray(note.doc) ? note.doc : undefined));
     setNoteDirty(false);
@@ -103,6 +108,11 @@ export function useNoteEditor(note: ActiveNote) {
     const snapshot = buildNoteSnapshot(finalTitle, body, note.ai, files, doc);
     if (snapshot === baselineSnapshot) return;
 
+    const filesForSave = filesRef.current;
+    const docForSave = Array.isArray(doc)
+      ? (restoreDocAttachments(doc, filesForSave) as unknown[])
+      : doc;
+
     try {
       if (note.isNew) {
         if (note.isGlobal) {
@@ -110,10 +120,10 @@ export function useNoteEditor(note: ActiveNote) {
             id: randomId(),
             title: finalTitle,
             body,
-            doc,
+            doc: docForSave,
             ai: note.ai,
             date: new Date().toISOString(),
-            files,
+            files: filesForSave,
           };
           await upsertGlobalNote.mutateAsync(saved);
           patchNote({
@@ -126,10 +136,10 @@ export function useNoteEditor(note: ActiveNote) {
             id: randomId(),
             title: finalTitle,
             body,
-            doc,
+            doc: docForSave,
             ai: note.ai,
             date: new Date().toISOString(),
-            files,
+            files: filesForSave,
           };
           await addPostNote(note.postId, saved);
           patchNote({
@@ -148,10 +158,10 @@ export function useNoteEditor(note: ActiveNote) {
           id: note.id,
           title: finalTitle,
           body,
-          doc,
+          doc: docForSave,
           ai: note.ai,
           date: note.date,
-          files,
+          files: filesForSave,
         };
         await upsertGlobalNote.mutateAsync(next);
         patchNote({
@@ -160,9 +170,14 @@ export function useNoteEditor(note: ActiveNote) {
           noteSavedSnapshot: buildNoteSnapshot(finalTitle, body, note.ai, files, doc),
         });
       } else {
-        await updatePostNote(note.postId, note.id, { title: finalTitle, body, doc, files });
+        await updatePostNote(note.postId, note.id, {
+          title: finalTitle,
+          body,
+          doc: docForSave,
+          files: filesForSave,
+        });
         patchNote({
-          currentNote: { ...note, title: finalTitle, body, doc, files },
+          currentNote: { ...note, title: finalTitle, body, doc: docForSave, files: filesForSave },
           noteMode: "view",
           noteSavedSnapshot: buildNoteSnapshot(finalTitle, body, note.ai, files, doc),
         });
@@ -191,16 +206,21 @@ export function useNoteEditor(note: ActiveNote) {
     return () => registerNotePersist(null);
   }, [save]);
 
-  const addFile = useCallback((file: File) => {
+  const addFile = useCallback(async (file: File) => {
+    const url = await readNoteFileAsDataUrl(file);
     const entry: NoteFile = {
       id: randomId(),
       name: file.name,
       type: file.type || "file",
-      url: URL.createObjectURL(file),
+      url,
     };
-    setFiles((arr) => [...arr, entry]);
+    const next = [...filesRef.current, entry];
+    filesRef.current = next;
+    setFiles(next);
     return entry;
   }, []);
+
+  const getFiles = useCallback(() => filesRef.current, []);
 
   const focusBodyFromTitle = useCallback(() => {
     setBodyFocusRequest((request) => request + 1);
@@ -215,6 +235,7 @@ export function useNoteEditor(note: ActiveNote) {
     doc,
     setContent,
     files,
+    getFiles,
     changed,
     bodyFocusRequest,
     editorResetKey,

@@ -7,7 +7,7 @@ import {
 import type { NoteFile } from "@/shared/types";
 
 const files: NoteFile[] = [
-  { id: "img1", name: "Скриншот", type: "image/png", url: "blob:http://localhost/abc" },
+  { id: "img1", name: "Скриншот", type: "image/png", url: "data:image/png;base64,abc" },
   { id: "doc1", name: "Отчёт", type: "application/pdf", url: "https://cdn.test/r.pdf?s=1" },
 ];
 
@@ -47,6 +47,10 @@ describe("restoreDocAttachments", () => {
     const resolved = resolveDocAttachments(storedDoc, files);
     const restored = restoreDocAttachments(resolved, files);
     expect(restored).toEqual(storedDoc);
+  });
+
+  it("keeps attachment ids unchanged on restore", () => {
+    expect(restoreDocAttachments(storedDoc, files)).toEqual(storedDoc);
   });
 
   it("ignores plain external urls", () => {

@@ -26,6 +26,7 @@ function transform(value: string, dir: Direction, files: NoteFile[]): string {
     const file = files.find((f) => f.id === id || f.name === id);
     return file?.url ?? value;
   }
+  if (value.startsWith(ATTACHMENT_PREFIX)) return value;
   const file = files.find((f) => f.url && f.url === value);
   return file ? `${ATTACHMENT_PREFIX}${fileKey(file)}` : value;
 }

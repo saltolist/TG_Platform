@@ -45,8 +45,9 @@ type Props = {
   doc?: unknown[];
   body: string;
   files: NoteFile[];
+  getFiles: () => NoteFile[];
   onChange: (content: NoteBlockNoteChange) => void;
-  onUploadFile: (file: File) => NoteFile;
+  onUploadFile: (file: File) => Promise<NoteFile>;
   focusRequest?: number;
 };
 
@@ -55,14 +56,15 @@ export default function NoteBlockNote({
   doc,
   body,
   files,
+  getFiles,
   onChange,
   onUploadFile,
   focusRequest = 0,
 }: Props) {
   const { resolvedTheme } = useTheme();
 
-  const filesRef = useRef(files);
-  filesRef.current = files;
+  const getFilesRef = useRef(getFiles);
+  getFilesRef.current = getFiles;
   const onChangeRef = useRef(onChange);
   onChangeRef.current = onChange;
   const onUploadRef = useRef(onUploadFile);
@@ -82,7 +84,7 @@ export default function NoteBlockNote({
     dropCursor: multiColumnDropCursor,
     dictionary: noteEditorDictionary,
     uploadFile: async (file: File) => {
-      const entry = onUploadRef.current(file);
+      const entry = await onUploadRef.current(file);
       return entry.url ?? `${ATTACHMENT_PREFIX}${entry.id ?? entry.name}`;
     },
   });
@@ -106,7 +108,7 @@ export default function NoteBlockNote({
     acceptingChangesRef.current = false;
     if (!initialContent && body.trim()) {
       try {
-        const markdown = resolveAttachmentsToUrls(body, filesRef.current);
+        const markdown = resolveAttachmentsToUrls(body, getFilesRef.current());
         const blocks = editor.tryParseMarkdownToBlocks(markdown);
         if (blocks.length > 0) editor.replaceBlocks(editor.document, blocks);
       } catch {
@@ -120,10 +122,11 @@ export default function NoteBlockNote({
   }, [body, editor, initialContent]);
 
   const emit = useCallback(() => {
-    const docOut = restoreDocAttachments(editor.document as unknown[], filesRef.current);
+    const currentFiles = getFilesRef.current();
+    const docOut = restoreDocAttachments(editor.document as unknown[], currentFiles);
     const bodyOut = restoreUrlsToAttachments(
       editor.blocksToMarkdownLossy(editor.document),
-      filesRef.current,
+      currentFiles,
     ).trimEnd();
     onChangeRef.current({ doc: docOut, body: bodyOut });
   }, [editor]);

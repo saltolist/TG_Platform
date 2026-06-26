@@ -54,6 +54,7 @@ export default function NoteEditor({ note }: { note: ActiveNote }) {
             doc={editor.doc}
             body={editor.body}
             files={editor.files}
+            getFiles={editor.getFiles}
             onChange={editor.setContent}
             onUploadFile={editor.addFile}
             focusRequest={editor.bodyFocusRequest}
