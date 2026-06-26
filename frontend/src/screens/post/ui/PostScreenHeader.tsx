@@ -51,7 +51,6 @@ export default function PostScreenHeader({
   const headerClassName = [
     "page-header--post",
     showListHeaderSearch && "page-header--post-with-search",
-    showJump && "page-header--post-has-jump",
   ]
     .filter(Boolean)
     .join(" ");

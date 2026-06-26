@@ -432,12 +432,6 @@
   }
 }
 
-.post-back-btn {
-  transition: transform 0.2s;
-}
-.page-header--post-has-jump .page-header-right .post-back-btn {
-  transform: translateX(-6px);
-}
 .page-header--post .jump-post-btn {
   display: inline-flex;
   align-items: center;

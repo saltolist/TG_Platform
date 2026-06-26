@@ -56,7 +56,7 @@ export default function PostHeaderDesktopActions({
           </div>
         </>
       ) : null}
-      <BackButton onClick={onBack} className="post-back-btn" />
+      <BackButton onClick={onBack} />
       {showPostModeButtons ? (
         <ContextMenu
           items={ctxItems}
