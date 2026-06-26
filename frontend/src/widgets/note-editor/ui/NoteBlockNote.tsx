@@ -1,9 +1,21 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useRef } from "react";
-import type { PartialBlock } from "@blocknote/core";
+import { BlockNoteSchema, combineByGroup, type PartialBlock } from "@blocknote/core";
+import { filterSuggestionItems } from "@blocknote/core/extensions";
+import { ru } from "@blocknote/core/locales";
 import { BlockNoteView } from "@blocknote/mantine";
-import { useCreateBlockNote } from "@blocknote/react";
+import {
+  getDefaultReactSlashMenuItems,
+  SuggestionMenuController,
+  useCreateBlockNote,
+} from "@blocknote/react";
+import {
+  getMultiColumnSlashMenuItems,
+  locales as multiColumnLocales,
+  multiColumnDropCursor,
+  withMultiColumn,
+} from "@blocknote/xl-multi-column";
 import { useTheme } from "next-themes";
 
 import "@blocknote/core/fonts/inter.css";
@@ -21,6 +33,13 @@ import {
 } from "@/widgets/note-editor/lib/noteDocAttachments";
 
 export type NoteBlockNoteChange = { doc: unknown[]; body: string };
+
+const noteEditorSchema = withMultiColumn(BlockNoteSchema.create());
+
+const noteEditorDictionary = {
+  ...ru,
+  multi_column: multiColumnLocales.ru,
+};
 
 type Props = {
   doc?: unknown[];
@@ -57,13 +76,28 @@ export default function NoteBlockNote({
   }, [doc, files]);
 
   const editor = useCreateBlockNote({
+    schema: noteEditorSchema,
     initialContent,
     trailingBlock: false,
+    dropCursor: multiColumnDropCursor,
+    dictionary: noteEditorDictionary,
     uploadFile: async (file: File) => {
       const entry = onUploadRef.current(file);
       return entry.url ?? `${ATTACHMENT_PREFIX}${entry.id ?? entry.name}`;
     },
   });
+
+  const getSlashMenuItems = useMemo(
+    () => async (query: string) =>
+      filterSuggestionItems(
+        combineByGroup(
+          getDefaultReactSlashMenuItems(editor),
+          getMultiColumnSlashMenuItems(editor),
+        ),
+        query,
+      ),
+    [editor],
+  );
 
   const acceptingChangesRef = useRef(false);
 
@@ -110,7 +144,10 @@ export default function NoteBlockNote({
     <BlockNoteView
       editor={editor}
       theme={resolvedTheme === "dark" ? "dark" : "light"}
+      slashMenu={false}
       onChange={handleChange}
-    />
+    >
+      <SuggestionMenuController triggerCharacter="/" getItems={getSlashMenuItems} />
+    </BlockNoteView>
   );
 }

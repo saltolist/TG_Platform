@@ -1149,6 +1149,9 @@ button.filter-tab {
 .note-shell-content .bn-editor {
   padding-inline: 0;
 }
+.note-shell-content .bn-block-column-list {
+  gap: 1rem;
+}
 /* Side menu (+ and drag handle): default BlockNote colors; hover tints icon only. */
 .note-shell-content .bn-side-menu .mantine-UnstyledButton-root:not(.mantine-Menu-item) svg {
   transition: color 0.12s ease;
