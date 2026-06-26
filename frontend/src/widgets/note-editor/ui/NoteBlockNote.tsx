@@ -17,11 +17,17 @@ import "@blocknote/mantine/style.css";
 import type { NoteFile } from "@/shared/types";
 import { ATTACHMENT_PREFIX, restoreUrlsToAttachments } from "@/widgets/note-editor/lib/noteMarkdownBridge";
 import { restoreDocAttachments } from "@/widgets/note-editor/lib/noteDocAttachments";
+import { resolveNoteFileDisplayUrl } from "@/widgets/note-editor/lib/noteFileDisplayUrl";
 import { useNoteBlockDragCleanup } from "@/widgets/note-editor/lib/noteDragCleanup";
 import { loadNoteContentIntoEditor } from "@/widgets/note-editor/lib/loadNoteContent";
 import { useSafariNoteEditorFixes } from "@/widgets/note-editor/lib/noteSafariFixes";
 
 export type NoteBlockNoteChange = { doc: unknown[]; body: string };
+
+function docHasAttachmentRefs(doc?: unknown[]): boolean {
+  if (!doc?.length) return false;
+  return JSON.stringify(doc).includes(ATTACHMENT_PREFIX);
+}
 
 type Props = {
   doc?: unknown[];
@@ -57,8 +63,13 @@ export default function NoteBlockNote({
     dictionary: ru,
     uploadFile: async (file: File) => {
       const entry = await onUploadRef.current(file);
-      return entry.url ?? `${ATTACHMENT_PREFIX}${entry.id ?? entry.name}`;
+      // Return a resolvable URL so the new image block renders immediately.
+      // On save, restoreDocAttachments maps known file URLs back to attachment:<id>.
+      if (entry.url) return entry.url;
+      return `${ATTACHMENT_PREFIX}${entry.id ?? entry.name}`;
     },
+    resolveFileUrl: async (url: string) =>
+      resolveNoteFileDisplayUrl(url, getFilesRef.current()),
   });
 
   useSafariNoteEditorFixes(editor);
@@ -72,7 +83,7 @@ export default function NoteBlockNote({
 
   const acceptingChangesRef = useRef(false);
   const initialContentRef = useRef({ doc, body, files });
-  const filesReadyRef = useRef(files.length > 0);
+  const filesReadyRef = useRef(files.length > 0 || !docHasAttachmentRefs(doc));
 
   useEffect(() => {
     acceptingChangesRef.current = false;
@@ -86,6 +97,10 @@ export default function NoteBlockNote({
 
   useEffect(() => {
     if (filesReadyRef.current || files.length === 0) return;
+    if (!docHasAttachmentRefs(initialContentRef.current.doc)) {
+      filesReadyRef.current = true;
+      return;
+    }
     filesReadyRef.current = true;
 
     acceptingChangesRef.current = false;

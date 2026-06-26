@@ -1205,3 +1205,30 @@ html.note-webkit-safari
     align-self: flex-start;
   }
 }
+
+/* Safari/WebKit: fit-content wrapper + img { width: 100% } collapses image blocks to 0px. */
+html.note-webkit-safari .note-shell-content [data-file-block] .bn-visual-media-wrapper {
+  width: auto !important;
+  max-width: 100%;
+}
+
+html.note-webkit-safari .note-shell-content [data-file-block] .bn-visual-media {
+  width: auto;
+  max-width: 100%;
+  height: auto;
+  display: block;
+}
+
+@supports (-webkit-touch-callout: none) {
+  .note-shell-content [data-file-block] .bn-visual-media-wrapper {
+    width: auto !important;
+    max-width: 100%;
+  }
+
+  .note-shell-content [data-file-block] .bn-visual-media {
+    width: auto;
+    max-width: 100%;
+    height: auto;
+    display: block;
+  }
+}
