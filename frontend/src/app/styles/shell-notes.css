@@ -1094,7 +1094,7 @@ button.filter-tab {
     grid-template-columns: minmax(0, 1fr) auto;
     align-items: center;
     gap: 8px;
-    padding: 12px 15px;
+    padding: 12px 23px;
   }
 
   .note-title-row:has(.title-multi-line) {
@@ -1109,7 +1109,7 @@ button.filter-tab {
   }
 
   .note-shell-content {
-    padding: 16px 15px;
+    padding: 16px 23px;
   }
 
   .note-title-static,

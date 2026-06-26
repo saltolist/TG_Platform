@@ -297,11 +297,11 @@
 @media (max-width: 760px) {
   #screen-note .note-shell-header {
     gap: 8px;
-    padding: 12px 15px;
+    padding: 12px 23px;
   }
 
   #screen-note .note-shell-content {
-    padding: 16px 15px;
+    padding: 16px 23px;
   }
 }
 
