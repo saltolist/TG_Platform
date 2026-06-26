@@ -4,7 +4,9 @@ import {
   citationChipLabel,
   detachNoteCitations,
   isNoteCitationHref,
+  normalizeNoteCitationMarkdown,
   resolveNoteCitationHref,
+  splitNoteCitationSegments,
 } from "./noteCitation";
 
 describe("resolveNoteCitationHref", () => {
@@ -39,20 +41,39 @@ describe("isNoteCitationHref", () => {
 describe("detachNoteCitations", () => {
   it("moves embedded citation to sentence end", () => {
     expect(detachNoteCitations("В [Работа](/note/global/1/) заметке сказано.")).toBe(
-      "В заметке сказано.[Работа](/note/global/1/)",
+      "В заметке сказано. [Работа](/note/global/1/)",
     );
   });
 
   it("keeps citation already at sentence end", () => {
     expect(detachNoteCitations("Нужно сделать X.[Работа](/note/global/1/)")).toBe(
-      "Нужно сделать X.[Работа](/note/global/1/)",
+      "Нужно сделать X. [Работа](/note/global/1/)",
     );
   });
 
   it("collects multiple citations at sentence end", () => {
     expect(
       detachNoteCitations("Текст [A](/note/global/1/) и [B](/note/global/2/) здесь."),
-    ).toBe("Текст и здесь.[A](/note/global/1/)[B](/note/global/2/)");
+    ).toBe("Текст и здесь. [A](/note/global/1/) [B](/note/global/2/)");
+  });
+});
+
+describe("normalizeNoteCitationMarkdown", () => {
+  it("converts cite-path metadata to markdown links", () => {
+    expect(
+      normalizeNoteCitationMarkdown(
+        "Ответ cite-path: /note/global/1/ cite-title: Работа\nдальше.",
+      ),
+    ).toBe("Ответ [Работа](/note/global/1/)\nдальше.");
+  });
+});
+
+describe("splitNoteCitationSegments", () => {
+  it("splits trailing citation from sentence text", () => {
+    expect(splitNoteCitationSegments("Текст. [Работа](/note/global/1/)")).toEqual([
+      { type: "text", text: "Текст." },
+      { type: "cite", title: "Работа", href: "/note/global/1/" },
+    ]);
   });
 });
 

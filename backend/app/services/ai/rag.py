@@ -21,6 +21,7 @@ from sqlalchemy import select, text
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.services.ai.embeddings import EmbeddingBackend
+from app.services.ai.note_citations import NoteCite
 
 logger = logging.getLogger(__name__)
 
@@ -332,18 +333,20 @@ async def format_rag_context(
     scope: str,
     post_data: Any | None = None,
     tenant_key: str | None = None,
-) -> str:
+) -> tuple[str, list[NoteCite]]:
     """Fetch note content for top-k results and format as a context block.
 
-    Returns markdown-formatted string to append to the last user message.
+    Returns markdown-formatted string to append to the last user message,
+    plus structured cite metadata for post-processing assistant replies.
     """
     if not results:
-        return ""
+        return "", []
 
     from app.db.models import GlobalNote, Post
     from app.services.overlay.tenant_notes import get_tenant_note
 
     lines: list[str] = ["---", "**Контекст из заметок:**"]
+    cites: list[NoteCite] = []
 
     cite_index = 0
     for item in results:
@@ -395,12 +398,13 @@ async def format_rag_context(
                 cite_path = f"/note/global/{note_id}/"
             cite_title = title.strip() if title else "Заметка"
             label = f"**{cite_title}**"
+            cites.append(NoteCite(path=cite_path, title=cite_title))
             lines.append(
                 f"\n[{cite_index}] cite-path: {cite_path} cite-title: {cite_title}\n{label}\n{plain}"
             )
 
     if len(lines) <= 2:
-        return ""
+        return "", []
 
     lines.append("---")
-    return "\n".join(lines)
+    return "\n".join(lines), cites

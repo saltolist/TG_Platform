@@ -5,6 +5,10 @@ const MAX_CHIP_LABEL_LEN = 22;
 export const NOTE_CITE_LINK_RE =
   /\s*\[([^\]]+)\]\((\/note\/[^)]+|note:(?:global|post)\/[^)]+)\)/g;
 
+export type NoteCitationSegment =
+  | { type: "text"; text: string }
+  | { type: "cite"; title: string; href: string };
+
 /** True if href points to a note page (internal citation target). */
 export function isNoteCitationHref(href: string): boolean {
   if (href.startsWith("/note/")) return true;
@@ -42,6 +46,23 @@ export function citationChipLabel(text: string): string {
   return `${trimmed.slice(0, MAX_CHIP_LABEL_LEN - 1)}…`;
 }
 
+/** Fix common LLM citation formats before markdown parsing. */
+export function normalizeNoteCitationMarkdown(text: string): string {
+  let out = text;
+
+  out = out.replace(
+    /\[([^\]]+)\]\(\s*cite-path:\s*(\/note\/[^)\s]+)\s*\)/gi,
+    "[$1]($2)",
+  );
+
+  out = out.replace(
+    /cite-path:\s*(\/note\/\S+?)\s+cite-title:\s*([^\n\[\]]+?)(?=\s*(?:\n|---|$))/gi,
+    (_match, path: string, title: string) => `[${title.trim()}](${path})`,
+  );
+
+  return out;
+}
+
 function detachCitationsInSentence(sentence: string): string {
   const cites: string[] = [];
   const body = sentence
@@ -56,12 +77,12 @@ function detachCitationsInSentence(sentence: string): string {
 
   const endPunct = body.match(/[.!?…]$/)?.[0] ?? "";
   const core = endPunct ? body.slice(0, -1).trimEnd() : body;
-  return `${core}${endPunct}${cites.join("")}`;
+  return `${core}${endPunct} ${cites.join(" ")}`.replace(/\s+/g, " ").trim();
 }
 
 /**
  * Pull note citation links out of sentence grammar and append them as trailing refs.
- * "В [Работа](/note/…) заметке …" → "В заметке …[Работа](/note/…)"
+ * "В [Работа](/note/…) заметке …" → "В заметке сказано. [Работа](/note/…)"
  */
 export function detachNoteCitations(text: string): string {
   NOTE_CITE_LINK_RE.lastIndex = 0;
@@ -78,4 +99,29 @@ export function detachNoteCitations(text: string): string {
         .join(" ");
     })
     .join("");
+}
+
+export function prepareNoteCitationsForDisplay(text: string): string {
+  return detachNoteCitations(normalizeNoteCitationMarkdown(text));
+}
+
+export function splitNoteCitationSegments(text: string): NoteCitationSegment[] {
+  const segments: NoteCitationSegment[] = [];
+  const re = new RegExp(NOTE_CITE_LINK_RE.source, "g");
+  let last = 0;
+
+  for (const match of text.matchAll(re)) {
+    const index = match.index ?? 0;
+    if (index > last) {
+      segments.push({ type: "text", text: text.slice(last, index) });
+    }
+    segments.push({ type: "cite", title: match[1], href: match[2] });
+    last = index + match[0].length;
+  }
+
+  if (last < text.length) {
+    segments.push({ type: "text", text: text.slice(last) });
+  }
+
+  return segments;
 }

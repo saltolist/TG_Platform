@@ -19,6 +19,7 @@ from app.services.ai.context_log import get_chat_filter, should_log_llm_context
 from app.services.ai.embeddings import resolve_embedding_backend
 from app.services.ai.keys import KeyResolution, KeySource, get_account_mode
 from app.services.ai.providers import get_provider_spec
+from app.services.ai.note_citations import NoteCite
 from app.services.ai.rag import format_rag_context, retrieve_top_k
 from app.services.ai.byok_profile import MASKED_VALUE, is_api_key_preview
 from app.services.ai.reply_orchestrator import (
@@ -196,6 +197,7 @@ async def ai_reply(
     # RAG retrieval: only for real LLM (not stub), when RAG_ENABLED=1
     settings = get_settings()
     rag_context: str | None = None
+    rag_cites: list[NoteCite] = []
     if settings.rag_enabled:
         try:
             embedding_backend = resolve_embedding_backend(user, ai_profile, settings)
@@ -211,7 +213,7 @@ async def ai_reply(
                 post_id=payload.post_id,
                 tenant_key=tenant_key,
             )
-            rag_context = await format_rag_context(
+            rag_context, rag_cites = await format_rag_context(
                 session=session,
                 user_id=user.id,
                 results=top_k_results,
@@ -222,6 +224,8 @@ async def ai_reply(
         except Exception as exc:
             import logging
             logging.getLogger(__name__).warning("RAG retrieval skipped: %s", exc)
+
+    ctx.rag_cites = rag_cites
 
     messages = assemble_reply_messages(
         ai_profile=ai_profile,

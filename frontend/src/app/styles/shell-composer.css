@@ -740,9 +740,12 @@
   padding: 0;
   font-size: inherit;
   font-weight: inherit;
-  line-height: 0;
-  vertical-align: super;
+  line-height: inherit;
+  vertical-align: baseline;
   text-decoration: none;
+}
+.chat-markdown-inline {
+  display: inline;
 }
 .chat-citation-chip {
   display: inline-block;

@@ -10,7 +10,7 @@ import { queryKeys } from "@/shared/api/queryKeys";
 import { getQueryAccountIdFromAuth } from "@/shared/lib/auth/queryAccountScope";
 import { isOverlayAccount } from "@/shared/lib/overlay/isOverlayAccount";
 import { mutateOverlay } from "@/shared/lib/overlay/overlayStorage";
-import { mapMessageAtPath, clampActiveBranchIndex } from "@/shared/lib/chatPaths";
+import { mapMessageAtPath, clampActiveBranchIndex, updateLastVisibleAiMessage } from "@/shared/lib/chatPaths";
 import type { ChatMessage, GlobalChat, LocalChat, Post } from "@/shared/types";
 
 const bundleContextStampSchema = z.object({
@@ -89,20 +89,40 @@ function applyBundleContextStamp(history: ChatMessage[], stamp: BundleContextSta
 const streamMetaSchema = chatContextMetaSchema.extend({
   bundle_context_stamp: bundleContextStampSchema.optional(),
   context_label_stamp: contextLabelStampSchema.optional(),
+  assistant_text: z.string().optional(),
 });
 
 function splitStreamMeta(meta: Record<string, unknown>): {
   chatMeta: ChatContextMeta;
   bundleStamp?: BundleContextStamp;
   labelStamp?: ContextLabelStamp;
+  assistantText?: string;
 } {
   const parsed = streamMetaSchema.parse(meta);
-  const { bundle_context_stamp, context_label_stamp, ...rest } = parsed;
+  const { bundle_context_stamp, context_label_stamp, assistant_text, ...rest } = parsed;
   return {
     chatMeta: chatContextMetaSchema.parse(rest),
     bundleStamp: bundle_context_stamp,
     labelStamp: context_label_stamp,
+    assistantText: assistant_text,
   };
+}
+
+function applyAssistantTextStamp(history: ChatMessage[], text: string): ChatMessage[] {
+  return updateLastVisibleAiMessage(history, (message) => {
+    if (message.role !== "ai") return message;
+    if (Array.isArray(message.variants) && message.variants.length > 0) {
+      const idx = Math.min(
+        Math.max(Number(message.selectedVariant) || 0, 0),
+        message.variants.length - 1,
+      );
+      const variants = message.variants.map((variant, variantIdx) =>
+        variantIdx === idx ? { ...variant, text } : variant,
+      );
+      return { ...message, variants };
+    }
+    return { ...message, text };
+  });
 }
 
 function applyChatMetaPatch<T extends GlobalChat | LocalChat>(
@@ -110,6 +130,7 @@ function applyChatMetaPatch<T extends GlobalChat | LocalChat>(
   patch: ChatContextMeta,
   bundleStamp?: BundleContextStamp,
   labelStamp?: ContextLabelStamp,
+  assistantText?: string,
 ): T {
   let next = { ...chat, ...patch } as T;
   if (labelStamp) {
@@ -117,6 +138,9 @@ function applyChatMetaPatch<T extends GlobalChat | LocalChat>(
   }
   if (bundleStamp) {
     next = { ...next, history: applyBundleContextStamp(next.history, bundleStamp) };
+  }
+  if (assistantText) {
+    next = { ...next, history: applyAssistantTextStamp(next.history, assistantText) };
   }
   return next;
 }
@@ -127,10 +151,12 @@ export function patchGlobalChatContextMeta(
   meta: ChatContextMeta | Record<string, unknown>,
   accountId = getQueryAccountIdFromAuth(),
 ): void {
-  const { chatMeta, bundleStamp, labelStamp } = splitStreamMeta(meta as Record<string, unknown>);
+  const { chatMeta, bundleStamp, labelStamp, assistantText } = splitStreamMeta(meta as Record<string, unknown>);
   queryClient.setQueryData<GlobalChat[]>(queryKeys.globalChats.list(accountId), (prev) =>
     prev?.map((chat) =>
-      chat.id === chatId ? applyChatMetaPatch(chat, chatMeta, bundleStamp, labelStamp) : chat,
+      chat.id === chatId
+        ? applyChatMetaPatch(chat, chatMeta, bundleStamp, labelStamp, assistantText)
+        : chat,
     ),
   );
 
@@ -139,7 +165,13 @@ export function patchGlobalChatContextMeta(
   mutateOverlay((overlay) => {
     const current = overlay.globalChats.upserts[chatId];
     if (!current) return;
-    overlay.globalChats.upserts[chatId] = applyChatMetaPatch(current, chatMeta, bundleStamp, labelStamp);
+    overlay.globalChats.upserts[chatId] = applyChatMetaPatch(
+      current,
+      chatMeta,
+      bundleStamp,
+      labelStamp,
+      assistantText,
+    );
   }, accountId);
 }
 
@@ -150,11 +182,13 @@ export function patchPostChatContextMeta(
   meta: ChatContextMeta | Record<string, unknown>,
   accountId = getQueryAccountIdFromAuth(),
 ): void {
-  const { chatMeta, bundleStamp, labelStamp } = splitStreamMeta(meta as Record<string, unknown>);
+  const { chatMeta, bundleStamp, labelStamp, assistantText } = splitStreamMeta(meta as Record<string, unknown>);
   const applyPatch = (post: Post): Post => ({
     ...post,
     chats: post.chats.map((chat) =>
-      chat.id === chatId ? applyChatMetaPatch(chat, chatMeta, bundleStamp, labelStamp) : chat,
+      chat.id === chatId
+        ? applyChatMetaPatch(chat, chatMeta, bundleStamp, labelStamp, assistantText)
+        : chat,
     ),
   });
 

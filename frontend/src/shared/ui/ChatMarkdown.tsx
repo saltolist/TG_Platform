@@ -6,9 +6,11 @@ import remarkGfm from "remark-gfm";
 
 import {
   citationChipLabel,
-  detachNoteCitations,
   isNoteCitationHref,
+  prepareNoteCitationsForDisplay,
   resolveNoteCitationHref,
+  splitNoteCitationSegments,
+  type NoteCitationSegment,
 } from "@/shared/lib/noteCitation";
 import ChatCitationChip from "@/shared/ui/ChatCitationChip";
 
@@ -22,79 +24,135 @@ function allowNoteUrls(url: string): string {
   return defaultUrlTransform(url);
 }
 
-function linkChildrenToText(children: ReactNode): string {
-  if (typeof children === "string") return children;
-  if (typeof children === "number") return String(children);
-  if (Array.isArray(children)) return children.map(linkChildrenToText).join("");
-  if (children && typeof children === "object" && "props" in children) {
-    const nested = (children as { props?: { children?: ReactNode } }).props?.children;
-    return nested != null ? linkChildrenToText(nested) : "";
-  }
-  return "";
+function renderCitationSegment(seg: Extract<NoteCitationSegment, { type: "cite" }>, key: string) {
+  const noteHref = resolveNoteCitationHref(seg.href);
+  if (!noteHref) return null;
+
+  const fullTitle = seg.title.trim() || undefined;
+  const label = citationChipLabel(seg.title);
+
+  return (
+    <sup key={key} className="chat-citation-sup" role="doc-noteref">
+      <ChatCitationChip href={noteHref} label={label} title={fullTitle} />
+    </sup>
+  );
 }
 
-function ChatMarkdownLink({ href, children }: { href?: string; children?: ReactNode }) {
-  if (!href) return <span>{children}</span>;
+function MarkdownInline({ text }: { text: string }) {
+  if (!text.trim()) return null;
 
-  const noteHref = resolveNoteCitationHref(href);
-  if (noteHref) {
-    const rawTitle = linkChildrenToText(children);
-    const label = citationChipLabel(rawTitle);
-    const fullTitle = rawTitle.trim() || undefined;
-    return (
-      <sup className="chat-citation-sup" role="doc-noteref">
-        <ChatCitationChip href={noteHref} label={label} title={fullTitle} />
-      </sup>
-    );
+  return (
+    <ReactMarkdown
+      remarkPlugins={[remarkGfm]}
+      urlTransform={allowNoteUrls}
+      components={{
+        p: ({ children }) => <span className="chat-markdown-inline">{children}</span>,
+        a: ({ href, children }) => {
+          if (href && isNoteCitationHref(href)) {
+            return renderCitationSegment({ type: "cite", title: String(children), href }, href);
+          }
+          if (href?.startsWith("/") || href?.startsWith("http://") || href?.startsWith("https://")) {
+            const external = href.startsWith("http");
+            return (
+              <a
+                href={href}
+                className="chat-markdown-link"
+                {...(external ? { target: "_blank", rel: "noopener noreferrer" } : {})}
+              >
+                {children}
+              </a>
+            );
+          }
+          return <span>{children}</span>;
+        },
+        strong: ({ children }) => <strong className="chat-markdown-strong">{children}</strong>,
+        em: ({ children }) => <em className="chat-markdown-em">{children}</em>,
+        code: ({ children }) => <code className="chat-markdown-code">{children}</code>,
+      }}
+    >
+      {text}
+    </ReactMarkdown>
+  );
+}
+
+function MarkdownBlock({ text }: { text: string }) {
+  if (!text.trim()) return null;
+
+  return (
+    <ReactMarkdown
+      remarkPlugins={[remarkGfm]}
+      urlTransform={allowNoteUrls}
+      components={{
+        a: ({ href, children }) => {
+          if (href && isNoteCitationHref(href)) {
+            return renderCitationSegment({ type: "cite", title: String(children), href }, href);
+          }
+          if (href?.startsWith("/") || href?.startsWith("http://") || href?.startsWith("https://")) {
+            const external = href.startsWith("http");
+            return (
+              <a
+                href={href}
+                className="chat-markdown-link"
+                {...(external ? { target: "_blank", rel: "noopener noreferrer" } : {})}
+              >
+                {children}
+              </a>
+            );
+          }
+          return <span>{children}</span>;
+        },
+        p: ({ children }) => <p className="chat-markdown-p">{children}</p>,
+        ul: ({ children }) => <ul className="chat-markdown-ul">{children}</ul>,
+        ol: ({ children }) => <ol className="chat-markdown-ol">{children}</ol>,
+        li: ({ children }) => <li className="chat-markdown-li">{children}</li>,
+        strong: ({ children }) => <strong className="chat-markdown-strong">{children}</strong>,
+        em: ({ children }) => <em className="chat-markdown-em">{children}</em>,
+        code: ({ children, className: codeClass }) =>
+          codeClass ? (
+            <code className={`chat-markdown-code-block ${codeClass}`}>{children}</code>
+          ) : (
+            <code className="chat-markdown-code">{children}</code>
+          ),
+        pre: ({ children }) => <pre className="chat-markdown-pre">{children}</pre>,
+        blockquote: ({ children }) => (
+          <blockquote className="chat-markdown-blockquote">{children}</blockquote>
+        ),
+      }}
+    >
+      {text}
+    </ReactMarkdown>
+  );
+}
+
+function renderParagraphSegments(paragraph: string, keyPrefix: string): ReactNode {
+  const segments = splitNoteCitationSegments(paragraph);
+  const hasCite = segments.some((seg) => seg.type === "cite");
+
+  if (!hasCite) {
+    return <MarkdownBlock key={keyPrefix} text={paragraph} />;
   }
 
-  if (href.startsWith("/") || href.startsWith("http://") || href.startsWith("https://")) {
-    const external = href.startsWith("http");
-    return (
-      <a
-        href={href}
-        className="chat-markdown-link"
-        {...(external ? { target: "_blank", rel: "noopener noreferrer" } : {})}
-      >
-        {children}
-      </a>
-    );
-  }
-
-  return <span>{children}</span>;
+  return (
+    <p key={keyPrefix} className="chat-markdown-p">
+      {segments.map((seg, index) => {
+        if (seg.type === "cite") {
+          return renderCitationSegment(seg, `${keyPrefix}-cite-${index}`);
+        }
+        return <MarkdownInline key={`${keyPrefix}-text-${index}`} text={seg.text} />;
+      })}
+    </p>
+  );
 }
 
 export default function ChatMarkdown({ text, className }: Props) {
-  const prepared = detachNoteCitations(text);
+  const prepared = prepareNoteCitationsForDisplay(text);
   if (!prepared.trim()) return null;
+
+  const blocks = prepared.split(/\n{2,}/);
 
   return (
     <div className={`chat-markdown${className ? ` ${className}` : ""}`}>
-      <ReactMarkdown
-        remarkPlugins={[remarkGfm]}
-        urlTransform={allowNoteUrls}
-        components={{
-          a: ({ href, children }) => <ChatMarkdownLink href={href}>{children}</ChatMarkdownLink>,
-          p: ({ children }) => <p className="chat-markdown-p">{children}</p>,
-          ul: ({ children }) => <ul className="chat-markdown-ul">{children}</ul>,
-          ol: ({ children }) => <ol className="chat-markdown-ol">{children}</ol>,
-          li: ({ children }) => <li className="chat-markdown-li">{children}</li>,
-          strong: ({ children }) => <strong className="chat-markdown-strong">{children}</strong>,
-          em: ({ children }) => <em className="chat-markdown-em">{children}</em>,
-          code: ({ children, className: codeClass }) =>
-            codeClass ? (
-              <code className={`chat-markdown-code-block ${codeClass}`}>{children}</code>
-            ) : (
-              <code className="chat-markdown-code">{children}</code>
-            ),
-          pre: ({ children }) => <pre className="chat-markdown-pre">{children}</pre>,
-          blockquote: ({ children }) => (
-            <blockquote className="chat-markdown-blockquote">{children}</blockquote>
-          ),
-        }}
-      >
-        {prepared}
-      </ReactMarkdown>
+      {blocks.map((block, index) => renderParagraphSegments(block, `block-${index}`))}
     </div>
   );
 }

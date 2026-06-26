@@ -24,6 +24,7 @@ from app.services.ai.chat_history import (
     linearize_for_llm,
     merge_history_stamps,
 )
+from app.services.ai.note_citations import NoteCite, prepare_note_citations_for_reply
 from app.services.ai.context import append_user_text_to_pairs, assemble_reply_messages
 from app.services.ai.context_label import stamp_context_label_on_path
 from app.services.ai.context_labels import THREAD_LABEL_STATE_KEY
@@ -85,6 +86,7 @@ class ReplyContext:
     # Logging
     log_context: bool = False
     log_labels: dict[int, str] = field(default_factory=dict)
+    rag_cites: list[NoteCite] = field(default_factory=list)
 
 
 def prefers_server_chat_history(user: User) -> bool:
@@ -371,6 +373,7 @@ async def stream_reply_with_meta(ctx: ReplyContext, messages: list[dict[str, str
         yield event
 
     assistant_text = "".join(accumulated)
+    assistant_text = prepare_note_citations_for_reply(assistant_text, ctx.rag_cites)
     if ctx.log_context:
         log_llm_response(
             scope=ctx.payload.scope,
@@ -382,6 +385,7 @@ async def stream_reply_with_meta(ctx: ReplyContext, messages: list[dict[str, str
             assistant_text=assistant_text,
         )
     updated_meta = await _finalize_context_meta(ctx, assistant_text)
+    updated_meta["assistant_text"] = assistant_text
     yield format_sse_meta(updated_meta)
 
 
