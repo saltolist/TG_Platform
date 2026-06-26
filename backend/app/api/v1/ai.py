@@ -10,7 +10,7 @@ from fastapi import APIRouter, HTTPException
 from fastapi.responses import StreamingResponse
 
 from app.core.config import get_settings
-from app.core.deps import CurrentUser, DbSession
+from app.core.deps import CurrentUser, DbSession, TenantKey
 from app.db.models import Profile
 from app.schemas.requests import AiReplyRequest
 from app.services.ai import resolve_model_api_key
@@ -117,6 +117,7 @@ async def ai_reply(
     payload: AiReplyRequest,
     user: CurrentUser,
     session: DbSession,
+    tenant_key: TenantKey,
 ) -> StreamingResponse:
     profile = await session.get(Profile, user.id)
     ai_profile = profile.ai if profile and profile.ai else {}
@@ -208,6 +209,7 @@ async def ai_reply(
                 k=settings.rag_top_k,
                 min_similarity=settings.rag_min_similarity,
                 post_id=payload.post_id,
+                tenant_key=tenant_key,
             )
             rag_context = await format_rag_context(
                 session=session,
@@ -215,6 +217,7 @@ async def ai_reply(
                 results=top_k_results,
                 scope=payload.scope,
                 post_data=post_data,
+                tenant_key=tenant_key,
             )
         except Exception as exc:
             import logging

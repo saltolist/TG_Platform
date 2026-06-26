@@ -17,6 +17,7 @@ from app.db.models import GlobalChat, GlobalNote, Post, Profile, User
 from app.db.seed_ids import seed_entity_uuid
 from app.db.session import SessionLocal
 from app.services.ai.model_catalog import build_seed_ai_profile
+from app.services.ai.rag_worker import enqueue_backfill
 
 logger = logging.getLogger("tg.seed")
 
@@ -142,20 +143,22 @@ async def run_seed(session=None, settings: Settings | None = None) -> None:
 
     async def _run(s) -> None:
         seed_settings = settings or get_settings()
-        await _upsert_seed_user(
+        presentation_user = await _upsert_seed_user(
             s,
             email=PRESENTATION_EMAIL,
             password=None,
             fixture_name="presentation",
             settings=seed_settings,
         )
-        await _upsert_seed_user(
+        demo_user = await _upsert_seed_user(
             s,
             email=DEMO_EMAIL,
             password=DEMO_PASSWORD,
             fixture_name="demo-full",
             settings=seed_settings,
         )
+        await enqueue_backfill(s, presentation_user.id)
+        await enqueue_backfill(s, demo_user.id)
         user_count = await s.scalar(select(func.count()).select_from(User))
         registered_count = await s.scalar(
             select(func.count()).select_from(User).where(User.is_seed.is_(False))

@@ -5,6 +5,9 @@ export const DEMO_ACCOUNT_ID = "demo-full";
 export const DEMO_EMAIL = "demo@mail.ru";
 export const DEMO_PASSWORD = "Demo!2026";
 
+/** Per-browser demo overlay session prefix (X-Tenant-Session / localStorage key). */
+export const DEMO_TENANT_PREFIX = "demo:";
+
 export const DEMO_CHANNEL_HANDLE = "@demochannel";
 export const DEMO_CHANNEL_TITLE = "Демо канал";
 

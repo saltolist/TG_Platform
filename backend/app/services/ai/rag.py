@@ -152,6 +152,7 @@ async def index_note(
     backend: EmbeddingBackend,
     post_id: str | None = None,
     max_chars: int = 4000,
+    tenant_key: str = "",
 ) -> int:
     """Embed and store a note.  Returns number of chunks written."""
     plain = markdown_to_index_text(title, body)
@@ -165,10 +166,16 @@ async def index_note(
     # Delete existing chunks for this note+model (handles chunk count changes)
     await session.execute(
         text(
-            "DELETE FROM note_embeddings WHERE user_id = :uid AND scope = :scope "
-            "AND note_id = :nid AND model_key = :mk"
+            "DELETE FROM note_embeddings WHERE user_id = :uid AND tenant_key = :tk "
+            "AND scope = :scope AND note_id = :nid AND model_key = :mk"
         ),
-        {"uid": str(user_id), "scope": scope, "nid": note_id, "mk": model_key},
+        {
+            "uid": str(user_id),
+            "tk": tenant_key,
+            "scope": scope,
+            "nid": note_id,
+            "mk": model_key,
+        },
     )
 
     vecs = await backend.embed_passages(chunks)
@@ -178,14 +185,16 @@ async def index_note(
         await session.execute(
             text(
                 "INSERT INTO note_embeddings "
-                "(user_id, scope, note_id, post_id, chunk_index, model_key, dim, content_hash, embedding) "
-                "VALUES (:uid, :scope, :nid, :pid, :ci, :mk, :dim, :ch, :emb) "
-                "ON CONFLICT (user_id, scope, note_id, chunk_index, model_key) DO UPDATE "
+                "(user_id, tenant_key, scope, note_id, post_id, chunk_index, model_key, dim, "
+                "content_hash, embedding) "
+                "VALUES (:uid, :tk, :scope, :nid, :pid, :ci, :mk, :dim, :ch, :emb) "
+                "ON CONFLICT (user_id, tenant_key, scope, note_id, chunk_index, model_key) DO UPDATE "
                 "SET dim = EXCLUDED.dim, content_hash = EXCLUDED.content_hash, "
                 "embedding = EXCLUDED.embedding, updated_at = now()"
             ),
             {
                 "uid": str(user_id),
+                "tk": tenant_key,
                 "scope": scope,
                 "nid": note_id,
                 "pid": post_id,
@@ -206,23 +215,30 @@ async def remove_note(
     scope: str,
     note_id: str,
     model_key: str | None = None,
+    tenant_key: str = "",
 ) -> None:
     """Delete all embeddings for a note (optionally scoped to a model_key)."""
     if model_key:
         await session.execute(
             text(
-                "DELETE FROM note_embeddings WHERE user_id = :uid AND scope = :scope "
-                "AND note_id = :nid AND model_key = :mk"
+                "DELETE FROM note_embeddings WHERE user_id = :uid AND tenant_key = :tk "
+                "AND scope = :scope AND note_id = :nid AND model_key = :mk"
             ),
-            {"uid": str(user_id), "scope": scope, "nid": note_id, "mk": model_key},
+            {
+                "uid": str(user_id),
+                "tk": tenant_key,
+                "scope": scope,
+                "nid": note_id,
+                "mk": model_key,
+            },
         )
     else:
         await session.execute(
             text(
-                "DELETE FROM note_embeddings WHERE user_id = :uid AND scope = :scope "
-                "AND note_id = :nid"
+                "DELETE FROM note_embeddings WHERE user_id = :uid AND tenant_key = :tk "
+                "AND scope = :scope AND note_id = :nid"
             ),
-            {"uid": str(user_id), "scope": scope, "nid": note_id},
+            {"uid": str(user_id), "tk": tenant_key, "scope": scope, "nid": note_id},
         )
 
 
@@ -235,6 +251,7 @@ async def retrieve_top_k(
     k: int = 4,
     min_similarity: float = 0.72,
     post_id: str | None = None,
+    tenant_key: str | None = None,
 ) -> list[dict[str, Any]]:
     """Return top-k notes by cosine similarity.
 
@@ -253,12 +270,16 @@ async def retrieve_top_k(
 
     query_str = _vec_to_pg(query_vec)
     post_filter = "AND post_id = :pid" if (scope == "post" and post_id) else ""
+    if tenant_key:
+        tenant_filter = "AND (tenant_key = :tk OR tenant_key = '')"
+    else:
+        tenant_filter = "AND tenant_key = ''"
 
     sql = text(
-        f"SELECT note_id, post_id, chunk_index, "
+        f"SELECT note_id, post_id, chunk_index, tenant_key, "
         f"1 - (embedding::vector <=> CAST(:qvec AS vector)) AS similarity "
         f"FROM note_embeddings "
-        f"WHERE user_id = :uid AND scope = :scope AND model_key = :mk {post_filter} "
+        f"WHERE user_id = :uid AND scope = :scope AND model_key = :mk {tenant_filter} {post_filter} "
         f"ORDER BY embedding::vector <=> CAST(:qvec AS vector) "
         f"LIMIT :k"
     )
@@ -269,6 +290,8 @@ async def retrieve_top_k(
         "mk": model_key,
         "k": k * 2,  # over-fetch then filter by similarity threshold
     }
+    if tenant_key:
+        params["tk"] = tenant_key
     if scope == "post" and post_id:
         params["pid"] = post_id
 
@@ -283,6 +306,7 @@ async def retrieve_top_k(
             "note_id": row.note_id,
             "post_id": row.post_id,
             "chunk_index": row.chunk_index,
+            "tenant_key": row.tenant_key or "",
             "similarity": float(row.similarity),
         }
         for row in rows
@@ -307,6 +331,7 @@ async def format_rag_context(
     results: list[dict[str, Any]],
     scope: str,
     post_data: Any | None = None,
+    tenant_key: str | None = None,
 ) -> str:
     """Fetch note content for top-k results and format as a context block.
 
@@ -316,6 +341,7 @@ async def format_rag_context(
         return ""
 
     from app.db.models import GlobalNote, Post
+    from app.services.overlay.tenant_notes import get_tenant_note
 
     lines: list[str] = ["---", "**Контекст из заметок:**"]
 
@@ -325,8 +351,16 @@ async def format_rag_context(
         note_scope = scope
         title = ""
         body = ""
+        item_tenant_key = item.get("tenant_key") or ""
 
-        if note_scope == "global":
+        if item_tenant_key:
+            note_data = await get_tenant_note(
+                session, user_id, item_tenant_key, note_scope, note_id
+            )
+            if note_data:
+                title = note_data.get("title", "")
+                body = note_data.get("body", "")
+        elif note_scope == "global":
             result = await session.execute(
                 select(GlobalNote).where(
                     GlobalNote.user_id == user_id,

@@ -37,6 +37,7 @@ async def enqueue_note_job(
     scope: str,     # "global" | "post"
     note_id: str,
     post_id: str | None = None,
+    tenant_key: str = "",
 ) -> None:
     """Insert an embedding job into the queue (fast, same transaction as note save)."""
     settings = get_settings()
@@ -44,11 +45,12 @@ async def enqueue_note_job(
         return
     await session.execute(
         text(
-            "INSERT INTO embedding_jobs (user_id, op, scope, note_id, post_id) "
-            "VALUES (:uid, :op, :scope, :nid, :pid)"
+            "INSERT INTO embedding_jobs (user_id, tenant_key, op, scope, note_id, post_id) "
+            "VALUES (:uid, :tk, :op, :scope, :nid, :pid)"
         ),
         {
             "uid": str(user_id),
+            "tk": tenant_key,
             "op": op,
             "scope": scope,
             "nid": note_id,
@@ -93,16 +95,18 @@ async def _process_job(
     scope: str,
     note_id: str,
     post_id: str | None,
+    tenant_key: str,
     session: AsyncSession,
 ) -> None:
     """Process a single embedding job."""
     from app.services.ai.embeddings import resolve_embedding_backend
     from app.services.ai.rag import index_note, remove_note
+    from app.services.overlay.tenant_notes import get_tenant_note
 
     settings = get_settings()
 
     if op == "delete":
-        await remove_note(session, user_id, scope, note_id)
+        await remove_note(session, user_id, scope, note_id, tenant_key=tenant_key)
         return
 
     # Resolve embedding backend (global config, no per-user profile needed for local)
@@ -119,6 +123,26 @@ async def _process_job(
         return
 
     backend = resolve_embedding_backend(user, {}, settings)
+
+    if tenant_key:
+        note_data = await get_tenant_note(session, user_id, tenant_key, scope, note_id)
+        if note_data is None:
+            return
+        title = note_data.get("title", "")
+        body = note_data.get("body", "")
+        await index_note(
+            session,
+            user_id,
+            scope,
+            note_id,
+            title,
+            body,
+            backend,
+            post_id=post_id or note_data.get("postId"),
+            max_chars=settings.rag_max_note_chars,
+            tenant_key=tenant_key,
+        )
+        return
 
     if scope == "global":
         result = await session.execute(
@@ -250,7 +274,7 @@ async def _process_batch(session_factory: async_sessionmaker[AsyncSession]) -> N
             rows = (
                 await session.execute(
                     text(
-                        "SELECT id, user_id, op, scope, note_id, post_id, attempts "
+                        "SELECT id, user_id, tenant_key, op, scope, note_id, post_id, attempts "
                         "FROM embedding_jobs "
                         "WHERE status = 'pending' AND attempts < :max_att "
                         "ORDER BY enqueued_at "
@@ -287,6 +311,7 @@ async def _process_batch(session_factory: async_sessionmaker[AsyncSession]) -> N
                             row.scope,
                             row.note_id,
                             row.post_id,
+                            row.tenant_key or "",
                             s,
                         )
                 async with session_factory() as s:

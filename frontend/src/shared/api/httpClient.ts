@@ -1,5 +1,6 @@
 import { API_BASE_URL, USE_MSW } from "@/shared/config/dataSource";
 import { getApiAuthToken } from "@/shared/lib/auth/session";
+import { getTenantSessionKey } from "@/shared/lib/overlay/tenantSession";
 
 let onUnauthorized: (() => void) | null = null;
 
@@ -47,6 +48,10 @@ async function prepareApiFetch(path: string, options: RequestOptions = {}) {
   const token = getApiAuthToken();
   if (token) {
     headers.Authorization = `Bearer ${token}`;
+  }
+  const tenantKey = getTenantSessionKey();
+  if (tenantKey) {
+    headers["X-Tenant-Session"] = tenantKey;
   }
   if (body !== undefined) {
     headers["Content-Type"] = "application/json";

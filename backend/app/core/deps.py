@@ -8,6 +8,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.core.constants import PRESENTATION_EMAIL
 from app.core.guest_tokens import is_guest_token
 from app.core.security import decode_token
+from app.core.tenant import resolve_tenant_key
 from app.db.models import User
 from app.db.session import get_session
 
@@ -55,6 +56,14 @@ async def require_writer(user: User = Depends(get_current_user)) -> User:
     return user
 
 
+async def get_tenant_key(
+    authorization: Annotated[str | None, Header()] = None,
+    x_tenant_session: Annotated[str | None, Header(alias="X-Tenant-Session")] = None,
+) -> str | None:
+    return resolve_tenant_key(authorization, x_tenant_session)
+
+
 CurrentUser = Annotated[User, Depends(get_current_user)]
 CurrentWriter = Annotated[User, Depends(require_writer)]
 DbSession = Annotated[AsyncSession, Depends(get_session)]
+TenantKey = Annotated[str | None, Depends(get_tenant_key)]

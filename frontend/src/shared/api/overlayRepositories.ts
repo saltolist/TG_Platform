@@ -6,6 +6,7 @@ import {
 import { shouldPersistLocally } from "@/shared/lib/overlay/isOverlayAccount";
 import { mergeEntityList } from "@/shared/lib/overlay/mergeEntities";
 import { mutateOverlay, readOverlay } from "@/shared/lib/overlay/overlayStorage";
+import { scheduleOverlayNotesSync } from "@/shared/lib/overlay/syncOverlayNotes";
 import type {
   ChatsRepository,
   GlobalChatPatch,
@@ -49,6 +50,7 @@ function overlayPosts(inner: PostsRepository): PostsRepository {
       mutateOverlay((overlay) => {
         overlay.posts.upserts[id] = updated;
       });
+      scheduleOverlayNotesSync();
       return updated;
     },
     reorder: async (posts) => {
@@ -139,6 +141,7 @@ function overlayNotes(inner: NotesRepository): NotesRepository {
       mutateOverlay((overlay) => {
         overlay.globalNotes.upserts[note.id] = note;
       });
+      scheduleOverlayNotesSync();
       return note;
     },
     remove: async (noteId) => {
@@ -149,6 +152,7 @@ function overlayNotes(inner: NotesRepository): NotesRepository {
         }
         delete overlay.globalNotes.upserts[noteId];
       });
+      scheduleOverlayNotesSync();
     },
   };
 }

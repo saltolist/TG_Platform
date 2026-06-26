@@ -182,6 +182,7 @@ async def test_retrieve_top_k_with_pgvector():
             self.note_id = note_id
             self.post_id = None
             self.chunk_index = 0
+            self.tenant_key = ""
             self.similarity = similarity
 
     rows_result = MagicMock()
@@ -221,6 +222,7 @@ async def test_retrieve_top_k_deduplication():
             self.note_id = note_id
             self.post_id = None
             self.chunk_index = chunk_index
+            self.tenant_key = ""
             self.similarity = similarity
 
     rows_result = MagicMock()

@@ -51,6 +51,13 @@ async def _override_db_session() -> None:
 async def _clean_db() -> None:
     yield
     async with TestSessionLocal() as session:
+        from sqlalchemy import text
+
+        for table in ("embedding_jobs", "note_embeddings", "tenant_overlay_notes"):
+            try:
+                await session.execute(text(f"DELETE FROM {table}"))
+            except Exception:
+                await session.rollback()
         await session.execute(delete(Post))
         await session.execute(delete(GlobalChat))
         await session.execute(delete(GlobalNote))
