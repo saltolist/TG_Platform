@@ -25,6 +25,7 @@ import {
   resolveDocAttachments,
   restoreDocAttachments,
 } from "@/widgets/note-editor/lib/noteDocAttachments";
+import { useNoteBlockDragCleanup } from "@/widgets/note-editor/lib/noteDragCleanup";
 import { useSafariNoteEditorFixes } from "@/widgets/note-editor/lib/noteSafariFixes";
 
 export type NoteBlockNoteChange = { doc: unknown[]; body: string };
@@ -76,6 +77,7 @@ export default function NoteBlockNote({
   });
 
   useSafariNoteEditorFixes(editor);
+  useNoteBlockDragCleanup(editor);
 
   const getSlashMenuItems = useMemo(
     () => async (query: string) =>
