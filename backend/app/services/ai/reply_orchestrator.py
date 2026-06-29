@@ -6,6 +6,7 @@ The HTTP transport layer (FastAPI router) stays in app/api/v1/ai.py.
 
 from __future__ import annotations
 
+import time
 import uuid
 from collections.abc import AsyncIterator
 from dataclasses import dataclass, field
@@ -53,6 +54,14 @@ from app.services.ai.summary_catalog import (
     ensure_post_local_catalog_current,
     register_global_summary_version,
 )
+from app.services.analytics.platform_models import (
+    UsageRecordInput,
+    estimate_cost_usd,
+    estimate_tokens_from_messages,
+    estimate_tokens_from_text,
+    is_successful_reply,
+    record_model_usage_event,
+)
 
 _PRESENTATION_EMAILS = frozenset({PRESENTATION_EMAIL, LEGACY_PRESENTATION_EMAIL})
 
@@ -90,9 +99,12 @@ class ReplyContext:
 
     # LLM parameters — set after model/key resolution, absent for stub mode
     spec: ProviderSpec | None = None
+    model_profile_id: str = ""
+    model_type: str = "llm"
     model_id: str = ""
     api_key: str = ""
     provider_name: str = ""
+    is_stub: bool = False
 
     # Logging
     log_context: bool = False
@@ -386,6 +398,42 @@ async def _finalize_context_meta(ctx: ReplyContext, assistant_text: str) -> dict
     return updated_meta
 
 
+async def _record_reply_usage(
+    ctx: ReplyContext,
+    *,
+    messages: list[dict[str, str]] | None,
+    assistant_text: str,
+    latency_ms: int,
+) -> None:
+    profile_id = ctx.model_profile_id.strip()
+    if not profile_id:
+        return
+    prompt_tokens = estimate_tokens_from_messages(list(messages or []))
+    completion_tokens = estimate_tokens_from_text(assistant_text)
+    is_stub = ctx.is_stub
+    await record_model_usage_event(
+        ctx.session,
+        UsageRecordInput(
+            user_id=ctx.user.id,
+            model_profile_id=profile_id,
+            model_type=ctx.model_type,
+            provider=ctx.provider_name or "Stub",
+            model=ctx.model_id or "stub",
+            scope=ctx.payload.scope,
+            success=is_successful_reply(assistant_text),
+            latency_ms=latency_ms,
+            prompt_tokens=prompt_tokens,
+            completion_tokens=completion_tokens,
+            cost_usd=estimate_cost_usd(
+                prompt_tokens=prompt_tokens,
+                completion_tokens=completion_tokens,
+                is_stub=is_stub,
+            ),
+            is_stub=is_stub,
+        ),
+    )
+
+
 async def stream_reply_with_meta(ctx: ReplyContext, messages: list[dict[str, str]]) -> AsyncIterator[str]:
     if ctx.log_context:
         log_llm_request(
@@ -401,6 +449,7 @@ async def stream_reply_with_meta(ctx: ReplyContext, messages: list[dict[str, str
             message_stamps=ctx.log_stamps if ctx.log_stamps else None,
         )
     accumulated: list[str] = []
+    started = time.perf_counter()
     async for event in stream_llm_sse(
         spec=ctx.spec,
         model=ctx.model_id,
@@ -414,6 +463,8 @@ async def stream_reply_with_meta(ctx: ReplyContext, messages: list[dict[str, str
 
     assistant_text = "".join(accumulated)
     assistant_text = prepare_note_citations_for_reply(assistant_text, ctx.rag_cites)
+    latency_ms = max(0, int((time.perf_counter() - started) * 1000))
+    await _record_reply_usage(ctx, messages=messages, assistant_text=assistant_text, latency_ms=latency_ms)
     updated_meta = await _finalize_context_meta(ctx, assistant_text)
     if ctx.log_context:
         log_llm_response(
@@ -434,6 +485,7 @@ async def stream_reply_with_meta(ctx: ReplyContext, messages: list[dict[str, str
 
 async def stream_stub_with_meta(ctx: ReplyContext) -> AsyncIterator[str]:
     accumulated: list[str] = []
+    started = time.perf_counter()
     async for event in stream_stub_reply(ctx.payload.text, scope=ctx.payload.scope):
         chunk = parse_sse_text_chunk(event)
         if chunk:
@@ -441,5 +493,7 @@ async def stream_stub_with_meta(ctx: ReplyContext) -> AsyncIterator[str]:
         yield event
 
     assistant_text = "".join(accumulated)
+    latency_ms = max(0, int((time.perf_counter() - started) * 1000))
+    await _record_reply_usage(ctx, messages=None, assistant_text=assistant_text, latency_ms=latency_ms)
     updated_meta = await _finalize_context_meta(ctx, assistant_text)
     yield format_sse_meta(updated_meta)

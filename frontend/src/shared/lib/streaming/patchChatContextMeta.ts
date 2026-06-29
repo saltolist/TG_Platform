@@ -98,7 +98,10 @@ function formatContextStampLabel(stamp: z.infer<typeof contextStampSchema>): str
     return `${head.channel}.${lh}-${ga}.${la}-${turn}`;
   }
   const ga = attach.channel > 0 ? attach.channel : 0;
-  return `${head.channel}-0-${ga}-${turn}`;
+  if (ga <= 0) {
+    return `${head.channel}-0-${turn}`;
+  }
+  return `${head.channel}-${ga}-${turn}`;
 }
 
 function applyContextStamp(history: ChatMessage[], payload: ContextStampPayload): ChatMessage[] {

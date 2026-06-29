@@ -23,7 +23,9 @@ import type {
   Post,
   TelegramProfileConfig,
 } from "@/shared/types";
-import type { AiModelListField } from "@/shared/lib/profile/aiModelListField";
+import {
+  platformModelAnalyticsSchema,
+} from "@/shared/api/schemas/platformAnalytics";
 
 function streamAiReply(
   scope: "global" | "post",
@@ -160,6 +162,12 @@ export function createHttpRepositories(): RepositoryBundle {
         streamAiReply("global", text, () => undefined, options),
       getPostChatReply: (text, options) =>
         streamAiReply("post", text, () => undefined, options),
+    },
+    analytics: {
+      getPlatformModels: (period, points) =>
+        apiRequest<unknown>(
+          `${apiV1Path("analytics/platform-models")}?period=${period}&points=${points}`,
+        ).then((data) => platformModelAnalyticsSchema.parse(data)),
     },
   };
 }

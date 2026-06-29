@@ -53,7 +53,7 @@ async def _clean_db() -> None:
     async with TestSessionLocal() as session:
         from sqlalchemy import text
 
-        for table in ("embedding_jobs", "note_embeddings", "tenant_overlay_notes"):
+        for table in ("ai_model_usage_events", "embedding_jobs", "note_embeddings", "tenant_overlay_notes"):
             try:
                 await session.execute(text(f"DELETE FROM {table}"))
             except Exception:

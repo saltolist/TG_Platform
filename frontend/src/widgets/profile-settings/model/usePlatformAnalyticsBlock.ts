@@ -5,22 +5,21 @@ import type { TrendSeriesRow } from "@/widgets/charts";
 import { useChartSeriesVisibility } from "@/shared/lib/hooks/useChartSeriesVisibility";
 import { usePageHeaderLe1080, usePageHeaderLe640 } from "@/widgets/page-header";
 import { useMobile760 } from "@/shared/lib/hooks/useMobile760";
-import { PLATFORM_ANALYTICS_PERIODS } from "@/shared/lib/platformAnalyticsPeriods";
 import {
   PLATFORM_MODEL_FILTERS,
   type ModelFilterId,
 } from "@/shared/lib/platformModelFilters";
 import {
-  buildModelUsage,
   buildTypeUsage,
   getTrendPointCost,
+  mapPlatformModelUsageFromApi,
   summarizeModelUsage,
 } from "@/shared/lib/profile/platformAnalytics";
 import {
   getPeriodChartLabels,
   resolveTrendChartMaxPoints,
 } from "@/shared/lib/trendChart/periodLabels";
-import { useDomainSelector, selectAiProfileConfig } from "@/app/model/store";
+import { usePlatformModelAnalytics } from "@/entities/analytics";
 
 type Args = {
   period: number;
@@ -33,7 +32,6 @@ export function usePlatformAnalyticsBlock({
   onPeriodChange,
   periodInHeader = false,
 }: Args) {
-  const aiProfileConfig = useDomainSelector(selectAiProfileConfig);
   const isMobile = useMobile760();
   const isHeaderLe1080 = usePageHeaderLe1080();
   const isHeaderLe640 = usePageHeaderLe640();
@@ -50,14 +48,11 @@ export function usePlatformAnalyticsBlock({
     [period, chartMaxPoints],
   );
 
+  const analyticsQuery = usePlatformModelAnalytics(period, chartLabels.length);
+
   const modelUsage = useMemo(
-    () =>
-      buildModelUsage(
-        aiProfileConfig,
-        PLATFORM_ANALYTICS_PERIODS[period].multiplier,
-        chartLabels.length,
-      ),
-    [aiProfileConfig, period, chartLabels.length],
+    () => mapPlatformModelUsageFromApi(analyticsQuery.data?.models ?? []),
+    [analyticsQuery.data?.models],
   );
 
   const selectedTypeMeta =
@@ -116,5 +111,8 @@ export function usePlatformAnalyticsBlock({
     isVisible,
     setVisible,
     compactAxisLabels: period === 0 || period === 2 || period === 3,
+    activity: analyticsQuery.data?.activity,
+    isLoading: analyticsQuery.isLoading,
+    isError: analyticsQuery.isError,
   };
 }

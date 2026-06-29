@@ -213,5 +213,6 @@ export function createOverlayRepositories(inner: RepositoryBundle): RepositoryBu
     notes: overlayNotes(inner.notes),
     profile: overlayProfile(inner.profile),
     assistant: inner.assistant,
+    analytics: inner.analytics,
   };
 }

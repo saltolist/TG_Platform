@@ -1,7 +1,7 @@
 import uuid
 from datetime import datetime
 
-from sqlalchemy import Boolean, DateTime, ForeignKey, Integer, String, false, func
+from sqlalchemy import Boolean, DateTime, ForeignKey, Integer, Numeric, String, false, func
 from sqlalchemy.dialects.postgresql import JSONB, UUID
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column
 
@@ -88,3 +88,27 @@ class Profile(Base):
     ai: Mapped[dict | None] = mapped_column(JSONB, nullable=True)
     telegram: Mapped[dict | None] = mapped_column(JSONB, nullable=True)
     summary_catalog: Mapped[dict | None] = mapped_column(JSONB, nullable=True)
+
+
+class AiModelUsageEvent(Base):
+    __tablename__ = "ai_model_usage_events"
+
+    id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    user_id: Mapped[uuid.UUID] = mapped_column(
+        ForeignKey("users.id", ondelete="CASCADE"), index=True, nullable=False
+    )
+    model_profile_id: Mapped[str] = mapped_column(String(128), nullable=False)
+    model_type: Mapped[str] = mapped_column(String(32), nullable=False)
+    provider: Mapped[str] = mapped_column(String(64), nullable=False)
+    model: Mapped[str] = mapped_column(String(128), nullable=False)
+    scope: Mapped[str] = mapped_column(String(16), nullable=False, default="global")
+    success: Mapped[bool] = mapped_column(Boolean, nullable=False, default=True)
+    latency_ms: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    prompt_tokens: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    completion_tokens: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    total_tokens: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    cost_usd: Mapped[float] = mapped_column(Numeric(12, 6), nullable=False, default=0)
+    is_stub: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now(), nullable=False
+    )

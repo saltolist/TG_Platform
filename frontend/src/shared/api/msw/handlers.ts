@@ -4,6 +4,8 @@ import { DEMO_CHANNEL_TITLE } from "@/shared/lib/auth/constants";
 import { appendToActiveHistory } from "@/shared/lib/chatPaths";
 import { getGlobalReply, getPostReply } from "@/shared/api/assistantReplies";
 import { chunkTextForStream, formatSseData } from "@/shared/api/sse";
+import { PLATFORM_ANALYTICS_PERIODS } from "@/shared/lib/platformAnalyticsPeriods";
+import { buildModelUsage } from "@/shared/lib/profile/platformAnalytics";
 import type { GlobalChat, GlobalNote, Post, TelegramProfileConfig } from "@/shared/types";
 import {
   getStoreForRequest,
@@ -262,6 +264,27 @@ export const handlers = [
     });
     return new HttpResponse(stream, {
       headers: { "Content-Type": "text/event-stream" },
+    });
+  }),
+
+  http.get(apiV1MswPath("analytics/platform-models"), ({ request }) => {
+    const store = requireStore(request);
+    if (!store) return unauthorized();
+    const url = new URL(request.url);
+    const period = Number(url.searchParams.get("period") ?? "2");
+    const points = Number(url.searchParams.get("points") ?? "7");
+    const models = buildModelUsage(
+      store.aiProfile,
+      PLATFORM_ANALYTICS_PERIODS[period]?.multiplier ?? 1,
+      points,
+    ).map(({ color: _color, ...model }) => model);
+    return HttpResponse.json({
+      models,
+      activity: {
+        chats: store.globalChats.length,
+        notes: store.globalNotes.length,
+        posts: store.posts.length,
+      },
     });
   }),
 ];

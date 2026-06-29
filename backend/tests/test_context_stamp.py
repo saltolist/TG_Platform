@@ -128,6 +128,21 @@ def test_build_context_stamp_global_zeros_post() -> None:
     assert stamp["summary"]["head"]["post"] == 0
     assert stamp["summary"]["attach"]["post"] == 0
     assert stamp["scope"] == "global"
+    assert format_stamp_label(stamp) == "5-0-1.1"
+
+
+def test_format_global_stamp_label_with_attach() -> None:
+    stamp = build_context_stamp(
+        scope="global",
+        address={"msg": 5, "msgVersion": 1, "branch": 2},
+        head={"channel": 6, "post": 0},
+        attach={"channel": 7, "post": 0},
+        catalog_channel=7,
+        catalog_post=0,
+    )
+    assert format_stamp_label(stamp) == "6-7-2.5"
+    assert parse_stamp_label("6-7-2.5") == {"msg": 5, "msgVersion": 1, "branch": 2}
+    assert parse_stamp_label("6-0-0-1.1") == {"msg": 1, "msgVersion": 1, "branch": 1}
 
 
 def test_initialize_heads_first_message() -> None:

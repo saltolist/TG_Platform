@@ -161,6 +161,15 @@ async def ai_reply(
     )
 
     if resolution.use_stub:
+        if model is not None:
+            ctx.model_profile_id = str(model.get("id") or "stub")
+            ctx.provider_name = str(model.get("provider") or "Stub").strip()
+            ctx.model_id = str(model.get("model") or "stub").strip()
+        else:
+            ctx.model_profile_id = "stub"
+            ctx.provider_name = "Stub"
+            ctx.model_id = "stub"
+        ctx.is_stub = True
         return StreamingResponse(
             stream_stub_with_meta(ctx),
             media_type="text/event-stream",
@@ -189,9 +198,11 @@ async def ai_reply(
     )
 
     ctx.spec = spec
+    ctx.model_profile_id = str(model.get("id") or "client")
     ctx.model_id = model_id
     ctx.api_key = resolution.api_key
     ctx.provider_name = provider_name
+    ctx.is_stub = False
     ctx.log_context = log_context
 
     # RAG retrieval: only for real LLM (not stub), when RAG_ENABLED=1

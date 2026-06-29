@@ -48,7 +48,7 @@ export const aiVariantSchema = z.object({
 /** Legacy compound (incl. nested turns), v2 stamp from JSON, or legacy msg-ver-branch. */
 export const messageContextLabelSchema = z
   .string()
-  .regex(/^(?:(?:\d+-\d+|\d+\.\d+-\d+\.\d+)-[\d().]+|\d+-\d+-\d+)$/);
+  .regex(/^(?:(?:\d+\.\d+-\d+\.\d+|\d+-\d+(?:-\d+)?)-[\d().]+|\d+-\d+-\d+)$/);
 
 export const contextStampAddressSchema = z.object({
   msg: z.number(),

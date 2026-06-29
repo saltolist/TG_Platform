@@ -23,6 +23,10 @@ _POST_STAMP_LABEL_RE = re.compile(
 _GLOBAL_STAMP_LABEL_RE = re.compile(
     r"^(?P<gh>\d+)-(?P<ga>\d+)-(?P<turn>.+)$"
 )
+# Transitional: older stamps inserted post layer 0 as a fourth segment (gh-0-ga-turn).
+_GLOBAL_STAMP_LABEL_LEGACY_RE = re.compile(
+    r"^(?P<gh>\d+)-0-(?P<ga>\d+)-(?P<turn>.+)$"
+)
 
 
 def _format_turn_segment(*, msg: int, branch: int) -> str:
@@ -94,7 +98,8 @@ def format_stamp_label(stamp: ContextStamp | Mapping[str, Any]) -> str:
 
     if ga <= 0:
         ga = 0
-    return f"{gh}-0-{ga}-{turn}"
+        return f"{gh}-0-{turn}"
+    return f"{gh}-{ga}-{turn}"
 
 
 def parse_stamp_label(raw: str) -> StampAddress | None:
@@ -119,7 +124,9 @@ def parse_stamp_label(raw: str) -> StampAddress | None:
         msg, branch = turn
         return {"msg": msg, "msgVersion": 1, "branch": branch}
 
-    match = _GLOBAL_STAMP_LABEL_RE.match(text)
+    match = _GLOBAL_STAMP_LABEL_LEGACY_RE.match(text)
+    if match is None:
+        match = _GLOBAL_STAMP_LABEL_RE.match(text)
     if match is not None:
         turn = _parse_turn_segment(match.group("turn"))
         if turn is None:
@@ -137,6 +144,8 @@ def is_stamp_label(raw: str) -> bool:
     if _LEGACY_MSG_VER_BRANCH_RE.match(text):
         return True
     if _POST_STAMP_LABEL_RE.match(text):
+        return True
+    if _GLOBAL_STAMP_LABEL_LEGACY_RE.match(text):
         return True
     return _GLOBAL_STAMP_LABEL_RE.match(text) is not None
 

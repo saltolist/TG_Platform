@@ -1,4 +1,5 @@
 import { hashString, buildTrend } from "@/shared/lib/trendChart/math";
+import type { PlatformModelUsageDto } from "@/shared/api/schemas/platformAnalytics";
 import { PLATFORM_MODEL_TYPE_OPTIONS, type ModelTypeId } from "@/shared/lib/platformModelFilters";
 import type { AiProfileConfig, LlmModel } from "@/shared/types";
 
@@ -162,4 +163,12 @@ export function summarizeModelUsage(models: PlatformModelUsage[]): PlatformModel
       : 0;
 
   return { calls, tokens, cost, success };
+}
+
+export function mapPlatformModelUsageFromApi(models: PlatformModelUsageDto[]): PlatformModelUsage[] {
+  return models.map((model, index) => ({
+    ...model,
+    type: model.type as ModelTypeId,
+    color: MODEL_LINE_COLORS[index % MODEL_LINE_COLORS.length] as string,
+  }));
 }

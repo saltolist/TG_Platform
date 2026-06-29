@@ -54,6 +54,7 @@ export interface ProfileRepository {
 }
 
 import type { ChatContextMeta } from "@/shared/api/schemas/chatContextMeta";
+import type { PlatformModelAnalyticsDto } from "@/shared/api/schemas/platformAnalytics";
 
 export type AssistantStreamOptions = {
   llmId?: string;
@@ -84,10 +85,15 @@ export interface AssistantRepository {
   getPostChatReply(text: string, options?: AssistantStreamOptions): Promise<string>;
 }
 
+export interface AnalyticsRepository {
+  getPlatformModels(period: number, points: number): Promise<PlatformModelAnalyticsDto>;
+}
+
 export type RepositoryBundle = {
   posts: PostsRepository;
   chats: ChatsRepository;
   notes: NotesRepository;
   profile: ProfileRepository;
   assistant: AssistantRepository;
+  analytics: AnalyticsRepository;
 };

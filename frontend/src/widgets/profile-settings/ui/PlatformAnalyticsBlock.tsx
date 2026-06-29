@@ -21,12 +21,16 @@ export default function PlatformAnalyticsBlock({
   const analytics = usePlatformAnalyticsBlock({ period, onPeriodChange, periodInHeader });
   const { isConnected: isChannelConnected, isLoading: isChannelLoading } = useChannelConnected();
 
-  if (isChannelLoading) {
+  if (isChannelLoading || analytics.isLoading) {
     return <p className="screen-placeholder">Загрузка аналитики…</p>;
   }
 
   if (!isChannelConnected) {
     return <ConnectChannelEmptyState feature="аналитике платформы" icon="📈" />;
+  }
+
+  if (analytics.isError) {
+    return <p className="screen-placeholder">Не удалось загрузить аналитику моделей.</p>;
   }
 
   return (
@@ -52,7 +56,7 @@ export default function PlatformAnalyticsBlock({
         selectedModels={analytics.selectedModels}
         modelTotals={analytics.modelTotals}
       />
-      <PlatformActivitySection />
+      <PlatformActivitySection activity={analytics.activity} />
     </>
   );
 }

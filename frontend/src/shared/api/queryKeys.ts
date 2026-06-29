@@ -24,4 +24,9 @@ export const queryKeys = {
     ai: (accountId: string) => [...queryKeys.profile.all(accountId), "ai"] as const,
     telegram: (accountId: string) => [...queryKeys.profile.all(accountId), "telegram"] as const,
   },
+  analytics: {
+    all: (accountId: string) => [...queryKeys.scope(accountId), "analytics"] as const,
+    platformModels: (accountId: string, period: number, points: number) =>
+      [...queryKeys.analytics.all(accountId), "platformModels", period, points] as const,
+  },
 } as const;

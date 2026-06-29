@@ -19,6 +19,8 @@ import type {
   TelegramProfileConfig,
 } from "@/shared/types";
 import type { AiModelListField } from "@/shared/lib/profile/aiModelListField";
+import { PLATFORM_ANALYTICS_PERIODS } from "@/shared/lib/platformAnalyticsPeriods";
+import { buildModelUsage } from "@/shared/lib/profile/platformAnalytics";
 
 export function createSeedRepositories(): RepositoryBundle {
   let posts = [...initialPosts];
@@ -160,6 +162,23 @@ export function createSeedRepositories(): RepositoryBundle {
       },
       async getPostChatReply(text, options) {
         return this.streamPostChatReply(text, () => undefined, options);
+      },
+    },
+    analytics: {
+      async getPlatformModels(period, points) {
+        const models = buildModelUsage(
+          aiProfile,
+          PLATFORM_ANALYTICS_PERIODS[period]?.multiplier ?? 1,
+          points,
+        ).map(({ color: _color, ...model }) => model);
+        return {
+          models,
+          activity: {
+            chats: globalChats.length,
+            notes: globalNotes.length,
+            posts: posts.length,
+          },
+        };
       },
     },
   };
