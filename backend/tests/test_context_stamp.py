@@ -1090,6 +1090,46 @@ def test_nested_edit_msg6_primer_keeps_fork_head_87() -> None:
     assert "0.7" not in log_labels[len(messages) - 1]
 
 
+def test_log_label_ignores_stamp_shaped_message_body() -> None:
+    """User text that looks like a contextLabel must not drive address.msg or log fallback."""
+    catalog = _catalog_channel_v5_post_v2()
+    history: list[dict[str, Any]] = []
+    for turn in range(1, 6):
+        history.append(
+            {
+                "role": "user",
+                "text": f"u{turn}",
+                "contextStamp": _stamp(
+                    msg=turn,
+                    branch=4,
+                    head_ch=14,
+                    head_post=1,
+                    catalog_ch=14,
+                    catalog_post=1,
+                ),
+            }
+        )
+        history.append({"role": "ai", "text": f"a{turn}"})
+    stamp_text = "14.4-0.7-4.5"
+    history.append({"role": "user", "text": stamp_text})
+
+    log_labels: dict[int, str] = {}
+    messages = assemble_reply_messages_from_stamps(
+        ai_profile={},
+        user_text=stamp_text,
+        history=history,
+        chat_meta={},
+        catalog=catalog,
+        post_id="post-uuid-1",
+        scope="post",
+        log_labels=log_labels,
+    )
+    assert messages is not None
+    last = log_labels[len(messages) - 1]
+    assert last != "user [6]"
+    assert last.endswith(".6]")
+
+
 def _catalog_ch8_post7_ch9() -> dict[str, Any]:
     catalog = _catalog_ch7_post3_to_ch8_post5()
     for post in (

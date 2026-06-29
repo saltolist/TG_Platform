@@ -27,8 +27,6 @@ from app.services.ai.context_stamp_history import stamps_by_msg_on_active_path
 from app.services.ai.context_stamp_label import (
     format_stamp_label,
     format_stamp_primer_label,
-    is_stamp_label,
-    parse_stamp_label,
     read_context_stamp,
 )
 from app.services.ai.context_stamp_address import (
@@ -252,10 +250,6 @@ def assemble_reply_messages_from_stamps(
             "msg": user_turn_count,
             "msgVersion": 1,
         }
-    elif trimmed and is_stamp_label(trimmed) and current_address is not None:
-        parsed_addr = parse_stamp_label(trimmed)
-        if parsed_addr is not None:
-            current_address = {**current_address, "msg": parsed_addr["msg"]}
     branch_id = int(current_address["branch"])
     current_msg = int(current_address["msg"])
     is_edit_fork = (
