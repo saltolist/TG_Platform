@@ -35,6 +35,12 @@ describe("messageContextLabelSchema", () => {
     expect(messageContextLabelSchema.parse("1.1-0.0-1")).toBe("1.1-0.0-1");
     expect(messageContextLabelSchema.parse("2.3-3.3-4")).toBe("2.3-3.3-4");
   });
+
+  it("accepts v2 stamp labels from JSON", () => {
+    expect(messageContextLabelSchema.parse("5.2-0.3-1.3")).toBe("5.2-0.3-1.3");
+    expect(messageContextLabelSchema.parse("6-7-2.5")).toBe("6-7-2.5");
+    expect(messageContextLabelSchema.parse("3-1-1")).toBe("3-1-1");
+  });
 });
 
 describe("postSchema", () => {

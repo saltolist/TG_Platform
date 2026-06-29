@@ -97,6 +97,8 @@ def _strip_branch_stamps(branch: Mapping[str, Any]) -> dict[str, Any]:
     stripped.pop("context_label", None)
     stripped.pop("bundleContext", None)
     stripped.pop("bundle_context", None)
+    stripped.pop("contextStamp", None)
+    stripped.pop("context_stamp", None)
     continuation = stripped.get("continuation")
     if isinstance(continuation, list):
         stripped["continuation"] = [
@@ -115,6 +117,8 @@ def _strip_message_stamps(message: Mapping[str, Any]) -> dict[str, Any]:
     stripped.pop("context_label", None)
     stripped.pop("bundleContext", None)
     stripped.pop("bundle_context", None)
+    stripped.pop("contextStamp", None)
+    stripped.pop("context_stamp", None)
     branches = stripped.get("userBranches")
     if isinstance(branches, list):
         stripped["userBranches"] = [
@@ -183,6 +187,8 @@ def _merge_user_message_stamps(
         return merged
     if existing.get("contextLabel"):
         merged["contextLabel"] = existing["contextLabel"]
+    if existing.get("contextStamp"):
+        merged["contextStamp"] = existing["contextStamp"]
     if existing.get("bundleContext"):
         merged["bundleContext"] = existing["bundleContext"]
 
@@ -205,6 +211,8 @@ def _merge_user_message_stamps(
         if isinstance(existing_branch, Mapping):
             if existing_branch.get("contextLabel"):
                 branch_copy["contextLabel"] = existing_branch["contextLabel"]
+            if existing_branch.get("contextStamp"):
+                branch_copy["contextStamp"] = existing_branch["contextStamp"]
             if existing_branch.get("bundleContext"):
                 branch_copy["bundleContext"] = existing_branch["bundleContext"]
         incoming_cont = branch.get("continuation")
@@ -220,14 +228,22 @@ def _merge_user_message_stamps(
             )
         merged_branches.append(branch_copy)
     merged["userBranches"] = merged_branches
-    if isinstance(incoming_branches, list) and len(incoming_branches) > 1 and merged.get("contextLabel"):
+    if isinstance(incoming_branches, list) and len(incoming_branches) > 1:
         if merged_branches and isinstance(merged_branches[0], Mapping):
             branch0 = dict(merged_branches[0])
-            if not branch0.get("contextLabel"):
+            changed = False
+            if merged.get("contextLabel") and not branch0.get("contextLabel"):
                 branch0["contextLabel"] = merged["contextLabel"]
+                changed = True
+            if merged.get("contextStamp") and not branch0.get("contextStamp"):
+                branch0["contextStamp"] = merged["contextStamp"]
+                changed = True
+            if changed:
                 merged_branches[0] = branch0
                 merged["userBranches"] = merged_branches
         merged.pop("contextLabel", None)
+        merged.pop("contextStamp", None)
+        merged.pop("context_stamp", None)
     return merged
 
 

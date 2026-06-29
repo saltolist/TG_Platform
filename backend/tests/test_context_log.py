@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from app.services.ai.context_log import (
     format_active_thread,
+    format_context_stamp_json,
     format_history_tree,
     format_llm_messages,
     get_chat_filter,
@@ -153,3 +154,42 @@ def test_should_log_llm_context_requires_chat_filter() -> None:
         post_id=None,
         post_chat_id=None,
     )
+
+
+def test_format_history_tree_shows_context_stamp_json() -> None:
+    stamp = {
+        "address": {"channel": 1, "post": 1, "msg": 1},
+        "head": {"channel": 5, "post": 2},
+        "attached": {"channel": 5, "post": 2},
+    }
+    history = [
+        {
+            "role": "user",
+            "text": "Hello",
+            "contextStamp": stamp,
+        }
+    ]
+    tree = format_history_tree(history)
+    assert "contextStamp:" in tree
+    assert '"channel": 1' in tree
+    assert '"msg": 1' in tree
+
+
+def test_format_llm_messages_includes_context_stamp_json() -> None:
+    stamp = {
+        "address": {"channel": 3, "post": 0, "msg": 2},
+        "head": {"channel": 3, "post": 0},
+        "attached": {"channel": 3, "post": 0},
+    }
+    messages = [
+        {"role": "system", "content": "System"},
+        {"role": "user", "content": "Hi"},
+    ]
+    formatted = format_llm_messages(
+        messages,
+        message_labels={1: "user [3-0-2]"},
+        message_stamps={1: stamp},
+    )
+    assert "[1] user [3-0-2]" in formatted
+    assert "contextStamp:" in formatted
+    assert format_context_stamp_json(stamp) in formatted

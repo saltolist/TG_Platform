@@ -238,6 +238,7 @@ async def ai_reply(
         chat_meta=chat_meta,
         summary_catalog=summary_catalog,
         log_labels=ctx.log_labels if log_context else None,
+        log_stamps=ctx.log_stamps if log_context else None,
         rag_context=rag_context or None,
     )
     return StreamingResponse(

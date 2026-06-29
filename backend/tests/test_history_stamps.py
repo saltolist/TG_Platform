@@ -54,6 +54,57 @@ def test_strip_incoming_stamps_on_patch() -> None:
     assert merged[0]["contextLabel"] == "5-6-2.2(5.2)(7.2)(9)"
 
 
+def test_merge_preserves_context_stamp() -> None:
+    stamp = {
+        "scope": "post",
+        "address": {"msg": 1, "msgVersion": 1, "branch": 1},
+        "summary": {
+            "head": {"channel": 5, "post": 2},
+            "attach": {"channel": 0, "post": 0},
+        },
+        "catalog": {"channel": 5, "post": 2},
+    }
+    existing = [
+        {"role": "user", "text": "u1", "contextLabel": "1-1-1", "contextStamp": stamp},
+        {"role": "ai", "text": "a1"},
+    ]
+    incoming = [
+        {"role": "user", "text": "u1"},
+        {"role": "ai", "text": "a1 updated"},
+    ]
+    merged = merge_history_stamps(existing, incoming)
+    assert merged[0]["contextStamp"] == stamp
+    assert merged[0]["contextLabel"] == "1-1-1"
+
+
+def test_strip_incoming_context_stamp() -> None:
+    stamp = {
+        "scope": "post",
+        "address": {"msg": 1, "msgVersion": 1, "branch": 1},
+        "summary": {
+            "head": {"channel": 5, "post": 2},
+            "attach": {"channel": 0, "post": 0},
+        },
+        "catalog": {"channel": 5, "post": 2},
+    }
+    existing = [
+        {"role": "user", "text": "u1", "contextLabel": "1-1-1", "contextStamp": stamp},
+    ]
+    incoming = [
+        {
+            "role": "user",
+            "text": "u1",
+            "contextLabel": "9-9-9",
+            "contextStamp": {
+                **stamp,
+                "address": {"msg": 9, "msgVersion": 9, "branch": 9},
+            },
+        },
+    ]
+    merged = merge_history_stamps(existing, incoming, strip_incoming=True)
+    assert merged[0]["contextStamp"] == stamp
+
+
 def test_stamp_context_label_on_deep_branch_continuation() -> None:
     """Stamp must reach user messages nested in branch continuations (path length > 2)."""
     history = [

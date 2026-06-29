@@ -325,6 +325,7 @@ function applyUserMessageSaveCore(history: ChatMessage[], path: number[], newTex
           text: oldDisplay,
           continuation: linearTail,
           ...(target.contextLabel ? { contextLabel: target.contextLabel } : {}),
+          ...(target.contextStamp ? { contextStamp: target.contextStamp } : {}),
           ...(target.bundleContext ? { bundleContext: target.bundleContext } : {}),
         },
         { text: trimmed, continuation: [] },
@@ -338,9 +339,10 @@ function applyUserMessageSaveCore(history: ChatMessage[], path: number[], newTex
   const bi = clampActiveBranchIndex(target);
   const branches: UserMessageBranch[] = [...target.userBranches!];
   const oldBranch = branches[bi];
-  const { contextLabel, bundleContext, ...targetRest } = target;
+  const { contextLabel, contextStamp, bundleContext, ...targetRest } = target;
   const legacyBranchMeta = {
     ...(contextLabel ? { contextLabel } : {}),
+    ...(contextStamp ? { contextStamp } : {}),
     ...(bundleContext ? { bundleContext } : {}),
   };
   const forkedUser: ChatMessage = {
@@ -351,6 +353,7 @@ function applyUserMessageSaveCore(history: ChatMessage[], path: number[], newTex
         text: oldBranch.text,
         continuation: [...oldBranch.continuation],
         ...(oldBranch.contextLabel ? { contextLabel: oldBranch.contextLabel } : legacyBranchMeta),
+        ...(oldBranch.contextStamp ? { contextStamp: oldBranch.contextStamp } : {}),
         ...(oldBranch.bundleContext ? { bundleContext: oldBranch.bundleContext } : {}),
       },
       ...branches.slice(bi + 1),

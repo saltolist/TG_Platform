@@ -45,10 +45,31 @@ export const aiVariantSchema = z.object({
   webCaption: z.string().optional(),
 });
 
-/** Global: ``4-7-3.2(4.2)``; post compound: ``2.3-3.3-4`` or ``1.1-0.0-1``. */
+/** Legacy compound (incl. nested turns), v2 stamp from JSON, or legacy msg-ver-branch. */
 export const messageContextLabelSchema = z
   .string()
-  .regex(/^(?:\d+-\d+|\d+\.\d+-\d+\.\d+)-[\d().]+$/);
+  .regex(/^(?:(?:\d+-\d+|\d+\.\d+-\d+\.\d+)-[\d().]+|\d+-\d+-\d+)$/);
+
+export const contextStampAddressSchema = z.object({
+  msg: z.number(),
+  msgVersion: z.number(),
+  branch: z.number(),
+});
+
+export const summaryVersionsSchema = z.object({
+  channel: z.number(),
+  post: z.number(),
+});
+
+export const contextStampSchema = z.object({
+  scope: z.enum(["global", "post"]),
+  address: contextStampAddressSchema,
+  summary: z.object({
+    head: summaryVersionsSchema,
+    attach: summaryVersionsSchema,
+  }),
+  catalog: summaryVersionsSchema,
+});
 
 export const messageBundleContextSchema = z.object({
   headGenerationId: z.string(),
@@ -59,6 +80,7 @@ export const userMessageBranchSchema = z.object({
   text: z.string(),
   continuation: z.lazy(() => z.array(chatMessageSchema)),
   contextLabel: messageContextLabelSchema.optional(),
+  contextStamp: contextStampSchema.optional(),
   bundleContext: messageBundleContextSchema.optional(),
 });
 
@@ -75,6 +97,7 @@ export const chatMessageSchema: z.ZodType<{
   webLabel?: string;
   streaming?: boolean;
   contextLabel?: z.infer<typeof messageContextLabelSchema>;
+  contextStamp?: z.infer<typeof contextStampSchema>;
   bundleContext?: z.infer<typeof messageBundleContextSchema>;
 }> = z.lazy(() =>
   z.object({
@@ -90,6 +113,7 @@ export const chatMessageSchema: z.ZodType<{
     webLabel: z.string().optional(),
     streaming: z.boolean().optional(),
     contextLabel: messageContextLabelSchema.optional(),
+    contextStamp: contextStampSchema.optional(),
     bundleContext: messageBundleContextSchema.optional(),
   }),
 );

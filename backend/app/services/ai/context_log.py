@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import json
 import logging
 import threading
 from typing import Any, Mapping
@@ -44,6 +45,24 @@ def _chat_label(*, scope: str, chat_id: str | None, post_id: str | None, post_ch
     return f"chat={chat_id or '?'}"
 
 
+def _read_context_stamp(message: Mapping[str, Any]) -> Mapping[str, Any] | None:
+    raw = message.get("contextStamp") or message.get("context_stamp")
+    return raw if isinstance(raw, dict) else None
+
+
+def format_context_stamp_json(stamp: Mapping[str, Any] | None, *, indent: int = 2) -> str:
+    if not stamp:
+        return ""
+    return json.dumps(dict(stamp), ensure_ascii=False, indent=indent)
+
+
+def _stamp_log_lines(stamp: Mapping[str, Any] | None, *, prefix: str = "") -> list[str]:
+    text = format_context_stamp_json(stamp)
+    if not text:
+        return []
+    return [f"{prefix}contextStamp:", *(f"{prefix}  {line}" for line in text.splitlines())]
+
+
 def _format_ai_message(path: str, message: Mapping[str, Any]) -> list[str]:
     lines: list[str] = []
     variants = message.get("variants")
@@ -81,10 +100,13 @@ def _format_user_branches(path: str, message: Mapping[str, Any]) -> list[str]:
 
     if not isinstance(branches, list) or not branches:
         text = str(message.get("text") or "").strip()
-        return [f"[{path}] user{label_suffix}: {text}"]
+        lines = [f"[{path}] user{label_suffix}: {text}"]
+        lines.extend(_stamp_log_lines(_read_context_stamp(message), prefix="  "))
+        return lines
 
     active = clamp_active_branch_index(message)
     lines = [f"[{path}] user — {len(branches)} branch(es), active={active}{label_suffix}"]
+    lines.extend(_stamp_log_lines(_read_context_stamp(message), prefix="  "))
     for index, branch in enumerate(branches):
         if not isinstance(branch, Mapping):
             continue
@@ -92,6 +114,7 @@ def _format_user_branches(path: str, message: Mapping[str, Any]) -> list[str]:
         text = str(branch.get("text") or "").strip()
         lines.append(f"  ├─ branch {index}{tag}")
         lines.append(f"  │  text: {text}")
+        lines.extend(_stamp_log_lines(_read_context_stamp(branch), prefix="  │  "))
         continuation = branch.get("continuation")
         if isinstance(continuation, list) and continuation:
             nested = format_history_tree(continuation, prefix=f"{path}.{index}/")
@@ -156,6 +179,7 @@ def format_llm_messages(
     messages: list[dict[str, str]],
     *,
     message_labels: Mapping[int, str] | None = None,
+    message_stamps: Mapping[int, Mapping[str, Any]] | None = None,
 ) -> str:
     lines: list[str] = []
     for index, message in enumerate(messages):
@@ -167,6 +191,9 @@ def format_llm_messages(
         if not label:
             label = _llm_message_label(index, role, content)
         lines.append(f"── [{index}] {label} {_SECTION[: max(0, 40 - len(label))]}")
+        stamp = message_stamps.get(index) if message_stamps is not None else None
+        if isinstance(stamp, Mapping):
+            lines.extend(_stamp_log_lines(stamp))
         lines.append(content)
         lines.append("")
     return "\n".join(lines).rstrip()
@@ -217,6 +244,7 @@ def log_llm_request(
     history: list[Mapping[str, Any]] | None,
     messages: list[dict[str, str]],
     message_labels: Mapping[int, str] | None = None,
+    message_stamps: Mapping[int, Mapping[str, Any]] | None = None,
 ) -> None:
     label = _chat_label(scope=scope, chat_id=chat_id, post_id=post_id, post_chat_id=post_chat_id)
     active_paths = [
@@ -235,7 +263,11 @@ def log_llm_request(
             format_active_thread(history),
             _SECTION,
             f"Messages to LLM ({len(messages)}):",
-            format_llm_messages(messages, message_labels=message_labels),
+            format_llm_messages(
+                messages,
+                message_labels=message_labels,
+                message_stamps=message_stamps,
+            ),
             _BANNER,
         ]
     )
@@ -251,17 +283,35 @@ def log_llm_response(
     provider: str,
     model: str,
     assistant_text: str,
+    context_stamp: Mapping[str, Any] | None = None,
 ) -> None:
     label = _chat_label(scope=scope, chat_id=chat_id, post_id=post_id, post_chat_id=post_chat_id)
     reply = assistant_text.strip() or "(empty)"
-    body = "\n".join(
-        [
-            _BANNER,
-            f"AI RESPONSE  scope={scope}  {label}  model={provider}/{model}",
-            _SECTION,
-            "Assistant reply:",
-            reply,
-            _BANNER,
-        ]
-    )
+    sections = [
+        _BANNER,
+        f"AI RESPONSE  scope={scope}  {label}  model={provider}/{model}",
+        _SECTION,
+        "Assistant reply:",
+        reply,
+    ]
+    if isinstance(context_stamp, Mapping):
+        stamp_payload = context_stamp.get("stamp")
+        if isinstance(stamp_payload, Mapping):
+            sections.extend(
+                [
+                    _SECTION,
+                    "contextStamp (persisted on user turn):",
+                    format_context_stamp_json(stamp_payload),
+                ]
+            )
+        else:
+            sections.extend(
+                [
+                    _SECTION,
+                    "context_stamp meta:",
+                    format_context_stamp_json(context_stamp),
+                ]
+            )
+    sections.append(_BANNER)
+    body = "\n".join(sections)
     logger.info("\n%s", body)

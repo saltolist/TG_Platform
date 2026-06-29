@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from typing import Any, Mapping
 
+from app.core.config import get_settings
 from app.services.ai.context_labels import assemble_reply_messages_from_labels
 from app.services.ai.summary_catalog import (
     ensure_initial_global_version,
@@ -38,6 +39,7 @@ def assemble_reply_messages(
     chat_meta: Mapping[str, Any] | None = None,
     summary_catalog: Mapping[str, Any] | None = None,
     log_labels: dict[int, str] | None = None,
+    log_stamps: dict[int, dict[str, Any]] | None = None,
     rag_context: str | None = None,
 ) -> list[dict[str, str]]:
     """Build OpenAI-compatible messages: system → primer → dialog window [→ RAG]."""
@@ -58,16 +60,32 @@ def assemble_reply_messages(
             post=post,
         )
 
-    messages = assemble_reply_messages_from_labels(
-        ai_profile=ai_profile,
-        user_text=user_text,
-        scope=scope,
-        history=history,
-        chat_meta=chat_meta,
-        catalog=catalog,
-        post_id=post_id if scope == "post" else None,
-        log_labels=log_labels,
-    )
+    messages = None
+    if get_settings().ai_context_stamps:
+        from app.services.ai.context_stamp_assembly import assemble_reply_messages_from_stamps
+
+        messages = assemble_reply_messages_from_stamps(
+            ai_profile=ai_profile,
+            user_text=user_text,
+            scope=scope,
+            history=history,
+            chat_meta=chat_meta,
+            catalog=catalog,
+            post_id=post_id if scope == "post" else None,
+            log_labels=log_labels,
+            log_stamps=log_stamps,
+        )
+    else:
+        messages = assemble_reply_messages_from_labels(
+            ai_profile=ai_profile,
+            user_text=user_text,
+            scope=scope,
+            history=history,
+            chat_meta=chat_meta,
+            catalog=catalog,
+            post_id=post_id if scope == "post" else None,
+            log_labels=log_labels,
+        )
 
     if rag_context:
         # Append RAG context to the last user message

@@ -28,15 +28,21 @@ export type PostModeSync = {
 type PostModeStore = {
   getMode: (postId: string) => PostMode;
   getCurrentPostChatId: (postId: string) => string | null;
+  isPendingNewPostChat?: (postId: string) => boolean;
   setMode: (postId: string, mode: PostMode, chatId?: string | null) => void;
 };
 
 /** Route sync must not re-call setMode when mode already matches — setMode toggles tab modes. */
 export function syncPostModeFromRoute(store: PostModeStore, postMode: PostModeSync): void {
-  const currentMode = store.getMode(postMode.postId);
-  const currentChatId = store.getCurrentPostChatId(postMode.postId);
-  if (currentMode === postMode.mode && currentChatId === postMode.chatId) return;
-  store.setMode(postMode.postId, postMode.mode, postMode.chatId);
+  const chatId =
+    store.isPendingNewPostChat?.(postMode.postId) && postMode.mode === "chat"
+      ? null
+      : postMode.chatId;
+  const synced: PostModeSync = { ...postMode, chatId };
+  const currentMode = store.getMode(synced.postId);
+  const currentChatId = store.getCurrentPostChatId(synced.postId);
+  if (currentMode === synced.mode && currentChatId === synced.chatId) return;
+  store.setMode(synced.postId, synced.mode, synced.chatId);
 }
 
 export type SyncRouteResult =

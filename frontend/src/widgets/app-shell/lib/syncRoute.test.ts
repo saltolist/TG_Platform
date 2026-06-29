@@ -63,6 +63,21 @@ describe("syncPostModeFromRoute", () => {
     syncPostModeFromRoute(store, { postId: "1", mode: "comments", chatId: null });
     expect(last).toEqual({ postId: "1", mode: "comments", chatId: null });
   });
+
+  it("clears chat id from route when pending new post chat", () => {
+    let last: { postId: string; mode: PostMode; chatId: string | null } | null = null;
+    const store = {
+      getMode: () => "chat" as const,
+      getCurrentPostChatId: () => "old",
+      isPendingNewPostChat: () => true,
+      setMode: (postId: string, mode: PostMode, chatId?: string | null) => {
+        last = { postId, mode, chatId: chatId ?? null };
+      },
+    };
+
+    syncPostModeFromRoute(store, { postId: "1", mode: "chat", chatId: "old" });
+    expect(last).toEqual({ postId: "1", mode: "chat", chatId: null });
+  });
 });
 
 describe("syncRouteFromUrl", () => {

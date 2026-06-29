@@ -1,11 +1,12 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { usePathname, useRouter } from "next/navigation";
+import { useCallback, useEffect, useRef, useState } from "react";
+import { usePathname, useRouter, useSearchParams } from "next/navigation";
 
 import { useComposer } from "@/app/model/store/composer-store";
 import { useNavigationStore } from "@/app/model/store/navigation-store";
 import { usePostNavigationStore } from "@/app/model/store/post-navigation-store";
+import { activePostChatIdFromPost, displayPostChatId } from "@/entities/post/lib/resolvePostChatId";
 import { usePost, useUpdatePost } from "@/entities/post";
 import {
   flattenVisibleWithPaths,
@@ -15,7 +16,7 @@ import {
 } from "@/shared/lib/chatPaths";
 import { postTitle } from "@/shared/lib/helpers";
 import { isQueryBootstrapping } from "@/shared/lib/query/isQueryBootstrapping";
-import { parseAppPath, routes } from "@/shared/lib/routes";
+import { parseAppPath, parseChatSearchParam, routes } from "@/shared/lib/routes";
 import { useChatThreadAutoScroll } from "@/shared/lib/hooks/useChatThreadAutoScroll";
 import { useScreenBack } from "@/widgets/app-shell/model/useScreenBack";
 import { usePostCtxMenuItems } from "@/features/post-context-menu";
@@ -28,6 +29,7 @@ import type { LocalNote, NoteListFilter, PostMedia, PostMode } from "@/shared/ty
 export function usePostWorkspace() {
   const router = useRouter();
   const pathname = usePathname() ?? "/";
+  const searchParams = useSearchParams();
   const parsed = parseAppPath(pathname);
   const currentPostId = useNavigationStore((s) => s.currentPostId);
   const isEditing = useNavigationStore((s) => s.isEditing);
@@ -36,8 +38,8 @@ export function usePostWorkspace() {
   const postMode = usePostNavigationStore((s) =>
     postId != null ? s.getMode(postId) : "chat",
   );
-  const currentPostChatId = usePostNavigationStore((s) =>
-    postId != null ? s.getCurrentPostChatId(postId) : null,
+  const pendingNewChat = usePostNavigationStore((s) =>
+    postId != null ? s.isPendingNewPostChat(postId) : false,
   );
   const setMode = usePostNavigationStore((s) => s.setMode);
   const { sendPost } = useComposer();
@@ -56,10 +58,13 @@ export function usePostWorkspace() {
   const [listContextFilter, setListContextFilter] = useState<NoteListFilter>("all");
 
   const mediaItems: PostMedia[] = post?.media ?? [];
-  const validatedPostChatId =
-    currentPostChatId != null && post?.chats.some((chat) => chat.id === currentPostChatId)
-      ? currentPostChatId
-      : null;
+  const chatIdFromUrl =
+    postId != null ? parseChatSearchParam(searchParams.get("chat")) : null;
+  const validatedPostChatId = displayPostChatId({
+    chatFromUrl: chatIdFromUrl,
+    post,
+    pendingNew: pendingNewChat,
+  });
   const activeChat = post?.chats.find((c) => c.id === validatedPostChatId) ?? null;
   const chatHistory = normalizeBranchedHistory(activeChat?.history ?? []);
   const chatHistoryRevision = visibleHistoryRevision(chatHistory);
@@ -94,12 +99,16 @@ export function usePostWorkspace() {
   const goToPostNotes = useCallback(() => applyPostView("notes", null), [applyPostView]);
   const goToPostChats = useCallback(() => applyPostView("chats", null), [applyPostView]);
   const openPostView = useCallback(
-    () => applyPostView("chat", currentPostChatId),
-    [applyPostView, currentPostChatId],
+    () => applyPostView("chat", validatedPostChatId),
+    [applyPostView, validatedPostChatId],
   );
   const openLocalChat = useCallback(
-    (chatId: string) => applyPostView("chat", chatId),
-    [applyPostView],
+    (chatId: string) => {
+      if (postId == null) return;
+      usePostNavigationStore.getState().setPendingNewPostChat(postId, false);
+      applyPostView("chat", chatId);
+    },
+    [applyPostView, postId],
   );
   const startNewChat = useCallback(() => applyPostView("chat", null), [applyPostView]);
   const startNewNote = useCallback(() => {
@@ -112,6 +121,7 @@ export function usePostWorkspace() {
   }, [router]);
   const resetToPostChatRoot = useCallback(() => {
     if (postId == null) return;
+    usePostNavigationStore.getState().setPendingNewPostChat(postId, true);
     setMode(postId, "chat", null);
     setListSearch("");
     router.replace(routes.post(postId));
@@ -127,7 +137,7 @@ export function usePostWorkspace() {
   const postHeader = usePostScreenHeader({
     post: post ?? null,
     postMode,
-    currentPostChatId,
+    currentPostChatId: validatedPostChatId,
     activeChat,
     isMobile,
     postHeaderCompact1000,
@@ -192,11 +202,16 @@ export function usePostWorkspace() {
   }, [post?.id]);
 
   useEffect(() => {
-    if (postId == null || currentPostChatId == null || !post) return;
-    if (!post.chats.some((chat) => chat.id === currentPostChatId)) {
+    if (postId == null || !pendingNewChat || chatIdFromUrl == null) return;
+    router.replace(routes.post(postId));
+  }, [chatIdFromUrl, pendingNewChat, postId, router]);
+
+  useEffect(() => {
+    if (postId == null || chatIdFromUrl == null || !post) return;
+    if (!post.chats.some((chat) => chat.id === chatIdFromUrl)) {
       setMode(postId, "chat", null);
     }
-  }, [currentPostChatId, post, postId, setMode]);
+  }, [chatIdFromUrl, post, postId, setMode]);
 
   const headerTitle = post ? postTitle(post) : "Пост";
 

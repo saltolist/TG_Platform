@@ -244,7 +244,11 @@ async def persist_chat_meta(
     if not meta and history is None:
         return False
 
-    patch = {key: meta[key] for key in meta if key not in ("bundle_context_stamp", "context_label_stamp")}
+    patch = {
+        key: meta[key]
+        for key in meta
+        if key not in ("bundle_context_stamp", "context_label_stamp", "context_stamp")
+    }
     if history is not None:
         history = list(history)
 

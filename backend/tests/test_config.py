@@ -15,6 +15,11 @@ def test_ai_context_log_parses_string_flags() -> None:
     assert Settings(ai_context_log="0").ai_context_log is False
 
 
+def test_ai_context_stamps_parses_string_flags() -> None:
+    assert Settings(ai_context_stamps="1").ai_context_stamps is True
+    assert Settings(ai_context_stamps="0").ai_context_stamps is False
+
+
 def test_provider_keys_default_empty() -> None:
     settings = Settings()
     assert settings.openai_api_key == ""

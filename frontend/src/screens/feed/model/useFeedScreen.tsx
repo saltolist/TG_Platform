@@ -159,7 +159,8 @@ export function useFeedScreen() {
 
   const openPost = useCallback(
     (id: string) => {
-      setPostMode(id, "chat");
+      usePostNavigationStore.getState().setPendingNewPostChat(id, true);
+      setPostMode(id, "chat", null);
       setNav({ isEditing: false });
       router.push(routes.post(id));
     },

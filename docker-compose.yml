@@ -50,6 +50,7 @@ services:
       RAG_ENABLED: ${RAG_ENABLED:-1}
       AI_CONTEXT_LOG: ${AI_CONTEXT_LOG:-0}
       AI_CONTEXT_LOG_CHAT: ${AI_CONTEXT_LOG_CHAT:-}
+      AI_CONTEXT_STAMPS: ${AI_CONTEXT_STAMPS:-0}
     depends_on:
       postgres:
         condition: service_healthy

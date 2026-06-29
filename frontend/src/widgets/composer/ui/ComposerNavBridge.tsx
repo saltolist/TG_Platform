@@ -6,7 +6,7 @@ import { useQueryClient } from "@tanstack/react-query";
 
 import { useComposer } from "@/app/model/store/composer-store";
 import { usePostNavigationStore } from "@/app/model/store/post-navigation-store";
-import { resolvePostChatId } from "@/entities/post/lib/resolvePostChatId";
+import { composerPostChatId } from "@/entities/post/lib/resolvePostChatId";
 import { useQueryAccountScope } from "@/app/providers/useQueryAccountScope";
 import { guardedPush } from "@/widgets/app-shell/lib/guardedNavigation";
 import { parseAppPath, parseChatSearchParam, parseGChatSearchParam } from "@/shared/lib/routes";
@@ -38,12 +38,12 @@ export function ComposerNavBridge() {
         if (parsed.postId == null) return null;
 
         const nav = usePostNavigationStore.getState();
-        if (nav.isPendingNewPostChat(parsed.postId)) return null;
-
-        const storeChatId = nav.getCurrentPostChatId(parsed.postId);
-        const fromUrl = parseChatSearchParam(searchParams.get("chat"));
-        const candidate = storeChatId ?? fromUrl;
-        return resolvePostChatId(queryClient, parsed.postId, candidate);
+        return composerPostChatId({
+          postId: parsed.postId,
+          chatFromUrl: parseChatSearchParam(searchParams.get("chat")),
+          pendingNew: nav.isPendingNewPostChat(parsed.postId),
+          queryClient,
+        });
       },
       setCurrentPostChatId: (chatId: string) => {
         const parsed = parseAppPath(pathname);

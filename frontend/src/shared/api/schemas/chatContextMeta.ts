@@ -40,6 +40,27 @@ const labelThreadStateSchema = z.object({
   rolling_summary_idx: z.number().optional(),
 });
 
+const stampPendingItemSchema = z.object({
+  version: z.number(),
+  sinceMsg: z.number(),
+});
+
+const stampBranchStateSchema = z.object({
+  head: z.object({ channel: z.number(), post: z.number() }),
+  pending: z.object({
+    channel: z.array(stampPendingItemSchema).optional(),
+    post: z.array(stampPendingItemSchema).optional(),
+  }).optional(),
+  rolling_summary: z.string().optional(),
+  rolling_summary_idx: z.number().optional(),
+});
+
+const stampContextSchema = z.object({
+  branches: z.record(z.string(), stampBranchStateSchema).optional(),
+  next_branch_id: z.number().optional(),
+  branch_registry: z.record(z.string(), z.number()).optional(),
+});
+
 export const chatContextMetaSchema = z.object({
   rolling_summary: z.string().optional(),
   rolling_summary_idx: z.number().optional(),
@@ -47,6 +68,9 @@ export const chatContextMetaSchema = z.object({
   active_thread_key: z.string().optional(),
   thread_context: z.record(z.string(), threadStateSchema).optional(),
   label_context: z.record(z.string(), labelThreadStateSchema).optional(),
+  stamp_context: stampContextSchema.optional(),
+  context_stamp_mechanics: z.boolean().optional(),
+  active_branch: z.number().optional(),
 });
 
 export type ChatContextMeta = z.infer<typeof chatContextMetaSchema>;
@@ -71,6 +95,15 @@ export function extractChatContextMeta(
   }
   if (source.label_context && typeof source.label_context === "object") {
     meta.label_context = source.label_context;
+  }
+  if (source.stamp_context && typeof source.stamp_context === "object") {
+    meta.stamp_context = source.stamp_context;
+  }
+  if (typeof source.context_stamp_mechanics === "boolean") {
+    meta.context_stamp_mechanics = source.context_stamp_mechanics;
+  }
+  if (typeof source.active_branch === "number") {
+    meta.active_branch = source.active_branch;
   }
   return Object.keys(meta).length > 0 ? chatContextMetaSchema.parse(meta) : undefined;
 }

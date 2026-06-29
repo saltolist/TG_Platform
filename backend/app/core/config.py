@@ -60,6 +60,7 @@ class Settings(BaseSettings):
     exa_api_key: str = ""
     rag_enabled: bool = False
     ai_context_log: bool = False
+    ai_context_stamps: bool = False
     # Chat id for LLM debug logs: gc1, post chat id, or post:postId:chatId
     ai_context_log_chat: str = ""
 
@@ -78,7 +79,7 @@ class Settings(BaseSettings):
     # When set, the user's embeddings key for this provider is used; otherwise local model.
     embedding_provider_byok: str = ""
 
-    @field_validator("rag_enabled", "ai_context_log", mode="before")
+    @field_validator("rag_enabled", "ai_context_log", "ai_context_stamps", mode="before")
     @classmethod
     def _parse_bool_fields(cls, value: Any) -> bool:
         return _parse_bool_env(value)

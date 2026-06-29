@@ -195,7 +195,8 @@ export function useSidebar({ onNavigate }: UseSidebarOptions = {}) {
 
   const openPost = useCallback(
     (postId: string) => {
-      setPostMode(postId, "chat");
+      usePostNavigationStore.getState().setPendingNewPostChat(postId, true);
+      setPostMode(postId, "chat", null);
       goTo(routes.post(postId));
     },
     [goTo, setPostMode],
@@ -203,6 +204,7 @@ export function useSidebar({ onNavigate }: UseSidebarOptions = {}) {
 
   const startPostNewChat = useCallback(() => {
     if (sidebarPostId == null) return;
+    usePostNavigationStore.getState().setPendingNewPostChat(sidebarPostId, true);
     setPostMode(sidebarPostId, "chat", null);
     goTo(routes.post(sidebarPostId));
   }, [goTo, setPostMode, sidebarPostId]);
@@ -256,6 +258,7 @@ export function useSidebar({ onNavigate }: UseSidebarOptions = {}) {
         goTo(routes.gchat(row.id));
         return;
       }
+      usePostNavigationStore.getState().setPendingNewPostChat(row.postId, false);
       setPostMode(row.postId, "chat", row.chatId);
       goTo(routes.post(row.postId, row.chatId));
     },

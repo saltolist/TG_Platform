@@ -26,7 +26,14 @@ from app.services.ai.chat_history import (
 )
 from app.services.ai.note_citations import NoteCite, prepare_note_citations_for_reply
 from app.services.ai.context import append_user_text_to_pairs, assemble_reply_messages
+from app.core.config import get_settings
 from app.services.ai.context_label import stamp_context_label_on_path
+from app.services.ai.context_stamp_label import stamp_context_stamp_on_path
+from app.services.ai.context_stamp_types import (
+    ACTIVE_BRANCH_KEY,
+    STAMP_CONTEXT_KEY,
+    STAMP_MECHANICS_FLAG,
+)
 from app.services.ai.context_labels import THREAD_LABEL_STATE_KEY
 from app.services.ai.context_log import (
     get_chat_filter,
@@ -35,6 +42,7 @@ from app.services.ai.context_log import (
     should_log_llm_context,
 )
 from app.services.ai.context_meta import persist_chat_meta, refresh_context_meta_after_reply
+from app.services.ai.context_stamp_meta import refresh_stamp_meta_after_reply
 from app.services.ai.llm import stream_llm_sse
 from app.services.ai.orchestrator import resolve_orchestrator_llm
 from app.services.ai.providers import ProviderSpec
@@ -56,6 +64,9 @@ _CHAT_META_KEYS = (
     "thread_context",
     "global_fingerprint_at_last_refresh",
     THREAD_LABEL_STATE_KEY,
+    STAMP_CONTEXT_KEY,
+    STAMP_MECHANICS_FLAG,
+    ACTIVE_BRANCH_KEY,
 )
 
 
@@ -86,6 +97,7 @@ class ReplyContext:
     # Logging
     log_context: bool = False
     log_labels: dict[int, str] = field(default_factory=dict)
+    log_stamps: dict[int, dict[str, Any]] = field(default_factory=dict)
     rag_cites: list[NoteCite] = field(default_factory=list)
 
 
@@ -294,47 +306,74 @@ async def _finalize_context_meta(ctx: ReplyContext, assistant_text: str) -> dict
     if profile_row is not None and not profile_row.summary_catalog and catalog.get("global"):
         profile_row.summary_catalog = catalog
 
-    updated_meta = await refresh_context_meta_after_reply(
-        ctx.chat_meta,
-        history=ctx.history,
-        valid_pairs=valid_pairs,
-        current_bundle=current_bundle,
-        current_fingerprint=fingerprint,
-        llm=summary_llm,
-        summary_catalog=catalog,
-        scope=ctx.payload.scope,
-        post_id=str(post.get("id") or "") if isinstance(post, Mapping) and post.get("id") else ctx.payload.post_id,
-    )
+    updated_meta = None
+    if get_settings().ai_context_stamps:
+        updated_meta = await refresh_stamp_meta_after_reply(
+            ctx.chat_meta,
+            history=ctx.history,
+            valid_pairs=valid_pairs,
+            llm=summary_llm,
+            summary_catalog=catalog,
+            scope=ctx.payload.scope,
+            post_id=str(post.get("id") or "") if isinstance(post, Mapping) and post.get("id") else ctx.payload.post_id,
+        )
+    else:
+        updated_meta = await refresh_context_meta_after_reply(
+            ctx.chat_meta,
+            history=ctx.history,
+            valid_pairs=valid_pairs,
+            current_bundle=current_bundle,
+            current_fingerprint=fingerprint,
+            llm=summary_llm,
+            summary_catalog=catalog,
+            scope=ctx.payload.scope,
+            post_id=str(post.get("id") or "") if isinstance(post, Mapping) and post.get("id") else ctx.payload.post_id,
+        )
 
     stamped_history: list[Mapping[str, Any]] | None = None
-    label_stamp = updated_meta.get("context_label_stamp")
-    if isinstance(label_stamp, Mapping):
-        source_history = await _history_for_stamp(ctx.session, ctx.user, ctx.payload, ctx.history)
-        path = label_stamp.get("path")
-        if isinstance(path, list):
-            stamp_kwargs: dict[str, Any] = {
-                "turn_label": str(label_stamp.get("turn") or ""),
-            }
-            if label_stamp.get("scope") == "post":
-                applied = stamp_context_label_on_path(
+    if get_settings().ai_context_stamps:
+        stamp_payload = updated_meta.get("context_stamp")
+        if isinstance(stamp_payload, Mapping):
+            source_history = await _history_for_stamp(ctx.session, ctx.user, ctx.payload, ctx.history)
+            path = stamp_payload.get("path")
+            stamp = stamp_payload.get("stamp")
+            if isinstance(path, list) and isinstance(stamp, Mapping):
+                applied = stamp_context_stamp_on_path(
                     source_history,
                     [int(part) for part in path],
-                    head_global=int(label_stamp.get("head_global") or 0),
-                    head_local=int(label_stamp.get("head_local") or 1),
-                    attached_global=int(label_stamp.get("attached_global") or 0),
-                    attached_local=int(label_stamp.get("attached_local") or 0),
-                    **stamp_kwargs,
+                    stamp,  # type: ignore[arg-type]
                 )
-            else:
-                applied = stamp_context_label_on_path(
-                    source_history,
-                    [int(part) for part in path],
-                    head=int(label_stamp.get("head") or 0),
-                    attached=int(label_stamp.get("attached") or 0),
-                    **stamp_kwargs,
-                )
-            if applied is not None:
-                stamped_history = applied
+                if applied is not None:
+                    stamped_history = applied
+    else:
+        label_stamp = updated_meta.get("context_label_stamp")
+        if isinstance(label_stamp, Mapping):
+            source_history = await _history_for_stamp(ctx.session, ctx.user, ctx.payload, ctx.history)
+            path = label_stamp.get("path")
+            if isinstance(path, list):
+                stamp_kwargs: dict[str, Any] = {
+                    "turn_label": str(label_stamp.get("turn") or ""),
+                }
+                if label_stamp.get("scope") == "post":
+                    applied = stamp_context_label_on_path(
+                        source_history,
+                        [int(part) for part in path],
+                        head_global=int(label_stamp.get("head_global") or 0),
+                        head_local=int(label_stamp.get("head_local") or 1),
+                        attached_global=int(label_stamp.get("attached_global") or 0),
+                        attached_local=int(label_stamp.get("attached_local") or 0),
+                        **stamp_kwargs,
+                    )
+                else:
+                    applied = stamp_context_label_on_path(
+                        source_history,
+                        [int(part) for part in path],
+                        head=int(label_stamp.get("head") or 0),
+                        attached=int(label_stamp.get("attached") or 0),
+                        **stamp_kwargs,
+                    )
+                if applied is not None:
+                    stamped_history = applied
 
     await persist_chat_meta(
         ctx.session,
@@ -359,6 +398,7 @@ async def stream_reply_with_meta(ctx: ReplyContext, messages: list[dict[str, str
             history=ctx.history,
             messages=messages,
             message_labels=ctx.log_labels if ctx.log_labels else None,
+            message_stamps=ctx.log_stamps if ctx.log_stamps else None,
         )
     accumulated: list[str] = []
     async for event in stream_llm_sse(
@@ -374,6 +414,7 @@ async def stream_reply_with_meta(ctx: ReplyContext, messages: list[dict[str, str
 
     assistant_text = "".join(accumulated)
     assistant_text = prepare_note_citations_for_reply(assistant_text, ctx.rag_cites)
+    updated_meta = await _finalize_context_meta(ctx, assistant_text)
     if ctx.log_context:
         log_llm_response(
             scope=ctx.payload.scope,
@@ -383,8 +424,10 @@ async def stream_reply_with_meta(ctx: ReplyContext, messages: list[dict[str, str
             provider=ctx.provider_name,
             model=ctx.model_id,
             assistant_text=assistant_text,
+            context_stamp=updated_meta.get("context_stamp")
+            if isinstance(updated_meta.get("context_stamp"), Mapping)
+            else None,
         )
-    updated_meta = await _finalize_context_meta(ctx, assistant_text)
     updated_meta["assistant_text"] = assistant_text
     yield format_sse_meta(updated_meta)
 

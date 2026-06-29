@@ -3,12 +3,56 @@
 > **Статус:** целевая механика (заменяет `bundleContext`, `rolling_summary_profile.generations`
 > и якоря `anchor_user_turn` как источник правды).
 
-Каждое сообщение чата несёт метку **`1-2-3`**, по которой бэкенд однозначно восстанавливает
-контекст для LLM. Все тексты сводок хранятся в **каталоге версий** аккаунта (Postgres).
+> **v2 (contextStamp):** при `AI_CONTEXT_STAMPS=1` включается параллельный pipeline:
+> короткая метка `{chHead}.{postHead}-{chAtt}.{postAtt}-{branch}.{msg}` из JSON + полный снимок в `contextStamp`.
+> Legacy compound-метки (`5.2-0.3-3.2(4)`) в истории **не** парсятся для float — только
+> `contextStamp` на user-turn. См. [сценарий post + окна LLM](scenario-post-labels-llm-windows.md).
 
 ---
 
-## 1. Формат метки
+## v2: contextStamp (parallel + feature flag)
+
+| Поле | Формат | Назначение |
+|------|--------|------------|
+| `contextLabel` | `5.2-0.3-1.3` | Краткая метка из JSON: head/attach/turn |
+| `contextStamp` | JSON | Полный снимок: `summary.head/attach`, `catalog`, `scope` |
+
+**Global-чат:** в `summary.head` и `summary.attach` слой `post` всегда `0`, `scope: "global"`.
+
+**Meta чата (новый store, parallel):** `stamp_context` в `chat.data` — состояние **per branch**
+(`head`, `pending` по слоям `channel`/`post`, rolling summary). Legacy `label_context` не
+обновляется при v2. Флаг `context_stamp_mechanics: true` ставится с первого v2-ответа.
+
+```json
+{
+  "contextLabel": "5.2-0.3-1.3",
+  "contextStamp": {
+    "scope": "post",
+    "address": { "msg": 3, "msgVersion": 1, "branch": 1 },
+    "summary": {
+      "head": { "channel": 5, "post": 2 },
+      "attach": { "channel": 0, "post": 3 }
+    },
+    "catalog": { "channel": 5, "post": 3 }
+  }
+}
+```
+
+**Формат `contextLabel` (из JSON):** `{chHead}.{postHead}-{chAtt}.{postAtt}-{branch}.{msg}`  
+Post: `5.2-0.3-1.3` — голова ch5+post2, attach post3, ветка1 msg3.  
+Global: `6-7-2.5` — голова ch6, attach ch7, ветка2 msg5 (`post` в метке всегда 0).  
+`msgVersion` только в JSON (`address.msgVersion`), не в строке метки.
+
+Переключение: env `AI_CONTEXT_STAMPS=1` → assembly и finalize через `context_stamp_*` модули;
+иначе — прежний `context_labels*`.
+
+---
+
+Каждое сообщение чата несёт метку **`1-2-3`** (legacy) или адрес **`msg-ver-branch`** (v2), по которой бэкенд однозначно восстанавливает контекст для LLM. Все тексты сводок хранятся в **каталоге версий** аккаунта (Postgres).
+
+---
+
+## 1. Формат метки (legacy)
 
 Строка: **`{head}-{attached}-{turn}`**
 
