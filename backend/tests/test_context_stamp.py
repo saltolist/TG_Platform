@@ -5,6 +5,10 @@ from __future__ import annotations
 from typing import Any
 
 from app.services.ai.context_config import SUMMARY_BUNDLE_CATCHUP_MESSAGES
+from app.services.ai.context_stamp_address import (
+    resolve_address_for_path,
+    resolve_current_address,
+)
 from app.services.ai.context_stamp_assembly import assemble_reply_messages_from_stamps
 from app.services.ai.context_stamp_label import (
     build_context_stamp,
@@ -250,6 +254,213 @@ def test_channel_catalog_bump_not_blocked_by_post_attach_same_version() -> None:
         window_user_turns={3, 4, 5, 6, 7},
     )
     assert attach == {"channel": 14, "post": 18}
+
+
+def _branch3_history_through_msg6() -> list[dict[str, Any]]:
+    return [
+        {
+            "role": "user",
+            "text": "11.10-0.0-1.1",
+            "contextStamp": _stamp(msg=1, head_ch=11, head_post=10, catalog_ch=11, catalog_post=10),
+        },
+        {"role": "ai", "text": "a1"},
+        {
+            "role": "user",
+            "text": "11.10-0.0-1.2",
+            "contextStamp": _stamp(msg=2, head_ch=11, head_post=10, catalog_ch=11, catalog_post=10),
+        },
+        {"role": "ai", "text": "a2"},
+        {
+            "role": "user",
+            "activeUserBranch": 0,
+            "userBranches": [
+                {
+                    "text": "11.10-0.11-1.3",
+                    "contextStamp": _stamp(
+                        msg=3,
+                        head_ch=11,
+                        head_post=10,
+                        attach_post=11,
+                        catalog_ch=11,
+                        catalog_post=11,
+                    ),
+                    "continuation": [
+                        {"role": "ai", "text": "a3"},
+                        {
+                            "role": "user",
+                            "activeUserBranch": 1,
+                            "userBranches": [
+                                {
+                                    "text": "11.10-0.12-1.4",
+                                    "contextStamp": _stamp(
+                                        msg=4,
+                                        head_ch=11,
+                                        head_post=10,
+                                        catalog_ch=11,
+                                        catalog_post=10,
+                                    ),
+                                    "continuation": [{"role": "ai", "text": "a4"}],
+                                },
+                                {
+                                    "text": "11.10-12.0-2.4",
+                                    "contextStamp": _stamp(
+                                        msg=4,
+                                        msg_version=2,
+                                        branch=2,
+                                        head_ch=11,
+                                        head_post=10,
+                                        attach_ch=12,
+                                        catalog_ch=12,
+                                        catalog_post=10,
+                                    ),
+                                    "continuation": [
+                                        {"role": "ai", "text": "a4'"},
+                                        {
+                                            "role": "user",
+                                            "activeUserBranch": 1,
+                                            "userBranches": [
+                                                {
+                                                    "text": "11.10-13.13-2.5",
+                                                    "contextStamp": _stamp(
+                                                        msg=5,
+                                                        branch=2,
+                                                        head_ch=11,
+                                                        head_post=10,
+                                                        attach_ch=13,
+                                                        catalog_ch=13,
+                                                        catalog_post=13,
+                                                    ),
+                                                    "continuation": [{"role": "ai", "text": "a5"}],
+                                                },
+                                                {
+                                                    "text": "11.10-13.14-3.5",
+                                                    "contextStamp": _stamp(
+                                                        msg=5,
+                                                        msg_version=2,
+                                                        branch=3,
+                                                        head_ch=11,
+                                                        head_post=10,
+                                                        attach_ch=13,
+                                                        attach_post=14,
+                                                        catalog_ch=13,
+                                                        catalog_post=14,
+                                                    ),
+                                                    "continuation": [
+                                                        {"role": "ai", "text": "a5'"},
+                                                        {
+                                                            "role": "user",
+                                                            "text": "11.11-0.15-3.6",
+                                                            "contextStamp": _stamp(
+                                                                msg=6,
+                                                                branch=3,
+                                                                head_ch=11,
+                                                                head_post=11,
+                                                                attach_post=15,
+                                                                catalog_ch=13,
+                                                                catalog_post=15,
+                                                            ),
+                                                        },
+                                                        {"role": "ai", "text": "a6"},
+                                                    ],
+                                                },
+                                            ],
+                                        },
+                                    ],
+                                },
+                            ],
+                        },
+                    ],
+                },
+                {
+                    "text": "11.10-13.15-4.3",
+                    "contextStamp": _stamp(
+                        msg=3,
+                        msg_version=2,
+                        branch=4,
+                        head_ch=11,
+                        head_post=10,
+                        attach_ch=13,
+                        attach_post=15,
+                        catalog_ch=13,
+                        catalog_post=15,
+                    ),
+                    "continuation": [{"role": "ai", "text": "a3'"}],
+                },
+            ],
+        },
+    ]
+
+
+def test_linear_msg7_keeps_branch_when_registry_lost() -> None:
+    """Linear msg7 must stay on branch 3; missing registry must not allocate branch 7."""
+    history = _branch3_history_through_msg6()
+    continuation = (
+        history[4]["userBranches"][0]["continuation"][1]["userBranches"][1]["continuation"][1][
+            "userBranches"
+        ][1]["continuation"]
+    )
+    continuation.append(
+        {
+            "role": "user",
+            "text": "11.12-14.18-3.7",
+        }
+    )
+    stamp_context: dict[str, Any] = {
+        "branches": {"3": empty_branch_state(post_head=15)},
+        "next_branch_id": 7,
+        "branch_registry": {},
+    }
+    address, path = resolve_current_address(history, stamp_context=stamp_context)  # type: ignore[arg-type]
+    assert path == [4, 1, 1, 3]
+    assert address == {"msg": 7, "msgVersion": 1, "branch": 3}
+    assert stamp_context["branch_registry"]["4.1.1@1"] == 3
+    assert stamp_context["next_branch_id"] == 7
+
+
+def test_corrupt_registry_entry_reconciled_from_stamp() -> None:
+    history = _branch3_history_through_msg6()
+    continuation = (
+        history[4]["userBranches"][0]["continuation"][1]["userBranches"][1]["continuation"][1][
+            "userBranches"
+        ][1]["continuation"]
+    )
+    continuation.append({"role": "user", "text": "11.12-14.18-3.7"})
+    stamp_context: dict[str, Any] = {
+        "branches": {"3": empty_branch_state(post_head=15), "7": empty_branch_state(post_head=15)},
+        "next_branch_id": 8,
+        "branch_registry": {"4@0": 1, "4.1@1": 2, "4.1.1@1": 7},
+    }
+    address, _ = resolve_current_address(history, stamp_context=stamp_context)  # type: ignore[arg-type]
+    assert address == {"msg": 7, "msgVersion": 1, "branch": 3}
+    assert stamp_context["branch_registry"]["4.1.1@1"] == 3
+
+
+def test_edit_fork_allocates_branch_only_when_unstamped() -> None:
+    history: list[dict[str, Any]] = [
+        {
+            "role": "user",
+            "text": "7.3-0.0-1.1",
+            "contextStamp": _stamp(msg=1, head_ch=7, head_post=3, catalog_ch=7, catalog_post=3),
+        },
+        {"role": "ai", "text": "a1"},
+        {
+            "role": "user",
+            "activeUserBranch": 1,
+            "userBranches": [
+                {"text": "7.3-0.0-1.2", "continuation": [{"role": "ai", "text": "a2"}]},
+                {"text": "7.3-8.0-2.2"},
+            ],
+        },
+    ]
+    stamp_context: dict[str, Any] = {
+        "branches": {"1": empty_branch_state(post_head=3)},
+        "next_branch_id": 2,
+        "branch_registry": {"0@0": 1},
+    }
+    address, _ = resolve_current_address(history, stamp_context=stamp_context)  # type: ignore[arg-type]
+    assert address == {"msg": 2, "msgVersion": 2, "branch": 2}
+    assert stamp_context["branch_registry"]["2@1"] == 2
+    assert stamp_context["next_branch_id"] == 3
 
 
 def test_mature_head_after_n_messages() -> None:

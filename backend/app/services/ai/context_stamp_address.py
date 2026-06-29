@@ -5,6 +5,7 @@ from __future__ import annotations
 from typing import Any, Mapping
 
 from app.services.ai.chat_history import clamp_active_branch_index
+from app.services.ai.context_stamp_label import read_context_stamp
 from app.services.ai.context_stamp_types import (
     STAMP_CONTEXT_KEY,
     StampAddress,
@@ -20,6 +21,45 @@ def _path_key(path: list[int]) -> str:
 
 def _registry_key(path: list[int], branch_index: int) -> str:
     return f"{_path_key(path)}@{branch_index}"
+
+
+def _bump_next_branch_id(stamp_context: StampContextRoot, assigned_branch_id: int) -> None:
+    next_id = max(2, int(stamp_context.get("next_branch_id") or 2))
+    stamp_context["next_branch_id"] = max(next_id, int(assigned_branch_id) + 1)
+
+
+def _resolve_fork_branch_id(
+    message: Mapping[str, Any],
+    *,
+    node_path: list[int],
+    bi: int,
+    current_branch: int,
+    registry: dict[str, int],
+    stamp_context: StampContextRoot,
+) -> int:
+    """Resolve global branch id for fork slot ``bi`` (new id only for unstamped edit)."""
+    reg_key = _registry_key(node_path, bi)
+    branches = message.get("userBranches")
+    branch_index = bi if isinstance(branches, list) and len(branches) > 1 else None
+    stamp = read_context_stamp(message, branch_index=branch_index)
+    if stamp is not None:
+        stamped_branch = max(1, int(stamp.get("address", {}).get("branch") or 0))
+        if stamped_branch > 0:
+            registry[reg_key] = stamped_branch
+            _bump_next_branch_id(stamp_context, stamped_branch)
+            return stamped_branch
+
+    if reg_key in registry:
+        return registry[reg_key]
+
+    if bi == 0:
+        registry[reg_key] = current_branch
+        return current_branch
+
+    next_id = int(stamp_context.get("next_branch_id") or 2)
+    registry[reg_key] = next_id
+    stamp_context["next_branch_id"] = next_id + 1
+    return next_id
 
 
 def load_stamp_context(chat_meta: Mapping[str, Any] | None, *, post_head: int = 0) -> StampContextRoot:
@@ -58,17 +98,14 @@ def resolve_active_branch_id(
             branches = message.get("userBranches")
             if isinstance(branches, list) and branches:
                 bi = clamp_active_branch_index(message)
-                reg_key = _registry_key(node_path, bi)
-                if reg_key in registry:
-                    result_branch = registry[reg_key]
-                elif bi == 0:
-                    result_branch = current_branch
-                    registry[reg_key] = result_branch
-                else:
-                    next_id = int(stamp_context.get("next_branch_id") or 2)
-                    result_branch = next_id
-                    registry[reg_key] = result_branch
-                    stamp_context["next_branch_id"] = next_id + 1
+                result_branch = _resolve_fork_branch_id(
+                    message,
+                    node_path=node_path,
+                    bi=bi,
+                    current_branch=current_branch,
+                    registry=registry,
+                    stamp_context=stamp_context,
+                )
                 branch = branches[bi]
                 if isinstance(branch, Mapping):
                     continuation = branch.get("continuation")
@@ -110,17 +147,14 @@ def resolve_address_for_path(
             branched = isinstance(branches, list) and len(branches) > 1
             if branches:
                 bi = clamp_active_branch_index(message)
-                reg_key = _registry_key(full_path, bi)
-                if reg_key in registry:
-                    branch_id = registry[reg_key]
-                elif bi == 0:
-                    branch_id = current_branch
-                    registry[reg_key] = branch_id
-                else:
-                    next_id = int(stamp_context.get("next_branch_id") or 2)
-                    branch_id = next_id
-                    registry[reg_key] = branch_id
-                    stamp_context["next_branch_id"] = next_id + 1
+                branch_id = _resolve_fork_branch_id(
+                    message,
+                    node_path=full_path,
+                    bi=bi,
+                    current_branch=current_branch,
+                    registry=registry,
+                    stamp_context=stamp_context,
+                )
             else:
                 branch_id = current_branch
             msg_version = bi + 1 if branched and full_path == target else 1
