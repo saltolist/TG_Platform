@@ -8,6 +8,8 @@ import { apiKeyForClientRequest } from "@/shared/lib/profile/maskedApiKey";
 import type { AiProfileConfig, AiVariant, ChatMessage, ComposerScope, LlmModel } from "@/shared/types";
 import type { WebCite } from "@/shared/api/schemas/post";
 
+export { applyStreamingAiText, applyStreamingAiVariantText } from "@/shared/lib/chatPaths";
+
 export function resolveLlmLabel(cfg: AiProfileConfig, id: string): string {
   const model = cfg.llmModels.find((m) => m.id === id);
   return model ? `${model.provider} / ${model.model || "модель"}` : "LLM не выбрана";
@@ -237,34 +239,6 @@ export function buildStreamingAiShell(
     webLabel: web,
     streaming: true,
   };
-}
-
-export function applyStreamingAiText(message: ChatMessage, text: string): ChatMessage {
-  if (message.mode === "multi" && message.variants?.length) {
-    return {
-      ...message,
-      streaming: true,
-      variants: message.variants.map((variant) => ({ ...variant, text })),
-    };
-  }
-  return { ...message, text, streaming: true, webCites: message.webCites };
-}
-
-export function applyStreamingAiVariantText(
-  message: ChatMessage,
-  variantKey: string,
-  text: string,
-): ChatMessage {
-  if (message.mode === "multi" && message.variants?.length) {
-    return {
-      ...message,
-      streaming: true,
-      variants: message.variants.map((variant) =>
-        variant.key === variantKey ? { ...variant, text } : variant,
-      ),
-    };
-  }
-  return applyStreamingAiText(message, text);
 }
 
 export function buildAiReplyMessage(

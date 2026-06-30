@@ -4,7 +4,7 @@ import { queryKeys } from "@/shared/api/queryKeys";
 import { getQueryAccountIdFromAuth } from "@/shared/lib/auth/queryAccountScope";
 import { isOverlayAccount } from "@/shared/lib/overlay/isOverlayAccount";
 import { mutateOverlay } from "@/shared/lib/overlay/overlayStorage";
-import { applyStreamingAiText, applyStreamingAiVariantText } from "@/app/model/store/composer/helpers";
+import { applyStreamingAiText, applyStreamingAiVariantText } from "@/shared/lib/chatPaths";
 import { updateLastVisibleAiMessage } from "@/shared/lib/chatPaths";
 import type { ChatMessage, GlobalChat, Post } from "@/shared/types";
 

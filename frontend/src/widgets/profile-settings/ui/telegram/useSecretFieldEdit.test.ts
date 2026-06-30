@@ -17,7 +17,7 @@ describe("useSecretFieldEdit", () => {
     expect(result.current.displayValue).toBe(preview);
 
     act(() => {
-      result.current.inputProps.onFocus({} as never);
+      result.current.inputProps.onFocus();
     });
     rerender({ value: preview });
     expect(result.current.displayValue).toBe("");
@@ -33,12 +33,12 @@ describe("useSecretFieldEdit", () => {
     );
 
     act(() => {
-      result.current.inputProps.onFocus({} as never);
+      result.current.inputProps.onFocus();
     });
     rerender({ value: preview });
 
     act(() => {
-      result.current.inputProps.onBlur({} as never);
+      result.current.inputProps.onBlur();
     });
     rerender({ value: preview });
 

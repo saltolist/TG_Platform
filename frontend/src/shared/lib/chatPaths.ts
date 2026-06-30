@@ -438,3 +438,35 @@ export function removeAssistantTurnAtPath(history: ChatMessage[], path: number[]
   }
   return removeMessageAtPath(history, path);
 }
+
+/**
+ * Apply accumulated streaming text to an AI message.
+ * Used by streaming reply patchers (shared layer, no app dependency).
+ */
+export function applyStreamingAiText(message: ChatMessage, text: string): ChatMessage {
+  if (message.mode === "multi" && message.variants?.length) {
+    return {
+      ...message,
+      streaming: true,
+      variants: message.variants.map((variant) => ({ ...variant, text })),
+    };
+  }
+  return { ...message, text, streaming: true, webCites: message.webCites };
+}
+
+export function applyStreamingAiVariantText(
+  message: ChatMessage,
+  variantKey: string,
+  text: string,
+): ChatMessage {
+  if (message.mode === "multi" && message.variants?.length) {
+    return {
+      ...message,
+      streaming: true,
+      variants: message.variants.map((variant) =>
+        variant.key === variantKey ? { ...variant, text } : variant,
+      ),
+    };
+  }
+  return applyStreamingAiText(message, text);
+}

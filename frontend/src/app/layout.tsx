@@ -1,5 +1,4 @@
 import type { Metadata } from "next";
-import { headers } from "next/headers";
 import { GeistMono } from "geist/font/mono";
 import { GeistSans } from "geist/font/sans";
 import { AppProviders } from "@/app/providers/AppProviders";
@@ -16,13 +15,17 @@ export const metadata: Metadata = {
 };
 
 /**
- * Static export (GitHub Pages / MSW demo) has no server middleware and therefore
- * no nonce.  In that build we emit a permissive meta-CSP that still blocks the
- * most dangerous vectors (object-src, base-uri) without breaking the demo.
+ * Static export (GitHub Pages / MSW demo) has no server proxy/middleware and
+ * therefore cannot set response headers or a per-request nonce.  In that build
+ * we emit a permissive meta-CSP that still blocks the most dangerous vectors
+ * (object-src, base-uri, frame-ancestors) without breaking the demo.
  *
- * When running as a Next.js server (Docker), the middleware stamps x-nonce and
- * x-csp headers on every request; we pick them up here so the <head> can carry
- * the nonce and the CSP is consistent with what the middleware set.
+ * For the Next.js server build (Docker), the CSP is set per-request by
+ * src/proxy.ts — no meta tag is emitted, and `headers()` is NOT called here so
+ * that pages remain statically optimizable.
+ *
+ * IS_STATIC_EXPORT is a build-time constant (GITHUB_PAGES env), so the meta tag
+ * is fully tree-shaken out of the server build.
  */
 const IS_STATIC_EXPORT = process.env.GITHUB_PAGES === "true";
 
@@ -37,16 +40,11 @@ const STATIC_META_CSP = [
   "frame-ancestors 'none'",
 ].join("; ");
 
-export default async function RootLayout({
+export default function RootLayout({
   children,
 }: Readonly<{
   children: React.ReactNode;
 }>) {
-  // headers() is only available in server components; returns empty in static export.
-  // The nonce set by middleware is consumed by Next.js internally to stamp its own
-  // <script> tags; it can also be read here for any custom inline scripts if needed.
-  await headers();
-
   return (
     <html
       lang="ru"
@@ -60,7 +58,6 @@ export default async function RootLayout({
         ) : null}
       </head>
       <body>
-        {/* nonce is available for future inline scripts via the x-nonce request header */}
         <AppProviders>{children}</AppProviders>
       </body>
     </html>

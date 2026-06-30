@@ -1,8 +1,8 @@
 /**
- * Next.js Edge Middleware — security headers + CSP (Report-Only).
+ * Next.js Proxy (formerly "middleware") — security headers + CSP (Report-Only).
  *
  * Runs only when Next.js acts as a server (Docker / standalone output).
- * Static export (GitHub Pages) has no server middleware; a lighter
+ * Static export (GitHub Pages) has no proxy; a lighter
  * <meta http-equiv="Content-Security-Policy"> is injected in layout.tsx instead.
  *
  * CSP strategy: nonce-based strict CSP.
@@ -10,20 +10,19 @@
  * "strict-dynamic" lets scripts loaded by a trusted (nonced) script load
  * further scripts without listing each origin explicitly.
  *
- * We start with Content-Security-Policy-Report-Only so violations are logged
- * to the browser console / report endpoint without breaking anything.
- * Switch to Content-Security-Policy once no violations are observed.
+ * The CSP is set on the *request* headers so Next.js can read the nonce and
+ * automatically stamp it onto its own <script> tags.  The browser-facing
+ * response uses Content-Security-Policy-Report-Only so violations are logged
+ * without breaking anything.  Switch to Content-Security-Policy (enforce) once
+ * no violations are observed — see docs/dev/security-byok.md#csp.
  */
 
 import { NextResponse, type NextRequest } from "next/server";
 
-/** Base64url-safe random nonce (128 bits). */
+/** Base64-safe random nonce (128 bits). */
 function generateNonce(): string {
   const bytes = crypto.getRandomValues(new Uint8Array(16));
-  return btoa(String.fromCharCode(...bytes))
-    .replace(/\+/g, "-")
-    .replace(/\//g, "_")
-    .replace(/=+$/, "");
+  return btoa(String.fromCharCode(...bytes));
 }
 
 /**
@@ -34,8 +33,7 @@ function generateNonce(): string {
  *
  * - script-src: nonce + strict-dynamic (no 'unsafe-eval'; Next.js dev HMR
  *   needs 'unsafe-eval' in dev so we add it only in development).
- * - style-src: 'unsafe-inline' — Tailwind injects styles this way; removing
- *   it would require CSS-in-JS nonce support which is out of scope here.
+ * - style-src: 'unsafe-inline' — Tailwind injects styles this way.
  * - connect-src: 'self' + the configured API base URL (covers REST + SSE stream).
  * - img-src: 'self' data: blob: — data: covers note attachments stored as
  *   data-URIs; blob: covers object-URL previews.
@@ -68,7 +66,7 @@ function buildCsp(nonce: string, apiUrl: string, isDev: boolean): string {
     .join("; ");
 }
 
-export function middleware(request: NextRequest) {
+export function proxy(request: NextRequest) {
   const nonce = generateNonce();
   const isDev = process.env.NODE_ENV !== "production";
 
@@ -77,14 +75,15 @@ export function middleware(request: NextRequest) {
 
   const csp = buildCsp(nonce, apiUrl, isDev);
 
+  // Set CSP on the REQUEST headers (internal, not sent to the client) so that
+  // Next.js reads the nonce and stamps it onto its own <script> tags.
   const requestHeaders = new Headers(request.headers);
-  // Pass nonce to the page so _document / layout can stamp <script nonce=…>.
   requestHeaders.set("x-nonce", nonce);
-  requestHeaders.set("x-csp", csp);
+  requestHeaders.set("Content-Security-Policy", csp);
 
   const response = NextResponse.next({ request: { headers: requestHeaders } });
 
-  // ── Security headers ──────────────────────────────────────────────────────
+  // ── Security headers (browser-facing response) ─────────────────────────────
   // CSP: Report-Only — logs violations but does not block anything.
   // Change to "Content-Security-Policy" when ready to enforce.
   response.headers.set("Content-Security-Policy-Report-Only", csp);
@@ -115,9 +114,9 @@ export function middleware(request: NextRequest) {
 export const config = {
   /*
    * Run on all routes except:
-   * - /_next/static  — pre-built static assets (no SSR, no headers needed here)
+   * - /_next/static  — pre-built static assets
    * - /_next/image   — Next.js image optimiser
-   * - /favicon.ico and common static files
+   * - common static files (favicon, fonts, images)
    */
   matcher: [
     "/((?!_next/static|_next/image|favicon\\.ico|.*\\.(?:png|jpg|jpeg|gif|svg|ico|webp|woff2?|ttf|otf|eot)).*)",

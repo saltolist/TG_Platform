@@ -149,7 +149,7 @@ Frontend использует CSP для защиты от XSS.
 После убеждённости в отсутствии нарушений (проверьте консоль браузера и DevTools → Issues):
 
 ```typescript
-// frontend/src/middleware.ts — заменить заголовок:
+// frontend/src/proxy.ts — заменить заголовок:
 response.headers.set("Content-Security-Policy-Report-Only", csp);
 // ↓
 response.headers.set("Content-Security-Policy", csp);

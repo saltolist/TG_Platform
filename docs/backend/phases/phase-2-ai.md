@@ -229,13 +229,14 @@
 ### CSP ✅
 
 - [x] **Content-Security-Policy** настроен на фронтенде.
-  - `frontend/src/middleware.ts` — nonce-based CSP + security-заголовки для Next.js-сервера
-    (Docker/standalone). Режим: **Report-Only** → переключить на enforce после проверки консоли.
+  - `frontend/src/proxy.ts` — nonce-based CSP + security-заголовки для Next.js-сервера
+    (Docker/standalone; конвенция `proxy` Next 16). Режим: **Report-Only** → переключить
+    на enforce после проверки консоли.
   - `frontend/src/app/layout.tsx` — permissive `<meta http-equiv="CSP">` для статического
     экспорта (GitHub Pages / MSW-демо).
   - `frontend/next.config.ts` — `X-Content-Type-Options`, `Referrer-Policy`,
     `Permissions-Policy`, `X-Frame-Options` через `headers()`.
-- Переход из Report-Only в enforce: заменить заголовок в `middleware.ts`
+- Переход из Report-Only в enforce: заменить заголовок в `proxy.ts`
   (`Content-Security-Policy-Report-Only` → `Content-Security-Policy`).
   См. `docs/dev/security-byok.md#csp`.
 

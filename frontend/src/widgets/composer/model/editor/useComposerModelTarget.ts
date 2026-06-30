@@ -40,9 +40,10 @@ export function useComposerModelTarget(scope: ComposerScope) {
 
   // Когда LLM=Perplexity — поиск встроен, внешние web-модели не показываем
   const webBuiltIn = isWebSearchBuiltIntoLlm(selectedLlm);
-  const webOptions = webBuiltIn
-    ? []
-    : webOptionsAll.filter((m) => isWebSearchVisibleForLlm(m, selectedLlm));
+  const webOptions = useMemo(
+    () => (webBuiltIn ? [] : webOptionsAll.filter((m) => isWebSearchVisibleForLlm(m, selectedLlm))),
+    [webBuiltIn, webOptionsAll, selectedLlm],
+  );
 
   // Сбрасываем webId, если текущий выбор больше не виден
   useEffect(() => {
