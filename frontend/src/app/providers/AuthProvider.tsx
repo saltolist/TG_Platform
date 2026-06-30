@@ -11,7 +11,8 @@ import {
 } from "react";
 import { useQueryClient } from "@tanstack/react-query";
 import type { AuthSession } from "@/shared/lib/auth/types";
-import { logout as logoutApi } from "@/entities/auth";
+import { getMe, logout as logoutApi } from "@/entities/auth";
+import { API_MODE } from "@/shared/config/dataSource";
 import {
   clearGuestSession,
   ensureGuestSession,
@@ -43,13 +44,29 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const [authOverlayOpen, setAuthOverlayOpen] = useState(false);
 
   useEffect(() => {
-    const userSession = readSession();
-    if (userSession) {
-      setSessionState(userSession);
-    } else {
-      ensureGuestSession();
+    async function bootstrap() {
+      if (API_MODE) {
+        try {
+          const me = await getMe();
+          clearGuestSession();
+          writeSession(me);
+          setSessionState(me);
+        } catch {
+          clearSession();
+          ensureGuestSession();
+        }
+      } else {
+        const userSession = readSession();
+        if (userSession) {
+          setSessionState(userSession);
+        } else {
+          ensureGuestSession();
+        }
+      }
+      setReady(true);
     }
-    setReady(true);
+
+    void bootstrap();
   }, []);
 
   const isPresentationMode = ready && !session;

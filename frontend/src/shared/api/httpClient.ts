@@ -1,4 +1,4 @@
-import { API_BASE_URL, USE_MSW } from "@/shared/config/dataSource";
+import { API_BASE_URL, API_MODE, USE_MSW } from "@/shared/config/dataSource";
 import { getApiAuthToken } from "@/shared/lib/auth/session";
 import { getTenantSessionKey } from "@/shared/lib/overlay/tenantSession";
 
@@ -62,6 +62,10 @@ async function prepareApiFetch(path: string, options: RequestOptions = {}) {
   return { method, body, signal, headers, url };
 }
 
+function fetchCredentials(): RequestCredentials {
+  return API_MODE ? "include" : "same-origin";
+}
+
 export async function apiRequest<T>(path: string, options: RequestOptions = {}): Promise<T> {
   const { method, body, signal, headers, url } = await prepareApiFetch(path, options);
 
@@ -70,6 +74,7 @@ export async function apiRequest<T>(path: string, options: RequestOptions = {}):
     headers,
     body: body !== undefined ? JSON.stringify(body) : undefined,
     signal,
+    credentials: fetchCredentials(),
   });
 
   if (!res.ok) {
@@ -105,6 +110,7 @@ export async function apiStream(
     headers,
     body: body !== undefined ? JSON.stringify(body) : undefined,
     signal,
+    credentials: fetchCredentials(),
   });
 
   if (!res.ok) {

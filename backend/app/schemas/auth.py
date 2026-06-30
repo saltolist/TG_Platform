@@ -2,7 +2,7 @@ from pydantic import BaseModel, EmailStr
 
 
 class AuthSession(BaseModel):
-    token: str
+    token: str | None = None
     accountId: str
     email: str
     createdAt: str

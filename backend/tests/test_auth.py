@@ -27,17 +27,14 @@ async def test_register_and_login(client: AsyncClient) -> None:
     assert verify.status_code == 200
     session = verify.json()
     assert session["email"] == email
-    assert session["token"]
+    assert session.get("token") is None
     assert session["accountId"]
 
-    channel = await client.get("/api/v1/profile/channel/", headers={"Authorization": f"Bearer {session['token']}"})
+    channel = await client.get("/api/v1/profile/channel/")
     assert channel.status_code == 200
     assert channel.json()["rubrics"] == []
 
-    telegram = await client.get(
-        "/api/v1/profile/telegram/",
-        headers={"Authorization": f"Bearer {session['token']}"},
-    )
+    telegram = await client.get("/api/v1/profile/telegram/")
     assert telegram.status_code == 200
     assert telegram.json()["channel"] == ""
     assert telegram.json()["channelStatus"] == "idle"

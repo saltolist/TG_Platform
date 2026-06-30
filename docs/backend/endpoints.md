@@ -10,31 +10,43 @@
 
 ## Аутентификация
 
-Регистрация — двухшаговая (email-код): `send-code` → `verify`. Восстановление пароля — аналогично.
+Реальные пользователи: JWT в **httpOnly cookie** `access_token` (см. [security-auth-cookies.md](../dev/security-auth-cookies.md)).  
+Гостевой/presentation-режим: `Authorization: Bearer guest:<uuid>`.
 
-Объект сессии (`AuthSession`), возвращается при успешном входе/регистрации:
+Защищённые эндпоинты принимают cookie **или** заголовок `Authorization: Bearer <token>`.
+
+Объект сессии (`AuthSession`), возвращается при успешном входе/регистрации и из `GET /auth/me/`:
 ```json
 {
-  "token": "jwt-string",
   "accountId": "uuid",
   "email": "user@example.com",
   "createdAt": "2026-06-16T19:00:00.000Z"
 }
 ```
 
+> Поле `token` в JSON **не возвращается** для реального API — JWT только в httpOnly cookie.
+
 > Если на бэкенде не настроен SMTP, код подтверждения пишется в логи (dev-режим).
+
+### `GET /api/v1/auth/me`
+Текущая сессия (cookie или Bearer).
+
+**Response `200`:** `AuthSession`  
+**Response `401`:** `{ "error": "Unauthorized" }`
+
+---
 
 ### `POST /api/v1/auth/login`
 Вход по email и паролю.
 
 **Body:** `{ "email": "user@example.com", "password": "string" }`  
-**Response `200`:** `AuthSession`  
+**Response `200`:** `AuthSession` + `Set-Cookie: access_token=...; HttpOnly`  
 **Response `401`:** `{ "error": "Неверный email или пароль" }`
 
 ---
 
 ### `POST /api/v1/auth/logout`
-Завершение сессии (stateless JWT — клиент удаляет токен).
+Завершение сессии — удаляет httpOnly cookie.
 
 **Response `204`:** No Content
 

@@ -26,7 +26,7 @@ async def test_login_session_is_uuid_account_id(client: AsyncClient) -> None:
     assert login.status_code == 200
     session = parse_auth_session(login.json())
     assert session.email == email
-    assert session.token
+    assert session.token is None
 
 
 @pytest.mark.asyncio

@@ -44,7 +44,7 @@ class PostContract(ApiModel):
 
 
 class AuthSessionContract(BaseModel):
-    token: str
+    token: str | None = None
     accountId: str
     email: str
     createdAt: str

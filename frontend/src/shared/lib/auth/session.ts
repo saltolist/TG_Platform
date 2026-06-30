@@ -1,4 +1,5 @@
 import type { AuthSession } from "@/shared/lib/auth/types";
+import { API_MODE } from "@/shared/config/dataSource";
 import { AUTH_SESSION_STORAGE_KEY, PRESENTATION_GUEST_TOKEN } from "@/shared/lib/auth/constants";
 import {
   ensureGuestSession,
@@ -8,13 +9,27 @@ import {
 
 export { AUTH_SESSION_STORAGE_KEY } from "@/shared/lib/auth/constants";
 
+function hasSessionIdentity(session: AuthSession | null | undefined): session is AuthSession {
+  return Boolean(session?.accountId && session?.email);
+}
+
+function sessionForStorage(session: AuthSession): AuthSession {
+  if (!API_MODE) return session;
+  return {
+    accountId: session.accountId,
+    email: session.email,
+    createdAt: session.createdAt,
+  };
+}
+
 export function readSession(): AuthSession | null {
   if (typeof window === "undefined") return null;
   try {
     const raw = window.localStorage.getItem(AUTH_SESSION_STORAGE_KEY);
     if (!raw) return null;
     const parsed = JSON.parse(raw) as AuthSession;
-    if (!parsed?.token || !parsed?.accountId || !parsed?.email) return null;
+    if (!hasSessionIdentity(parsed)) return null;
+    if (!API_MODE && !parsed.token) return null;
     return parsed;
   } catch {
     return null;
@@ -23,7 +38,7 @@ export function readSession(): AuthSession | null {
 
 export function writeSession(session: AuthSession): void {
   if (typeof window === "undefined") return;
-  window.localStorage.setItem(AUTH_SESSION_STORAGE_KEY, JSON.stringify(session));
+  window.localStorage.setItem(AUTH_SESSION_STORAGE_KEY, JSON.stringify(sessionForStorage(session)));
 }
 
 export function clearSession(): void {
@@ -41,8 +56,12 @@ export function isGuestBrowsing(): boolean {
 
 /** Logged-in user token, or per-browser guest token for presentation mode. */
 export function getApiAuthToken(): string | null {
-  const sessionToken = getSessionToken();
-  if (sessionToken) return sessionToken;
+  if (API_MODE) {
+    if (readSession()) return null;
+  } else {
+    const sessionToken = getSessionToken();
+    if (sessionToken) return sessionToken;
+  }
 
   const guest = readGuestSession();
   if (guest) return guest.token;

@@ -151,9 +151,8 @@ async def test_seed_demo_profile_reflects_openai_env(client: AsyncClient) -> Non
         json={"email": "demo@mail.ru", "password": "Demo!2026"},
     )
     assert login.status_code == 200
-    token = login.json()["token"]
 
-    ai = await client.get("/api/v1/profile/ai/", headers={"Authorization": f"Bearer {token}"})
+    ai = await client.get("/api/v1/profile/ai/")
     assert ai.status_code == 200
     llm_models = ai.json()["llmModels"]
     assert len(llm_models) == 1

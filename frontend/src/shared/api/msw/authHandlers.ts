@@ -13,6 +13,7 @@ import {
   pendingRegistrations,
   resetAccountRegistry,
   resetDemoFullAccount,
+  resolveAccountIdFromRequest,
 } from "./accountRegistry";
 
 function unauthorized() {
@@ -33,6 +34,23 @@ function createSessionResponse(accountId: string, email: string): AuthSession {
 }
 
 export const authHandlers = [
+  http.get(apiV1MswPath("auth/me"), ({ request }) => {
+    const accountId = resolveAccountIdFromRequest(request);
+    if (!accountId) return unauthorized();
+
+    if (accountId === DEMO_ACCOUNT_ID) {
+      return HttpResponse.json(createSessionResponse(DEMO_ACCOUNT_ID, DEMO_EMAIL));
+    }
+
+    if (accountId.startsWith("fresh-")) {
+      return HttpResponse.json(
+        createSessionResponse(accountId, `${accountId}@example.com`),
+      );
+    }
+
+    return unauthorized();
+  }),
+
   http.post(apiV1MswPath("auth/login"), async ({ request }) => {
     const body = (await request.json()) as { email?: string; password?: string };
     const email = body.email?.trim().toLowerCase() ?? "";

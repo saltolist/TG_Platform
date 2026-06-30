@@ -9,6 +9,10 @@ import type {
   RegisterVerifyDto,
 } from "@/shared/lib/auth/types";
 
+export async function getMe(): Promise<AuthSession> {
+  return apiRequest<AuthSession>(apiV1Path("auth/me"), { method: "GET" });
+}
+
 export async function login(dto: LoginDto): Promise<AuthSession> {
   return apiRequest<AuthSession>(apiV1Path("auth/login"), { method: "POST", body: dto });
 }

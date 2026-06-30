@@ -29,6 +29,14 @@ class Settings(BaseSettings):
     jwt_algorithm: str = "HS256"
     jwt_expire_minutes: int = 60 * 24 * 7  # 7 days
 
+    # Auth cookie (httpOnly JWT transport for browser clients)
+    jwt_cookie_name: str = "access_token"
+    cookie_secure: bool = False
+    # lax | strict | none — use none + secure for cross-origin frontend/backend
+    cookie_samesite: str = "lax"
+    # Empty = host-only cookie (recommended for localhost dev)
+    cookie_domain: str = ""
+
     # CORS (comma-separated origins)
     cors_origins: str = "http://localhost:3000,http://localhost:3020,http://localhost:3021"
 
@@ -96,10 +104,26 @@ class Settings(BaseSettings):
     # When set, the user's embeddings key for this provider is used; otherwise local model.
     embedding_provider_byok: str = ""
 
-    @field_validator("rag_enabled", "ai_context_log", "ai_context_stamps", "rag_query_rewrite_on_miss", mode="before")
+    @field_validator(
+        "rag_enabled",
+        "ai_context_log",
+        "ai_context_stamps",
+        "rag_query_rewrite_on_miss",
+        "cookie_secure",
+        mode="before",
+    )
     @classmethod
     def _parse_bool_fields(cls, value: Any) -> bool:
         return _parse_bool_env(value)
+
+    @field_validator("cookie_samesite", mode="before")
+    @classmethod
+    def _normalize_cookie_samesite(cls, value: Any) -> str:
+        if isinstance(value, str):
+            normalized = value.strip().lower()
+            if normalized in {"lax", "strict", "none"}:
+                return normalized
+        return "lax"
 
     @property
     def cors_origins_list(self) -> list[str]:

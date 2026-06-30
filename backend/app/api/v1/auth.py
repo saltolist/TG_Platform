@@ -3,9 +3,10 @@ from datetime import datetime, timedelta, timezone
 from fastapi import APIRouter, HTTPException, Response, status
 from sqlalchemy import delete, select
 
+from app.core.auth_cookies import clear_auth_cookie, set_auth_cookie
 from app.core.config import settings
 from app.core.constants import DEMO_EMAIL
-from app.core.deps import DbSession
+from app.core.deps import CurrentUser, DbSession
 from app.core.security import create_access_token, hash_password, verify_password
 from app.db.models import EmailCode, Profile, User
 from app.schemas.auth import (
@@ -24,11 +25,16 @@ router = APIRouter(prefix="/auth", tags=["Auth"])
 
 def _session_for(user: User) -> AuthSession:
     return AuthSession(
-        token=create_access_token(str(user.id)),
         accountId=str(user.id),
         email=user.email,
         createdAt=user.created_at.isoformat(),
     )
+
+
+def _issue_session(user: User, response: Response) -> AuthSession:
+    token = create_access_token(str(user.id))
+    set_auth_cookie(response, token)
+    return _session_for(user)
 
 
 def _normalize_email(email: str) -> str:
@@ -70,8 +76,13 @@ async def _consume_code(session: DbSession, email: str, purpose: str, code: str)
     return record
 
 
+@router.get("/me/", response_model=AuthSession)
+async def me(user: CurrentUser) -> AuthSession:
+    return _session_for(user)
+
+
 @router.post("/login/", response_model=AuthSession)
-async def login(dto: LoginDto, session: DbSession) -> AuthSession:
+async def login(dto: LoginDto, session: DbSession, response: Response) -> AuthSession:
     email = _normalize_email(dto.email)
     result = await session.execute(select(User).where(User.email == email))
     user = result.scalar_one_or_none()
@@ -79,13 +90,16 @@ async def login(dto: LoginDto, session: DbSession) -> AuthSession:
         raise HTTPException(status_code=401, detail="Неверный email или пароль")
     if user.is_seed and email != _normalize_email(DEMO_EMAIL):
         raise HTTPException(status_code=403, detail="Этот аккаунт недоступен для входа")
-    return _session_for(user)
+    return _issue_session(user, response)
 
 
 @router.post("/logout/", status_code=status.HTTP_204_NO_CONTENT)
-async def logout() -> Response:
-    # Stateless JWT: client drops the token. Token blacklist — later phase.
-    return Response(status_code=status.HTTP_204_NO_CONTENT)
+async def logout(response: Response) -> Response:
+    # Must mutate and return the SAME response object FastAPI injected — returning
+    # a brand-new Response() here would discard the Set-Cookie deletion header.
+    clear_auth_cookie(response)
+    response.status_code = status.HTTP_204_NO_CONTENT
+    return response
 
 
 @router.post("/register/send-code/", status_code=status.HTTP_204_NO_CONTENT)
@@ -104,7 +118,9 @@ async def register_send_code(dto: RegisterSendCodeDto, session: DbSession) -> Re
 
 
 @router.post("/register/verify/", response_model=AuthSession)
-async def register_verify(dto: RegisterVerifyDto, session: DbSession) -> AuthSession:
+async def register_verify(
+    dto: RegisterVerifyDto, session: DbSession, response: Response
+) -> AuthSession:
     email = _normalize_email(dto.email)
     record = await _consume_code(session, email, "register", dto.code)
 
@@ -127,7 +143,7 @@ async def register_verify(dto: RegisterVerifyDto, session: DbSession) -> AuthSes
     await session.delete(record)
     await session.commit()
     await session.refresh(user)
-    return _session_for(user)
+    return _issue_session(user, response)
 
 
 @router.post("/forgot-password/send-code/", status_code=status.HTTP_204_NO_CONTENT)

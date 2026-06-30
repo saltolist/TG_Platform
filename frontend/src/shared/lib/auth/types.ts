@@ -1,5 +1,5 @@
 export type AuthSession = {
-  token: string;
+  token?: string;
   accountId: string;
   email: string;
   createdAt: string;

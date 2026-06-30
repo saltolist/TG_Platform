@@ -1,10 +1,11 @@
 import uuid
 from typing import Annotated
 
-from fastapi import Depends, Header, HTTPException
+from fastapi import Depends, Header, HTTPException, Request
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.core.config import settings
 from app.core.constants import PRESENTATION_EMAIL
 from app.core.guest_tokens import is_guest_token
 from app.core.security import decode_token
@@ -23,15 +24,14 @@ async def _resolve_presentation_user(session: AsyncSession) -> User:
     return user
 
 
-async def get_current_user(
-    authorization: Annotated[str | None, Header()] = None,
-    session: AsyncSession = Depends(get_session),
-) -> User:
+def _extract_bearer_token(authorization: str | None) -> str | None:
     if not authorization or not authorization.lower().startswith("bearer "):
-        raise HTTPException(status_code=401, detail="Unauthorized")
-
+        return None
     token = authorization.split(" ", 1)[1].strip()
+    return token or None
 
+
+async def _resolve_user_from_token(token: str, session: AsyncSession) -> User:
     if is_guest_token(token):
         return await _resolve_presentation_user(session)
 
@@ -48,6 +48,17 @@ async def get_current_user(
     if user is None:
         raise HTTPException(status_code=401, detail="Unauthorized")
     return user
+
+
+async def get_current_user(
+    request: Request,
+    authorization: Annotated[str | None, Header()] = None,
+    session: AsyncSession = Depends(get_session),
+) -> User:
+    token = request.cookies.get(settings.jwt_cookie_name) or _extract_bearer_token(authorization)
+    if not token:
+        raise HTTPException(status_code=401, detail="Unauthorized")
+    return await _resolve_user_from_token(token, session)
 
 
 async def require_writer(user: User = Depends(get_current_user)) -> User:

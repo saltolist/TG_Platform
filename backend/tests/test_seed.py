@@ -73,10 +73,7 @@ async def test_demo_login_after_seed(client: AsyncClient) -> None:
     assert session["email"] == DEMO_EMAIL
     assert session["accountId"]
 
-    posts = await client.get(
-        "/api/v1/posts/",
-        headers={"Authorization": f"Bearer {session['token']}"},
-    )
+    posts = await client.get("/api/v1/posts/")
     assert posts.status_code == 200
     assert len(posts.json()) >= 5
 

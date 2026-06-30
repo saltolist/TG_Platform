@@ -33,11 +33,9 @@ async def test_overlay_sync_requires_tenant_header(client: AsyncClient) -> None:
         json={"email": DEMO_EMAIL, "password": "Demo!2026"},
     )
     assert login.status_code == 200
-    token = login.json()["token"]
 
     response = await client.put(
         "/api/v1/overlay/notes/",
-        headers={"Authorization": f"Bearer {token}"},
         json={"global_notes": [{"id": "n1", "title": "T", "body": "B"}]},
     )
     assert response.status_code == 422
@@ -98,15 +96,11 @@ async def test_overlay_sync_demo_user(client: AsyncClient) -> None:
         json={"email": DEMO_EMAIL, "password": "Demo!2026"},
     )
     assert login.status_code == 200
-    token = login.json()["token"]
     demo_key = f"demo:{uuid.uuid4()}"
 
     response = await client.put(
         "/api/v1/overlay/notes/",
-        headers={
-            "Authorization": f"Bearer {token}",
-            "X-Tenant-Session": demo_key,
-        },
+        headers={"X-Tenant-Session": demo_key},
         json={
             "global_notes": [{"id": "demo-n1", "title": "Demo", "body": "text"}],
         },

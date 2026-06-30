@@ -12,12 +12,16 @@
 
 ## Аутентификация
 
-Все защищённые эндпоинты требуют заголовок:
+Реальные пользователи: JWT в httpOnly cookie (`access_token`). См. [security-auth-cookies.md](security-auth-cookies.md).
+
+Гостевой режим и MSW: `Authorization: Bearer <token>`.
+
+Защищённые эндпоинты принимают cookie или заголовок:
 ```
-Authorization: Bearer <jwt-token>
+Authorization: Bearer <jwt-or-guest-token>
 ```
 
-Токен хранится в `sessionStorage` под ключом `api_auth_token`. При получении `401` вызывается глобальный `onUnauthorized()` → logout.
+Метаданные сессии (без JWT) кэшируются в `localStorage` под ключом `tg-platform-auth-session`. При `401` вызывается глобальный `onUnauthorized()` → logout.
 
 ---
 
