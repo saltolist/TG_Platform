@@ -206,6 +206,7 @@ export function useChatMessage({ message, ctx }: Props) {
     textHtml,
     plainAi,
     modelTitle,
+    webCites: message.role === "ai" ? (message.webCites ?? []) : [],
     editing,
     draft,
     setDraft,

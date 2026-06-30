@@ -9,10 +9,12 @@ import { useGlobalNotes } from "@/entities/note";
 import { usePosts } from "@/entities/post";
 import { buildValidNoteCitationPaths } from "@/shared/lib/buildValidNoteCitationPaths";
 import { useMemo } from "react";
+import type { WebCite } from "@/shared/api/schemas/post";
 
 type Props = {
   plainAi: string;
   modelTitle: string;
+  webCites?: WebCite[];
   ctx?: ChatMessageCtx;
   showVariantNav: boolean;
   canGoVariantPrev: boolean;
@@ -25,6 +27,7 @@ type Props = {
 export default function ChatAiMessage({
   plainAi,
   modelTitle,
+  webCites,
   ctx,
   showVariantNav,
   canGoVariantPrev,
@@ -50,7 +53,7 @@ export default function ChatAiMessage({
           <AiTypingIndicator />
         ) : (
           <div className="msg-text">
-            <ChatMarkdown text={plainAi} validNotePaths={validNotePaths} />
+            <ChatMarkdown text={plainAi} validNotePaths={validNotePaths} webCites={webCites} />
           </div>
         )}
         {showFooter ? (

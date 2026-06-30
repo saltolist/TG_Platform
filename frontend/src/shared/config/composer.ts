@@ -32,9 +32,24 @@ export const IMAGE_GENERATION_PROVIDER_MODELS: Record<string, string[]> = {
 };
 
 export const OPENAI_WEB_SEARCH_MODEL = "responses-api-web-search";
+export const PERPLEXITY_WEB_SEARCH_MODEL = "search-api";
 
 export function isOpenAiWebSearchModel(provider: string, model: string): boolean {
   return provider === "OpenAI" && model === OPENAI_WEB_SEARCH_MODEL;
+}
+
+export function isPerplexityWebSearchModel(provider: string, model: string): boolean {
+  return provider === "Perplexity" && model === PERPLEXITY_WEB_SEARCH_MODEL;
+}
+
+/**
+ * Supported web search providers in this iteration.
+ * Tavily / SerpAPI / Exa are hidden until their standalone retrieval path is implemented.
+ */
+const ACTIVE_WEB_SEARCH_PROVIDERS = new Set(["OpenAI", "Perplexity"]);
+
+export function isWebSearchProviderSupported(provider: string): boolean {
+  return ACTIVE_WEB_SEARCH_PROVIDERS.has(provider);
 }
 
 export function formatWebSearchComposerLabel(provider: string, model: string): string {
@@ -56,12 +71,28 @@ export function formatLlmComposerButtonLabel(model: string): string {
   return model;
 }
 
+/**
+ * Матрица видимости web-моделей для выбранного LLM:
+ * - OpenAI responses-api только с OpenAI LLM
+ * - Perplexity search-api только с не-Perplexity LLM (когда LLM=Perplexity — поиск встроен)
+ * - Прочие скрыты до реализации
+ */
 export function isWebSearchVisibleForLlm(
   web: { provider: string; model: string },
   llm: { provider: string } | undefined,
 ): boolean {
-  if (!isOpenAiWebSearchModel(web.provider, web.model)) return true;
-  return llm?.provider === "OpenAI";
+  if (!isWebSearchProviderSupported(web.provider)) return false;
+  if (isOpenAiWebSearchModel(web.provider, web.model)) return llm?.provider === "OpenAI";
+  if (isPerplexityWebSearchModel(web.provider, web.model)) return llm?.provider !== "Perplexity";
+  return true;
+}
+
+/**
+ * Когда LLM=Perplexity — web-поиск встроен, отдельный селектор не нужен.
+ * В этом случае возвращаем true и принудительно скрываем web-пикер.
+ */
+export function isWebSearchBuiltIntoLlm(llm: { provider: string } | undefined): boolean {
+  return llm?.provider === "Perplexity";
 }
 
 export type MultiResponsePair = {

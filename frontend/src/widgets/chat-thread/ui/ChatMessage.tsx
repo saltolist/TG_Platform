@@ -63,6 +63,7 @@ export default function ChatMessage({
     <ChatAiMessage
       plainAi={chat.plainAi}
       modelTitle={chat.modelTitle}
+      webCites={chat.webCites}
       ctx={ctx}
       showVariantNav={chat.aiVariantCount > 1}
       canGoVariantPrev={chat.aiVariantIdx > 0}

@@ -139,11 +139,18 @@ function applyBundleContextStamp(history: ChatMessage[], stamp: BundleContextSta
   );
 }
 
+const webCiteItemSchema = z.object({
+  url: z.string(),
+  title: z.string(),
+  domain: z.string(),
+});
+
 const streamMetaSchema = chatContextMetaSchema.extend({
   bundle_context_stamp: bundleContextStampSchema.optional(),
   context_label_stamp: contextLabelStampSchema.optional(),
   context_stamp: contextStampPayloadSchema.optional(),
   assistant_text: z.string().optional(),
+  web_cites: z.array(webCiteItemSchema).optional(),
 });
 
 function splitStreamMeta(meta: Record<string, unknown>): {
@@ -152,15 +159,17 @@ function splitStreamMeta(meta: Record<string, unknown>): {
   labelStamp?: ContextLabelStamp;
   stampPayload?: ContextStampPayload;
   assistantText?: string;
+  webCites?: { url: string; title: string; domain: string }[];
 } {
   const parsed = streamMetaSchema.parse(meta);
-  const { bundle_context_stamp, context_label_stamp, context_stamp, assistant_text, ...rest } = parsed;
+  const { bundle_context_stamp, context_label_stamp, context_stamp, assistant_text, web_cites, ...rest } = parsed;
   return {
     chatMeta: chatContextMetaSchema.parse(rest),
     bundleStamp: bundle_context_stamp,
     labelStamp: context_label_stamp,
     stampPayload: context_stamp,
     assistantText: assistant_text,
+    webCites: web_cites,
   };
 }
 
@@ -181,6 +190,16 @@ function applyAssistantTextStamp(history: ChatMessage[], text: string): ChatMess
   });
 }
 
+function applyWebCitesStamp(
+  history: ChatMessage[],
+  webCites: { url: string; title: string; domain: string }[],
+): ChatMessage[] {
+  return updateLastVisibleAiMessage(history, (message) => {
+    if (message.role !== "ai") return message;
+    return { ...message, webCites };
+  });
+}
+
 function applyChatMetaPatch<T extends GlobalChat | LocalChat>(
   chat: T,
   patch: ChatContextMeta,
@@ -188,6 +207,7 @@ function applyChatMetaPatch<T extends GlobalChat | LocalChat>(
   labelStamp?: ContextLabelStamp,
   stampPayload?: ContextStampPayload,
   assistantText?: string,
+  webCites?: { url: string; title: string; domain: string }[],
 ): T {
   let next = { ...chat, ...patch } as T;
   if (stampPayload) {
@@ -201,6 +221,9 @@ function applyChatMetaPatch<T extends GlobalChat | LocalChat>(
   if (assistantText) {
     next = { ...next, history: applyAssistantTextStamp(next.history, assistantText) };
   }
+  if (webCites && webCites.length > 0) {
+    next = { ...next, history: applyWebCitesStamp(next.history, webCites) };
+  }
   return next;
 }
 
@@ -210,7 +233,7 @@ export function patchGlobalChatContextMeta(
   meta: ChatContextMeta | Record<string, unknown>,
   accountId = getQueryAccountIdFromAuth(),
 ): void {
-  const { chatMeta, bundleStamp, labelStamp, stampPayload, assistantText } = splitStreamMeta(
+  const { chatMeta, bundleStamp, labelStamp, stampPayload, assistantText, webCites } = splitStreamMeta(
     meta as Record<string, unknown>,
   );
   queryClient.setQueryData<GlobalChat[]>(queryKeys.globalChats.list(accountId), (prev) =>
@@ -223,6 +246,7 @@ export function patchGlobalChatContextMeta(
             labelStamp,
             stampPayload,
             assistantText,
+            webCites,
           )
         : chat,
     ),
@@ -240,6 +264,7 @@ export function patchGlobalChatContextMeta(
       labelStamp,
       stampPayload,
       assistantText,
+      webCites,
     );
   }, accountId);
 }
@@ -251,7 +276,7 @@ export function patchPostChatContextMeta(
   meta: ChatContextMeta | Record<string, unknown>,
   accountId = getQueryAccountIdFromAuth(),
 ): void {
-  const { chatMeta, bundleStamp, labelStamp, stampPayload, assistantText } = splitStreamMeta(
+  const { chatMeta, bundleStamp, labelStamp, stampPayload, assistantText, webCites } = splitStreamMeta(
     meta as Record<string, unknown>,
   );
   const applyPatch = (post: Post): Post => ({
@@ -265,6 +290,7 @@ export function patchPostChatContextMeta(
             labelStamp,
             stampPayload,
             assistantText,
+            webCites,
           )
         : chat,
     ),

@@ -104,6 +104,7 @@ export function useComposerEditor({
     webOptions: modelTarget.webOptions,
     llmId: modelTarget.llmId,
     webId: modelTarget.webId,
+    webBuiltIn: modelTarget.webBuiltIn,
     isMulti: modelTarget.isMulti,
     setComposerLlm: modelTarget.setComposerLlm,
     setComposerWeb: modelTarget.setComposerWeb,

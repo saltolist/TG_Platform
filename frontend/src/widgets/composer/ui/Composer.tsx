@@ -35,6 +35,7 @@ export default function Composer({ scope, placeholder, onSubmit }: Props) {
     webOptions,
     llmId,
     webId,
+    webBuiltIn,
     isMulti,
     setComposerLlm,
     setComposerWeb,
@@ -100,6 +101,7 @@ export default function Composer({ scope, placeholder, onSubmit }: Props) {
           webOptions={webOptions}
           llmId={llmId}
           webId={webId}
+          webBuiltIn={webBuiltIn}
           onLlmChange={(id) => setComposerLlm(scope, id)}
           onWebChange={(id) => setComposerWeb(scope, id)}
           onSubmit={submit}

@@ -38,6 +38,10 @@ function streamAiReply(
   if (options?.provider) body.provider = options.provider;
   if (options?.model) body.model = options.model;
   if (options?.apiKey) body.apiKey = options.apiKey;
+  if (options?.webId) body.webId = options.webId;
+  if (options?.webProvider) body.webProvider = options.webProvider;
+  if (options?.webModel) body.webModel = options.webModel;
+  if (options?.webApiKey) body.webApiKey = options.webApiKey;
   if (options?.chatId) body.chatId = options.chatId;
   if (options?.postId) body.postId = options.postId;
   if (options?.postChatId) body.postChatId = options.postChatId;

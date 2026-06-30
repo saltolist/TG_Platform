@@ -19,6 +19,7 @@ import {
   getChatSendValidationMessage,
   hasLlmForComposerScope,
   resolveLlmTarget,
+  resolveWebTarget,
   resolveLlmLabel,
   resolveWebLabel,
 } from "@/app/model/store/composer/helpers";
@@ -128,10 +129,11 @@ async function streamGlobalAssistantReply(params: {
   assistant: AssistantRepository;
   userText: string;
   llmTarget: ReturnType<typeof resolveLlmTarget>;
+  webTarget?: ReturnType<typeof resolveWebTarget>;
   variantKey?: string;
   signal?: AbortSignal;
 }): Promise<string> {
-  const { queryClient, accountId, chatId, assistant, userText, llmTarget, variantKey, signal } =
+  const { queryClient, accountId, chatId, assistant, userText, llmTarget, webTarget, variantKey, signal } =
     params;
   const chat = readGlobalChat(queryClient, accountId, chatId);
   let accumulated = "";
@@ -150,6 +152,7 @@ async function streamGlobalAssistantReply(params: {
       },
       {
         ...llmTarget,
+        ...(webTarget ?? {}),
         chatId,
         history: isOverlayAccount(accountId) ? (chat?.history ?? []) : undefined,
         chatMeta: extractChatContextMeta(chat ?? undefined),
@@ -171,6 +174,7 @@ async function streamPostAssistantReply(params: {
   assistant: AssistantRepository;
   userText: string;
   llmTarget: ReturnType<typeof resolveLlmTarget>;
+  webTarget?: ReturnType<typeof resolveWebTarget>;
   variantKey?: string;
   signal?: AbortSignal;
 }): Promise<string> {
@@ -182,6 +186,7 @@ async function streamPostAssistantReply(params: {
     assistant,
     userText,
     llmTarget,
+    webTarget,
     variantKey,
     signal,
   } = params;
@@ -203,6 +208,7 @@ async function streamPostAssistantReply(params: {
       },
       {
         ...llmTarget,
+        ...(webTarget ?? {}),
         postId,
         postChatId: chatId,
         history: isOverlayAccount(accountId) ? (chat?.history ?? []) : undefined,
@@ -250,6 +256,7 @@ async function runMultiGlobalAssistantReplies(params: {
   const entries = await Promise.all(
     pairs.map(async (pair) => {
       const llmTarget = resolveLlmTarget(params.cfg, pair.llmId);
+      const webTarget = resolveWebTarget(params.cfg, pair.webId) ?? undefined;
       const text = await completeAssistantReply(
         () =>
           streamGlobalAssistantReply({
@@ -259,6 +266,7 @@ async function runMultiGlobalAssistantReplies(params: {
             assistant: params.assistant,
             userText: params.userText,
             llmTarget,
+            webTarget,
             variantKey: pair.id,
             signal: params.signal,
           }),
@@ -286,6 +294,7 @@ async function runMultiPostAssistantReplies(params: {
   const entries = await Promise.all(
     pairs.map(async (pair) => {
       const llmTarget = resolveLlmTarget(params.cfg, pair.llmId);
+      const webTarget = resolveWebTarget(params.cfg, pair.webId) ?? undefined;
       const text = await completeAssistantReply(
         () =>
           streamPostAssistantReply({
@@ -296,6 +305,7 @@ async function runMultiPostAssistantReplies(params: {
             assistant: params.assistant,
             userText: params.userText,
             llmTarget,
+            webTarget,
             variantKey: pair.id,
             signal: params.signal,
           }),
@@ -454,6 +464,7 @@ export function ComposerProvider({ children }: { children: ReactNode }) {
                   assistant,
                   userText: text,
                   llmTarget: resolveLlmTarget(cfg, target.llmId),
+                  webTarget: resolveWebTarget(cfg, target.webId) ?? undefined,
                   signal,
                 }),
               onStreamError,
@@ -522,6 +533,7 @@ export function ComposerProvider({ children }: { children: ReactNode }) {
                   assistant,
                   userText: text,
                   llmTarget: resolveLlmTarget(cfg, target.llmId),
+                  webTarget: resolveWebTarget(cfg, target.webId) ?? undefined,
                   signal,
                 }),
               onStreamError,
@@ -604,6 +616,7 @@ export function ComposerProvider({ children }: { children: ReactNode }) {
                   assistant,
                   userText: text,
                   llmTarget: resolveLlmTarget(cfg, target.llmId),
+                  webTarget: resolveWebTarget(cfg, target.webId) ?? undefined,
                   signal,
                 }),
               onStreamError,
@@ -667,6 +680,7 @@ export function ComposerProvider({ children }: { children: ReactNode }) {
                   assistant,
                   userText: text,
                   llmTarget: resolveLlmTarget(cfg, target.llmId),
+                  webTarget: resolveWebTarget(cfg, target.webId) ?? undefined,
                   signal,
                 }),
               onStreamError,
@@ -721,6 +735,7 @@ export function ComposerProvider({ children }: { children: ReactNode }) {
                   assistant,
                   userText: text,
                   llmTarget: resolveLlmTarget(cfg, target.llmId),
+                  webTarget: resolveWebTarget(cfg, target.webId) ?? undefined,
                   signal,
                 }),
               onStreamError,

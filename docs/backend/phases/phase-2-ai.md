@@ -249,4 +249,57 @@
 
 ---
 
+---
+
+## Шаг 7 — Web Search (пути A / B / C)
+
+### Архитектура
+
+Три пути исполнения в зависимости от выбранной web-модели:
+
+| Путь | Провайдер / модель | Описание |
+|------|--------------------|----------|
+| A | OpenAI `responses-api-web-search` | OpenAI Responses API с инструментом `web_search_preview`; только с OpenAI LLM |
+| B | Perplexity `sonar-*` | Sonar-модели с встроенным поиском; web-пикер в UI скрыт (LLM=Perplexity) |
+| C | Perplexity `search-api` | Perplexity Search API как standalone-ретривер; запрос формирует web reasoner, результаты инжектируются контекстом в обычный LLM |
+
+### Матрица совместимости
+
+- **OpenAI LLM** → путь A (`responses-api-web-search`) или без поиска
+- **Perplexity LLM** → путь B (встроен); внешний web-пикер скрывается
+- **DeepSeek / любой LLM** → путь C (`search-api`) или без поиска
+
+### Файлы
+
+**Фронтенд:**
+- `shared/config/composer.ts` — `isWebSearchVisibleForLlm`, `isWebSearchBuiltIntoLlm`, матрица видимости
+- `widgets/composer/model/editor/useComposerModelTarget.ts` — авто-сброс webId при смене LLM; `webBuiltIn` флаг
+- `widgets/composer/ui/ComposerToolbar.tsx` — статичный «Встроенный поиск» вместо пикера при LLM=Perplexity
+- `app/model/store/composer/helpers.ts` — `resolveWebTarget()`
+- `app/model/store/composer-store.tsx` — прокидывает `webTarget` в каждый вызов стриминга
+- `shared/api/repositories.ts` — поля `webId/webProvider/webModel/webApiKey` в `AssistantStreamOptions`
+- `shared/api/httpRepositories.ts` — сериализация web-полей в тело запроса
+- `shared/ui/ChatWebCitationChip.tsx` — web-чип с иконкой лупы
+- `shared/ui/ChatMarkdown.tsx` — рендеринг `webCites` в конце последнего параграфа
+- `shared/lib/streaming/patchChatContextMeta.ts` — парсинг `web_cites` из SSE meta, `applyWebCitesStamp`
+- `shared/api/schemas/post.ts` — `WebCite` тип, поле `webCites` в `chatMessageSchema`
+
+**Бэкенд:**
+- `services/ai/providers.py` — `WebSearchPath`, `WebSearchProviderSpec`, `get_web_search_spec()`; добавлен Perplexity в `PROVIDER_SPECS`
+- `services/ai/keys.py` — `PROVIDER_ENV_ATTR["Perplexity"]`, `ENV_VAR_ATTR["PERPLEXITY_API_KEY"]`
+- `core/config.py` — `perplexity_api_key`
+- `services/ai/web_search.py` — три пути: path A (Responses API), B (sonar), C (Search API)
+- `services/ai/web_reasoner.py` — `resolve_web_reasoner_llm()`, `rewrite_web_query_llm()`; фоллбэк на оркестратор
+- `services/ai/context.py` — параметр `web_search_context` в `assemble_reply_messages()`
+- `services/ai/reply_orchestrator.py` — поля `web_spec/web_model/web_api_key/web_cites/web_search_context` в `ReplyContext`; ветки A/B vs C в `stream_reply_with_meta()`; `web_cites` в SSE meta
+- `schemas/requests.py` — `web_id/web_provider/web_model/web_api_key` в `AiReplyRequest`
+- `api/v1/ai.py` — резолюция web-модели, запуск web reasoner + поиска для пути C
+
+### Переменные окружения
+
+```env
+PERPLEXITY_API_KEY=   # Для путей B и C
+OPENAI_API_KEY=       # Для пути A (уже был)
+```
+
 ← [Фаза 1](phase-1-core-api.md) · [Назад к Roadmap](../roadmap.md) · [Фаза 3 →](phase-3-telegram.md)

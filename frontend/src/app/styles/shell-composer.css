@@ -741,12 +741,34 @@
   display: inline;
   white-space: nowrap;
 }
+.chat-citation-group--web {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.3em;
+  margin-top: 0.5em;
+}
 .chat-citation-inline {
   display: inline;
   vertical-align: baseline;
 }
 .chat-citation-inline + .chat-citation-inline {
   margin-left: 0.2em;
+}
+/* Web chip: slightly different accent color */
+.chat-citation-chip--web {
+  color: var(--text2);
+  background: var(--bg3);
+}
+.chat-citation-chip--web:hover {
+  background: color-mix(in srgb, var(--bg3) 55%, #fff 45%);
+}
+:root[data-theme="light"] .chat-citation-chip--web:hover {
+  background: color-mix(in srgb, var(--bg3) 45%, #fff 55%);
+}
+@media (prefers-color-scheme: light) {
+  :root[data-theme="system"] .chat-citation-chip--web:hover {
+    background: color-mix(in srgb, var(--bg3) 45%, #fff 55%);
+  }
 }
 .chat-citation-chip {
   display: inline-flex;

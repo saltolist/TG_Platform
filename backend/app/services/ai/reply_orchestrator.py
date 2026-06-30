@@ -27,6 +27,8 @@ from app.services.ai.chat_history import (
 )
 from app.services.ai.note_citations import NoteCite, prepare_note_citations_for_reply
 from app.services.ai.context import append_user_text_to_pairs, assemble_reply_messages
+from app.services.ai.web_search import WebCite, WebSearchResult
+from app.services.ai.providers import WebSearchProviderSpec, WebSearchPath
 from app.core.config import get_settings
 from app.services.ai.context_label import stamp_context_label_on_path
 from app.services.ai.context_stamp_label import stamp_context_stamp_on_path
@@ -111,6 +113,14 @@ class ReplyContext:
     log_labels: dict[int, str] = field(default_factory=dict)
     log_stamps: dict[int, dict[str, Any]] = field(default_factory=dict)
     rag_cites: list[NoteCite] = field(default_factory=list)
+
+    # Web search (optional)
+    web_spec: WebSearchProviderSpec | None = None
+    web_model: str = ""
+    web_api_key: str = ""
+    web_cites: list[WebCite] = field(default_factory=list)
+    # Path C: search context injected into messages before LLM call
+    web_search_context: str = ""
 
 
 def prefers_server_chat_history(user: User) -> bool:
@@ -435,6 +445,9 @@ async def _record_reply_usage(
 
 
 async def stream_reply_with_meta(ctx: ReplyContext, messages: list[dict[str, str]]) -> AsyncIterator[str]:
+    from app.services.ai.web_search import execute_web_search
+    from app.services.ai.sse import format_sse_data
+
     if ctx.log_context:
         log_llm_request(
             scope=ctx.payload.scope,
@@ -448,18 +461,44 @@ async def stream_reply_with_meta(ctx: ReplyContext, messages: list[dict[str, str
             message_labels=ctx.log_labels if ctx.log_labels else None,
             message_stamps=ctx.log_stamps if ctx.log_stamps else None,
         )
+
     accumulated: list[str] = []
+    web_cites: list[WebCite] = []
     started = time.perf_counter()
-    async for event in stream_llm_sse(
-        spec=ctx.spec,
-        model=ctx.model_id,
-        api_key=ctx.api_key,
-        messages=messages,
+
+    # -- Web search paths A & B: stream directly from web provider ----------------
+    if ctx.web_spec is not None and ctx.web_spec.path in (
+        WebSearchPath.OPENAI_RESPONSES,
+        WebSearchPath.PERPLEXITY_SONAR,
     ):
-        chunk = parse_sse_text_chunk(event)
-        if chunk:
-            accumulated.append(chunk)
-        yield event
+        stream = await execute_web_search(
+            spec=ctx.web_spec,
+            model=ctx.web_model,
+            api_key=ctx.web_api_key,
+            messages=messages,
+            query=ctx.payload.text,
+        )
+        async for text_delta, new_cites in stream:
+            if new_cites:
+                web_cites.extend(new_cites)
+            if text_delta:
+                accumulated.append(text_delta)
+                yield format_sse_data(text_delta)
+
+    # -- Path C: context already injected into messages; regular LLM stream -------
+    else:
+        async for event in stream_llm_sse(
+            spec=ctx.spec,
+            model=ctx.model_id,
+            api_key=ctx.api_key,
+            messages=messages,
+        ):
+            chunk = parse_sse_text_chunk(event)
+            if chunk:
+                accumulated.append(chunk)
+            yield event
+        # Web cites for path C are resolved before streaming (search → context)
+        web_cites = list(ctx.web_cites)
 
     assistant_text = "".join(accumulated)
     assistant_text = prepare_note_citations_for_reply(assistant_text, ctx.rag_cites)
@@ -480,6 +519,10 @@ async def stream_reply_with_meta(ctx: ReplyContext, messages: list[dict[str, str
             else None,
         )
     updated_meta["assistant_text"] = assistant_text
+    if web_cites:
+        updated_meta["web_cites"] = [
+            {"url": c.url, "title": c.title, "domain": c.domain} for c in web_cites
+        ]
     yield format_sse_meta(updated_meta)
 
 

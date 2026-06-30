@@ -61,6 +61,11 @@ export type AssistantStreamOptions = {
   provider?: string;
   model?: string;
   apiKey?: string;
+  // Web search target (optional)
+  webId?: string;
+  webProvider?: string;
+  webModel?: string;
+  webApiKey?: string;
   signal?: AbortSignal;
   chatId?: string;
   postId?: string;

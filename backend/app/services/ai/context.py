@@ -41,8 +41,9 @@ def assemble_reply_messages(
     log_labels: dict[int, str] | None = None,
     log_stamps: dict[int, dict[str, Any]] | None = None,
     rag_context: str | None = None,
+    web_search_context: str | None = None,
 ) -> list[dict[str, str]]:
-    """Build OpenAI-compatible messages: system → primer → dialog window [→ RAG]."""
+    """Build OpenAI-compatible messages: system → primer → dialog window [→ RAG] [→ web search context]."""
     post = post_data if scope == "post" else None
     post_id = str(post.get("id") or "") if isinstance(post, Mapping) and post.get("id") else None
 
@@ -87,13 +88,14 @@ def assemble_reply_messages(
             log_labels=log_labels,
         )
 
-    if rag_context:
-        # Append RAG context to the last user message
+    combined_context = "\n\n".join(filter(None, [rag_context, web_search_context]))
+    if combined_context:
+        # Append combined context to the last user message
         for i in range(len(messages) - 1, -1, -1):
             if messages[i]["role"] == "user":
                 messages[i] = {
                     "role": "user",
-                    "content": messages[i]["content"] + "\n\n" + rag_context,
+                    "content": messages[i]["content"] + "\n\n" + combined_context,
                 }
                 break
 

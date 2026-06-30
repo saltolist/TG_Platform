@@ -37,12 +37,14 @@ DEMO_FIXTURE_API_KEYS = frozenset(
 PROVIDER_ENV_ATTR: dict[str, str] = {
     "OpenAI": "openai_api_key",
     "DeepSeek": "deepseek_api_key",
+    "Perplexity": "perplexity_api_key",
 }
 
 # env:<NAME> reference → settings attribute (NAME is e.g. OPENAI_API_KEY).
 ENV_VAR_ATTR: dict[str, str] = {
     "OPENAI_API_KEY": "openai_api_key",
     "DEEPSEEK_API_KEY": "deepseek_api_key",
+    "PERPLEXITY_API_KEY": "perplexity_api_key",
 }
 
 

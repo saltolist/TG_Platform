@@ -84,6 +84,14 @@ export const userMessageBranchSchema = z.object({
   bundleContext: messageBundleContextSchema.optional(),
 });
 
+const webCiteSchema = z.object({
+  url: z.string(),
+  title: z.string(),
+  domain: z.string(),
+});
+
+export type WebCite = z.infer<typeof webCiteSchema>;
+
 export const chatMessageSchema: z.ZodType<{
   role: "user" | "ai";
   text?: string;
@@ -99,6 +107,7 @@ export const chatMessageSchema: z.ZodType<{
   contextLabel?: z.infer<typeof messageContextLabelSchema>;
   contextStamp?: z.infer<typeof contextStampSchema>;
   bundleContext?: z.infer<typeof messageBundleContextSchema>;
+  webCites?: WebCite[];
 }> = z.lazy(() =>
   z.object({
     role: z.enum(["user", "ai"]),
@@ -115,6 +124,7 @@ export const chatMessageSchema: z.ZodType<{
     contextLabel: messageContextLabelSchema.optional(),
     contextStamp: contextStampSchema.optional(),
     bundleContext: messageBundleContextSchema.optional(),
+    webCites: z.array(webCiteSchema).optional(),
   }),
 );
 

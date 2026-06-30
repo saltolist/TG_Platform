@@ -13,11 +13,14 @@ import {
   type NoteCitationSegment,
 } from "@/shared/lib/noteCitation";
 import ChatCitationChip from "@/shared/ui/ChatCitationChip";
+import ChatWebCitationChip from "@/shared/ui/ChatWebCitationChip";
+import type { WebCite } from "@/shared/api/schemas/post";
 
 type Props = {
   text: string;
   className?: string;
   validNotePaths?: ReadonlySet<string>;
+  webCites?: WebCite[];
 };
 
 function allowNoteUrls(url: string): string {
@@ -158,15 +161,49 @@ function renderParagraphSegments(paragraph: string, keyPrefix: string): ReactNod
   );
 }
 
-export default function ChatMarkdown({ text, className, validNotePaths }: Props) {
+export default function ChatMarkdown({ text, className, validNotePaths, webCites }: Props) {
   const prepared = prepareNoteCitationsForDisplay(text, validNotePaths);
-  if (!prepared.trim()) return null;
+  if (!prepared.trim() && (!webCites || webCites.length === 0)) return null;
 
   const blocks = prepared.split(/\n{2,}/);
+  const hasWebCites = webCites && webCites.length > 0;
 
   return (
     <div className={`chat-markdown${className ? ` ${className}` : ""}`}>
-      {blocks.map((block, index) => renderParagraphSegments(block, `block-${index}`))}
+      {blocks.map((block, index) => {
+        const isLast = index === blocks.length - 1;
+        const node = renderParagraphSegments(block, `block-${index}`);
+        // Append web source chips after the last paragraph
+        if (isLast && hasWebCites) {
+          return (
+            <span key={`block-${index}-wrap`}>
+              {node}
+              <span className="chat-citation-group chat-citation-group--web">
+                {webCites.map((cite, i) => (
+                  <span key={`web-cite-${i}`} className="chat-citation-inline">
+                    <ChatWebCitationChip
+                      url={cite.url}
+                      title={cite.title}
+                      domain={cite.domain}
+                    />
+                  </span>
+                ))}
+              </span>
+            </span>
+          );
+        }
+        return node;
+      })}
+      {/* If text is empty but we have web cites, render chips standalone */}
+      {!prepared.trim() && hasWebCites ? (
+        <span className="chat-citation-group chat-citation-group--web">
+          {webCites.map((cite, i) => (
+            <span key={`web-cite-standalone-${i}`} className="chat-citation-inline">
+              <ChatWebCitationChip url={cite.url} title={cite.title} domain={cite.domain} />
+            </span>
+          ))}
+        </span>
+      ) : null}
     </div>
   );
 }

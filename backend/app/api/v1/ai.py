@@ -18,7 +18,9 @@ from app.services.ai.context import assemble_reply_messages
 from app.services.ai.context_log import get_chat_filter, should_log_llm_context
 from app.services.ai.embeddings import resolve_embedding_backend
 from app.services.ai.keys import KeyResolution, KeySource, get_account_mode
-from app.services.ai.providers import get_provider_spec
+from app.services.ai.providers import get_provider_spec, get_web_search_spec
+from app.services.ai.web_search import call_perplexity_search
+from app.services.ai.providers import WebSearchPath
 from app.services.ai.note_citations import NoteCite
 from app.services.ai.rag_query import retrieve_rag_for_reply
 from app.services.ai.rag_reasoner import resolve_rag_reasoner_llm
@@ -206,6 +208,53 @@ async def ai_reply(
     ctx.is_stub = False
     ctx.log_context = log_context
 
+    # Web search resolution (optional, from request)
+    if payload.web_provider and payload.web_model:
+        web_spec = get_web_search_spec(payload.web_provider, payload.web_model)
+        if web_spec is not None:
+            # Resolve API key: payload override → env fallback
+            web_key_str = (payload.web_api_key or "").strip()
+            if not web_key_str:
+                from app.services.ai.keys import LlmModelKey, resolve_api_key
+                web_resolution = resolve_api_key(
+                    LlmModelKey(provider=payload.web_provider, api_key=""),
+                    user,
+                    settings,
+                )
+                web_key_str = web_resolution.api_key or ""
+            if web_key_str:
+                ctx.web_spec = web_spec
+                ctx.web_model = payload.web_model
+                ctx.web_api_key = web_key_str
+
+                # Path C: build query via web reasoner, then search, inject context
+                if web_spec.path == WebSearchPath.PERPLEXITY_SEARCH:
+                    try:
+                        from app.services.ai.web_reasoner import (
+                            rewrite_web_query_llm,
+                            resolve_web_reasoner_llm,
+                        )
+                        search_query = payload.text
+                        web_reasoner = resolve_web_reasoner_llm(user, ai_profile, settings)
+                        if web_reasoner is not None:
+                            r_spec, r_model, r_key = web_reasoner
+                            search_query = await rewrite_web_query_llm(
+                                user_text=payload.text,
+                                history=history,
+                                spec=r_spec,
+                                model=r_model,
+                                api_key=r_key,
+                            )
+                        web_ctx, web_cites = await call_perplexity_search(
+                            query=search_query,
+                            api_key=web_key_str,
+                        )
+                        ctx.web_cites = web_cites
+                        ctx.web_search_context = web_ctx
+                    except Exception as exc:
+                        import logging as _log
+                        _log.getLogger(__name__).warning("Web search (path C) failed: %s", exc)
+
     # RAG retrieval: only for real LLM (not stub), when RAG_ENABLED=1
     settings = get_settings()
     rag_context: str | None = None
@@ -255,6 +304,7 @@ async def ai_reply(
         log_labels=ctx.log_labels if log_context else None,
         log_stamps=ctx.log_stamps if log_context else None,
         rag_context=rag_context or None,
+        web_search_context=ctx.web_search_context or None,
     )
     return StreamingResponse(
         stream_reply_with_meta(ctx, messages),

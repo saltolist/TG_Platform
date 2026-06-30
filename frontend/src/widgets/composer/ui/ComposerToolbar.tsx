@@ -19,6 +19,8 @@ type Props = {
   webOptions: LlmModel[];
   llmId: string;
   webId: string;
+  /** Когда true — web-поиск встроен в LLM (Perplexity), отдельный пикер не нужен */
+  webBuiltIn?: boolean;
   onLlmChange: (id: string) => void;
   onWebChange: (id: string) => void;
   onSubmit: () => void;
@@ -36,6 +38,7 @@ export default function ComposerToolbar({
   webOptions,
   llmId,
   webId,
+  webBuiltIn = false,
   onLlmChange,
   onWebChange,
   onSubmit,
@@ -73,26 +76,40 @@ export default function ComposerToolbar({
               placeholderLabel="Нет LLM моделей"
               placement={placement}
             />
-            <ModelPicker
-              ariaLabel="Web Search модель"
-              className="composer-model-picker"
-              icon={<SearchIcon />}
-              value={webId}
-              options={webOptions.map((m) => ({
-                id: m.id,
-                label: formatWebSearchComposerLabel(m.provider, m.model),
-              }))}
-              buttonLabelFormatter={(opt) => {
-                const m = webOptions.find((row) => row.id === opt.id);
-                return m
-                  ? formatWebSearchComposerButtonLabel(m.provider, m.model)
-                  : opt.label;
-              }}
-              onChange={onWebChange}
-              emptyValue=""
-              emptyLabel="Нет"
-              placement={placement}
-            />
+            {webBuiltIn ? (
+              <div
+                className="model-picker is-static composer-model-picker"
+                title="Веб-поиск встроен в модель"
+              >
+                <div className="model-picker-btn" aria-disabled="true">
+                  <span className="model-picker-icon">
+                    <SearchIcon />
+                  </span>
+                  <span className="model-picker-label">Встроенный поиск</span>
+                </div>
+              </div>
+            ) : (
+              <ModelPicker
+                ariaLabel="Web Search модель"
+                className="composer-model-picker"
+                icon={<SearchIcon />}
+                value={webId}
+                options={webOptions.map((m) => ({
+                  id: m.id,
+                  label: formatWebSearchComposerLabel(m.provider, m.model),
+                }))}
+                buttonLabelFormatter={(opt) => {
+                  const m = webOptions.find((row) => row.id === opt.id);
+                  return m
+                    ? formatWebSearchComposerButtonLabel(m.provider, m.model)
+                    : opt.label;
+                }}
+                onChange={onWebChange}
+                emptyValue=""
+                emptyLabel="Нет"
+                placement={placement}
+              />
+            )}
           </>
         ) : (
           <div className="model-picker is-static is-disabled">

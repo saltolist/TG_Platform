@@ -27,6 +27,11 @@ class AiReplyRequest(BaseModel):
     api_key: str | None = Field(default=None, validation_alias="apiKey")
     provider: str | None = None
     llm_model: str | None = Field(default=None, validation_alias="model")
+    # Web search target (optional)
+    web_id: str | None = Field(default=None, validation_alias="webId")
+    web_provider: str | None = Field(default=None, validation_alias="webProvider")
+    web_model: str | None = Field(default=None, validation_alias="webModel")
+    web_api_key: str | None = Field(default=None, validation_alias="webApiKey")
 
 
 class AiReplyResponse(BaseModel):

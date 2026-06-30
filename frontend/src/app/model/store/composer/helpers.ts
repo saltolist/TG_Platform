@@ -68,6 +68,24 @@ export function resolveWebLabel(cfg: AiProfileConfig, id: string): string {
     : "Нет";
 }
 
+export function resolveWebTarget(
+  cfg: AiProfileConfig,
+  webId: string,
+): { webId: string; webProvider?: string; webModel?: string; webApiKey?: string } | null {
+  if (!webId) return null;
+  const selected = cfg.webSearchModels.find((m) => m.id === webId);
+  if (!selected) return null;
+  const provider = selected.provider?.trim();
+  const model = selected.model?.trim();
+  const apiKey = apiKeyForClientRequest(selected.apiKey);
+  return {
+    webId: selected.id,
+    webProvider: provider || undefined,
+    webModel: model || undefined,
+    webApiKey: apiKey || undefined,
+  };
+}
+
 export function hasConfiguredModel(models: LlmModel[]): boolean {
   return models.some((model) => !!model.provider?.trim() && !!model.model?.trim());
 }

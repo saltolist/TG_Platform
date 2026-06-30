@@ -5,7 +5,10 @@ import { useEffect, useMemo } from "react";
 import { useComposer } from "@/app/model/store/composer-store";
 import { useEffectiveAiProfileConfig } from "@/app/model/store/useEffectiveAiProfileConfig";
 import { useComposerTargetStore } from "@/app/model/store/composer-target-store";
-import { isWebSearchVisibleForLlm } from "@/shared/config/composer";
+import {
+  isWebSearchBuiltIntoLlm,
+  isWebSearchVisibleForLlm,
+} from "@/shared/config/composer";
 import type { ComposerScope } from "@/shared/types";
 
 export function useComposerModelTarget(scope: ComposerScope) {
@@ -32,18 +35,32 @@ export function useComposerModelTarget(scope: ComposerScope) {
     () => cfg.webSearchModels.filter((m) => m.provider && m.model && m.active),
     [cfg.webSearchModels],
   );
-  const selectedLlm = llmOptions.find((m) => m.id === target.llmId);
-  const webOptions = webOptionsAll.filter((m) => isWebSearchVisibleForLlm(m, selectedLlm));
 
+  const selectedLlm = llmOptions.find((m) => m.id === target.llmId);
+
+  // Когда LLM=Perplexity — поиск встроен, внешние web-модели не показываем
+  const webBuiltIn = isWebSearchBuiltIntoLlm(selectedLlm);
+  const webOptions = webBuiltIn
+    ? []
+    : webOptionsAll.filter((m) => isWebSearchVisibleForLlm(m, selectedLlm));
+
+  // Сбрасываем webId, если текущий выбор больше не виден
   useEffect(() => {
+    if (webBuiltIn) {
+      // Perplexity LLM — принудительно очищаем web-выбор в сторе
+      if (target.webId) setWebId(scope, "");
+      return;
+    }
     const webIdValid = target.webId && webOptions.some((m) => m.id === target.webId);
     if (webIdValid || webOptions.length === 0) return;
-    const defaultWeb = webOptions.find((model) => model.active) ?? webOptions[0]!;
-    setWebId(scope, defaultWeb.id);
-  }, [scope, setWebId, target.webId, webOptions]);
+    // Для других LLM — не выбираем web-модель по умолчанию (пользователь выберет явно)
+    if (target.webId) setWebId(scope, "");
+  }, [scope, setWebId, target.webId, webOptions, webBuiltIn]);
 
   const webValue =
-    target.webId && webOptions.some((m) => m.id === target.webId) ? target.webId : "";
+    !webBuiltIn && target.webId && webOptions.some((m) => m.id === target.webId)
+      ? target.webId
+      : "";
 
   return useMemo(
     () => ({
@@ -51,6 +68,7 @@ export function useComposerModelTarget(scope: ComposerScope) {
       webOptions,
       llmId: target.llmId,
       webId: webValue,
+      webBuiltIn,
       isMulti: cfg.multiResponseEnabled,
       setComposerLlm,
       setComposerWeb,
@@ -61,6 +79,7 @@ export function useComposerModelTarget(scope: ComposerScope) {
       setComposerLlm,
       setComposerWeb,
       target.llmId,
+      webBuiltIn,
       webOptions,
       webValue,
     ],
