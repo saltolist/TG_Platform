@@ -272,7 +272,15 @@ async def call_perplexity_search(
             context_lines.append(f"[{i}] {title}\n{snippet}")
 
     context = "\n\n".join(context_lines)
-    return context, cites
+    return format_web_search_context(context), cites
+
+
+def format_web_search_context(body: str) -> str:
+    """Wrap raw search snippets for injection into the last user message."""
+    text = body.strip()
+    if not text:
+        return ""
+    return f"---\n**Результаты веб-поиска:**\n\n{text}\n---"
 
 
 def web_cites_to_meta(cites: list[WebCite]) -> list[dict[str, str]]:

@@ -23,6 +23,7 @@ import {
   unregisterUserMessageEdit,
 } from "@/shared/lib/userMessageEditSession";
 import type { ChatMessage as ChatMessageType } from "@/shared/types";
+import type { WebCite } from "@/shared/api/schemas/post";
 
 type Props = {
   message: ChatMessageType;
@@ -111,12 +112,16 @@ export function useChatMessage({ message, ctx }: Props) {
 
   let aiVariantCount = 0;
   let aiVariantIdx = 0;
+  let webCites: WebCite[] = [];
   if (!isUser && Array.isArray(message.variants) && message.variants.length > 0) {
     aiVariantCount = message.variants.length;
     aiVariantIdx = Math.min(
       Math.max(Number(message.selectedVariant) || 0, 0),
       message.variants.length - 1,
     );
+    webCites = message.variants[aiVariantIdx]?.webCites ?? message.webCites ?? [];
+  } else if (!isUser) {
+    webCites = message.webCites ?? [];
   }
 
   const onCopyUser = useCallback(async () => {
@@ -206,7 +211,7 @@ export function useChatMessage({ message, ctx }: Props) {
     textHtml,
     plainAi,
     modelTitle,
-    webCites: message.role === "ai" ? (message.webCites ?? []) : [],
+    webCites,
     editing,
     draft,
     setDraft,

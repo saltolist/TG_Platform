@@ -288,6 +288,13 @@ async def ai_reply(
                     except Exception as exc:
                         import logging as _log
                         _log.getLogger(__name__).warning("Web search (path C) failed: %s", exc)
+            else:
+                import logging as _log
+                _log.getLogger(__name__).warning(
+                    "Web search skipped: no API key for %s / %s",
+                    payload.web_provider,
+                    payload.web_model,
+                )
 
     # RAG retrieval: only for real LLM (not stub), when RAG_ENABLED=1
     settings = get_settings()

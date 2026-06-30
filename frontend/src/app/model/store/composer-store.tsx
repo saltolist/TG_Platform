@@ -19,6 +19,7 @@ import {
   completeStreamedAssistantReply,
   getChatSendValidationMessage,
   hasLlmForComposerScope,
+  mergeVariantWebCites,
   pickWebCites,
   resolveLlmTarget,
   resolveWebTarget,
@@ -164,7 +165,7 @@ async function streamGlobalAssistantReply(params: {
         onMeta: (meta) => {
           const parsed = parseWebCitesFromStreamMeta(meta as Record<string, unknown>);
           if (parsed.length) webCites = parsed;
-          patchGlobalChatContextMeta(queryClient, chatId, meta, accountId);
+          patchGlobalChatContextMeta(queryClient, chatId, meta, accountId, variantKey);
         },
         signal,
       },
@@ -227,7 +228,7 @@ async function streamPostAssistantReply(params: {
         onMeta: (meta) => {
           const parsed = parseWebCitesFromStreamMeta(meta as Record<string, unknown>);
           if (parsed.length) webCites = parsed;
-          patchPostChatContextMeta(queryClient, postId, chatId, meta, accountId);
+          patchPostChatContextMeta(queryClient, postId, chatId, meta, accountId, variantKey);
         },
         signal,
       },
@@ -267,31 +268,38 @@ async function runMultiGlobalAssistantReplies(params: {
   cfg: AiProfileConfig;
   signal: AbortSignal;
   onError: (message: string) => void;
-}): Promise<Record<string, string>> {
+}): Promise<{ texts: Record<string, string>; webCitesByVariant: Record<string, WebCite[]> }> {
   const pairs = buildMultiResponsePairs(params.cfg.llmModels, params.cfg.webSearchModels);
   const entries = await Promise.all(
     pairs.map(async (pair) => {
       const llmTarget = resolveLlmTarget(params.cfg, pair.llmId);
       const webTarget = resolveWebTarget(params.cfg, pair.webId) ?? undefined;
+      const streamed = await streamGlobalAssistantReply({
+        queryClient: params.queryClient,
+        accountId: params.accountId,
+        chatId: params.chatId,
+        assistant: params.assistant,
+        userText: params.userText,
+        llmTarget,
+        webTarget,
+        variantKey: pair.id,
+        signal: params.signal,
+      });
       const text = await completeAssistantReply(
-        async () => (await streamGlobalAssistantReply({
-            queryClient: params.queryClient,
-            accountId: params.accountId,
-            chatId: params.chatId,
-            assistant: params.assistant,
-            userText: params.userText,
-            llmTarget,
-            webTarget,
-            variantKey: pair.id,
-            signal: params.signal,
-          })).text,
+        async () => streamed.text,
         params.onError,
         { allowEmpty: true },
       );
-      return [pair.id, text] as const;
+      return [pair.id, { text, webCites: streamed.webCites }] as const;
     }),
   );
-  return Object.fromEntries(entries);
+  const texts: Record<string, string> = {};
+  const webCitesByVariant: Record<string, WebCite[]> = {};
+  for (const [id, result] of entries) {
+    texts[id] = result.text;
+    if (result.webCites.length > 0) webCitesByVariant[id] = result.webCites;
+  }
+  return { texts, webCitesByVariant };
 }
 
 async function runMultiPostAssistantReplies(params: {
@@ -304,32 +312,39 @@ async function runMultiPostAssistantReplies(params: {
   cfg: AiProfileConfig;
   signal: AbortSignal;
   onError: (message: string) => void;
-}): Promise<Record<string, string>> {
+}): Promise<{ texts: Record<string, string>; webCitesByVariant: Record<string, WebCite[]> }> {
   const pairs = buildMultiResponsePairs(params.cfg.llmModels, params.cfg.webSearchModels);
   const entries = await Promise.all(
     pairs.map(async (pair) => {
       const llmTarget = resolveLlmTarget(params.cfg, pair.llmId);
       const webTarget = resolveWebTarget(params.cfg, pair.webId) ?? undefined;
+      const streamed = await streamPostAssistantReply({
+        queryClient: params.queryClient,
+        accountId: params.accountId,
+        postId: params.postId,
+        chatId: params.chatId,
+        assistant: params.assistant,
+        userText: params.userText,
+        llmTarget,
+        webTarget,
+        variantKey: pair.id,
+        signal: params.signal,
+      });
       const text = await completeAssistantReply(
-        async () => (await streamPostAssistantReply({
-            queryClient: params.queryClient,
-            accountId: params.accountId,
-            postId: params.postId,
-            chatId: params.chatId,
-            assistant: params.assistant,
-            userText: params.userText,
-            llmTarget,
-            webTarget,
-            variantKey: pair.id,
-            signal: params.signal,
-          })).text,
+        async () => streamed.text,
         params.onError,
         { allowEmpty: true },
       );
-      return [pair.id, text] as const;
+      return [pair.id, { text, webCites: streamed.webCites }] as const;
     }),
   );
-  return Object.fromEntries(entries);
+  const texts: Record<string, string> = {};
+  const webCitesByVariant: Record<string, WebCite[]> = {};
+  for (const [id, result] of entries) {
+    texts[id] = result.text;
+    if (result.webCites.length > 0) webCitesByVariant[id] = result.webCites;
+  }
+  return { texts, webCitesByVariant };
 }
 
 export function ComposerProvider({ children }: { children: ReactNode }) {
@@ -397,16 +412,23 @@ export function ComposerProvider({ children }: { children: ReactNode }) {
       baseReply: string,
       variantTexts?: Record<string, string>,
       webCites?: WebCite[],
+      variantWebCites?: Record<string, WebCite[]>,
     ) => {
       const cfg = aiProfileRef.current;
       if (!cfg) return;
       const target = getTarget(scope);
-      const cachedCites = pickWebCites(
-        webCites,
-        findLastVisibleAiMessage(readGlobalChat(queryClient, accountId, chatId)?.history ?? [])
-          ?.webCites,
+      const lastAi = findLastVisibleAiMessage(readGlobalChat(queryClient, accountId, chatId)?.history ?? []);
+      const mergedVariantWebCites = mergeVariantWebCites(lastAi, variantWebCites);
+      const cachedCites = pickWebCites(webCites, lastAi?.webCites);
+      const reply = buildAiReplyMessage(
+        cfg,
+        baseReply,
+        scope,
+        target,
+        variantTexts,
+        cachedCites,
+        mergedVariantWebCites,
       );
-      const reply = buildAiReplyMessage(cfg, baseReply, scope, target, variantTexts, cachedCites);
       await patchGlobalChatHistory(queryClient, chats, chatId, (history) =>
         updateLastVisibleAiMessage(history, () => reply),
       );
@@ -421,16 +443,23 @@ export function ComposerProvider({ children }: { children: ReactNode }) {
       baseReply: string,
       variantTexts?: Record<string, string>,
       webCites?: WebCite[],
+      variantWebCites?: Record<string, WebCite[]>,
     ) => {
       const cfg = aiProfileRef.current;
       if (!cfg) return;
       const target = getTarget("post");
-      const cachedCites = pickWebCites(
-        webCites,
-        findLastVisibleAiMessage(readPostChatHistory(queryClient, accountId, postId, chatId))
-          ?.webCites,
+      const lastAi = findLastVisibleAiMessage(readPostChatHistory(queryClient, accountId, postId, chatId));
+      const mergedVariantWebCites = mergeVariantWebCites(lastAi, variantWebCites);
+      const cachedCites = pickWebCites(webCites, lastAi?.webCites);
+      const reply = buildAiReplyMessage(
+        cfg,
+        baseReply,
+        "post",
+        target,
+        variantTexts,
+        cachedCites,
+        mergedVariantWebCites,
       );
-      const reply = buildAiReplyMessage(cfg, baseReply, "post", target, variantTexts, cachedCites);
       await patchPostChatHistory(queryClient, posts, postId, chatId, (history) =>
         updateLastVisibleAiMessage(history, () => reply),
       );
@@ -466,8 +495,7 @@ export function ComposerProvider({ children }: { children: ReactNode }) {
         const onStreamError = (message: string) => showToast({ message, variant: "error" });
         try {
           if (cfg.multiResponseEnabled) {
-            const variantTexts = resolveFinalMultiAssistantReply(
-              await runMultiGlobalAssistantReplies({
+            const multi = await runMultiGlobalAssistantReplies({
                 queryClient,
                 accountId,
                 chatId: id,
@@ -476,10 +504,9 @@ export function ComposerProvider({ children }: { children: ReactNode }) {
                 cfg,
                 signal,
                 onError: onStreamError,
-              }),
-              signal,
-            );
-            await finalizeGlobalReply(id, "home", "", variantTexts);
+              });
+            const variantTexts = resolveFinalMultiAssistantReply(multi.texts, signal);
+            await finalizeGlobalReply(id, "home", "", variantTexts, undefined, multi.webCitesByVariant);
           } else {
             const { text: baseReply, webCites } = await completeStreamedAssistantReply(
               () =>
@@ -541,8 +568,7 @@ export function ComposerProvider({ children }: { children: ReactNode }) {
         const onStreamError = (message: string) => showToast({ message, variant: "error" });
         try {
           if (cfg.multiResponseEnabled) {
-            const variantTexts = resolveFinalMultiAssistantReply(
-              await runMultiGlobalAssistantReplies({
+            const multi = await runMultiGlobalAssistantReplies({
                 queryClient,
                 accountId,
                 chatId,
@@ -551,10 +577,9 @@ export function ComposerProvider({ children }: { children: ReactNode }) {
                 cfg,
                 signal,
                 onError: onStreamError,
-              }),
-              signal,
-            );
-            await finalizeGlobalReply(chatId, "gchat", "", variantTexts);
+              });
+            const variantTexts = resolveFinalMultiAssistantReply(multi.texts, signal);
+            await finalizeGlobalReply(chatId, "gchat", "", variantTexts, undefined, multi.webCitesByVariant);
           } else {
             const { text: baseReply, webCites } = await completeStreamedAssistantReply(
               () =>
@@ -628,8 +653,7 @@ export function ComposerProvider({ children }: { children: ReactNode }) {
         const onStreamError = (message: string) => showToast({ message, variant: "error" });
         try {
           if (cfg.multiResponseEnabled) {
-            const variantTexts = resolveFinalMultiAssistantReply(
-              await runMultiPostAssistantReplies({
+            const multi = await runMultiPostAssistantReplies({
                 queryClient,
                 accountId,
                 postId,
@@ -639,10 +663,16 @@ export function ComposerProvider({ children }: { children: ReactNode }) {
                 cfg,
                 signal,
                 onError: onStreamError,
-              }),
-              signal,
+              });
+            const variantTexts = resolveFinalMultiAssistantReply(multi.texts, signal);
+            await finalizePostReply(
+              postId,
+              replyChatId,
+              "",
+              variantTexts,
+              undefined,
+              multi.webCitesByVariant,
             );
-            await finalizePostReply(postId, replyChatId, "", variantTexts);
           } else {
             const { text: baseReply, webCites } = await completeStreamedAssistantReply(
               () =>
@@ -696,8 +726,7 @@ export function ComposerProvider({ children }: { children: ReactNode }) {
         const signal = useComposerReplyStore.getState().beginReply("gchat");
         try {
           if (cfg.multiResponseEnabled) {
-            const variantTexts = resolveFinalMultiAssistantReply(
-              await runMultiGlobalAssistantReplies({
+            const multi = await runMultiGlobalAssistantReplies({
                 queryClient,
                 accountId,
                 chatId: ctx.entityId,
@@ -706,10 +735,16 @@ export function ComposerProvider({ children }: { children: ReactNode }) {
                 cfg,
                 signal,
                 onError: onStreamError,
-              }),
-              signal,
+              });
+            const variantTexts = resolveFinalMultiAssistantReply(multi.texts, signal);
+            await finalizeGlobalReply(
+              ctx.entityId,
+              "gchat",
+              "",
+              variantTexts,
+              undefined,
+              multi.webCitesByVariant,
             );
-            await finalizeGlobalReply(ctx.entityId, "gchat", "", variantTexts);
           } else {
             const { text: baseReply, webCites } = await completeStreamedAssistantReply(
               () =>
@@ -751,8 +786,7 @@ export function ComposerProvider({ children }: { children: ReactNode }) {
         const signal = useComposerReplyStore.getState().beginReply("post");
         try {
           if (cfg.multiResponseEnabled) {
-            const variantTexts = resolveFinalMultiAssistantReply(
-              await runMultiPostAssistantReplies({
+            const multi = await runMultiPostAssistantReplies({
                 queryClient,
                 accountId,
                 postId: ctx.postId,
@@ -762,10 +796,16 @@ export function ComposerProvider({ children }: { children: ReactNode }) {
                 cfg,
                 signal,
                 onError: onStreamError,
-              }),
-              signal,
+              });
+            const variantTexts = resolveFinalMultiAssistantReply(multi.texts, signal);
+            await finalizePostReply(
+              ctx.postId,
+              ctx.entityId,
+              "",
+              variantTexts,
+              undefined,
+              multi.webCitesByVariant,
             );
-            await finalizePostReply(ctx.postId, ctx.entityId, "", variantTexts);
           } else {
             const { text: baseReply, webCites } = await completeStreamedAssistantReply(
               () =>

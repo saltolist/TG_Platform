@@ -45,6 +45,27 @@ export function pickWebCites(...sources: (WebCite[] | undefined)[]): WebCite[] |
   return undefined;
 }
 
+/** Merge per-variant web cites from finalize payload and streaming cache. */
+export function mergeVariantWebCites(
+  message: ChatMessage | null | undefined,
+  variantWebCites?: Record<string, WebCite[]>,
+): Record<string, WebCite[]> | undefined {
+  const merged: Record<string, WebCite[]> = {};
+  if (variantWebCites) {
+    for (const [key, cites] of Object.entries(variantWebCites)) {
+      if (cites.length > 0) merged[key] = cites;
+    }
+  }
+  if (message?.variants) {
+    for (const variant of message.variants) {
+      if (variant.webCites?.length && !merged[variant.key]?.length) {
+        merged[variant.key] = variant.webCites;
+      }
+    }
+  }
+  return Object.keys(merged).length > 0 ? merged : undefined;
+}
+
 export async function completeStreamedAssistantReply(
   stream: () => Promise<{ text: string; webCites: WebCite[] }>,
   onError?: (message: string) => void,
@@ -253,6 +274,7 @@ export function buildAiReplyMessage(
   target: { llmId: string; webId: string },
   variantTexts?: Record<string, string>,
   webCites?: WebCite[],
+  variantWebCites?: Record<string, WebCite[]>,
 ): ChatMessage {
   if (cfg.multiResponseEnabled) {
     const pairs = buildMultiResponsePairs(cfg.llmModels, cfg.webSearchModels);
@@ -267,12 +289,14 @@ export function buildAiReplyMessage(
           ? formatWebSearchComposerLabel(webModel.provider, webModel.model)
           : "";
         const label = webCap ? `${llmCap} + ${webCap}` : llmCap;
+        const pairWebCites = variantWebCites?.[pair.id];
         return {
           key: pair.id,
           label,
           llmCaption: llmCap,
           webCaption: webCap || undefined,
           text: variantTexts?.[pair.id] ?? baseReply,
+          ...(pairWebCites?.length ? { webCites: pairWebCites } : {}),
         };
       });
       return { role: "ai", variants, selectedVariant: 0, mode: "multi" };

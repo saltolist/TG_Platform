@@ -123,6 +123,25 @@ describe("buildAiReplyMessage", () => {
     expect(updated.variants?.[1]?.text).toBe("");
   });
 
+  it("builds multi-variant reply with per-variant web cites", () => {
+    const cfg = multiCfg();
+    const pairs = buildMultiResponsePairs(cfg.llmModels, cfg.webSearchModels);
+    const firstPair = pairs[0];
+    if (!firstPair) return;
+    const webCites = [{ url: "https://example.com", title: "Example", domain: "example.com" }];
+    const reply = buildAiReplyMessage(
+      cfg,
+      "",
+      "gchat",
+      { llmId: "llm-1", webId: "web-1" },
+      { [firstPair.id]: "Ответ с поиском" },
+      undefined,
+      { [firstPair.id]: webCites },
+    );
+
+    expect(reply.variants?.[0]?.webCites).toEqual(webCites);
+  });
+
   it("builds single reply when multiResponseEnabled is off", () => {
     const cfg = { ...initialAiProfileConfig, multiResponseEnabled: false };
     const reply = buildAiReplyMessage(cfg, "Ответ", "gchat", { llmId: "llm-1", webId: "web-1" });

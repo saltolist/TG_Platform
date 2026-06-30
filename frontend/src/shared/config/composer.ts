@@ -110,7 +110,7 @@ type MultiResponseModel = {
   includeInMulti: boolean;
 };
 
-/** Пары для мультиответа: OpenAI responses-api + web search только с LLM провайдера OpenAI. */
+/** Пары для мультиответа: LLM + совместимый web search и (кроме Perplexity) LLM без поиска. */
 export function buildMultiResponsePairs(
   llmModels: MultiResponseModel[],
   webSearchModels: MultiResponseModel[],
@@ -133,10 +133,19 @@ export function buildMultiResponsePairs(
   }
 
   for (const llm of llmSelected) {
-    let hasWebPair = false;
+    const builtInWeb = isWebSearchBuiltIntoLlm(llm);
+
+    if (!builtInWeb) {
+      pairs.push({
+        id: `${llm.id}|none`,
+        llmId: llm.id,
+        webId: "",
+        label: `${llm.provider}/${llm.model}`,
+      });
+    }
+
     for (const web of webSelected) {
       if (!isWebSearchVisibleForLlm(web, llm)) continue;
-      hasWebPair = true;
       pairs.push({
         id: `${llm.id}|${web.id}`,
         llmId: llm.id,
@@ -144,7 +153,9 @@ export function buildMultiResponsePairs(
         label: `${llm.provider}/${llm.model} + ${formatWebSearchComposerLabel(web.provider, web.model)}`,
       });
     }
-    if (!hasWebPair) {
+
+    // Perplexity sonar: встроенный поиск, отдельный вариант «+ нет» не нужен.
+    if (builtInWeb) {
       pairs.push({
         id: `${llm.id}|none`,
         llmId: llm.id,

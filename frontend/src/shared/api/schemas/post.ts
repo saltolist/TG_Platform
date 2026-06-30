@@ -37,12 +37,21 @@ export const localNoteSchema = z.object({
   files: z.array(noteFileSchema).optional(),
 });
 
+const webCiteSchema = z.object({
+  url: z.string(),
+  title: z.string(),
+  domain: z.string(),
+});
+
+export type WebCite = z.infer<typeof webCiteSchema>;
+
 export const aiVariantSchema = z.object({
   key: z.string(),
   label: z.string(),
   text: z.string(),
   llmCaption: z.string().optional(),
   webCaption: z.string().optional(),
+  webCites: z.array(webCiteSchema).optional(),
 });
 
 /** Legacy compound (incl. nested turns), v2 stamp from JSON, or legacy msg-ver-branch. */
@@ -83,14 +92,6 @@ export const userMessageBranchSchema = z.object({
   contextStamp: contextStampSchema.optional(),
   bundleContext: messageBundleContextSchema.optional(),
 });
-
-const webCiteSchema = z.object({
-  url: z.string(),
-  title: z.string(),
-  domain: z.string(),
-});
-
-export type WebCite = z.infer<typeof webCiteSchema>;
 
 export const chatMessageSchema: z.ZodType<{
   role: "user" | "ai";

@@ -195,9 +195,21 @@ function applyAssistantTextStamp(history: ChatMessage[], text: string): ChatMess
   });
 }
 
-function applyWebCitesStamp(history: ChatMessage[], webCites: WebCite[]): ChatMessage[] {
+function applyWebCitesStamp(
+  history: ChatMessage[],
+  webCites: WebCite[],
+  variantKey?: string,
+): ChatMessage[] {
   return updateLastVisibleAiMessage(history, (message) => {
     if (message.role !== "ai") return message;
+    if (variantKey && message.variants?.length) {
+      return {
+        ...message,
+        variants: message.variants.map((variant) =>
+          variant.key === variantKey ? { ...variant, webCites } : variant,
+        ),
+      };
+    }
     return { ...message, webCites };
   });
 }
@@ -210,6 +222,7 @@ function applyChatMetaPatch<T extends GlobalChat | LocalChat>(
   stampPayload?: ContextStampPayload,
   assistantText?: string,
   webCites?: WebCite[],
+  variantKey?: string,
 ): T {
   let next = { ...chat, ...patch } as T;
   if (stampPayload) {
@@ -224,7 +237,7 @@ function applyChatMetaPatch<T extends GlobalChat | LocalChat>(
     next = { ...next, history: applyAssistantTextStamp(next.history, assistantText) };
   }
   if (webCites && webCites.length > 0) {
-    next = { ...next, history: applyWebCitesStamp(next.history, webCites) };
+    next = { ...next, history: applyWebCitesStamp(next.history, webCites, variantKey) };
   }
   return next;
 }
@@ -234,6 +247,7 @@ export function patchGlobalChatContextMeta(
   chatId: string,
   meta: ChatContextMeta | Record<string, unknown>,
   accountId = getQueryAccountIdFromAuth(),
+  variantKey?: string,
 ): void {
   const { chatMeta, bundleStamp, labelStamp, stampPayload, assistantText, webCites } = splitStreamMeta(
     meta as Record<string, unknown>,
@@ -249,6 +263,7 @@ export function patchGlobalChatContextMeta(
             stampPayload,
             assistantText,
             webCites,
+            variantKey,
           )
         : chat,
     ),
@@ -267,6 +282,7 @@ export function patchGlobalChatContextMeta(
       stampPayload,
       assistantText,
       webCites,
+      variantKey,
     );
   }, accountId);
 }
@@ -277,6 +293,7 @@ export function patchPostChatContextMeta(
   chatId: string,
   meta: ChatContextMeta | Record<string, unknown>,
   accountId = getQueryAccountIdFromAuth(),
+  variantKey?: string,
 ): void {
   const { chatMeta, bundleStamp, labelStamp, stampPayload, assistantText, webCites } = splitStreamMeta(
     meta as Record<string, unknown>,
@@ -293,6 +310,7 @@ export function patchPostChatContextMeta(
             stampPayload,
             assistantText,
             webCites,
+            variantKey,
           )
         : chat,
     ),
