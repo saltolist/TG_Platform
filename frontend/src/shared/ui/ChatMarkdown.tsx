@@ -12,6 +12,7 @@ import {
   splitNoteCitationSegments,
   type NoteCitationSegment,
 } from "@/shared/lib/noteCitation";
+import { prepareWebCitationsForDisplay, resolveWebCitationHref, WEB_CITE_HREF_PREFIX } from "@/shared/lib/webCitation";
 import ChatCitationChip from "@/shared/ui/ChatCitationChip";
 import ChatWebCitationChip from "@/shared/ui/ChatWebCitationChip";
 import type { WebCite } from "@/shared/api/schemas/post";
@@ -25,7 +26,24 @@ type Props = {
 
 function allowNoteUrls(url: string): string {
   if (isNoteCitationHref(url)) return url;
+  if (url.startsWith(WEB_CITE_HREF_PREFIX)) return url;
   return defaultUrlTransform(url);
+}
+
+function renderWebCitationChip(cite: WebCite, key: string) {
+  return (
+    <span key={key} className="chat-citation-inline">
+      <ChatWebCitationChip url={cite.url} title={cite.title} domain={cite.domain} />
+    </span>
+  );
+}
+
+function renderWebCitationLink(href: string, webCites: WebCite[] | undefined, key: string) {
+  const index = resolveWebCitationHref(href);
+  if (!index) return null;
+  const cite = webCites?.[index - 1];
+  if (!cite) return <span key={key}>[{index}]</span>;
+  return renderWebCitationChip(cite, key);
 }
 
 function renderCitationSegment(seg: Extract<NoteCitationSegment, { type: "cite" }>, key: string) {
@@ -42,7 +60,34 @@ function renderCitationSegment(seg: Extract<NoteCitationSegment, { type: "cite" 
   );
 }
 
-function MarkdownInline({ text }: { text: string }) {
+function renderMarkdownLink(
+  href: string | undefined,
+  children: React.ReactNode,
+  webCites: WebCite[] | undefined,
+  key: string,
+) {
+  if (href && resolveWebCitationHref(href) !== null) {
+    return renderWebCitationLink(href, webCites, key);
+  }
+  if (href && isNoteCitationHref(href)) {
+    return renderCitationSegment({ type: "cite", title: String(children), href }, key);
+  }
+  if (href?.startsWith("/") || href?.startsWith("http://") || href?.startsWith("https://")) {
+    const external = href.startsWith("http");
+    return (
+      <a
+        href={href}
+        className="chat-markdown-link"
+        {...(external ? { target: "_blank", rel: "noopener noreferrer" } : {})}
+      >
+        {children}
+      </a>
+    );
+  }
+  return <span>{children}</span>;
+}
+
+function MarkdownInline({ text, webCites }: { text: string; webCites?: WebCite[] }) {
   if (!text.trim()) return null;
 
   return (
@@ -51,24 +96,7 @@ function MarkdownInline({ text }: { text: string }) {
       urlTransform={allowNoteUrls}
       components={{
         p: ({ children }) => <span className="chat-markdown-inline">{children}</span>,
-        a: ({ href, children }) => {
-          if (href && isNoteCitationHref(href)) {
-            return renderCitationSegment({ type: "cite", title: String(children), href }, href);
-          }
-          if (href?.startsWith("/") || href?.startsWith("http://") || href?.startsWith("https://")) {
-            const external = href.startsWith("http");
-            return (
-              <a
-                href={href}
-                className="chat-markdown-link"
-                {...(external ? { target: "_blank", rel: "noopener noreferrer" } : {})}
-              >
-                {children}
-              </a>
-            );
-          }
-          return <span>{children}</span>;
-        },
+        a: ({ href, children }) => renderMarkdownLink(href, children, webCites, href ?? "link"),
         strong: ({ children }) => <strong className="chat-markdown-strong">{children}</strong>,
         em: ({ children }) => <em className="chat-markdown-em">{children}</em>,
         code: ({ children }) => <code className="chat-markdown-code">{children}</code>,
@@ -79,7 +107,7 @@ function MarkdownInline({ text }: { text: string }) {
   );
 }
 
-function MarkdownBlock({ text }: { text: string }) {
+function MarkdownBlock({ text, webCites }: { text: string; webCites?: WebCite[] }) {
   if (!text.trim()) return null;
 
   return (
@@ -87,24 +115,7 @@ function MarkdownBlock({ text }: { text: string }) {
       remarkPlugins={[remarkGfm]}
       urlTransform={allowNoteUrls}
       components={{
-        a: ({ href, children }) => {
-          if (href && isNoteCitationHref(href)) {
-            return renderCitationSegment({ type: "cite", title: String(children), href }, href);
-          }
-          if (href?.startsWith("/") || href?.startsWith("http://") || href?.startsWith("https://")) {
-            const external = href.startsWith("http");
-            return (
-              <a
-                href={href}
-                className="chat-markdown-link"
-                {...(external ? { target: "_blank", rel: "noopener noreferrer" } : {})}
-              >
-                {children}
-              </a>
-            );
-          }
-          return <span>{children}</span>;
-        },
+        a: ({ href, children }) => renderMarkdownLink(href, children, webCites, href ?? "link"),
         p: ({ children }) => <p className="chat-markdown-p">{children}</p>,
         ul: ({ children }) => <ul className="chat-markdown-ul">{children}</ul>,
         ol: ({ children }) => <ol className="chat-markdown-ol">{children}</ol>,
@@ -128,12 +139,16 @@ function MarkdownBlock({ text }: { text: string }) {
   );
 }
 
-function renderParagraphSegments(paragraph: string, keyPrefix: string): ReactNode {
+function renderParagraphSegments(
+  paragraph: string,
+  keyPrefix: string,
+  webCites?: WebCite[],
+): ReactNode {
   const segments = splitNoteCitationSegments(paragraph);
   const firstCiteIdx = segments.findIndex((seg) => seg.type === "cite");
 
   if (firstCiteIdx < 0) {
-    return <MarkdownBlock key={keyPrefix} text={paragraph} />;
+    return <MarkdownBlock key={keyPrefix} text={paragraph} webCites={webCites} />;
   }
 
   const bodySegments = segments.slice(0, firstCiteIdx);
@@ -145,7 +160,13 @@ function renderParagraphSegments(paragraph: string, keyPrefix: string): ReactNod
     <p key={keyPrefix} className="chat-markdown-p">
       {bodySegments.map((seg, index) => {
         if (seg.type !== "text") return null;
-        return <MarkdownInline key={`${keyPrefix}-text-${index}`} text={seg.text} />;
+        return (
+          <MarkdownInline
+            key={`${keyPrefix}-text-${index}`}
+            text={seg.text}
+            webCites={webCites}
+          />
+        );
       })}
       {citeSegments.length > 0 ? (
         <>
@@ -163,47 +184,16 @@ function renderParagraphSegments(paragraph: string, keyPrefix: string): ReactNod
 
 export default function ChatMarkdown({ text, className, validNotePaths, webCites }: Props) {
   const prepared = prepareNoteCitationsForDisplay(text, validNotePaths);
-  if (!prepared.trim() && (!webCites || webCites.length === 0)) return null;
+  const displayText = prepareWebCitationsForDisplay(prepared, webCites);
+  if (!displayText.trim() && (!webCites || webCites.length === 0)) return null;
 
-  const blocks = prepared.split(/\n{2,}/);
-  const hasWebCites = webCites && webCites.length > 0;
+  const blocks = displayText.split(/\n{2,}/);
 
   return (
     <div className={`chat-markdown${className ? ` ${className}` : ""}`}>
-      {blocks.map((block, index) => {
-        const isLast = index === blocks.length - 1;
-        const node = renderParagraphSegments(block, `block-${index}`);
-        // Append web source chips after the last paragraph
-        if (isLast && hasWebCites) {
-          return (
-            <span key={`block-${index}-wrap`}>
-              {node}
-              <span className="chat-citation-group chat-citation-group--web">
-                {webCites.map((cite, i) => (
-                  <span key={`web-cite-${i}`} className="chat-citation-inline">
-                    <ChatWebCitationChip
-                      url={cite.url}
-                      title={cite.title}
-                      domain={cite.domain}
-                    />
-                  </span>
-                ))}
-              </span>
-            </span>
-          );
-        }
-        return node;
-      })}
-      {/* If text is empty but we have web cites, render chips standalone */}
-      {!prepared.trim() && hasWebCites ? (
-        <span className="chat-citation-group chat-citation-group--web">
-          {webCites.map((cite, i) => (
-            <span key={`web-cite-standalone-${i}`} className="chat-citation-inline">
-              <ChatWebCitationChip url={cite.url} title={cite.title} domain={cite.domain} />
-            </span>
-          ))}
-        </span>
-      ) : null}
+      {blocks.map((block, index) =>
+        renderParagraphSegments(block, `block-${index}`, webCites),
+      )}
     </div>
   );
 }

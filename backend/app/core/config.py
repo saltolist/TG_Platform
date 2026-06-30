@@ -56,7 +56,6 @@ class Settings(BaseSettings):
     deepseek_api_key: str = ""
     perplexity_api_key: str = ""
     tavily_api_key: str = ""
-    perplexity_api_key: str = ""
     serpapi_api_key: str = ""
     exa_api_key: str = ""
     rag_enabled: bool = False

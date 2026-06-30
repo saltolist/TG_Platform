@@ -134,6 +134,42 @@ async def run_path_a(
 # Path B — Perplexity sonar (built-in search via chat completions)
 # ---------------------------------------------------------------------------
 
+
+def _extract_perplexity_citations(event: dict[str, Any]) -> list[str]:
+    """Collect citation URLs from a Perplexity stream/non-stream event."""
+    urls: list[str] = []
+    seen: set[str] = set()
+
+    def add_url(raw: str) -> None:
+        url = raw.strip()
+        if url and url not in seen:
+            seen.add(url)
+            urls.append(url)
+
+    for key in ("citations", "search_results"):
+        raw_items = event.get(key) or []
+        for entry in raw_items:
+            if isinstance(entry, str):
+                add_url(entry)
+            elif isinstance(entry, dict):
+                add_url(str(entry.get("url") or ""))
+
+    choices = event.get("choices") or []
+    if choices and isinstance(choices[0], dict):
+        choice = choices[0]
+        for key in ("citations",):
+            for entry in choice.get(key) or []:
+                if isinstance(entry, str):
+                    add_url(entry)
+        message = choice.get("message")
+        if isinstance(message, dict):
+            for entry in message.get("citations") or []:
+                if isinstance(entry, str):
+                    add_url(entry)
+
+    return urls
+
+
 async def _stream_perplexity_sonar(
     *,
     spec: WebSearchProviderSpec,
@@ -141,14 +177,15 @@ async def _stream_perplexity_sonar(
     api_key: str,
     messages: list[dict[str, Any]],
 ) -> AsyncIterator[tuple[str, list[WebCite]]]:
-    endpoint = spec.endpoint or "https://api.perplexity.ai/v1/chat/completions"
+    endpoint = spec.endpoint or "https://api.perplexity.ai/chat/completions"
     body = {
         "model": model,
         "messages": messages,
         "stream": True,
+        "return_citations": True,
     }
     cites: list[WebCite] = []
-    citations_collected = False
+    seen_urls: set[str] = set()
 
     async with httpx.AsyncClient(timeout=_HTTP_TIMEOUT) as client:
         async with client.stream(
@@ -176,18 +213,10 @@ async def _stream_perplexity_sonar(
                     if delta:
                         yield delta, []
 
-                # Perplexity returns citations as top-level array in the final chunk
-                if not citations_collected:
-                    raw_cites = event.get("citations") or []
-                    for entry in raw_cites:
-                        if isinstance(entry, str):
-                            cites.append(WebCite.from_url(entry))
-                        elif isinstance(entry, dict):
-                            cites.append(WebCite.from_url(
-                                entry.get("url", ""), entry.get("title", "")
-                            ))
-                    if raw_cites:
-                        citations_collected = True
+                for url in _extract_perplexity_citations(event):
+                    if url not in seen_urls:
+                        seen_urls.add(url)
+                        cites.append(WebCite.from_url(url))
 
     if cites:
         yield "", cites

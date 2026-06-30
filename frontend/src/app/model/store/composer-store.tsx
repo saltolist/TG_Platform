@@ -16,6 +16,7 @@ import {
   buildAiReplyMessage,
   buildStreamingAiShell,
   completeAssistantReply,
+  completeStreamedAssistantReply,
   getChatSendValidationMessage,
   hasLlmForComposerScope,
   resolveLlmTarget,
@@ -44,7 +45,9 @@ import {
   patchPostChatContextMeta,
 } from "@/shared/lib/streaming/patchChatContextMeta";
 import { extractChatContextMeta } from "@/shared/api/schemas/chatContextMeta";
-import { updateLastVisibleAiMessage } from "@/shared/lib/chatPaths";
+import { updateLastVisibleAiMessage, findLastVisibleAiMessage } from "@/shared/lib/chatPaths";
+import { parseWebCitesFromStreamMeta } from "@/shared/lib/webCitation";
+import type { WebCite } from "@/shared/api/schemas/post";
 import { queryKeys } from "@/shared/api/queryKeys";
 import type { ChatMessageCtx } from "@/entities/message";
 import type { AssistantRepository } from "@/shared/api/repositories";
@@ -132,13 +135,14 @@ async function streamGlobalAssistantReply(params: {
   webTarget?: ReturnType<typeof resolveWebTarget>;
   variantKey?: string;
   signal?: AbortSignal;
-}): Promise<string> {
+}): Promise<{ text: string; webCites: WebCite[] }> {
   const { queryClient, accountId, chatId, assistant, userText, llmTarget, webTarget, variantKey, signal } =
     params;
   const chat = readGlobalChat(queryClient, accountId, chatId);
   let accumulated = "";
+  let webCites: WebCite[] = [];
   try {
-    return await assistant.streamGlobalChatReply(
+    const text = await assistant.streamGlobalChatReply(
       userText,
       (chunk) => {
         accumulated += chunk;
@@ -156,12 +160,17 @@ async function streamGlobalAssistantReply(params: {
         chatId,
         history: isOverlayAccount(accountId) ? (chat?.history ?? []) : undefined,
         chatMeta: extractChatContextMeta(chat ?? undefined),
-        onMeta: (meta) => patchGlobalChatContextMeta(queryClient, chatId, meta, accountId),
+        onMeta: (meta) => {
+          patchGlobalChatContextMeta(queryClient, chatId, meta, accountId);
+          const parsed = parseWebCitesFromStreamMeta(meta as Record<string, unknown>);
+          if (parsed.length) webCites = parsed;
+        },
         signal,
       },
     );
+    return { text, webCites };
   } catch (error) {
-    if (isAbortError(error)) return accumulated;
+    if (isAbortError(error)) return { text: accumulated, webCites };
     throw error;
   }
 }
@@ -177,7 +186,7 @@ async function streamPostAssistantReply(params: {
   webTarget?: ReturnType<typeof resolveWebTarget>;
   variantKey?: string;
   signal?: AbortSignal;
-}): Promise<string> {
+}): Promise<{ text: string; webCites: WebCite[] }> {
   const {
     queryClient,
     accountId,
@@ -192,8 +201,9 @@ async function streamPostAssistantReply(params: {
   } = params;
   const chat = readPostChat(queryClient, accountId, postId, chatId);
   let accumulated = "";
+  let webCites: WebCite[] = [];
   try {
-    return await assistant.streamPostChatReply(
+    const text = await assistant.streamPostChatReply(
       userText,
       (chunk) => {
         accumulated += chunk;
@@ -213,12 +223,17 @@ async function streamPostAssistantReply(params: {
         postChatId: chatId,
         history: isOverlayAccount(accountId) ? (chat?.history ?? []) : undefined,
         chatMeta: extractChatContextMeta(chat ?? undefined),
-        onMeta: (meta) => patchPostChatContextMeta(queryClient, postId, chatId, meta, accountId),
+        onMeta: (meta) => {
+          patchPostChatContextMeta(queryClient, postId, chatId, meta, accountId);
+          const parsed = parseWebCitesFromStreamMeta(meta as Record<string, unknown>);
+          if (parsed.length) webCites = parsed;
+        },
         signal,
       },
     );
+    return { text, webCites };
   } catch (error) {
-    if (isAbortError(error)) return accumulated;
+    if (isAbortError(error)) return { text: accumulated, webCites };
     throw error;
   }
 }
@@ -258,8 +273,7 @@ async function runMultiGlobalAssistantReplies(params: {
       const llmTarget = resolveLlmTarget(params.cfg, pair.llmId);
       const webTarget = resolveWebTarget(params.cfg, pair.webId) ?? undefined;
       const text = await completeAssistantReply(
-        () =>
-          streamGlobalAssistantReply({
+        async () => (await streamGlobalAssistantReply({
             queryClient: params.queryClient,
             accountId: params.accountId,
             chatId: params.chatId,
@@ -269,7 +283,7 @@ async function runMultiGlobalAssistantReplies(params: {
             webTarget,
             variantKey: pair.id,
             signal: params.signal,
-          }),
+          })).text,
         params.onError,
         { allowEmpty: true },
       );
@@ -296,8 +310,7 @@ async function runMultiPostAssistantReplies(params: {
       const llmTarget = resolveLlmTarget(params.cfg, pair.llmId);
       const webTarget = resolveWebTarget(params.cfg, pair.webId) ?? undefined;
       const text = await completeAssistantReply(
-        () =>
-          streamPostAssistantReply({
+        async () => (await streamPostAssistantReply({
             queryClient: params.queryClient,
             accountId: params.accountId,
             postId: params.postId,
@@ -308,7 +321,7 @@ async function runMultiPostAssistantReplies(params: {
             webTarget,
             variantKey: pair.id,
             signal: params.signal,
-          }),
+          })).text,
         params.onError,
         { allowEmpty: true },
       );
@@ -382,16 +395,21 @@ export function ComposerProvider({ children }: { children: ReactNode }) {
       scope: ComposerScope,
       baseReply: string,
       variantTexts?: Record<string, string>,
+      webCites?: WebCite[],
     ) => {
       const cfg = aiProfileRef.current;
       if (!cfg) return;
       const target = getTarget(scope);
-      const reply = buildAiReplyMessage(cfg, baseReply, scope, target, variantTexts);
+      const cachedCites =
+        webCites ??
+        findLastVisibleAiMessage(readGlobalChat(queryClient, accountId, chatId)?.history ?? [])
+          ?.webCites;
+      const reply = buildAiReplyMessage(cfg, baseReply, scope, target, variantTexts, cachedCites);
       await patchGlobalChatHistory(queryClient, chats, chatId, (history) =>
         updateLastVisibleAiMessage(history, () => reply),
       );
     },
-    [chats, getTarget, queryClient],
+    [accountId, chats, getTarget, queryClient],
   );
 
   const finalizePostReply = useCallback(
@@ -400,16 +418,21 @@ export function ComposerProvider({ children }: { children: ReactNode }) {
       chatId: string,
       baseReply: string,
       variantTexts?: Record<string, string>,
+      webCites?: WebCite[],
     ) => {
       const cfg = aiProfileRef.current;
       if (!cfg) return;
       const target = getTarget("post");
-      const reply = buildAiReplyMessage(cfg, baseReply, "post", target, variantTexts);
+      const cachedCites =
+        webCites ??
+        findLastVisibleAiMessage(readPostChatHistory(queryClient, accountId, postId, chatId))
+          ?.webCites;
+      const reply = buildAiReplyMessage(cfg, baseReply, "post", target, variantTexts, cachedCites);
       await patchPostChatHistory(queryClient, posts, postId, chatId, (history) =>
         updateLastVisibleAiMessage(history, () => reply),
       );
     },
-    [getTarget, posts, queryClient],
+    [accountId, getTarget, posts, queryClient],
   );
 
   const sendHome = useCallback(
@@ -455,7 +478,7 @@ export function ComposerProvider({ children }: { children: ReactNode }) {
             );
             await finalizeGlobalReply(id, "home", "", variantTexts);
           } else {
-            const baseReply = await completeAssistantReply(
+            const { text: baseReply, webCites } = await completeStreamedAssistantReply(
               () =>
                 streamGlobalAssistantReply({
                   queryClient,
@@ -470,7 +493,13 @@ export function ComposerProvider({ children }: { children: ReactNode }) {
               onStreamError,
               { allowEmpty: true },
             );
-            await finalizeGlobalReply(id, "home", resolveFinalAssistantReply(baseReply, signal));
+            await finalizeGlobalReply(
+              id,
+              "home",
+              resolveFinalAssistantReply(baseReply, signal),
+              undefined,
+              webCites,
+            );
           }
         } finally {
           useComposerReplyStore.getState().endReply();
@@ -524,7 +553,7 @@ export function ComposerProvider({ children }: { children: ReactNode }) {
             );
             await finalizeGlobalReply(chatId, "gchat", "", variantTexts);
           } else {
-            const baseReply = await completeAssistantReply(
+            const { text: baseReply, webCites } = await completeStreamedAssistantReply(
               () =>
                 streamGlobalAssistantReply({
                   queryClient,
@@ -539,7 +568,13 @@ export function ComposerProvider({ children }: { children: ReactNode }) {
               onStreamError,
               { allowEmpty: true },
             );
-            await finalizeGlobalReply(chatId, "gchat", resolveFinalAssistantReply(baseReply, signal));
+            await finalizeGlobalReply(
+              chatId,
+              "gchat",
+              resolveFinalAssistantReply(baseReply, signal),
+              undefined,
+              webCites,
+            );
           }
         } finally {
           useComposerReplyStore.getState().endReply();
@@ -606,7 +641,7 @@ export function ComposerProvider({ children }: { children: ReactNode }) {
             );
             await finalizePostReply(postId, replyChatId, "", variantTexts);
           } else {
-            const baseReply = await completeAssistantReply(
+            const { text: baseReply, webCites } = await completeStreamedAssistantReply(
               () =>
                 streamPostAssistantReply({
                   queryClient,
@@ -626,6 +661,8 @@ export function ComposerProvider({ children }: { children: ReactNode }) {
               postId,
               replyChatId,
               resolveFinalAssistantReply(baseReply, signal),
+              undefined,
+              webCites,
             );
           }
         } finally {
@@ -671,7 +708,7 @@ export function ComposerProvider({ children }: { children: ReactNode }) {
             );
             await finalizeGlobalReply(ctx.entityId, "gchat", "", variantTexts);
           } else {
-            const baseReply = await completeAssistantReply(
+            const { text: baseReply, webCites } = await completeStreamedAssistantReply(
               () =>
                 streamGlobalAssistantReply({
                   queryClient,
@@ -690,6 +727,8 @@ export function ComposerProvider({ children }: { children: ReactNode }) {
               ctx.entityId,
               "gchat",
               resolveFinalAssistantReply(baseReply, signal),
+              undefined,
+              webCites,
             );
           }
         } finally {
@@ -725,7 +764,7 @@ export function ComposerProvider({ children }: { children: ReactNode }) {
             );
             await finalizePostReply(ctx.postId, ctx.entityId, "", variantTexts);
           } else {
-            const baseReply = await completeAssistantReply(
+            const { text: baseReply, webCites } = await completeStreamedAssistantReply(
               () =>
                 streamPostAssistantReply({
                   queryClient,
@@ -745,6 +784,8 @@ export function ComposerProvider({ children }: { children: ReactNode }) {
               ctx.postId,
               ctx.entityId,
               resolveFinalAssistantReply(baseReply, signal),
+              undefined,
+              webCites,
             );
           }
         } finally {

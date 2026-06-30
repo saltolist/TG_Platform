@@ -25,6 +25,9 @@ def get_provider_spec(provider: str) -> ProviderSpec | None:
 
 
 def chat_completions_url(spec: ProviderSpec) -> str:
+    # Perplexity accepts /chat/completions (OpenAI SDK alias), not /v1/chat/completions.
+    if spec.name == "Perplexity":
+        return f"{spec.base_url.rstrip('/')}/chat/completions"
     return f"{spec.base_url.rstrip('/')}/v1/chat/completions"
 
 

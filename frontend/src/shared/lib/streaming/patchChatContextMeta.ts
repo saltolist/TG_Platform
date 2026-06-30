@@ -11,7 +11,9 @@ import { getQueryAccountIdFromAuth } from "@/shared/lib/auth/queryAccountScope";
 import { isOverlayAccount } from "@/shared/lib/overlay/isOverlayAccount";
 import { mutateOverlay } from "@/shared/lib/overlay/overlayStorage";
 import { mapMessageAtPath, clampActiveBranchIndex, updateLastVisibleAiMessage } from "@/shared/lib/chatPaths";
+import { parseWebCitesFromStreamMeta } from "@/shared/lib/webCitation";
 import type { ChatMessage, GlobalChat, LocalChat, Post } from "@/shared/types";
+import type { WebCite } from "@/shared/api/schemas/post";
 
 const bundleContextStampSchema = z.object({
   path: z.array(z.number()),
@@ -139,18 +141,11 @@ function applyBundleContextStamp(history: ChatMessage[], stamp: BundleContextSta
   );
 }
 
-const webCiteItemSchema = z.object({
-  url: z.string(),
-  title: z.string(),
-  domain: z.string(),
-});
-
 const streamMetaSchema = chatContextMetaSchema.extend({
   bundle_context_stamp: bundleContextStampSchema.optional(),
   context_label_stamp: contextLabelStampSchema.optional(),
   context_stamp: contextStampPayloadSchema.optional(),
   assistant_text: z.string().optional(),
-  web_cites: z.array(webCiteItemSchema).optional(),
 });
 
 function splitStreamMeta(meta: Record<string, unknown>): {
@@ -159,17 +154,18 @@ function splitStreamMeta(meta: Record<string, unknown>): {
   labelStamp?: ContextLabelStamp;
   stampPayload?: ContextStampPayload;
   assistantText?: string;
-  webCites?: { url: string; title: string; domain: string }[];
+  webCites?: WebCite[];
 } {
+  const webCites = parseWebCitesFromStreamMeta(meta);
   const parsed = streamMetaSchema.parse(meta);
-  const { bundle_context_stamp, context_label_stamp, context_stamp, assistant_text, web_cites, ...rest } = parsed;
+  const { bundle_context_stamp, context_label_stamp, context_stamp, assistant_text, ...rest } = parsed;
   return {
     chatMeta: chatContextMetaSchema.parse(rest),
     bundleStamp: bundle_context_stamp,
     labelStamp: context_label_stamp,
     stampPayload: context_stamp,
     assistantText: assistant_text,
-    webCites: web_cites,
+    webCites: webCites.length > 0 ? webCites : undefined,
   };
 }
 
@@ -190,10 +186,7 @@ function applyAssistantTextStamp(history: ChatMessage[], text: string): ChatMess
   });
 }
 
-function applyWebCitesStamp(
-  history: ChatMessage[],
-  webCites: { url: string; title: string; domain: string }[],
-): ChatMessage[] {
+function applyWebCitesStamp(history: ChatMessage[], webCites: WebCite[]): ChatMessage[] {
   return updateLastVisibleAiMessage(history, (message) => {
     if (message.role !== "ai") return message;
     return { ...message, webCites };
@@ -207,7 +200,7 @@ function applyChatMetaPatch<T extends GlobalChat | LocalChat>(
   labelStamp?: ContextLabelStamp,
   stampPayload?: ContextStampPayload,
   assistantText?: string,
-  webCites?: { url: string; title: string; domain: string }[],
+  webCites?: WebCite[],
 ): T {
   let next = { ...chat, ...patch } as T;
   if (stampPayload) {

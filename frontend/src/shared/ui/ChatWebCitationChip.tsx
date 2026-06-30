@@ -1,12 +1,29 @@
 "use client";
 
-import { SearchIcon } from "@/shared/ui/model-picker";
-
 type Props = {
   url: string;
   title: string;
   domain: string;
 };
+
+function WebSearchChipIcon() {
+  return (
+    <svg
+      viewBox="0 0 24 24"
+      width={12}
+      height={12}
+      aria-hidden="true"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth={2}
+      strokeLinecap="round"
+      strokeLinejoin="round"
+    >
+      <circle cx="11" cy="11" r="7" />
+      <line x1="21" y1="21" x2="16.5" y2="16.5" />
+    </svg>
+  );
+}
 
 /** Inline web source chip at the end of an AI reply paragraph. */
 export default function ChatWebCitationChip({ url, title, domain }: Props) {
@@ -22,7 +39,7 @@ export default function ChatWebCitationChip({ url, title, domain }: Props) {
       rel="noopener noreferrer"
     >
       <span className="chat-citation-chip-icon" aria-hidden="true">
-        <SearchIcon />
+        <WebSearchChipIcon />
       </span>
       <span className="chat-citation-chip-label">{display}</span>
     </a>

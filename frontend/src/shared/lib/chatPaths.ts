@@ -237,6 +237,15 @@ export function lastUserPreviewFromVisibleHistory(history: ChatMessage[]): strin
   return "";
 }
 
+/** Последнее AI-сообщение в видимой ветке (для merge meta после стрима). */
+export function findLastVisibleAiMessage(history: ChatMessage[]): ChatMessage | null {
+  const flat = flattenVisibleWithPaths(history);
+  for (let i = flat.length - 1; i >= 0; i--) {
+    if (flat[i].message.role === "ai") return flat[i].message;
+  }
+  return null;
+}
+
 /** Обновить последнее AI-сообщение в видимой ветке (для стриминга). */
 export function updateLastVisibleAiMessage(
   history: ChatMessage[],

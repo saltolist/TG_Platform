@@ -6,6 +6,7 @@ import { getApiErrorMessage } from "@/shared/api/getApiErrorMessage";
 import { isAbortError } from "@/shared/lib/isAbortError";
 import { apiKeyForClientRequest } from "@/shared/lib/profile/maskedApiKey";
 import type { AiProfileConfig, AiVariant, ChatMessage, ComposerScope, LlmModel } from "@/shared/types";
+import type { WebCite } from "@/shared/api/schemas/post";
 
 export function resolveLlmLabel(cfg: AiProfileConfig, id: string): string {
   const model = cfg.llmModels.find((m) => m.id === id);
@@ -35,6 +36,24 @@ export async function completeAssistantReply(
     onError?.(message);
     return message;
   }
+}
+
+export async function completeStreamedAssistantReply(
+  stream: () => Promise<{ text: string; webCites: WebCite[] }>,
+  onError?: (message: string) => void,
+  options?: { allowEmpty?: boolean },
+): Promise<{ text: string; webCites: WebCite[] }> {
+  let webCites: WebCite[] = [];
+  const text = await completeAssistantReply(
+    async () => {
+      const result = await stream();
+      webCites = result.webCites;
+      return result.text;
+    },
+    onError,
+    options,
+  );
+  return { text, webCites };
 }
 
 export function resolveLlmApiKey(cfg: AiProfileConfig, llmId: string): string | undefined {
@@ -226,6 +245,7 @@ export function buildAiReplyMessage(
   scope: ComposerScope,
   target: { llmId: string; webId: string },
   variantTexts?: Record<string, string>,
+  webCites?: WebCite[],
 ): ChatMessage {
   if (cfg.multiResponseEnabled) {
     const pairs = buildMultiResponsePairs(cfg.llmModels, cfg.webSearchModels);
@@ -261,5 +281,6 @@ export function buildAiReplyMessage(
     targetLabel: label,
     llmLabel: llm,
     webLabel: web,
+    ...(webCites?.length ? { webCites } : {}),
   };
 }

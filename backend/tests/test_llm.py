@@ -40,6 +40,9 @@ def test_get_provider_spec_known() -> None:
     assert deepseek is not None
     assert chat_completions_url(openai) == "https://api.openai.com/v1/chat/completions"
     assert chat_completions_url(deepseek) == "https://api.deepseek.com/v1/chat/completions"
+    perplexity = get_provider_spec("Perplexity")
+    assert perplexity is not None
+    assert chat_completions_url(perplexity) == "https://api.perplexity.ai/chat/completions"
     assert get_provider_spec("Anthropic") is None
 
 

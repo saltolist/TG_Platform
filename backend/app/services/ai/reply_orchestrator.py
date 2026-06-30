@@ -26,9 +26,10 @@ from app.services.ai.chat_history import (
     merge_history_stamps,
 )
 from app.services.ai.note_citations import NoteCite, prepare_note_citations_for_reply
+from app.services.ai.web_citations import prepare_web_citations_for_reply
 from app.services.ai.context import append_user_text_to_pairs, assemble_reply_messages
 from app.services.ai.web_search import WebCite, WebSearchResult
-from app.services.ai.providers import WebSearchProviderSpec, WebSearchPath
+from app.services.ai.providers import WebSearchProviderSpec, WebSearchPath, get_web_search_spec
 from app.core.config import get_settings
 from app.services.ai.context_label import stamp_context_label_on_path
 from app.services.ai.context_stamp_label import stamp_context_stamp_on_path
@@ -466,15 +467,23 @@ async def stream_reply_with_meta(ctx: ReplyContext, messages: list[dict[str, str
     web_cites: list[WebCite] = []
     started = time.perf_counter()
 
-    # -- Web search paths A & B: stream directly from web provider ----------------
-    if ctx.web_spec is not None and ctx.web_spec.path in (
-        WebSearchPath.OPENAI_RESPONSES,
-        WebSearchPath.PERPLEXITY_SONAR,
+    # Perplexity sonar LLM: built-in web search, citations in API response (no separate web picker).
+    built_in_perplexity_spec: WebSearchProviderSpec | None = None
+    if ctx.web_spec is None and ctx.provider_name and ctx.model_id:
+        candidate = get_web_search_spec(ctx.provider_name, ctx.model_id)
+        if candidate is not None and candidate.path == WebSearchPath.PERPLEXITY_SONAR:
+            built_in_perplexity_spec = candidate
+
+    async def _stream_web_path(
+        spec: WebSearchProviderSpec,
+        model: str,
+        api_key: str,
     ):
+        nonlocal web_cites, accumulated
         stream = await execute_web_search(
-            spec=ctx.web_spec,
-            model=ctx.web_model,
-            api_key=ctx.web_api_key,
+            spec=spec,
+            model=model,
+            api_key=api_key,
             messages=messages,
             query=ctx.payload.text,
         )
@@ -485,7 +494,24 @@ async def stream_reply_with_meta(ctx: ReplyContext, messages: list[dict[str, str
                 accumulated.append(text_delta)
                 yield format_sse_data(text_delta)
 
-    # -- Path C: context already injected into messages; regular LLM stream -------
+    # -- Web search paths A & B: stream directly from web provider ----------------
+    if ctx.web_spec is not None and ctx.web_spec.path in (
+        WebSearchPath.OPENAI_RESPONSES,
+        WebSearchPath.PERPLEXITY_SONAR,
+    ):
+        async for event in _stream_web_path(ctx.web_spec, ctx.web_model, ctx.web_api_key):
+            yield event
+
+    # -- Perplexity sonar as primary LLM (built-in search) ------------------------
+    elif built_in_perplexity_spec is not None:
+        async for event in _stream_web_path(
+            built_in_perplexity_spec,
+            ctx.model_id,
+            ctx.api_key,
+        ):
+            yield event
+
+    # -- Path C / plain LLM stream ------------------------------------------------
     else:
         async for event in stream_llm_sse(
             spec=ctx.spec,
@@ -502,6 +528,7 @@ async def stream_reply_with_meta(ctx: ReplyContext, messages: list[dict[str, str
 
     assistant_text = "".join(accumulated)
     assistant_text = prepare_note_citations_for_reply(assistant_text, ctx.rag_cites)
+    assistant_text = prepare_web_citations_for_reply(assistant_text, web_cites)
     latency_ms = max(0, int((time.perf_counter() - started) * 1000))
     await _record_reply_usage(ctx, messages=messages, assistant_text=assistant_text, latency_ms=latency_ms)
     updated_meta = await _finalize_context_meta(ctx, assistant_text)
