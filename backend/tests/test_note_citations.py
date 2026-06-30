@@ -4,6 +4,7 @@ from app.services.ai.note_citations import (
     inject_missing_note_citations,
     normalize_note_citation_markdown,
     prepare_note_citations_for_reply,
+    strip_invalid_note_citations,
 )
 
 
@@ -42,4 +43,25 @@ def test_prepare_note_citations_for_reply() -> None:
     text = "В [Работа](/note/global/1/) тексте есть факты."
     assert prepare_note_citations_for_reply(text, cites) == (
         "В тексте есть факты. [Работа](/note/global/1/)"
+    )
+
+
+def test_strip_invalid_note_citations_removes_hallucinated_paths() -> None:
+    cites = [NoteCite(path="/note/global/1/", title="Работа")]
+    text = "Факт.[Работа](/note/global/1/) Выдумка.[Другое](/note/global/999/)"
+    assert strip_invalid_note_citations(text, cites) == (
+        "Факт.[Работа](/note/global/1/) Выдумка."
+    )
+
+
+def test_strip_invalid_note_citations_removes_all_when_no_context() -> None:
+    text = "Текст.[Заметка](/note/global/1/)"
+    assert strip_invalid_note_citations(text, []) == "Текст."
+
+
+def test_prepare_note_citations_for_reply_strips_invalid_before_inject() -> None:
+    cites = [NoteCite(path="/note/global/1/", title="Работа")]
+    text = "Нужно сделать отчёт.[Фейк](/note/global/999/)"
+    assert prepare_note_citations_for_reply(text, cites) == (
+        "Нужно сделать отчёт. [Работа](/note/global/1/)"
     )

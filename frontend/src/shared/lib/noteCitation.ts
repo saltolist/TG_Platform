@@ -63,6 +63,28 @@ export function normalizeNoteCitationMarkdown(text: string): string {
   return out;
 }
 
+/** Canonical path for comparing note citation targets. */
+export function normalizeNoteCitationPath(href: string): string | null {
+  const resolved = resolveNoteCitationHref(href);
+  if (!resolved) return null;
+  return resolved.endsWith("/") ? resolved : `${resolved}/`;
+}
+
+/** Remove note citation links that do not point to known notes. */
+export function stripInvalidNoteCitations(text: string, validPaths: ReadonlySet<string>): string {
+  if (validPaths.size === 0) {
+    NOTE_CITE_LINK_RE.lastIndex = 0;
+    return text.replace(NOTE_CITE_LINK_RE, "");
+  }
+
+  NOTE_CITE_LINK_RE.lastIndex = 0;
+  return text.replace(NOTE_CITE_LINK_RE, (match, _title: string, href: string) => {
+    const normalized = normalizeNoteCitationPath(href);
+    if (normalized && validPaths.has(normalized)) return match;
+    return "";
+  });
+}
+
 function detachCitationsInParagraph(paragraph: string): string {
   const cites: string[] = [];
   const body = paragraph
@@ -97,8 +119,14 @@ export function detachNoteCitations(text: string): string {
     .join("");
 }
 
-export function prepareNoteCitationsForDisplay(text: string): string {
-  return detachNoteCitations(normalizeNoteCitationMarkdown(text));
+export function prepareNoteCitationsForDisplay(
+  text: string,
+  validPaths?: ReadonlySet<string>,
+): string {
+  const normalized = normalizeNoteCitationMarkdown(text);
+  const validated =
+    validPaths !== undefined ? stripInvalidNoteCitations(normalized, validPaths) : normalized;
+  return detachNoteCitations(validated);
 }
 
 export function splitNoteCitationSegments(text: string): NoteCitationSegment[] {

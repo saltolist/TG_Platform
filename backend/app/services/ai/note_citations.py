@@ -24,6 +24,54 @@ class NoteCite:
     title: str
 
 
+def _normalize_cite_path(path: str) -> str:
+    """Canonical form for comparing note citation targets."""
+    raw = path.strip()
+    if raw.startswith("note:global/"):
+        note_id = raw[len("note:global/") :].strip("/")
+        return f"/note/global/{note_id}/" if note_id else raw
+    if raw.startswith("note:post/"):
+        rest = raw[len("note:post/") :].strip("/")
+        parts = rest.split("/")
+        if len(parts) >= 2 and parts[0] and parts[1]:
+            return f"/note/post/{parts[0]}/{parts[1]}/"
+        return raw
+    if raw.startswith("/note/"):
+        return raw if raw.endswith("/") else f"{raw}/"
+    return raw
+
+
+def _valid_cite_paths(cites: list[NoteCite]) -> set[str]:
+    return {_normalize_cite_path(cite.path) for cite in cites}
+
+
+def _is_valid_cite_href(href: str, valid_paths: set[str]) -> bool:
+    if not valid_paths:
+        return False
+    return _normalize_cite_path(href) in valid_paths
+
+
+def strip_invalid_note_citations(text: str, cites: list[NoteCite]) -> str:
+    """Remove note citation links/metadata that are not in the RAG cite list."""
+    valid_paths = _valid_cite_paths(cites)
+
+    def repl_link(match: re.Match[str]) -> str:
+        if _is_valid_cite_href(match.group(2), valid_paths):
+            return match.group(0)
+        return ""
+
+    out = NOTE_CITE_LINK_RE.sub(repl_link, text)
+    out = CITE_PATH_IN_LINK_RE.sub(repl_link, out)
+    out = CITE_PATH_TITLE_RE.sub(
+        lambda match: match.group(0)
+        if _is_valid_cite_href(match.group(1), valid_paths)
+        else "",
+        out,
+    )
+    out = re.sub(r"[ \t]{2,}", " ", out)
+    return out
+
+
 def normalize_note_citation_markdown(text: str) -> str:
     out = CITE_PATH_IN_LINK_RE.sub(r"[\1](\2)", text)
     out = CITE_PATH_TITLE_RE.sub(
@@ -112,6 +160,8 @@ def inject_missing_note_citations(text: str, cites: list[NoteCite]) -> str:
 
 
 def prepare_note_citations_for_reply(text: str, cites: list[NoteCite] | None = None) -> str:
+    cites = cites or []
     normalized = normalize_note_citation_markdown(text)
-    with_inject = inject_missing_note_citations(normalized, cites or [])
+    validated = strip_invalid_note_citations(normalized, cites)
+    with_inject = inject_missing_note_citations(validated, cites)
     return detach_note_citations(with_inject)

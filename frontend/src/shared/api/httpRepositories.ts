@@ -52,6 +52,10 @@ function streamAiReply(
     if (result.meta && typeof result.meta === "object") {
       options?.onMeta?.(result.meta as ChatContextMeta & Record<string, unknown>);
     }
+    const assistantText = result.meta?.assistant_text;
+    if (typeof assistantText === "string") {
+      return assistantText;
+    }
     return result.text;
   });
 }

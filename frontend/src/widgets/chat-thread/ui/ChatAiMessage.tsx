@@ -5,6 +5,10 @@ import AiMessageToolbar from "./AiMessageToolbar";
 import AiTypingIndicator from "./AiTypingIndicator";
 import ChatAiVariantNav from "./ChatAiVariantNav";
 import type { ChatMessageCtx } from "@/entities/message";
+import { useGlobalNotes } from "@/entities/note";
+import { usePosts } from "@/entities/post";
+import { buildValidNoteCitationPaths } from "@/shared/lib/buildValidNoteCitationPaths";
+import { useMemo } from "react";
 
 type Props = {
   plainAi: string;
@@ -29,6 +33,12 @@ export default function ChatAiMessage({
   onDelete,
   isStreaming = false,
 }: Props) {
+  const { data: posts = [] } = usePosts();
+  const { data: globalNotes = [] } = useGlobalNotes();
+  const validNotePaths = useMemo(
+    () => buildValidNoteCitationPaths(globalNotes, posts),
+    [globalNotes, posts],
+  );
   const showTyping = isStreaming && !plainAi.trim();
   const showMultiStreamingNav = isStreaming && showVariantNav && !!ctx;
   const showFooter = !isStreaming || showMultiStreamingNav;
@@ -40,7 +50,7 @@ export default function ChatAiMessage({
           <AiTypingIndicator />
         ) : (
           <div className="msg-text">
-            <ChatMarkdown text={plainAi} />
+            <ChatMarkdown text={plainAi} validNotePaths={validNotePaths} />
           </div>
         )}
         {showFooter ? (

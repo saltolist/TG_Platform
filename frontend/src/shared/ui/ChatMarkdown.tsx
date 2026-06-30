@@ -17,6 +17,7 @@ import ChatCitationChip from "@/shared/ui/ChatCitationChip";
 type Props = {
   text: string;
   className?: string;
+  validNotePaths?: ReadonlySet<string>;
 };
 
 function allowNoteUrls(url: string): string {
@@ -157,8 +158,8 @@ function renderParagraphSegments(paragraph: string, keyPrefix: string): ReactNod
   );
 }
 
-export default function ChatMarkdown({ text, className }: Props) {
-  const prepared = prepareNoteCitationsForDisplay(text);
+export default function ChatMarkdown({ text, className, validNotePaths }: Props) {
+  const prepared = prepareNoteCitationsForDisplay(text, validNotePaths);
   if (!prepared.trim()) return null;
 
   const blocks = prepared.split(/\n{2,}/);

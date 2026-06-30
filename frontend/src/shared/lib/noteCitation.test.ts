@@ -7,6 +7,7 @@ import {
   normalizeNoteCitationMarkdown,
   resolveNoteCitationHref,
   splitNoteCitationSegments,
+  stripInvalidNoteCitations,
 } from "./noteCitation";
 
 describe("resolveNoteCitationHref", () => {
@@ -82,6 +83,29 @@ describe("splitNoteCitationSegments", () => {
       { type: "text", text: "Текст." },
       { type: "cite", title: "Работа", href: "/note/global/1/" },
     ]);
+  });
+});
+
+describe("stripInvalidNoteCitations", () => {
+  it("keeps citations that point to known notes", () => {
+    const valid = new Set(["/note/global/1/"]);
+    expect(
+      stripInvalidNoteCitations("Факт.[Работа](/note/global/1/)", valid),
+    ).toBe("Факт.[Работа](/note/global/1/)");
+  });
+
+  it("removes citations to unknown notes", () => {
+    const valid = new Set(["/note/global/1/"]);
+    expect(
+      stripInvalidNoteCitations(
+        "Факт.[Работа](/note/global/1/) Выдумка.[X](/note/global/999/)",
+        valid,
+      ),
+    ).toBe("Факт.[Работа](/note/global/1/) Выдумка.");
+  });
+
+  it("removes all citations when valid set is empty", () => {
+    expect(stripInvalidNoteCitations("Текст.[A](/note/global/1/)", new Set())).toBe("Текст.");
   });
 });
 
