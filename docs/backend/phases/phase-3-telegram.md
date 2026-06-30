@@ -83,12 +83,29 @@
 4. `reset/` — best-effort `log_out()` в Telegram (если есть активная сессия) +
    локальный сброс в `idle`/`credentials`, `sessionString` очищается.
 
+**Таймауты на сетевые вызовы:** все обращения к Telethon (`connect`,
+`send_code_request`, `sign_in`, `log_out`) обёрнуты в `asyncio.wait_for`
+(`Settings.telegram_rpc_timeout_seconds`, по умолчанию 25 с). Найдено при ручной
+проверке: при невалидном/устаревшем `apiId` сервер Telegram иногда не возвращает
+чистую `ApiIdInvalidError`, а просто не отвечает (см.
+[LonamiWebs/Telethon#1056](https://github.com/LonamiWebs/Telethon/issues/1056)) —
+без таймаута это подвешивало бы запрос (и воркер) навечно. При истечении таймаута
+возвращается `504` с понятным сообщением. Покрыто тестом
+`test_send_code_times_out_instead_of_hanging`.
+
 **Тесты:** `backend/tests/test_telegram_auth.py` — фейковый Telethon-клиент
 (`monkeypatch` на `app.services.telegram.mtproto_client`), все ветки выше + 2FA +
 регрессия на отсутствие internal-полей в любом JSON-ответе.
 
-> Frontend пока остаётся на клиентской заглушке (`useTelegramBlock.ts` без сетевых
-> вызовов) — переключение на реальные эндпоинты выше — отдельная следующая задача.
+**Frontend подключён к реальным эндпоинтам** (`useTelegramBlock.ts` —
+`startAuth`/`resendCode`/`confirmCode`/`confirmPassword`/`reset` вызывают
+`profile.sendTelegramCode/verifyTelegramCode/verifyTelegram2fa/resetTelegramAuth`
+из `ProfileRepository`). 2FA-шаг — отдельный `TelegramPasswordInput`, появляется
+когда `authStep === "password"`. Guest/demo overlay-аккаунты и MSW dev-режим
+(`shouldPersistLocally()`) продолжают использовать локальную instant-success
+симуляцию в `overlayRepositories.ts` — на них реальный Telethon не дёргается
+(сид-аккаунты не подключают реальный Telegram), только реальные API-аккаунты идут
+в `httpRepositories.ts` → backend.
 
 ---
 

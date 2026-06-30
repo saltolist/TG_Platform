@@ -3,6 +3,8 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { useQueryClient } from "@tanstack/react-query";
 import { useUpdateTelegramProfile } from "@/entities/channel";
+import { useRepositories } from "@/app/providers/RepositoryProvider";
+import { getApiErrorMessage } from "@/shared/api/getApiErrorMessage";
 import { DEMO_CHANNEL_TITLE } from "@/shared/lib/auth/constants";
 import { isDemoChannelHandle } from "@/shared/lib/channel/isDemoChannelHandle";
 import { refreshPostsAfterChannelImport } from "@/widgets/profile-settings/lib/syncProfileDraftAfterChannelImport";
@@ -35,11 +37,17 @@ export function useTelegramBlock() {
   const { applyPatch } = useDomainActions();
   const { setDirty } = useUi();
   const updateTelegramProfile = useUpdateTelegramProfile();
+  const { profile } = useRepositories();
   const queryClient = useQueryClient();
   const [code, setCode] = useState("");
+  const [password, setPassword] = useState("");
   const [syncing, setSyncing] = useState(false);
   const [savingCredentials, setSavingCredentials] = useState(false);
   const [connectingBot, setConnectingBot] = useState(false);
+  const [sendingCode, setSendingCode] = useState(false);
+  const [verifyingCode, setVerifyingCode] = useState(false);
+  const [verifyingPassword, setVerifyingPassword] = useState(false);
+  const [resettingAuth, setResettingAuth] = useState(false);
   const [resendCooldownSec, setResendCooldownSec] = useState(0);
   const [credentialsFlashNonce, setCredentialsFlashNonce] = useState(0);
   const syncTimerRef = useRef<number | null>(null);
@@ -102,6 +110,7 @@ export function useTelegramBlock() {
   const isConnected = cfg.authStatus === "connected" && cfg.channelStatus === "connected";
   const isAuthorized = cfg.authStatus === "authorized" || cfg.authStatus === "connected";
   const codeHidden = cfg.authStatus !== "code-sent";
+  const awaitingPassword = cfg.authStatus === "code-sent" && cfg.authStep === "password";
   const savedSnapshot = parseTelegramSnapshot(telegramSettingsSavedSnapshot);
   const apiIdChangedFromSaved = normalizeTelegramValue(cfg.apiId) !== normalizeTelegramValue(savedSnapshot.apiId);
   const apiHashChangedFromSaved = normalizeTelegramValue(cfg.apiHash) !== normalizeTelegramValue(savedSnapshot.apiHash);
@@ -109,7 +118,8 @@ export function useTelegramBlock() {
   const phoneChangedFromSaved = normalizeTelegramValue(cfg.phone) !== normalizeTelegramValue(savedSnapshot.phone);
   const channelChangedFromSaved = normalizeTelegramValue(cfg.channel) !== normalizeTelegramValue(savedSnapshot.channel);
   const phoneIncomplete = !isTelegramPhoneComplete(cfg.phone);
-  const sendCodeDisabled = phoneIncomplete || (isAuthorized && !phoneChangedFromSaved);
+  const sendCodeDisabled =
+    phoneIncomplete || (isAuthorized && !phoneChangedFromSaved) || sendingCode;
   const connectChannelDisabled = isConnected && !channelChangedFromSaved;
   const isBotConnected = cfg.botStatus === "connected";
   const botTokenTrimmed = cfg.botApiToken.trim();
@@ -134,10 +144,29 @@ export function useTelegramBlock() {
     return false;
   };
 
+  const sendCode = async () => {
+    setSendingCode(true);
+    try {
+      const saved = await profile.sendTelegramCode(cfg.phone);
+      update(saved);
+      applyPatch({ telegramSettingsSavedSnapshot: telegramConfigSnapshot(saved) });
+      setCode("");
+      setPassword("");
+    } catch (error) {
+      showToast({
+        message: getApiErrorMessage(error, "Не удалось отправить код"),
+        variant: "error",
+      });
+    } finally {
+      setSendingCode(false);
+    }
+  };
+
   const startAuth = async () => {
     if (sendCodeDisabled) return;
     if (rejectSendCodeValidation()) return;
-    if (isAuthorized && phoneChangedFromSaved) {
+    const reauthorizing = isAuthorized && phoneChangedFromSaved;
+    if (reauthorizing) {
       const ok = await confirmDialog({
         message:
           "При переподключении телефона данные прошлого аккаунта и подключенного канала будут недоступны, пока вы не подключите их снова.",
@@ -159,36 +188,98 @@ export function useTelegramBlock() {
       lastSync: cfg.lastSync,
       importedPosts: cfg.importedPosts,
     };
-    update({
-      authStatus: "code-sent",
-      authStep: "code",
-      channelStatus: isAuthorized && phoneChangedFromSaved ? "idle" : cfg.channelStatus === "connected" ? "pending" : cfg.channelStatus,
-      channelTitle: isAuthorized && phoneChangedFromSaved ? "" : cfg.channelTitle,
-      lastSync: isAuthorized && phoneChangedFromSaved ? "—" : cfg.lastSync,
-      importedPosts: isAuthorized && phoneChangedFromSaved ? 0 : cfg.importedPosts,
-    });
+    if (reauthorizing) {
+      update({
+        channelStatus: cfg.channelStatus === "connected" ? "pending" : cfg.channelStatus,
+        channelTitle: "",
+        lastSync: "—",
+        importedPosts: 0,
+      });
+    }
+    await sendCode();
   };
 
-  const resendCode = () => {
+  const resendCode = async () => {
     if (resendCooldownSec > 0 || sendCodeDisabled || cfg.authStatus !== "code-sent") return;
     if (rejectSendCodeValidation()) return;
+    await sendCode();
     beginResendCooldown();
   };
 
-  const cancelCodeEntry = () => {
-    setCode("");
+  const cancelCodeEntry = async () => {
     const prev = authBeforeCodeSentRef.current;
     authBeforeCodeSentRef.current = null;
-    if (prev) update(prev);
-    else update({ authStatus: "idle", authStep: "credentials" });
+    const patch: Partial<TelegramProfileConfig> =
+      prev ?? { authStatus: "idle", authStep: "credentials" };
+    const merged = { ...cfg, ...patch };
+    const previousCfg = cfg;
+    setCode("");
+    setPassword("");
+    update(patch);
+    try {
+      const saved = await updateTelegramProfile.mutateAsync(merged);
+      update(saved);
+      applyPatch({ telegramSettingsSavedSnapshot: telegramConfigSnapshot(saved) });
+    } catch (error) {
+      update(previousCfg);
+      reportMutationError(error, "Не удалось отменить ввод кода");
+    }
   };
 
-  const confirmCode = () => {
-    authBeforeCodeSentRef.current = null;
-    update({
-      authStatus: code.trim() ? "authorized" : "code-sent",
-      authStep: code.trim() ? "channel" : "code",
-    });
+  /** After a verify error the backend may have already changed state server-side
+   * (e.g. an expired code resets authStatus to "idle") — resync to be sure. */
+  const resyncAfterVerifyError = async () => {
+    try {
+      const fresh = await profile.getTelegram();
+      update(fresh);
+    } catch {
+      // Best-effort only — keep whatever is currently shown.
+    }
+  };
+
+  const confirmCode = async () => {
+    if (!code.trim() || verifyingCode) return;
+    setVerifyingCode(true);
+    try {
+      const saved = await profile.verifyTelegramCode(code);
+      update(saved);
+      applyPatch({ telegramSettingsSavedSnapshot: telegramConfigSnapshot(saved) });
+      if (saved.authStep === "password") {
+        setPassword("");
+      } else {
+        authBeforeCodeSentRef.current = null;
+        setCode("");
+      }
+    } catch (error) {
+      showToast({
+        message: getApiErrorMessage(error, "Не удалось подтвердить код"),
+        variant: "error",
+      });
+      await resyncAfterVerifyError();
+    } finally {
+      setVerifyingCode(false);
+    }
+  };
+
+  const confirmPassword = async () => {
+    if (!password.trim() || verifyingPassword) return;
+    setVerifyingPassword(true);
+    try {
+      const saved = await profile.verifyTelegram2fa(password);
+      update(saved);
+      applyPatch({ telegramSettingsSavedSnapshot: telegramConfigSnapshot(saved) });
+      authBeforeCodeSentRef.current = null;
+      setCode("");
+      setPassword("");
+    } catch (error) {
+      showToast({
+        message: getApiErrorMessage(error, "Не удалось подтвердить пароль"),
+        variant: "error",
+      });
+      await resyncAfterVerifyError();
+    } finally {
+      setVerifyingPassword(false);
+    }
   };
 
   const connectChannel = async () => {
@@ -260,34 +351,41 @@ export function useTelegramBlock() {
     }
   };
 
-  const reset = () => {
+  const reset = async () => {
+    if (resettingAuth) return;
     if (syncTimerRef.current !== null) {
       window.clearTimeout(syncTimerRef.current);
       syncTimerRef.current = null;
     }
     setSyncing(false);
     setCredentialsFlashNonce(0);
-    update({
-      authStatus: "idle",
-      authStep: "credentials",
-      channelStatus: "idle",
-      lastSync: "—",
-      importedPosts: 0,
-      botApiToken: "",
-      botStatus: "idle",
-      botUsername: "",
-      botLastActivity: "—",
-      botMessageCount: 0,
-    });
-    applyPatch({
-      telegramSettingsSavedSnapshot: telegramConfigSnapshot({
-        ...cfg,
-        authStatus: "idle",
+    setCode("");
+    setPassword("");
+    authBeforeCodeSentRef.current = null;
+    const previousCfg = cfg;
+    setResettingAuth(true);
+    try {
+      const authReset = await profile.resetTelegramAuth();
+      const merged: TelegramProfileConfig = {
+        ...authReset,
         channelStatus: "idle",
+        lastSync: "—",
+        importedPosts: 0,
         botApiToken: "",
         botStatus: "idle",
-      }),
-    });
+        botUsername: "",
+        botLastActivity: "—",
+        botMessageCount: 0,
+      };
+      const saved = await updateTelegramProfile.mutateAsync(merged);
+      update(saved);
+      applyPatch({ telegramSettingsSavedSnapshot: telegramConfigSnapshot(saved) });
+    } catch (error) {
+      update(previousCfg);
+      reportMutationError(error, "Не удалось сбросить настройки Telegram");
+    } finally {
+      setResettingAuth(false);
+    }
   };
 
   const saveApiCredentials = async () => {
@@ -320,11 +418,18 @@ export function useTelegramBlock() {
     isConnected,
     isAuthorized,
     codeHidden,
+    awaitingPassword,
     syncing,
     code,
     setCode,
+    password,
+    setPassword,
     savingCredentials,
     connectingBot,
+    sendingCode,
+    verifyingCode,
+    verifyingPassword,
+    resettingAuth,
     resendCooldownSec,
     apiChangedFromSaved,
     apiIdMissing,
@@ -338,6 +443,7 @@ export function useTelegramBlock() {
     resendCode,
     cancelCodeEntry,
     confirmCode,
+    confirmPassword,
     connectChannel,
     connectBot,
     reset,

@@ -2,6 +2,7 @@
 
 import {
   TelegramCodeInput,
+  TelegramPasswordInput,
   TelegramPhoneInput,
   TelegramResendCode,
 } from "@/widgets/profile-settings/ui/telegram/TelegramInputs";
@@ -10,13 +11,19 @@ import type { TelegramProfileConfig } from "@/shared/types";
 type Props = {
   cfg: TelegramProfileConfig;
   codeHidden: boolean;
+  awaitingPassword: boolean;
   code: string;
+  password: string;
   resendCooldownSec: number;
   sendCodeDisabled: boolean;
+  verifyingCode: boolean;
+  verifyingPassword: boolean;
   onPhoneChange: (phone: string) => void;
   onCodeChange: (code: string) => void;
+  onPasswordChange: (password: string) => void;
   onStartAuth: () => void;
   onConfirmCode: () => void;
+  onConfirmPassword: () => void;
   onCancelCodeEntry: () => void;
   onResendCode: () => void;
 };
@@ -24,16 +31,42 @@ type Props = {
 export default function TelegramAuthSection({
   cfg,
   codeHidden,
+  awaitingPassword,
   code,
+  password,
   resendCooldownSec,
   sendCodeDisabled,
+  verifyingCode,
+  verifyingPassword,
   onPhoneChange,
   onCodeChange,
+  onPasswordChange,
   onStartAuth,
   onConfirmCode,
+  onConfirmPassword,
   onCancelCodeEntry,
   onResendCode,
 }: Props) {
+  const confirmStep = awaitingPassword ? (
+    <TelegramPasswordInput
+      value={password}
+      onChange={onPasswordChange}
+      onDismiss={onCancelCodeEntry}
+      disabled={verifyingPassword}
+    />
+  ) : (
+    <TelegramCodeInput
+      value={code}
+      onChange={onCodeChange}
+      onDismiss={onCancelCodeEntry}
+      disabled={verifyingCode}
+    />
+  );
+  const confirmDisabled = awaitingPassword
+    ? !password.trim() || verifyingPassword
+    : !code.trim() || verifyingCode;
+  const onConfirmStep = awaitingPassword ? onConfirmPassword : onConfirmCode;
+
   return (
     <>
       <div className="telegram-auth-desktop">
@@ -67,11 +100,18 @@ export default function TelegramAuthSection({
                     value={cfg.phone}
                     onChange={onPhoneChange}
                   />
-                  <TelegramCodeInput value={code} onChange={onCodeChange} onDismiss={onCancelCodeEntry} />
-                  <button className="btn btn-ghost telegram-inline-button" onClick={onConfirmCode} type="button">
+                  {confirmStep}
+                  <button
+                    className="btn btn-ghost telegram-inline-button"
+                    disabled={confirmDisabled}
+                    onClick={onConfirmStep}
+                    type="button"
+                  >
                     Подтвердить
                   </button>
-                  <TelegramResendCode secondsLeft={resendCooldownSec} onResend={onResendCode} />
+                  {awaitingPassword ? null : (
+                    <TelegramResendCode secondsLeft={resendCooldownSec} onResend={onResendCode} />
+                  )}
                 </div>
               </div>
             </div>
@@ -100,12 +140,19 @@ export default function TelegramAuthSection({
                 </div>
                 <div className="telegram-code-block telegram-desktop-code-block">
                   <div className="telegram-inline-field-row telegram-desktop-code-inline">
-                    <TelegramCodeInput value={code} onChange={onCodeChange} onDismiss={onCancelCodeEntry} />
-                    <button className="btn btn-ghost telegram-inline-button" onClick={onConfirmCode} type="button">
+                    {confirmStep}
+                    <button
+                      className="btn btn-ghost telegram-inline-button"
+                      disabled={confirmDisabled}
+                      onClick={onConfirmStep}
+                      type="button"
+                    >
                       Подтвердить
                     </button>
                   </div>
-                  <TelegramResendCode secondsLeft={resendCooldownSec} onResend={onResendCode} />
+                  {awaitingPassword ? null : (
+                    <TelegramResendCode secondsLeft={resendCooldownSec} onResend={onResendCode} />
+                  )}
                 </div>
               </div>
             </div>
@@ -135,12 +182,19 @@ export default function TelegramAuthSection({
             </div>
             <div className="telegram-code-block">
               <div className="telegram-inline-field-row">
-                <TelegramCodeInput value={code} onChange={onCodeChange} onDismiss={onCancelCodeEntry} />
-                <button className="btn btn-ghost telegram-inline-button" onClick={onConfirmCode} type="button">
+                {confirmStep}
+                <button
+                  className="btn btn-ghost telegram-inline-button"
+                  disabled={confirmDisabled}
+                  onClick={onConfirmStep}
+                  type="button"
+                >
                   Подтвердить
                 </button>
               </div>
-              <TelegramResendCode secondsLeft={resendCooldownSec} onResend={onResendCode} />
+              {awaitingPassword ? null : (
+                <TelegramResendCode secondsLeft={resendCooldownSec} onResend={onResendCode} />
+              )}
             </div>
           </div>
         )}

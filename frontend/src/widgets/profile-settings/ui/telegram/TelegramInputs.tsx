@@ -29,10 +29,12 @@ export function TelegramCodeInput({
   value,
   onChange,
   onDismiss,
+  disabled = false,
 }: {
   value: string;
   onChange: (value: string) => void;
   onDismiss: () => void;
+  disabled?: boolean;
 }) {
   return (
     <div className="telegram-code-input-field">
@@ -41,12 +43,47 @@ export function TelegramCodeInput({
         placeholder="Код из Telegram"
         maxLength={8}
         value={value}
+        disabled={disabled}
         onChange={(e) => onChange(e.target.value)}
       />
       <button
         type="button"
         className="telegram-code-input-dismiss"
         aria-label="Отменить ввод кода"
+        onClick={onDismiss}
+      >
+        <CloseIcon size={14} />
+      </button>
+    </div>
+  );
+}
+
+export function TelegramPasswordInput({
+  value,
+  onChange,
+  onDismiss,
+  disabled = false,
+}: {
+  value: string;
+  onChange: (value: string) => void;
+  onDismiss: () => void;
+  disabled?: boolean;
+}) {
+  return (
+    <div className="telegram-code-input-field">
+      <input
+        className="profile-input telegram-code-input"
+        type="password"
+        autoComplete="off"
+        placeholder="Пароль (2FA)"
+        value={value}
+        disabled={disabled}
+        onChange={(e) => onChange(e.target.value)}
+      />
+      <button
+        type="button"
+        className="telegram-code-input-dismiss"
+        aria-label="Отменить ввод пароля"
         onClick={onDismiss}
       >
         <CloseIcon size={14} />

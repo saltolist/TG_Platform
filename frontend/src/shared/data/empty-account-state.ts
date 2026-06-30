@@ -50,6 +50,7 @@ export function createEmptyTelegramProfile(): TelegramProfileConfig {
     apiHash: "",
     phone: "",
     sessionName: "",
+    sessionString: "",
     channel: "",
     channelTitle: "",
     channelStatus: "idle",

@@ -352,6 +352,7 @@ const presentationTelegramProfile = (): TelegramProfileConfig => ({
   apiHash: "",
   phone: "",
   sessionName: "",
+  sessionString: "",
   channel: PRESENTATION_CHANNEL_HANDLE,
   channelTitle: PRESENTATION_CHANNEL_TITLE,
   channelStatus: "connected",

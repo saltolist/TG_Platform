@@ -160,6 +160,25 @@ export function createHttpRepositories(): RepositoryBundle {
           method: "POST",
           body: { field },
         }),
+      sendTelegramCode: (phone) =>
+        apiRequest<TelegramProfileConfig>(apiV1Path("telegram/auth/send-code"), {
+          method: "POST",
+          body: { phone },
+        }).then(normalizeTelegramProfileConfig),
+      verifyTelegramCode: (code) =>
+        apiRequest<TelegramProfileConfig>(apiV1Path("telegram/auth/verify"), {
+          method: "POST",
+          body: { code },
+        }).then(normalizeTelegramProfileConfig),
+      verifyTelegram2fa: (password) =>
+        apiRequest<TelegramProfileConfig>(apiV1Path("telegram/auth/verify-2fa"), {
+          method: "POST",
+          body: { password },
+        }).then(normalizeTelegramProfileConfig),
+      resetTelegramAuth: () =>
+        apiRequest<TelegramProfileConfig>(apiV1Path("telegram/auth/reset"), {
+          method: "POST",
+        }).then(normalizeTelegramProfileConfig),
     },
     assistant: {
       streamGlobalChatReply: (text, onChunk, options) =>

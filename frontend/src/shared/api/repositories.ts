@@ -51,6 +51,14 @@ export interface ProfileRepository {
   getTelegram(): Promise<TelegramProfileConfig>;
   updateTelegram(config: TelegramProfileConfig): Promise<TelegramProfileConfig>;
   revealTelegramSecret(field: string): Promise<{ value: string }>;
+  /** Start (or retry) real MTProto authorization — sends a confirmation code to `phone`. */
+  sendTelegramCode(phone: string): Promise<TelegramProfileConfig>;
+  /** Confirm the code from Telegram. Result may ask for a cloud password (`authStep: "password"`). */
+  verifyTelegramCode(code: string): Promise<TelegramProfileConfig>;
+  /** Confirm the 2FA cloud password after `verifyTelegramCode` asked for it. */
+  verifyTelegram2fa(password: string): Promise<TelegramProfileConfig>;
+  /** Reset MTProto authorization back to "idle" (best-effort remote log-out). */
+  resetTelegramAuth(): Promise<TelegramProfileConfig>;
 }
 
 import type { ChatContextMeta } from "@/shared/api/schemas/chatContextMeta";

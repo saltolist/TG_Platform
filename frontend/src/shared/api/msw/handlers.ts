@@ -246,6 +246,71 @@ export const handlers = [
     return HttpResponse.json(store.telegramProfile);
   }),
 
+  // Contract-compatible stub for the real MTProto flow (backend/app/api/v1/telegram_auth.py).
+  // Always succeeds — guest/demo overlay accounts (and MSW dev mode in general) never had
+  // real Telegram credentials, see overlayRepositories.ts for the actual simulation used by
+  // the app. These handlers exist so httpRepositories.ts has something to talk to in tests
+  // or whenever the overlay short-circuit is bypassed.
+  http.post(apiV1MswPath("telegram/auth/send-code"), async ({ request }) => {
+    const store = requireStore(request);
+    if (!store) return unauthorized();
+    const body = (await request.json()) as { phone?: string };
+    if (!store.telegramProfile.apiId || !store.telegramProfile.apiHash) {
+      return HttpResponse.json({ error: "Сначала укажите API ID и API Hash" }, { status: 400 });
+    }
+    store.telegramProfile = {
+      ...store.telegramProfile,
+      phone: body.phone ?? store.telegramProfile.phone,
+      authStatus: "code-sent",
+      authStep: "code",
+    };
+    return HttpResponse.json(store.telegramProfile);
+  }),
+
+  http.post(apiV1MswPath("telegram/auth/verify"), async ({ request }) => {
+    const store = requireStore(request);
+    if (!store) return unauthorized();
+    const body = (await request.json()) as { code?: string };
+    if (!body.code?.trim()) {
+      return HttpResponse.json({ error: "Укажите код из Telegram" }, { status: 400 });
+    }
+    store.telegramProfile = {
+      ...store.telegramProfile,
+      authStatus: "authorized",
+      authStep: "channel",
+      sessionString: `msw-session-${Date.now()}`,
+    };
+    return HttpResponse.json(store.telegramProfile);
+  }),
+
+  http.post(apiV1MswPath("telegram/auth/verify-2fa"), async ({ request }) => {
+    const store = requireStore(request);
+    if (!store) return unauthorized();
+    const body = (await request.json()) as { password?: string };
+    if (!body.password?.trim()) {
+      return HttpResponse.json({ error: "Укажите пароль" }, { status: 400 });
+    }
+    store.telegramProfile = {
+      ...store.telegramProfile,
+      authStatus: "authorized",
+      authStep: "channel",
+      sessionString: `msw-session-${Date.now()}`,
+    };
+    return HttpResponse.json(store.telegramProfile);
+  }),
+
+  http.post(apiV1MswPath("telegram/auth/reset"), ({ request }) => {
+    const store = requireStore(request);
+    if (!store) return unauthorized();
+    store.telegramProfile = {
+      ...store.telegramProfile,
+      authStatus: "idle",
+      authStep: "credentials",
+      sessionString: "",
+    };
+    return HttpResponse.json(store.telegramProfile);
+  }),
+
   http.post(apiV1MswPath("ai/reply"), async ({ request }) => {
     const store = requireStore(request);
     if (!store) return unauthorized();

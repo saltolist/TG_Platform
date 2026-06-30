@@ -147,6 +147,47 @@ export function createSeedRepositories(): RepositoryBundle {
         if (!value || typeof value !== "string") throw new Error(`Secret not found: ${field}`);
         return { value };
       },
+      async sendTelegramCode(phone) {
+        if (!telegramProfile.apiId || !telegramProfile.apiHash) {
+          throw new Error("Сначала укажите API ID и API Hash");
+        }
+        telegramProfile = {
+          ...telegramProfile,
+          phone,
+          authStatus: "code-sent",
+          authStep: "code",
+        };
+        return telegramProfile;
+      },
+      async verifyTelegramCode(code) {
+        if (!code.trim()) throw new Error("Укажите код из Telegram");
+        telegramProfile = {
+          ...telegramProfile,
+          authStatus: "authorized",
+          authStep: "channel",
+          sessionString: `seed-session-${Date.now()}`,
+        };
+        return telegramProfile;
+      },
+      async verifyTelegram2fa(password) {
+        if (!password.trim()) throw new Error("Укажите пароль");
+        telegramProfile = {
+          ...telegramProfile,
+          authStatus: "authorized",
+          authStep: "channel",
+          sessionString: `seed-session-${Date.now()}`,
+        };
+        return telegramProfile;
+      },
+      async resetTelegramAuth() {
+        telegramProfile = {
+          ...telegramProfile,
+          authStatus: "idle",
+          authStep: "credentials",
+          sessionString: "",
+        };
+        return telegramProfile;
+      },
     },
     assistant: {
       async streamGlobalChatReply(text, onChunk, options) {

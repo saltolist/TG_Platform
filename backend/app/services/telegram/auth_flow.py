@@ -15,14 +15,17 @@ client — see ``byok_telegram.strip_internal_fields``).
 
 from __future__ import annotations
 
+import asyncio
 import copy
-from typing import Any
+from typing import Any, TypeVar
 
 from telethon import errors
 
 from app.core.config import Settings, get_settings
 from app.core.crypto import decrypt_byok, encrypt_byok, is_encrypted
 from app.services.telegram.mtproto_client import build_client, save_session
+
+_T = TypeVar("_T")
 
 _PENDING_SESSION = "_pendingSessionString"
 _PENDING_CODE_HASH = "_pendingPhoneCodeHash"
@@ -47,6 +50,16 @@ class TelegramAuthError(Exception):
         self.detail = detail
         self.status_code = status_code
         self.profile_patch = profile_patch
+
+
+async def _with_timeout(coro: Any, settings: Settings) -> _T:
+    """Bound any single Telethon network call so a stalled server can't hang a worker."""
+    try:
+        return await asyncio.wait_for(coro, timeout=settings.telegram_rpc_timeout_seconds)
+    except asyncio.TimeoutError:
+        raise TelegramAuthError(
+            "Telegram не отвечает, попробуйте позже", 504
+        ) from None
 
 
 def _decrypt_field(value: str, settings: Settings) -> str:
@@ -84,6 +97,14 @@ def _clear_pending(profile: dict[str, Any]) -> None:
         profile.pop(field, None)
 
 
+async def _disconnect_safely(client: Any) -> None:
+    """Best-effort disconnect — never let a stuck transport hide the real error."""
+    try:
+        await asyncio.wait_for(client.disconnect(), timeout=5.0)
+    except Exception:  # noqa: BLE001 — cleanup only, original error already raised
+        pass
+
+
 async def send_code(
     profile: dict[str, Any], phone: str, settings: Settings | None = None
 ) -> dict[str, Any]:
@@ -95,10 +116,10 @@ async def send_code(
     api_id, api_hash = _require_api_credentials(profile, settings)
 
     client = build_client(api_id, api_hash)
-    await client.connect()
     try:
+        await _with_timeout(client.connect(), settings)
         try:
-            sent = await client.send_code_request(phone)
+            sent = await _with_timeout(client.send_code_request(phone), settings)
         except errors.PhoneNumberInvalidError:
             raise TelegramAuthError("Неверный номер телефона", 400) from None
         except errors.FloodWaitError as exc:
@@ -109,7 +130,7 @@ async def send_code(
             raise TelegramAuthError(str(exc), 400) from exc
         session_string = save_session(client)
     finally:
-        await client.disconnect()
+        await _disconnect_safely(client)
 
     result = copy.deepcopy(profile)
     result["authStatus"] = "code-sent"
@@ -135,10 +156,12 @@ async def verify_code(
     result = copy.deepcopy(profile)
 
     client = build_client(api_id, api_hash, session_string)
-    await client.connect()
     try:
+        await _with_timeout(client.connect(), settings)
         try:
-            await client.sign_in(phone, code, phone_code_hash=phone_code_hash)
+            await _with_timeout(
+                client.sign_in(phone, code, phone_code_hash=phone_code_hash), settings
+            )
         except errors.SessionPasswordNeededError:
             # Expected branch, not an error: the same intermediate session
             # context remains valid for the password step.
@@ -159,7 +182,7 @@ async def verify_code(
 
         final_session = save_session(client)
     finally:
-        await client.disconnect()
+        await _disconnect_safely(client)
 
     result["sessionString"] = encrypt_byok(final_session, settings)
     result["authStatus"] = "authorized"
@@ -184,17 +207,17 @@ async def verify_password(
     result = copy.deepcopy(profile)
 
     client = build_client(api_id, api_hash, session_string)
-    await client.connect()
     try:
+        await _with_timeout(client.connect(), settings)
         try:
-            await client.sign_in(password=password)
+            await _with_timeout(client.sign_in(password=password), settings)
         except errors.PasswordHashInvalidError:
             raise TelegramAuthError("Неверный пароль", 400) from None
         except errors.RPCError as exc:
             raise TelegramAuthError(str(exc), 400) from exc
         final_session = save_session(client)
     finally:
-        await client.disconnect()
+        await _disconnect_safely(client)
 
     result["sessionString"] = encrypt_byok(final_session, settings)
     result["authStatus"] = "authorized"
@@ -220,11 +243,15 @@ async def reset_auth(
             api_hash = _decrypt_field(api_hash_raw, settings)
             if session_string and api_hash:
                 client = build_client(api_id, api_hash, session_string)
-                await client.connect()
                 try:
-                    await client.log_out()
+                    await asyncio.wait_for(
+                        client.connect(), timeout=settings.telegram_rpc_timeout_seconds
+                    )
+                    await asyncio.wait_for(
+                        client.log_out(), timeout=settings.telegram_rpc_timeout_seconds
+                    )
                 finally:
-                    await client.disconnect()
+                    await _disconnect_safely(client)
         except Exception:  # noqa: BLE001 — remote logout is best-effort only
             pass
 

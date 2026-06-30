@@ -8,6 +8,7 @@ servers.
 
 from __future__ import annotations
 
+import asyncio
 import itertools
 from types import SimpleNamespace
 from typing import Any
@@ -17,6 +18,8 @@ from httpx import AsyncClient
 from sqlalchemy import select
 from telethon import errors
 
+from app.api.v1 import telegram_auth as telegram_auth_module
+from app.core.config import get_settings
 from app.core.crypto import ENC_PREFIX
 from app.db.models import Profile, User
 from app.services.telegram import mtproto_client
@@ -56,6 +59,7 @@ class Scenario:
         # "ok" | "invalid_password"
         self.sign_in_password_result = "ok"
         self.log_out_exception: Exception | None = None
+        self.send_code_hangs = False
 
 
 SCENARIO = Scenario()
@@ -83,6 +87,8 @@ class FakeTelegramClient:
         return None
 
     async def send_code_request(self, phone: str) -> SimpleNamespace:
+        if SCENARIO.send_code_hangs:
+            await asyncio.sleep(60)
         if SCENARIO.send_code_exception is not None:
             raise SCENARIO.send_code_exception
         self.session.value = _next_session_value("session-after-send-code")
@@ -220,6 +226,21 @@ async def test_send_code_success(
     assert stored["_pendingSessionString"].startswith(ENC_PREFIX)
     assert stored["_pendingPhoneCodeHash"].startswith(ENC_PREFIX)
     assert stored["_pendingPhone"].startswith(ENC_PREFIX)
+
+
+@pytest.mark.asyncio
+async def test_send_code_times_out_instead_of_hanging(
+    client: AsyncClient, writer_auth_headers: dict, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A stalled Telegram server (e.g. bad api_id, see Telethon#1056) must not hang the request."""
+    fast_settings = get_settings().model_copy(update={"telegram_rpc_timeout_seconds": 0.05})
+    monkeypatch.setattr(telegram_auth_module, "get_settings", lambda: fast_settings)
+
+    await _put_credentials(client, writer_auth_headers)
+    SCENARIO.send_code_hangs = True
+
+    resp = await asyncio.wait_for(_send_code(client, writer_auth_headers), timeout=5)
+    assert resp.status_code == 504
 
 
 # ---------------------------------------------------------------------------

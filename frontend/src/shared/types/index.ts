@@ -111,6 +111,7 @@ export type TelegramProfileConfig = {
   apiHash: string;
   phone: string;
   sessionName: string;
+  sessionString: string;
   channel: string;
   channelTitle: string;
   channelStatus: TelegramChannelStatus;

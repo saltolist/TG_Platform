@@ -66,6 +66,12 @@ class Settings(BaseSettings):
     # re-encrypted with the primary key and these can be cleared.
     byok_encryption_old_keys: str = ""
 
+    # MTProto (Telethon) auth flow (Phase 3, step 1) — every Telethon network
+    # call is wrapped in this timeout so a stuck/invalid api_id (Telegram can
+    # silently stall instead of returning ApiIdInvalidError — see
+    # https://github.com/LonamiWebs/Telethon/issues/1056) cannot hang a worker.
+    telegram_rpc_timeout_seconds: float = 25.0
+
     @property
     def byok_old_keys_list(self) -> list[str]:
         return [k.strip() for k in self.byok_encryption_old_keys.split(",") if k.strip()]

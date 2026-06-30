@@ -203,6 +203,68 @@ function overlayProfile(inner: ProfileRepository): ProfileRepository {
       });
       return config;
     },
+    // The real MTProto flow below only makes sense for real Telegram accounts.
+    // Guest/demo overlay accounts (and MSW dev mode in general) never had real
+    // credentials to begin with, so we keep the previous "always succeeds
+    // instantly" simulation, now living here instead of in the React hook.
+    sendTelegramCode: async (phone) => {
+      if (!shouldPersistLocally()) return inner.sendTelegramCode(phone);
+      const current = normalizeTelegramProfileConfig(await overlayProfile(inner).getTelegram());
+      const next = normalizeTelegramProfileConfig({
+        ...current,
+        phone,
+        authStatus: "code-sent",
+        authStep: "code",
+      });
+      mutateOverlay((overlay) => {
+        overlay.profile = { ...overlay.profile, telegram: next };
+      });
+      return next;
+    },
+    verifyTelegramCode: async (code) => {
+      if (!shouldPersistLocally()) return inner.verifyTelegramCode(code);
+      if (!code.trim()) throw new Error("Укажите код из Telegram");
+      const current = normalizeTelegramProfileConfig(await overlayProfile(inner).getTelegram());
+      const next = normalizeTelegramProfileConfig({
+        ...current,
+        authStatus: "authorized",
+        authStep: "channel",
+        sessionString: `overlay-session-${Date.now()}`,
+      });
+      mutateOverlay((overlay) => {
+        overlay.profile = { ...overlay.profile, telegram: next };
+      });
+      return next;
+    },
+    verifyTelegram2fa: async (password) => {
+      if (!shouldPersistLocally()) return inner.verifyTelegram2fa(password);
+      if (!password.trim()) throw new Error("Укажите пароль");
+      const current = normalizeTelegramProfileConfig(await overlayProfile(inner).getTelegram());
+      const next = normalizeTelegramProfileConfig({
+        ...current,
+        authStatus: "authorized",
+        authStep: "channel",
+        sessionString: `overlay-session-${Date.now()}`,
+      });
+      mutateOverlay((overlay) => {
+        overlay.profile = { ...overlay.profile, telegram: next };
+      });
+      return next;
+    },
+    resetTelegramAuth: async () => {
+      if (!shouldPersistLocally()) return inner.resetTelegramAuth();
+      const current = normalizeTelegramProfileConfig(await overlayProfile(inner).getTelegram());
+      const next = normalizeTelegramProfileConfig({
+        ...current,
+        authStatus: "idle",
+        authStep: "credentials",
+        sessionString: "",
+      });
+      mutateOverlay((overlay) => {
+        overlay.profile = { ...overlay.profile, telegram: next };
+      });
+      return next;
+    },
   };
 }
 

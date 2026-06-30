@@ -40,13 +40,19 @@ export default function TelegramBlock({ active = true }: { active?: boolean }) {
         <TelegramAuthSection
           cfg={tg.cfg}
           codeHidden={tg.codeHidden}
+          awaitingPassword={tg.awaitingPassword}
           code={tg.code}
+          password={tg.password}
           resendCooldownSec={tg.resendCooldownSec}
           sendCodeDisabled={tg.sendCodeDisabled}
+          verifyingCode={tg.verifyingCode}
+          verifyingPassword={tg.verifyingPassword}
           onPhoneChange={(phone) => tg.update({ phone })}
           onCodeChange={tg.setCode}
+          onPasswordChange={tg.setPassword}
           onStartAuth={tg.startAuth}
           onConfirmCode={tg.confirmCode}
+          onConfirmPassword={tg.confirmPassword}
           onCancelCodeEntry={tg.cancelCodeEntry}
           onResendCode={tg.resendCode}
         />
