@@ -45,6 +45,7 @@ def empty_telegram_profile() -> dict[str, Any]:
         "sessionString": "",
         "channel": "",
         "channelTitle": "",
+        "channelId": "",
         "channelStatus": "idle",
         "syncMode": "history-and-live",
         "lastSync": "—",

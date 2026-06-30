@@ -48,6 +48,7 @@ export function useTelegramBlock() {
   const [verifyingCode, setVerifyingCode] = useState(false);
   const [verifyingPassword, setVerifyingPassword] = useState(false);
   const [resettingAuth, setResettingAuth] = useState(false);
+  const [connectingChannel, setConnectingChannel] = useState(false);
   const [resendCooldownSec, setResendCooldownSec] = useState(0);
   const [credentialsFlashNonce, setCredentialsFlashNonce] = useState(0);
   const syncTimerRef = useRef<number | null>(null);
@@ -282,25 +283,16 @@ export function useTelegramBlock() {
     }
   };
 
-  const connectChannel = async () => {
-    if (connectChannelDisabled) return;
-    if (isConnected && channelChangedFromSaved) {
-      const ok = await confirmDialog({
-        message:
-          "При подключении другого канала данные прошлого канала будут недоступны, пока вы не подключите его снова.",
-        confirmLabel: "Продолжить",
-        destructive: true,
-      });
-      if (!ok) return;
-    }
+  /** @demochannel is a trial feed available to every account type — it never
+   * touches real Telegram, so it keeps the original "instant success" local
+   * simulation (the backend still does the actual demo-post import on PUT). */
+  const connectDemoChannel = async () => {
     if (syncTimerRef.current !== null) window.clearTimeout(syncTimerRef.current);
     const next: Partial<TelegramProfileConfig> = {
       authStatus: "connected",
       authStep: "connected",
       channelStatus: "connected",
-      channelTitle: isDemoChannelHandle(cfg.channel)
-        ? DEMO_CHANNEL_TITLE
-        : cfg.channel.replace("@", "") || "Telegram канал",
+      channelTitle: DEMO_CHANNEL_TITLE,
       lastSync: new Date().toISOString(),
     };
     const merged = { ...cfg, ...next };
@@ -323,6 +315,41 @@ export function useTelegramBlock() {
       setSyncing(false);
       syncTimerRef.current = null;
     }, 1800);
+  };
+
+  /** Real channel: verified via Telethon on the backend (existence + admin rights). */
+  const connectRealChannel = async () => {
+    setConnectingChannel(true);
+    try {
+      const saved = await profile.connectTelegramChannel(cfg.channel);
+      update(saved);
+      applyPatch({ telegramSettingsSavedSnapshot: telegramConfigSnapshot(saved) });
+    } catch (error) {
+      showToast({
+        message: getApiErrorMessage(error, "Не удалось подключить канал"),
+        variant: "error",
+      });
+    } finally {
+      setConnectingChannel(false);
+    }
+  };
+
+  const connectChannel = async () => {
+    if (connectChannelDisabled || connectingChannel) return;
+    if (isConnected && channelChangedFromSaved) {
+      const ok = await confirmDialog({
+        message:
+          "При подключении другого канала данные прошлого канала будут недоступны, пока вы не подключите его снова.",
+        confirmLabel: "Продолжить",
+        destructive: true,
+      });
+      if (!ok) return;
+    }
+    if (isDemoChannelHandle(cfg.channel)) {
+      await connectDemoChannel();
+    } else {
+      await connectRealChannel();
+    }
   };
 
   const connectBot = async () => {
@@ -430,6 +457,7 @@ export function useTelegramBlock() {
     verifyingCode,
     verifyingPassword,
     resettingAuth,
+    connectingChannel,
     resendCooldownSec,
     apiChangedFromSaved,
     apiIdMissing,

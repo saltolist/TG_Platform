@@ -15,72 +15,27 @@ client — see ``byok_telegram.strip_internal_fields``).
 
 from __future__ import annotations
 
-import asyncio
 import copy
-from typing import Any, TypeVar
+from typing import Any
 
 from telethon import errors
 
 from app.core.config import Settings, get_settings
-from app.core.crypto import decrypt_byok, encrypt_byok, is_encrypted
+from app.core.crypto import encrypt_byok
 from app.services.telegram.mtproto_client import build_client, save_session
+from app.services.telegram.net import (
+    TelegramAuthError,
+    decrypt_field as _decrypt_field,
+    disconnect_safely as _disconnect_safely,
+    require_api_credentials as _require_api_credentials,
+    with_timeout as _with_timeout,
+)
 
-_T = TypeVar("_T")
+__all__ = ["TelegramAuthError", "send_code", "verify_code", "verify_password", "reset_auth"]
 
 _PENDING_SESSION = "_pendingSessionString"
 _PENDING_CODE_HASH = "_pendingPhoneCodeHash"
 _PENDING_PHONE = "_pendingPhone"
-
-
-class TelegramAuthError(Exception):
-    """Raised for any auth-flow failure that should become an HTTP error.
-
-    ``profile_patch``, when set, is a full replacement for ``profile.telegram``
-    that the caller (router) must still persist even though the request as a
-    whole failed — e.g. an expired code resets ``authStatus`` back to ``idle``.
-    """
-
-    def __init__(
-        self,
-        detail: str,
-        status_code: int = 400,
-        profile_patch: dict[str, Any] | None = None,
-    ) -> None:
-        super().__init__(detail)
-        self.detail = detail
-        self.status_code = status_code
-        self.profile_patch = profile_patch
-
-
-async def _with_timeout(coro: Any, settings: Settings) -> _T:
-    """Bound any single Telethon network call so a stalled server can't hang a worker."""
-    try:
-        return await asyncio.wait_for(coro, timeout=settings.telegram_rpc_timeout_seconds)
-    except asyncio.TimeoutError:
-        raise TelegramAuthError(
-            "Telegram не отвечает, попробуйте позже", 504
-        ) from None
-
-
-def _decrypt_field(value: str, settings: Settings) -> str:
-    if not value:
-        return ""
-    return decrypt_byok(value, settings) if is_encrypted(value) else value
-
-
-def _require_api_credentials(profile: dict[str, Any], settings: Settings) -> tuple[int, str]:
-    api_id_raw = str(profile.get("apiId") or "").strip()
-    api_hash_raw = str(profile.get("apiHash") or "")
-    if not api_id_raw or not api_hash_raw:
-        raise TelegramAuthError("Сначала укажите API ID и API Hash", 400)
-    try:
-        api_id = int(api_id_raw)
-    except ValueError:
-        raise TelegramAuthError("API ID должен быть числом", 400) from None
-    api_hash = _decrypt_field(api_hash_raw, settings)
-    if not api_hash:
-        raise TelegramAuthError("Не удалось расшифровать API Hash", 400)
-    return api_id, api_hash
 
 
 def _load_pending(profile: dict[str, Any], settings: Settings) -> tuple[str, str, str]:
@@ -95,14 +50,6 @@ def _load_pending(profile: dict[str, Any], settings: Settings) -> tuple[str, str
 def _clear_pending(profile: dict[str, Any]) -> None:
     for field in (_PENDING_SESSION, _PENDING_CODE_HASH, _PENDING_PHONE):
         profile.pop(field, None)
-
-
-async def _disconnect_safely(client: Any) -> None:
-    """Best-effort disconnect — never let a stuck transport hide the real error."""
-    try:
-        await asyncio.wait_for(client.disconnect(), timeout=5.0)
-    except Exception:  # noqa: BLE001 — cleanup only, original error already raised
-        pass
 
 
 async def send_code(
@@ -244,12 +191,8 @@ async def reset_auth(
             if session_string and api_hash:
                 client = build_client(api_id, api_hash, session_string)
                 try:
-                    await asyncio.wait_for(
-                        client.connect(), timeout=settings.telegram_rpc_timeout_seconds
-                    )
-                    await asyncio.wait_for(
-                        client.log_out(), timeout=settings.telegram_rpc_timeout_seconds
-                    )
+                    await _with_timeout(client.connect(), settings)
+                    await _with_timeout(client.log_out(), settings)
                 finally:
                     await _disconnect_safely(client)
         except Exception:  # noqa: BLE001 — remote logout is best-effort only

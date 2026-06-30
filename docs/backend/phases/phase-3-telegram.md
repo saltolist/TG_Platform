@@ -109,12 +109,78 @@
 
 ---
 
-### Шаг 2 — Подключение канала
+### Шаг 2 — Подключение канала ✅ backend + frontend реализованы (без импорта истории)
 
-1. Указание канала (`channel`, `channelTitle`), проверка прав.
-2. `channelStatus`: `idle` → `pending` → `connected`.
-3. Выбор режима синхронизации (`syncMode`: `live-only` / `history-and-live` /
-   `publish-only`).
+**Эндпоинт:** `POST /api/v1/telegram/channel/connect/` (`CurrentWriter` — сид/демо → `403`).
+
+**Файлы:**
+- `backend/app/services/telegram/net.py` — общие хелперы, вынесенные из
+  `auth_flow.py` (Шаг 1), чтобы их переиспользовал и канальный flow:
+  `TelegramAuthError`, `with_timeout`, `disconnect_safely`,
+  `require_api_credentials`, `decrypt_field`. `auth_flow.py` реэкспортирует
+  `TelegramAuthError` для обратной совместимости импортов.
+- `backend/app/api/v1/_telegram_shared.py` — общая роутинговая обвязка
+  (`get_or_create_profile`, `apply_telegram_flow`), вынесенная из
+  `telegram_auth.py` и переиспользуемая новым роутером.
+- `backend/app/services/telegram/channel_flow.py` — `connect_channel()`:
+  нормализация ввода (`@`/`t.me/`/полная ссылка), проверка существования
+  канала и прав на публикацию через Telethon.
+- `backend/app/api/v1/telegram_channel.py` — роутер.
+
+**Особый случай `@demochannel`** (триальный фид, см. `is_demo_channel_handle()` в
+`backend/app/services/demo_channel.py`) обрабатывается на фронтенде **до**
+вызова этого эндпоинта и продолжает идти через старый `PUT /profile/telegram/`
+(бэкенд уже умеет импортировать демо-посты на этом пути) — реальная
+Telethon-проверка нужна только для настоящих каналов.
+
+**Техническое ограничение (v1):** каждый HTTP-запрос пересоздаёт Telethon-клиент
+из `StringSession` (см. `mtproto_client.py`), которая не хранит кэш сущностей
+между процессами — только auth key. Поэтому:
+- **`@username`** (публичный или приватный с username) — резолвится через
+  `get_entity`, если аккаунт уже состоит в канале;
+- **invite-ссылка** (`t.me/+…`, `t.me/joinchat/…`) — резолвится через
+  `get_entity(full_link)`, если аккаунт уже вступил по этой ссылке;
+- **числовой `-100…` id** — ищется среди диалогов авторизованного аккаунта
+  (`iter_dialogs`), потому что голый id без access_hash на свежем клиенте не
+  резолвится. Канал должен быть в списке чатов Telegram этого аккаунта.
+
+Автоматическое вступление по invite-ссылке **не выполняется** — если аккаунт
+ещё не в канале, нужно сначала вступить в Telegram-клиенте.
+
+**Поток:**
+1. Разбор ввода: `@username` / `t.me/username`, invite-ссылка или `-100…` id.
+2. Проверка, что аккаунт авторизован (`authStatus ∈ {authorized, connected}`,
+   есть `sessionString`).
+3. Резолв сущности:
+   - username / invite → `get_entity(...)`;
+   - numeric id → поиск среди `iter_dialogs()`;
+   - `UsernameNotOccupiedError`/`UsernameInvalidError` → `404` «Канал не найден»;
+   - id не найден в диалогах → `404` «Канал не найден среди ваших диалогов…»;
+   - `ChannelPrivateError` / `UserNotParticipantError` → `403` с подсказкой
+     вступить по invite-ссылке;
+   - не похоже на канал → `400`.
+4. Проверка прав: сначала атрибуты на entity (для тестов), иначе
+   `GetParticipantRequest` → `creator` или `admin_rights.post_messages`.
+5. Успех → `channel`, `channelTitle`, `channelId` (peer id `-100…`), `connected`.
+
+**Тесты:** `backend/tests/test_telegram_channel.py` — фейковый `get_entity()`,
+сценарии: успех (creator / admin с `post_messages`), `t.me/`-ссылка, канал не
+найден, приватный канал, не канал, нет прав, не авторизован, числовой ID
+(без сетевого вызова), пустой ввод, сид-аккаунт → `403`.
+
+**Frontend подключён к реальному эндпоинту:** `useTelegramBlock.ts` —
+`connectChannel()` разделён на `connectDemoChannel()` (без изменений, локальная
+instant-success симуляция + `PUT`, как раньше) и `connectRealChannel()` (вызывает
+`profile.connectTelegramChannel(channel)`, ошибки — через `showToast` +
+`getApiErrorMessage`, как в `confirmCode`/`confirmPassword`). Новое состояние
+`connectingChannel` отображается в `TelegramChannelSection` (дизейблит
+инпут/кнопку, меняет текст кнопки на «Проверяем…»). Guest/demo overlay-аккаунты
+и MSW dev-режим (`shouldPersistLocally()`) используют локальную симуляцию в
+`overlayRepositories.ts`/`msw/handlers.ts` — реальный Telethon не дёргается.
+
+**Явно вне рамок этого шага:** импорт истории постов (Шаг 3 — отдельная
+задача); автоматическое вступление в канал по invite-ссылке; бэкенд-логика
+для `syncMode` (остаётся чисто метаданными).
 
 ---
 
@@ -166,10 +232,11 @@ GET /api/v1/analytics/top-posts
 ## Дополнительные эндпоинты (сводка)
 
 ```
-POST /api/v1/telegram/auth/send-code/    ✅ реализован
-POST /api/v1/telegram/auth/verify/       ✅ реализован
-POST /api/v1/telegram/auth/verify-2fa/   ✅ реализован
-POST /api/v1/telegram/auth/reset/        ✅ реализован
+POST /api/v1/telegram/auth/send-code/      ✅ реализован
+POST /api/v1/telegram/auth/verify/         ✅ реализован
+POST /api/v1/telegram/auth/verify-2fa/     ✅ реализован
+POST /api/v1/telegram/auth/reset/          ✅ реализован
+POST /api/v1/telegram/channel/connect/     ✅ реализован
 POST /api/v1/telegram/import
 POST /api/v1/posts/:id/publish
 POST /api/v1/posts/:id/schedule   { scheduledAt: ISO-8601 }

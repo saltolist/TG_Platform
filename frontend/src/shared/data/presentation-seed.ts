@@ -355,6 +355,7 @@ const presentationTelegramProfile = (): TelegramProfileConfig => ({
   sessionString: "",
   channel: PRESENTATION_CHANNEL_HANDLE,
   channelTitle: PRESENTATION_CHANNEL_TITLE,
+  channelId: "",
   channelStatus: "connected",
   syncMode: "history-and-live",
   lastSync: "2026-06-16T12:40:00.000Z",

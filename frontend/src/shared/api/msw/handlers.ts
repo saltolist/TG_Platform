@@ -1,6 +1,7 @@
 import { http, HttpResponse } from "msw";
 import { apiV1MswPath } from "@/shared/config/basePath";
 import { DEMO_CHANNEL_TITLE } from "@/shared/lib/auth/constants";
+import { formatConnectedChannelDisplay } from "@/shared/lib/channel/normalizeChannelHandle";
 import { appendToActiveHistory } from "@/shared/lib/chatPaths";
 import { getGlobalReply, getPostReply } from "@/shared/api/assistantReplies";
 import { chunkTextForStream, formatSseData } from "@/shared/api/sse";
@@ -307,6 +308,27 @@ export const handlers = [
       authStatus: "idle",
       authStep: "credentials",
       sessionString: "",
+    };
+    return HttpResponse.json(store.telegramProfile);
+  }),
+
+  http.post(apiV1MswPath("telegram/channel/connect"), async ({ request }) => {
+    const store = requireStore(request);
+    if (!store) return unauthorized();
+    const body = (await request.json()) as { channel?: string };
+    const display = formatConnectedChannelDisplay(body.channel ?? "");
+    if (!display) {
+      return HttpResponse.json({ error: "Укажите канал" }, { status: 400 });
+    }
+    store.telegramProfile = {
+      ...store.telegramProfile,
+      channel: display,
+      channelTitle: display,
+      channelId: `msw-channel-${Date.now()}`,
+      channelStatus: "connected",
+      authStatus: "connected",
+      authStep: "connected",
+      lastSync: new Date().toISOString(),
     };
     return HttpResponse.json(store.telegramProfile);
   }),

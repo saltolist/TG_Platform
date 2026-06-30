@@ -8,6 +8,7 @@ import {
   initialTelegramProfileConfig,
 } from "@/shared/data/seed-data";
 import { appendToActiveHistory } from "@/shared/lib/chatPaths";
+import { formatConnectedChannelDisplay } from "@/shared/lib/channel/normalizeChannelHandle";
 import { getGlobalReply, getPostReply } from "@/shared/api/assistantReplies";
 import { simulateStreamedText } from "@/shared/api/sse";
 import type {
@@ -185,6 +186,21 @@ export function createSeedRepositories(): RepositoryBundle {
           authStatus: "idle",
           authStep: "credentials",
           sessionString: "",
+        };
+        return telegramProfile;
+      },
+      async connectTelegramChannel(channel) {
+        const display = formatConnectedChannelDisplay(channel);
+        if (!display) throw new Error("Укажите канал");
+        telegramProfile = {
+          ...telegramProfile,
+          channel: display,
+          channelTitle: display,
+          channelId: `seed-channel-${Date.now()}`,
+          channelStatus: "connected",
+          authStatus: "connected",
+          authStep: "connected",
+          lastSync: new Date().toISOString(),
         };
         return telegramProfile;
       },

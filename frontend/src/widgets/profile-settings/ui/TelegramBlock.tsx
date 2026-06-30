@@ -63,6 +63,7 @@ export default function TelegramBlock({ active = true }: { active?: boolean }) {
         isAuthorized={tg.isAuthorized}
         isConnected={tg.isConnected}
         connectChannelDisabled={tg.connectChannelDisabled}
+        connecting={tg.connectingChannel}
         onChannelChange={(channel) => tg.update({ channel })}
         onConnectChannel={tg.connectChannel}
       />

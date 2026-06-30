@@ -114,6 +114,7 @@ export type TelegramProfileConfig = {
   sessionString: string;
   channel: string;
   channelTitle: string;
+  channelId: string;
   channelStatus: TelegramChannelStatus;
   syncMode: TelegramSyncMode;
   lastSync: string;

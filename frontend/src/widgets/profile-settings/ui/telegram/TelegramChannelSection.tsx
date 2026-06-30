@@ -2,12 +2,14 @@
 
 import type { TelegramProfileConfig } from "@/shared/types";
 import { formatStoredDate } from "@/shared/lib/helpers";
+import { getConnectedChannelDisplayName } from "@/shared/lib/channel/normalizeChannelHandle";
 
 type Props = {
   cfg: TelegramProfileConfig;
   isAuthorized: boolean;
   isConnected: boolean;
   connectChannelDisabled: boolean;
+  connecting: boolean;
   onChannelChange: (channel: string) => void;
   onConnectChannel: () => void;
 };
@@ -17,6 +19,7 @@ export default function TelegramChannelSection({
   isAuthorized,
   isConnected,
   connectChannelDisabled,
+  connecting,
   onChannelChange,
   onConnectChannel,
 }: Props) {
@@ -29,16 +32,17 @@ export default function TelegramChannelSection({
             <input
               className="profile-input profile-input-explicit telegram-input telegram-channel-input"
               value={cfg.channel}
-              placeholder="@channel или -100..."
+              placeholder="@channel, t.me/+… или -100…"
+              disabled={connecting}
               onChange={(e) => onChannelChange(e.target.value)}
             />
             <button
               className="btn btn-ghost telegram-inline-button"
-              disabled={connectChannelDisabled}
+              disabled={connectChannelDisabled || connecting}
               onClick={onConnectChannel}
               type="button"
             >
-              Подключить канал
+              {connecting ? "Проверяем…" : "Подключить канал"}
             </button>
           </div>
         </div>
@@ -50,16 +54,17 @@ export default function TelegramChannelSection({
             <input
               className="profile-input profile-input-explicit telegram-input"
               value={cfg.channel}
-              placeholder="@channel или -100..."
+              placeholder="@channel, t.me/+… или -100…"
+              disabled={connecting}
               onChange={(e) => onChannelChange(e.target.value)}
             />
             <button
               className="btn btn-ghost telegram-inline-button"
-              disabled={connectChannelDisabled}
+              disabled={connectChannelDisabled || connecting}
               onClick={onConnectChannel}
               type="button"
             >
-              Подключить
+              {connecting ? "Проверяем…" : "Подключить"}
             </button>
           </div>
         </div>
@@ -70,7 +75,7 @@ export default function TelegramChannelSection({
           <div>
             <div className="profile-label">Подключённый канал</div>
             <div className="profile-val">
-              {cfg.channelTitle} · {cfg.channel}
+              {getConnectedChannelDisplayName(cfg.channelTitle, cfg.channel)}
             </div>
           </div>
           <div>

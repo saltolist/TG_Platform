@@ -179,6 +179,11 @@ export function createHttpRepositories(): RepositoryBundle {
         apiRequest<TelegramProfileConfig>(apiV1Path("telegram/auth/reset"), {
           method: "POST",
         }).then(normalizeTelegramProfileConfig),
+      connectTelegramChannel: (channel) =>
+        apiRequest<TelegramProfileConfig>(apiV1Path("telegram/channel/connect"), {
+          method: "POST",
+          body: { channel },
+        }).then(normalizeTelegramProfileConfig),
     },
     assistant: {
       streamGlobalChatReply: (text, onChunk, options) =>

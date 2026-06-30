@@ -18,7 +18,7 @@ from httpx import AsyncClient
 from sqlalchemy import select
 from telethon import errors
 
-from app.api.v1 import telegram_auth as telegram_auth_module
+from app.api.v1 import _telegram_shared as telegram_shared_module
 from app.core.config import get_settings
 from app.core.crypto import ENC_PREFIX
 from app.db.models import Profile, User
@@ -234,7 +234,7 @@ async def test_send_code_times_out_instead_of_hanging(
 ) -> None:
     """A stalled Telegram server (e.g. bad api_id, see Telethon#1056) must not hang the request."""
     fast_settings = get_settings().model_copy(update={"telegram_rpc_timeout_seconds": 0.05})
-    monkeypatch.setattr(telegram_auth_module, "get_settings", lambda: fast_settings)
+    monkeypatch.setattr(telegram_shared_module, "get_settings", lambda: fast_settings)
 
     await _put_credentials(client, writer_auth_headers)
     SCENARIO.send_code_hangs = True

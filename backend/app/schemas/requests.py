@@ -75,6 +75,10 @@ class TelegramVerify2faRequest(BaseModel):
     password: str
 
 
+class TelegramConnectChannelRequest(BaseModel):
+    channel: str
+
+
 __all__ = [
     "PostIn",
     "ReorderRequest",
@@ -88,4 +92,5 @@ __all__ = [
     "TelegramSendCodeRequest",
     "TelegramVerifyCodeRequest",
     "TelegramVerify2faRequest",
+    "TelegramConnectChannelRequest",
 ]

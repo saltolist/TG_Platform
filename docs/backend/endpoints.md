@@ -306,6 +306,33 @@ Telegram-настройки пользователя.
 
 ---
 
+### `POST /api/v1/telegram/channel/connect`
+Проверить через Telethon, что канал существует и у авторизованного аккаунта есть
+права на публикацию (создатель или админ с `post_messages`), затем пометить канал
+подключённым. Требует предварительной авторизации (`authStatus` ∈
+`{"authorized", "connected"}` и сохранённый `sessionString`). **Не импортирует
+историю постов** (отдельный шаг).
+
+Принимает:
+- публичный `@username` / `t.me/username` (в т.ч. у приватного канала с username);
+- invite-ссылку `t.me/+…` / `t.me/joinchat/…` — аккаунт должен **уже состоять**
+  в канале (автовступление не выполняется);
+- числовой peer id `-100…` — канал ищется среди диалогов авторизованного
+  аккаунта (`iter_dialogs`), потому что свежий `StringSession`-клиент не
+  резолвит голый id без access_hash.
+
+**Auth:** `CurrentWriter` (сид/демо-аккаунты → `403`).
+**Body:** `{ "channel": "@mychannel" }` (или invite/id — см. выше)
+**Response `200`:** `TelegramProfileConfig` (`channelStatus: "connected"`,
+`authStatus: "connected"`, `authStep: "connected"`, заполнены `channelTitle`/`channelId`)
+**Errors:**
+- `400` — пустой ввод, истёкшая/неверная invite-ссылка, ресурс не является каналом;
+- `403` — не состоите в канале / нет прав администратора;
+- `404` — канал не найден или id отсутствует в ваших диалогах;
+- `504` — Telegram не ответил за `TELEGRAM_RPC_TIMEOUT_SECONDS`.
+
+---
+
 ## AI Ассистент
 
 ### `POST /api/v1/ai/reply`

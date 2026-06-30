@@ -53,6 +53,7 @@ export function createEmptyTelegramProfile(): TelegramProfileConfig {
     sessionString: "",
     channel: "",
     channelTitle: "",
+    channelId: "",
     channelStatus: "idle",
     syncMode: "history-and-live",
     lastSync: "—",

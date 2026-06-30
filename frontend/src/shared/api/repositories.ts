@@ -59,6 +59,8 @@ export interface ProfileRepository {
   verifyTelegram2fa(password: string): Promise<TelegramProfileConfig>;
   /** Reset MTProto authorization back to "idle" (best-effort remote log-out). */
   resetTelegramAuth(): Promise<TelegramProfileConfig>;
+  /** Verify the channel exists and the account can post in it (Telethon), then mark it connected. */
+  connectTelegramChannel(channel: string): Promise<TelegramProfileConfig>;
 }
 
 import type { ChatContextMeta } from "@/shared/api/schemas/chatContextMeta";

@@ -450,6 +450,7 @@ export const initialTelegramProfileConfig: TelegramProfileConfig = {
   sessionString: "",
   channel: "@demochannel",
   channelTitle: "Демо канал",
+  channelId: "",
   channelStatus: "connected",
   syncMode: "history-and-live",
   lastSync: "2026-06-16T12:40:00.000Z",

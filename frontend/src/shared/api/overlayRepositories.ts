@@ -3,6 +3,7 @@ import {
   normalizeChannelProfileConfig,
   normalizeTelegramProfileConfig,
 } from "@/shared/lib/profile/normalizeProfileConfig";
+import { formatConnectedChannelDisplay } from "@/shared/lib/channel/normalizeChannelHandle";
 import { shouldPersistLocally } from "@/shared/lib/overlay/isOverlayAccount";
 import { mergeEntityList } from "@/shared/lib/overlay/mergeEntities";
 import { mutateOverlay, readOverlay } from "@/shared/lib/overlay/overlayStorage";
@@ -259,6 +260,26 @@ function overlayProfile(inner: ProfileRepository): ProfileRepository {
         authStatus: "idle",
         authStep: "credentials",
         sessionString: "",
+      });
+      mutateOverlay((overlay) => {
+        overlay.profile = { ...overlay.profile, telegram: next };
+      });
+      return next;
+    },
+    connectTelegramChannel: async (channel) => {
+      if (!shouldPersistLocally()) return inner.connectTelegramChannel(channel);
+      const display = formatConnectedChannelDisplay(channel);
+      if (!display) throw new Error("Укажите канал");
+      const current = normalizeTelegramProfileConfig(await overlayProfile(inner).getTelegram());
+      const next = normalizeTelegramProfileConfig({
+        ...current,
+        channel: display,
+        channelTitle: display,
+        channelId: `overlay-channel-${Date.now()}`,
+        channelStatus: "connected",
+        authStatus: "connected",
+        authStep: "connected",
+        lastSync: new Date().toISOString(),
       });
       mutateOverlay((overlay) => {
         overlay.profile = { ...overlay.profile, telegram: next };
