@@ -141,19 +141,28 @@ is restored.  See docs/dev/security-byok.md.
 
 ## CSP (Content-Security-Policy)
 
-Frontend использует CSP для защиты от XSS.  
-Текущий режим: **Report-Only** — нарушения логируются в консоль браузера, но не блокируются.
+Frontend использует **enforce** CSP для защиты от XSS (Docker / standalone).
 
-### Переход в enforce-режим
+| Контур | CSP |
+|--------|-----|
+| Docker / standalone | `frontend/src/proxy.ts` — `Content-Security-Policy` (enforce) |
+| GitHub Pages / MSW | `layout.tsx` — permissive `<meta http-equiv="CSP">` |
 
-После убеждённости в отсутствии нарушений (проверьте консоль браузера и DevTools → Issues):
+Стратегия для Next.js SSG: `script-src 'self' 'unsafe-inline'` (nonce не работает
+со статически пререндеренными страницами).
 
-```typescript
-// frontend/src/proxy.ts — заменить заголовок:
-response.headers.set("Content-Security-Policy-Report-Only", csp);
-// ↓
-response.headers.set("Content-Security-Policy", csp);
+### Отчёты о нарушениях
+
+CSP содержит `report-uri` → `POST /api/v1/csp-report/` на бэкенде.
+
+Логи: `tg.security.csp` (уровень WARNING).
+
+```bash
+# Docker — смотреть отчёты в реальном времени:
+docker compose logs -f backend | grep "CSP violation"
 ```
+
+Эндпоинт без аутентификации — браузер шлёт отчёты автоматически.
 
 ### Проверка нарушений
 
@@ -164,6 +173,6 @@ response.headers.set("Content-Security-Policy", csp);
 
 | Нарушение | Причина | Решение |
 |-----------|---------|---------|
-| `script-src` блокирует inline script | Inline `<script>` без nonce | Убрать inline или добавить nonce |
+| `script-src` блокирует inline script | Inline `<script>` без nonce | Добавить `'unsafe-inline'` или перейти на dynamic SSR + nonce |
 | `connect-src` блокирует запрос | Новый внешний API | Добавить домен в `connect-src` в `buildCsp()` |
 | `img-src` блокирует изображение | Внешний CDN | Добавить домен в `img-src` |

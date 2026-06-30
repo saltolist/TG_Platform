@@ -1,5 +1,5 @@
 /**
- * Next.js Proxy (formerly "middleware") — security headers + CSP (Report-Only).
+ * Next.js Proxy (formerly "middleware") — security headers + enforced CSP.
  *
  * Runs only when Next.js acts as a server (Docker / standalone output).
  * Static export (GitHub Pages) has no proxy; a lighter
@@ -9,13 +9,10 @@
  *   script-src 'self' 'unsafe-inline'
  * Per-request nonce + strict-dynamic only works when pages are rendered
  * dynamically on every request. Our Docker build pre-renders pages statically,
- * so inline hydration scripts are baked without a nonce — nonce-only CSP would
- * break the app if switched to enforce mode.
+ * so inline hydration scripts are baked without a nonce.
  *
- * The browser-facing response uses Content-Security-Policy-Report-Only so
- * violations are logged without blocking anything. Switch to
- * Content-Security-Policy (enforce) once the console is clean — see
- * docs/dev/security-byok.md#csp.
+ * Violation reports are sent to the backend ``/api/v1/csp-report/`` endpoint
+ * (see ``report-uri`` in the CSP header). Logs: ``tg.security.csp``.
  */
 
 import { NextResponse, type NextRequest } from "next/server";
@@ -29,6 +26,7 @@ import { NextResponse, type NextRequest } from "next/server";
  * - style-src: 'unsafe-inline' — Tailwind / CSS-in-JS.
  * - connect-src: 'self' + API URL (REST + SSE streaming).
  * - img-src: data: blob: — note attachments and object-URL previews.
+ * - report-uri: backend endpoint for violation telemetry.
  */
 function buildCsp(apiUrl: string, isDev: boolean): string {
   const scriptSrc = isDev
@@ -36,6 +34,8 @@ function buildCsp(apiUrl: string, isDev: boolean): string {
     : "'self' 'unsafe-inline'";
 
   const connectSrc = ["'self'", apiUrl].filter(Boolean).join(" ");
+
+  const reportUri = apiUrl ? `${apiUrl.replace(/\/$/, "")}/api/v1/csp-report/` : "";
 
   const directives: Record<string, string> = {
     "default-src": "'self'",
@@ -51,8 +51,12 @@ function buildCsp(apiUrl: string, isDev: boolean): string {
     "frame-ancestors": "'none'",
   };
 
-  // upgrade-insecure-requests only makes sense over HTTPS in enforce mode.
-  if (!isDev) {
+  if (reportUri) {
+    directives["report-uri"] = reportUri;
+  }
+
+  // upgrade-insecure-requests only on real HTTPS deployments (not local Docker HTTP).
+  if (!isDev && apiUrl.startsWith("https://")) {
     directives["upgrade-insecure-requests"] = "";
   }
 
@@ -72,9 +76,7 @@ export function proxy(request: NextRequest) {
   const response = NextResponse.next({ request });
 
   // ── Security headers (browser-facing response) ─────────────────────────────
-  // CSP: Report-Only — logs violations but does not block anything.
-  // Change to "Content-Security-Policy" when ready to enforce.
-  response.headers.set("Content-Security-Policy-Report-Only", csp);
+  response.headers.set("Content-Security-Policy", csp);
 
   // Prevent MIME-type sniffing (e.g. serving a JS file as text/plain).
   response.headers.set("X-Content-Type-Options", "nosniff");
@@ -89,7 +91,7 @@ export function proxy(request: NextRequest) {
   );
 
   // Strict HSTS — only meaningful over HTTPS, browsers ignore it over HTTP.
-  if (!isDev) {
+  if (!isDev && apiUrl.startsWith("https://")) {
     response.headers.set(
       "Strict-Transport-Security",
       "max-age=31536000; includeSubDomains",
