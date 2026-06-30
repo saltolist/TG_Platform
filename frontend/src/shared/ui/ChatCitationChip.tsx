@@ -2,6 +2,8 @@
 
 import Link from "next/link";
 
+import { NavIconNotes } from "@/shared/ui/nav-icons";
+
 type Props = {
   href: string;
   label: string;
@@ -20,7 +22,10 @@ export default function ChatCitationChip({ href, label, title }: Props) {
       title={tooltip}
       aria-label={`Источник: ${fullTitle}`}
     >
-      {display}
+      <span className="chat-citation-chip-icon" aria-hidden="true">
+        <NavIconNotes width={12} height={12} />
+      </span>
+      <span className="chat-citation-chip-label">{display}</span>
     </Link>
   );
 }

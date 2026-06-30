@@ -749,7 +749,9 @@
   margin-left: 0.2em;
 }
 .chat-citation-chip {
-  display: inline;
+  display: inline-flex;
+  align-items: center;
+  gap: 0.35em;
   max-width: 10em;
   padding: 0.2em 0.5em;
   font-size: 0.78em;
@@ -758,7 +760,6 @@
   vertical-align: baseline;
   white-space: nowrap;
   overflow: hidden;
-  text-overflow: ellipsis;
   color: var(--text2);
   background: var(--bg3);
   border: none;
@@ -766,6 +767,20 @@
   text-decoration: none;
   cursor: pointer;
   transition: background 0.15s ease, color 0.15s ease;
+}
+.chat-citation-chip-icon {
+  display: inline-flex;
+  flex-shrink: 0;
+  align-items: center;
+  color: var(--text3);
+}
+.chat-citation-chip-icon svg {
+  display: block;
+}
+.chat-citation-chip-label {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
 /* Hover: slightly lighter chip, text color unchanged */
 .chat-citation-chip:hover {
