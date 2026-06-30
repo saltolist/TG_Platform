@@ -47,18 +47,48 @@
 
 ---
 
-### Шаг 1 — MTProto-авторизация
+### Шаг 1 — MTProto-авторизация ✅ backend реализован
 
-**Эндпоинты:** `POST /api/v1/telegram/auth/*`.
+**Эндпоинты:** `POST /api/v1/telegram/auth/{send-code,verify,verify-2fa,reset}/`
+(`CurrentWriter` — сид/демо-аккаунты получают 403, как и на `PUT /profile/telegram/`).
 
-1. Поток: `apiId` / `apiHash` / `phone` → запрос кода → `code` → (2FA при наличии)
-   → сессия.
-2. Состояние авторизации синхронизировать с `TelegramProfileConfig.authStatus`
-   (`idle` → `code-sent` → `authorized` → `connected`).
-3. Сессия шифруется и сохраняется в БД (привязка к `user_id`) — поле `sessionString`,
-   шифрование через `byok_telegram` (шаг 0).
+**Файлы:**
+- `backend/app/services/telegram/mtproto_client.py` — фабрика Telethon `TelegramClient`
+  через `StringSession` (модульный импорт класса, чтобы тесты могли подменить его
+  через `monkeypatch`).
+- `backend/app/services/telegram/auth_flow.py` — `send_code` / `verify_code` /
+  `verify_password` / `reset_auth`, свой `TelegramAuthError`.
+- `backend/app/api/v1/telegram_auth.py` — роутер, переиспользует
+  `mask_telegram_secrets` для ответов (тот же формат, что у `GET/PUT /profile/telegram/`).
 
-**Тесты:** мок Telethon-клиента; переходы статусов.
+**Поток (stateless reconnect через `StringSession`):** каждый HTTP-запрос — новый
+процесс/клиент Telethon, поэтому промежуточное состояние между шагами
+(`phone_code_hash`, промежуточная `StringSession`, телефон) сохраняется как
+**внутренние зашифрованные поля** в `profiles.telegram` — `_pendingSessionString`,
+`_pendingPhoneCodeHash`, `_pendingPhone`. Они шифруются тем же `BYOK_ENCRYPTION_KEY`,
+что и `apiHash`/`sessionString`, но **никогда** не попадают в ответ клиенту —
+`mask_telegram_secrets()` всегда их вырезает (`strip_internal_fields()`).
+
+1. `send-code/` — `apiId`/`apiHash` из профиля (расшифровка) → Telethon
+   `send_code_request(phone)` → `authStatus=code-sent`, `authStep=code`.
+2. `verify/` — восстановление клиента из `_pendingSessionString`, `sign_in(phone, code,
+   phone_code_hash=...)`:
+   - успех → `authStatus=authorized`, `authStep=channel`, `sessionString` сохранён,
+     internal-поля очищены;
+   - неверный код (`PhoneCodeInvalidError`) → 400, состояние не меняется;
+   - истёкший код (`PhoneCodeExpiredError`) → 400 + сброс в `idle`/`credentials`;
+   - 2FA включена (`SessionPasswordNeededError`) → 200, `authStep=password`
+     (та же промежуточная сессия валидна и для пароля).
+3. `verify-2fa/` — `sign_in(password=...)` на той же промежуточной сессии → `authorized`.
+4. `reset/` — best-effort `log_out()` в Telegram (если есть активная сессия) +
+   локальный сброс в `idle`/`credentials`, `sessionString` очищается.
+
+**Тесты:** `backend/tests/test_telegram_auth.py` — фейковый Telethon-клиент
+(`monkeypatch` на `app.services.telegram.mtproto_client`), все ветки выше + 2FA +
+регрессия на отсутствие internal-полей в любом JSON-ответе.
+
+> Frontend пока остаётся на клиентской заглушке (`useTelegramBlock.ts` без сетевых
+> вызовов) — переключение на реальные эндпоинты выше — отдельная следующая задача.
 
 ---
 
@@ -119,8 +149,10 @@ GET /api/v1/analytics/top-posts
 ## Дополнительные эндпоинты (сводка)
 
 ```
-POST /api/v1/telegram/auth/send-code
-POST /api/v1/telegram/auth/verify
+POST /api/v1/telegram/auth/send-code/    ✅ реализован
+POST /api/v1/telegram/auth/verify/       ✅ реализован
+POST /api/v1/telegram/auth/verify-2fa/   ✅ реализован
+POST /api/v1/telegram/auth/reset/        ✅ реализован
 POST /api/v1/telegram/import
 POST /api/v1/posts/:id/publish
 POST /api/v1/posts/:id/schedule   { scheduledAt: ISO-8601 }

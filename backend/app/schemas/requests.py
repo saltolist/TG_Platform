@@ -63,6 +63,18 @@ class RevealTelegramSecretResponse(BaseModel):
     value: str
 
 
+class TelegramSendCodeRequest(BaseModel):
+    phone: str
+
+
+class TelegramVerifyCodeRequest(BaseModel):
+    code: str
+
+
+class TelegramVerify2faRequest(BaseModel):
+    password: str
+
+
 __all__ = [
     "PostIn",
     "ReorderRequest",
@@ -73,4 +85,7 @@ __all__ = [
     "RevealAiModelApiKeyResponse",
     "RevealTelegramSecretRequest",
     "RevealTelegramSecretResponse",
+    "TelegramSendCodeRequest",
+    "TelegramVerifyCodeRequest",
+    "TelegramVerify2faRequest",
 ]

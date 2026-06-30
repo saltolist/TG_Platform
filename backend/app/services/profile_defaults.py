@@ -42,6 +42,7 @@ def empty_telegram_profile() -> dict[str, Any]:
         "apiHash": "",
         "phone": "",
         "sessionName": "",
+        "sessionString": "",
         "channel": "",
         "channelTitle": "",
         "channelStatus": "idle",

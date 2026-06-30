@@ -260,6 +260,52 @@ Telegram-настройки пользователя.
 
 ---
 
+### `POST /api/v1/telegram/auth/send-code`
+Начать (или повторить) MTProto-авторизацию: отправить код подтверждения на телефон
+через Telethon. Требует уже сохранённых `apiId`/`apiHash` (`PUT /profile/telegram`).
+
+**Auth:** `CurrentWriter` (сид/демо-аккаунты → `403`).
+**Body:** `{ "phone": "+79001234567" }`
+**Response `200`:** `TelegramProfileConfig` (`authStatus: "code-sent"`, `authStep: "code"`)
+**Errors:** `400` — нет `apiId`/`apiHash`, неверный номер; `429` — `FloodWaitError`.
+
+---
+
+### `POST /api/v1/telegram/auth/verify`
+Подтвердить код из Telegram.
+
+**Auth:** `CurrentWriter`
+**Body:** `{ "code": "12345" }`
+**Response `200`:** `TelegramProfileConfig` — один из:
+- `authStatus: "authorized"`, `authStep: "channel"` — успех, `sessionString` сохранён;
+- `authStatus: "code-sent"`, `authStep: "password"` — у аккаунта включена 2FA,
+  далее вызвать `verify-2fa`.
+
+**Errors:** `400` — неверный или истёкший код (при истёкшем — `authStatus` сбрасывается
+в `"idle"`, нужно заново вызвать `send-code`).
+
+---
+
+### `POST /api/v1/telegram/auth/verify-2fa`
+Подтвердить облачный пароль (двухфакторная аутентификация Telegram). Вызывается только
+после `verify` с ответом `authStep: "password"`.
+
+**Auth:** `CurrentWriter`
+**Body:** `{ "password": "string" }`
+**Response `200`:** `TelegramProfileConfig` (`authStatus: "authorized"`, `authStep: "channel"`)
+**Errors:** `400` — неверный пароль или вызов вне шага `password`.
+
+---
+
+### `POST /api/v1/telegram/auth/reset`
+Сбросить MTProto-авторизацию: best-effort выход из текущей Telegram-сессии
+(`log_out`) + очистка `sessionString` и состояния на бэкенде.
+
+**Auth:** `CurrentWriter`
+**Response `200`:** `TelegramProfileConfig` (`authStatus: "idle"`, `authStep: "credentials"`)
+
+---
+
 ## AI Ассистент
 
 ### `POST /api/v1/ai/reply`
