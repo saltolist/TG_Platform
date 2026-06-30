@@ -22,3 +22,5 @@ venv/
 # Docker / data volumes
 postgres-data/
 minio-data/
+media-data/
+backend/media/

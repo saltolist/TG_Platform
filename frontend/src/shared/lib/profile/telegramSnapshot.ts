@@ -35,8 +35,12 @@ export function normalizeTelegramValue(value: string | null | undefined) {
   return (value ?? "").trim().toLowerCase();
 }
 
-export function getTelegramStatusLabel(cfg: TelegramProfileConfig, syncing: boolean) {
-  if (syncing) return { className: "syncing", text: "Синхронизация" };
+export function getTelegramStatusLabel(
+  cfg: TelegramProfileConfig,
+  syncing: boolean,
+  importing = false,
+) {
+  if (syncing || importing) return { className: "syncing", text: "Синхронизация" };
   if (cfg.authStatus === "connected" && cfg.channelStatus === "connected") {
     return { className: "ok", text: "MTProto подключён" };
   }

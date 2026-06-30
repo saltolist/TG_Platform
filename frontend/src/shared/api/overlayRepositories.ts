@@ -280,6 +280,9 @@ function overlayProfile(inner: ProfileRepository): ProfileRepository {
         authStatus: "connected",
         authStep: "connected",
         lastSync: new Date().toISOString(),
+        importStatus: "done",
+        importError: "",
+        importedPosts: 42,
       });
       mutateOverlay((overlay) => {
         overlay.profile = { ...overlay.profile, telegram: next };

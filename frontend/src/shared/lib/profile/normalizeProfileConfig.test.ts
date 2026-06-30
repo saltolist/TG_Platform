@@ -17,5 +17,7 @@ describe("normalizeProfileConfig", () => {
     expect(cfg.authStatus).toBe("idle");
     expect(cfg.botApiToken).toBe("");
     expect(cfg.channel).toBe("");
+    expect(cfg.importStatus).toBe("idle");
+    expect(cfg.importError).toBe("");
   });
 });

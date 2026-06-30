@@ -455,6 +455,8 @@ export const initialTelegramProfileConfig: TelegramProfileConfig = {
   syncMode: "history-and-live",
   lastSync: "2026-06-16T12:40:00.000Z",
   importedPosts: 128,
+  importStatus: "done",
+  importError: "",
   botApiToken: "7123456789:AAHdemoOmniBotTokenForTGPlatform",
   botStatus: "idle",
   botUsername: "",

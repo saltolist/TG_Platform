@@ -58,6 +58,8 @@ export function createEmptyTelegramProfile(): TelegramProfileConfig {
     syncMode: "history-and-live",
     lastSync: "—",
     importedPosts: 0,
+    importStatus: "idle",
+    importError: "",
     botApiToken: "",
     botStatus: "idle",
     botUsername: "",

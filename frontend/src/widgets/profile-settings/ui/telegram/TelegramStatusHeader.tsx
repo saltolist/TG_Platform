@@ -5,6 +5,7 @@ type Props = {
   isAuthorized: boolean;
   isConnected: boolean;
   syncing: boolean;
+  importing: boolean;
   onReset: () => void;
 };
 
@@ -13,8 +14,10 @@ export default function TelegramStatusHeader({
   isAuthorized,
   isConnected,
   syncing,
+  importing,
   onReset,
 }: Props) {
+  const syncActive = syncing || importing;
   return (
     <>
       <div className="telegram-status-row">
@@ -45,7 +48,7 @@ export default function TelegramStatusHeader({
             <small>username, invite link или id канала</small>
           </div>
         </div>
-        <div className={`telegram-step ${syncing ? "active syncing" : isConnected ? "done" : ""}`}>
+        <div className={`telegram-step ${syncActive ? "active syncing" : isConnected ? "done" : ""}`}>
           <span>3</span>
           <div>
             <b>Синхронизация</b>

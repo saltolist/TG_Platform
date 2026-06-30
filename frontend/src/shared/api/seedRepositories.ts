@@ -201,6 +201,9 @@ export function createSeedRepositories(): RepositoryBundle {
           authStatus: "connected",
           authStep: "connected",
           lastSync: new Date().toISOString(),
+          importStatus: "done",
+          importError: "",
+          importedPosts: 42,
         };
         return telegramProfile;
       },

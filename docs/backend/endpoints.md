@@ -310,8 +310,14 @@ Telegram-настройки пользователя.
 Проверить через Telethon, что канал существует и у авторизованного аккаунта есть
 права на публикацию (создатель или админ с `post_messages`), затем пометить канал
 подключённым. Требует предварительной авторизации (`authStatus` ∈
-`{"authorized", "connected"}` и сохранённый `sessionString`). **Не импортирует
-историю постов** (отдельный шаг).
+`{"authorized", "connected"}` и сохранённый `sessionString`).
+
+После успешного connect (если `syncMode != "publish-only"`) в фоне
+(`asyncio.create_task`) запускается импорт до **200** последних постов канала
+(текст + фото/документы). HTTP-ответ возвращается сразу с
+`importStatus: "importing"`. Статус и результат — через поля
+`importStatus`, `importError`, `importedPosts`, `lastSync` в
+`GET /api/v1/profile/telegram`.
 
 Принимает:
 - публичный `@username` / `t.me/username` (в т.ч. у приватного канала с username);
@@ -324,12 +330,21 @@ Telegram-настройки пользователя.
 **Auth:** `CurrentWriter` (сид/демо-аккаунты → `403`).
 **Body:** `{ "channel": "@mychannel" }` (или invite/id — см. выше)
 **Response `200`:** `TelegramProfileConfig` (`channelStatus: "connected"`,
-`authStatus: "connected"`, `authStep: "connected"`, заполнены `channelTitle`/`channelId`)
+`authStatus: "connected"`, `authStep: "connected"`, заполнены `channelTitle`/`channelId`;
+при `syncMode != "publish-only"` — `importStatus: "importing"`, иначе
+`importStatus: "idle"`)
 **Errors:**
 - `400` — пустой ввод, истёкшая/неверная invite-ссылка, ресурс не является каналом;
 - `403` — не состоите в канале / нет прав администратора;
 - `404` — канал не найден или id отсутствует в ваших диалогах;
 - `504` — Telegram не ответил за `TELEGRAM_RPC_TIMEOUT_SECONDS`.
+
+---
+
+### `GET /media/{user_id}/{filename}`
+Статическая раздача медиафайлов, скачанных при импорте истории канала
+(фото/документы). URL в поле `media[].url` поста — абсолютный
+(`MEDIA_PUBLIC_BASE_URL/media/...`). **Auth:** не требуется (публичные URL).
 
 ---
 

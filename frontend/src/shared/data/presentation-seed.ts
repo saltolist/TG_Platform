@@ -360,6 +360,8 @@ const presentationTelegramProfile = (): TelegramProfileConfig => ({
   syncMode: "history-and-live",
   lastSync: "2026-06-16T12:40:00.000Z",
   importedPosts: presentationPosts.length,
+  importStatus: "done",
+  importError: "",
   botApiToken: "",
   botStatus: "idle",
   botUsername: "",

@@ -210,6 +210,11 @@ async def _resolve_channel_title(client: Any, entity: Any, settings: Settings) -
     return "Telegram канал"
 
 
+# Public aliases for import_flow and tests.
+parse_channel_input = _parse_channel_input
+resolve_channel_entity = _resolve_entity
+
+
 async def connect_channel(
     profile: dict[str, Any], channel_input: str, settings: Settings | None = None
 ) -> dict[str, Any]:
@@ -247,6 +252,13 @@ async def connect_channel(
         result["authStatus"] = "connected"
         result["authStep"] = "connected"
         result["lastSync"] = datetime.now(timezone.utc).isoformat()
+        sync_mode = str(profile.get("syncMode") or "history-and-live")
+        if sync_mode == "publish-only":
+            result["importStatus"] = "idle"
+            result["importError"] = ""
+        else:
+            result["importStatus"] = "importing"
+            result["importError"] = ""
         return result
     finally:
         await disconnect_safely(client)

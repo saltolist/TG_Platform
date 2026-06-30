@@ -19,6 +19,7 @@ export default function TelegramBlock({ active = true }: { active?: boolean }) {
         isAuthorized={tg.isAuthorized}
         isConnected={tg.isConnected}
         syncing={tg.syncing}
+        importing={tg.importing}
         onReset={tg.reset}
       />
 
@@ -64,6 +65,7 @@ export default function TelegramBlock({ active = true }: { active?: boolean }) {
         isConnected={tg.isConnected}
         connectChannelDisabled={tg.connectChannelDisabled}
         connecting={tg.connectingChannel}
+        importing={tg.importing}
         onChannelChange={(channel) => tg.update({ channel })}
         onConnectChannel={tg.connectChannel}
       />

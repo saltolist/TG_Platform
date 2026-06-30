@@ -54,11 +54,15 @@ services:
       AI_CONTEXT_LOG: ${AI_CONTEXT_LOG:-0}
       AI_CONTEXT_LOG_CHAT: ${AI_CONTEXT_LOG_CHAT:-}
       AI_CONTEXT_STAMPS: ${AI_CONTEXT_STAMPS:-0}
+      MEDIA_STORAGE_ROOT: /app/media
+      MEDIA_PUBLIC_BASE_URL: ${PUBLIC_API_URL:-http://localhost:8000}
     depends_on:
       postgres:
         condition: service_healthy
     ports:
       - "8000:8000"
+    volumes:
+      - media-data:/app/media
 
   frontend:
     build:
@@ -77,3 +81,5 @@ volumes:
     name: tg_platform_postgres-data
   minio-data:
     name: tg_platform_minio-data
+  media-data:
+    name: tg_platform_media-data

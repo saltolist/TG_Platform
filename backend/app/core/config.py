@@ -72,6 +72,13 @@ class Settings(BaseSettings):
     # https://github.com/LonamiWebs/Telethon/issues/1056) cannot hang a worker.
     telegram_rpc_timeout_seconds: float = 25.0
 
+    # Local media storage for Telegram import (Phase 3, step 3)
+    media_storage_root: str = "media"
+    media_public_base_url: str = "http://localhost:8000"
+    telegram_import_post_limit: int = 200
+    telegram_import_max_media_mb: float = 20.0
+    telegram_import_timeout_seconds: float = 600.0
+
     @property
     def byok_old_keys_list(self) -> list[str]:
         return [k.strip() for k in self.byok_encryption_old_keys.split(",") if k.strip()]

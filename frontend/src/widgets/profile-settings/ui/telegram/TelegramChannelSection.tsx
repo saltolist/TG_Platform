@@ -10,9 +10,21 @@ type Props = {
   isConnected: boolean;
   connectChannelDisabled: boolean;
   connecting: boolean;
+  importing: boolean;
   onChannelChange: (channel: string) => void;
   onConnectChannel: () => void;
 };
+
+function getImportStatusLabel(cfg: TelegramProfileConfig, importing: boolean): string {
+  if (importing || cfg.importStatus === "importing") return "Импортируем историю…";
+  if (cfg.importStatus === "error") {
+    return cfg.importError || "Не удалось импортировать историю постов";
+  }
+  if (cfg.importStatus === "done" && cfg.importedPosts > 0) {
+    return `Импортировано ${cfg.importedPosts} постов`;
+  }
+  return "—";
+}
 
 export default function TelegramChannelSection({
   cfg,
@@ -20,9 +32,11 @@ export default function TelegramChannelSection({
   isConnected,
   connectChannelDisabled,
   connecting,
+  importing,
   onChannelChange,
   onConnectChannel,
 }: Props) {
+  const channelBusy = connecting || importing;
   return (
     <div className={`telegram-channel-section${!isAuthorized ? " hidden" : ""}`}>
       <div className="telegram-channel-desktop">
@@ -33,16 +47,16 @@ export default function TelegramChannelSection({
               className="profile-input profile-input-explicit telegram-input telegram-channel-input"
               value={cfg.channel}
               placeholder="@channel, t.me/+… или -100…"
-              disabled={connecting}
+              disabled={channelBusy}
               onChange={(e) => onChannelChange(e.target.value)}
             />
             <button
               className="btn btn-ghost telegram-inline-button"
-              disabled={connectChannelDisabled || connecting}
+              disabled={connectChannelDisabled || channelBusy}
               onClick={onConnectChannel}
               type="button"
             >
-              {connecting ? "Проверяем…" : "Подключить канал"}
+              {connecting ? "Проверяем…" : importing ? "Импорт…" : "Подключить канал"}
             </button>
           </div>
         </div>
@@ -55,16 +69,16 @@ export default function TelegramChannelSection({
               className="profile-input profile-input-explicit telegram-input"
               value={cfg.channel}
               placeholder="@channel, t.me/+… или -100…"
-              disabled={connecting}
+              disabled={channelBusy}
               onChange={(e) => onChannelChange(e.target.value)}
             />
             <button
               className="btn btn-ghost telegram-inline-button"
-              disabled={connectChannelDisabled || connecting}
+              disabled={connectChannelDisabled || channelBusy}
               onClick={onConnectChannel}
               type="button"
             >
-              {connecting ? "Проверяем…" : "Подключить"}
+              {connecting ? "Проверяем…" : importing ? "Импорт…" : "Подключить"}
             </button>
           </div>
         </div>
@@ -81,6 +95,10 @@ export default function TelegramChannelSection({
           <div>
             <div className="profile-label">Последняя синхронизация</div>
             <div className="profile-val">{formatStoredDate(cfg.lastSync) || "—"}</div>
+          </div>
+          <div>
+            <div className="profile-label">Импорт истории</div>
+            <div className="profile-val">{getImportStatusLabel(cfg, importing)}</div>
           </div>
           <div>
             <div className="profile-label">Импортировано постов</div>

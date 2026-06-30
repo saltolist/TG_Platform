@@ -178,19 +178,51 @@ instant-success симуляция + `PUT`, как раньше) и `connectReal
 и MSW dev-режим (`shouldPersistLocally()`) используют локальную симуляцию в
 `overlayRepositories.ts`/`msw/handlers.ts` — реальный Telethon не дёргается.
 
-**Явно вне рамок этого шага:** импорт истории постов (Шаг 3 — отдельная
-задача); автоматическое вступление в канал по invite-ссылке; бэкенд-логика
-для `syncMode` (остаётся чисто метаданными).
+**Явно вне рамок этого шага:** автоматическое вступление в канал по invite-ссылке;
+бэкенд-логика для `syncMode` live-sync (остаётся чисто метаданными до отдельной
+задачи).
 
 ---
 
-### Шаг 3 — Импорт истории
+### Шаг 3 — Импорт истории ✅
 
-**Эндпоинт:** `POST /api/v1/telegram/import`.
+**Запуск:** автоматически в фоне сразу после успешного
+`POST /api/v1/telegram/channel/connect/` (если `syncMode != "publish-only"`).
+HTTP-ответ connect возвращается мгновенно с `importStatus: "importing"`;
+фронт поллит `GET /api/v1/profile/telegram` каждые ~3 с до
+`importStatus ∈ {"done", "error"}`.
 
-1. Импорт постов канала в `posts` (маппинг на доменную модель `Post`).
-2. Идемпотентность по внешнему telegram message id.
-3. Обновление `importedPosts` и `lastSync`.
+**Реализация:**
+- `backend/app/services/telegram/import_flow.py` — `run_channel_import()`:
+  повторный резолв канала через `parse_channel_input` / `resolve_channel_entity`
+  из `channel_flow.py`; `iter_messages` с группировкой альбомов (`grouped_id`);
+  лимит **200 постов** (служебные сообщения не считаются); общий таймаут
+  `telegram_import_timeout_seconds` (600 с).
+- `backend/app/services/telegram/media_storage.py` — скачивание фото/документов
+  через Telethon на диск (`media_storage_root`), лимит `telegram_import_max_media_mb`
+  (20 МБ); раздача через статический mount `/media`.
+- **Идемпотентность:** импортированные посты помечаются `data.source = "telegram"`
+  (внутренний маркер, не часть `postSchema` на фронте). Повторный импорт удаляет
+  только посты с этим маркером; черновики пользователя не трогаются.
+- **Статусы в `TelegramProfileConfig`:** `importStatus` (`idle` | `importing` |
+  `done` | `error`), `importError`, `importedPosts`, `lastSync`.
+- **`syncMode: "publish-only"`** — импорт не запускается (`importStatus: "idle"`).
+
+**Настройки** (`backend/app/core/config.py`):
+`media_storage_root`, `media_public_base_url`, `telegram_import_post_limit`,
+`telegram_import_max_media_mb`, `telegram_import_timeout_seconds`.
+
+**Frontend:** `useTelegramBlock.ts` — поллинг `importStatus`, toast по завершении,
+`refreshPostsAfterChannelImport`; `TelegramChannelSection` — статус импорта,
+дизейбл «Подключить канал» при `importing`; `TelegramStatusHeader` — шаг 3
+активен при импорте. Seed/overlay/MSW — мгновенный `importStatus: "done"`.
+
+**Известное ограничение v1:** повторное нажатие «Подключить канал» во время
+импорта может запустить вторую параллельную задачу (нет блокировки на уровне
+процесса); на фронте кнопка дизейблится при `importStatus === "importing"`.
+
+**Явно вне рамок:** комментарии к постам; ручная ресинхронизация; live-sync
+новых постов; персистентная очередь задач (используется `asyncio.create_task`).
 
 ---
 
@@ -236,8 +268,8 @@ POST /api/v1/telegram/auth/send-code/      ✅ реализован
 POST /api/v1/telegram/auth/verify/         ✅ реализован
 POST /api/v1/telegram/auth/verify-2fa/     ✅ реализован
 POST /api/v1/telegram/auth/reset/          ✅ реализован
-POST /api/v1/telegram/channel/connect/     ✅ реализован
-POST /api/v1/telegram/import
+POST /api/v1/telegram/channel/connect/     ✅ реализован (+ фоновый импорт истории)
+POST /api/v1/media/                        ✅ статическая раздача (mount /media)
 POST /api/v1/posts/:id/publish
 POST /api/v1/posts/:id/schedule   { scheduledAt: ISO-8601 }
 GET  /api/v1/analytics/overview

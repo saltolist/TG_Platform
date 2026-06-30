@@ -29,6 +29,7 @@ import { confirmDialog } from "@/shared/ui/dialog";
 import { reportMutationError, showToast } from "@/shared/ui/toast";
 
 const RESEND_COOLDOWN_SECONDS = 60;
+const IMPORT_POLL_INTERVAL_MS = 3000;
 
 export function useTelegramBlock() {
   const cfg = useDomainSelector(selectTelegramProfileConfig);
@@ -53,6 +54,7 @@ export function useTelegramBlock() {
   const [credentialsFlashNonce, setCredentialsFlashNonce] = useState(0);
   const syncTimerRef = useRef<number | null>(null);
   const resendIntervalRef = useRef<number | null>(null);
+  const importIntervalRef = useRef<number | null>(null);
   const authBeforeCodeSentRef = useRef<Partial<TelegramProfileConfig> | null>(null);
 
   const update = (patch: Partial<TelegramProfileConfig>) =>
@@ -71,6 +73,13 @@ export function useTelegramBlock() {
       resendIntervalRef.current = null;
     }
     setResendCooldownSec(0);
+  }, []);
+
+  const clearImportPolling = useCallback(() => {
+    if (importIntervalRef.current !== null) {
+      window.clearInterval(importIntervalRef.current);
+      importIntervalRef.current = null;
+    }
   }, []);
 
   const beginResendCooldown = useCallback(() => {
@@ -104,10 +113,47 @@ export function useTelegramBlock() {
       setDirty("profile-telegram", false);
       if (syncTimerRef.current !== null) window.clearTimeout(syncTimerRef.current);
       clearResendCooldown();
+      clearImportPolling();
     };
-  }, [setDirty, clearResendCooldown]);
+  }, [setDirty, clearResendCooldown, clearImportPolling]);
 
-  const status = getTelegramStatusLabel(cfg, syncing);
+  useEffect(() => {
+    if (cfg.importStatus !== "importing") return;
+
+    const poll = async () => {
+      try {
+        const latest = await profile.getTelegram();
+        dispatch(domainActions.updateTelegramConfig(latest));
+        if (latest.importStatus !== "importing") {
+          clearImportPolling();
+          applyPatch({ telegramSettingsSavedSnapshot: telegramConfigSnapshot(latest) });
+          if (latest.importStatus === "done") {
+            showToast({
+              message: `Импортировано ${latest.importedPosts} постов`,
+              variant: "info",
+            });
+            await refreshPostsAfterChannelImport(queryClient);
+          } else if (latest.importStatus === "error") {
+            showToast({
+              message: latest.importError || "Не удалось импортировать историю постов",
+              variant: "error",
+            });
+          }
+        }
+      } catch {
+        // Transient errors — keep polling until import finishes or user leaves.
+      }
+    };
+
+    importIntervalRef.current = window.setInterval(() => {
+      void poll();
+    }, IMPORT_POLL_INTERVAL_MS);
+
+    return clearImportPolling;
+  }, [cfg.importStatus, profile, dispatch, applyPatch, queryClient, clearImportPolling]);
+
+  const importing = cfg.importStatus === "importing";
+  const status = getTelegramStatusLabel(cfg, syncing, importing);
   const isConnected = cfg.authStatus === "connected" && cfg.channelStatus === "connected";
   const isAuthorized = cfg.authStatus === "authorized" || cfg.authStatus === "connected";
   const codeHidden = cfg.authStatus !== "code-sent";
@@ -121,7 +167,8 @@ export function useTelegramBlock() {
   const phoneIncomplete = !isTelegramPhoneComplete(cfg.phone);
   const sendCodeDisabled =
     phoneIncomplete || (isAuthorized && !phoneChangedFromSaved) || sendingCode;
-  const connectChannelDisabled = isConnected && !channelChangedFromSaved;
+  const connectChannelDisabled =
+    (isConnected && !channelChangedFromSaved) || importing;
   const isBotConnected = cfg.botStatus === "connected";
   const botTokenTrimmed = cfg.botApiToken.trim();
   const botTokenChangedFromSaved =
@@ -294,6 +341,8 @@ export function useTelegramBlock() {
       channelStatus: "connected",
       channelTitle: DEMO_CHANNEL_TITLE,
       lastSync: new Date().toISOString(),
+      importStatus: "done",
+      importError: "",
     };
     const merged = { ...cfg, ...next };
     update(next);
@@ -384,6 +433,7 @@ export function useTelegramBlock() {
       window.clearTimeout(syncTimerRef.current);
       syncTimerRef.current = null;
     }
+    clearImportPolling();
     setSyncing(false);
     setCredentialsFlashNonce(0);
     setCode("");
@@ -398,6 +448,8 @@ export function useTelegramBlock() {
         channelStatus: "idle",
         lastSync: "—",
         importedPosts: 0,
+        importStatus: "idle",
+        importError: "",
         botApiToken: "",
         botStatus: "idle",
         botUsername: "",
@@ -447,6 +499,7 @@ export function useTelegramBlock() {
     codeHidden,
     awaitingPassword,
     syncing,
+    importing,
     code,
     setCode,
     password,

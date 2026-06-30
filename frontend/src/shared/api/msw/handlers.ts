@@ -242,6 +242,8 @@ export const handlers = [
       store.telegramProfile.importedPosts = count;
       store.telegramProfile.lastSync = new Date().toISOString();
       store.telegramProfile.channelTitle = DEMO_CHANNEL_TITLE;
+      store.telegramProfile.importStatus = "done";
+      store.telegramProfile.importError = "";
     }
 
     return HttpResponse.json(store.telegramProfile);
@@ -329,6 +331,9 @@ export const handlers = [
       authStatus: "connected",
       authStep: "connected",
       lastSync: new Date().toISOString(),
+      importStatus: "done",
+      importError: "",
+      importedPosts: 42,
     };
     return HttpResponse.json(store.telegramProfile);
   }),

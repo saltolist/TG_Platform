@@ -50,6 +50,8 @@ def empty_telegram_profile() -> dict[str, Any]:
         "syncMode": "history-and-live",
         "lastSync": "—",
         "importedPosts": 0,
+        "importStatus": "idle",
+        "importError": "",
         "botApiToken": "",
         "botStatus": "idle",
         "botUsername": "",
