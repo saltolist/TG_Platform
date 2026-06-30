@@ -38,6 +38,13 @@ export async function completeAssistantReply(
   }
 }
 
+export function pickWebCites(...sources: (WebCite[] | undefined)[]): WebCite[] | undefined {
+  for (const source of sources) {
+    if (source && source.length > 0) return source;
+  }
+  return undefined;
+}
+
 export async function completeStreamedAssistantReply(
   stream: () => Promise<{ text: string; webCites: WebCite[] }>,
   onError?: (message: string) => void,
@@ -219,7 +226,7 @@ export function applyStreamingAiText(message: ChatMessage, text: string): ChatMe
       variants: message.variants.map((variant) => ({ ...variant, text })),
     };
   }
-  return { ...message, text, streaming: true };
+  return { ...message, text, streaming: true, webCites: message.webCites };
 }
 
 export function applyStreamingAiVariantText(

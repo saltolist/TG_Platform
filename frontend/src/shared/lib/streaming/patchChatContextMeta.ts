@@ -157,16 +157,25 @@ function splitStreamMeta(meta: Record<string, unknown>): {
   webCites?: WebCite[];
 } {
   const webCites = parseWebCitesFromStreamMeta(meta);
-  const parsed = streamMetaSchema.parse(meta);
-  const { bundle_context_stamp, context_label_stamp, context_stamp, assistant_text, ...rest } = parsed;
-  return {
-    chatMeta: chatContextMetaSchema.parse(rest),
-    bundleStamp: bundle_context_stamp,
-    labelStamp: context_label_stamp,
-    stampPayload: context_stamp,
-    assistantText: assistant_text,
-    webCites: webCites.length > 0 ? webCites : undefined,
-  };
+  try {
+    const parsed = streamMetaSchema.parse(meta);
+    const { bundle_context_stamp, context_label_stamp, context_stamp, assistant_text, ...rest } =
+      parsed;
+    return {
+      chatMeta: chatContextMetaSchema.parse(rest),
+      bundleStamp: bundle_context_stamp,
+      labelStamp: context_label_stamp,
+      stampPayload: context_stamp,
+      assistantText: assistant_text,
+      webCites: webCites.length > 0 ? webCites : undefined,
+    };
+  } catch {
+    return {
+      chatMeta: {},
+      webCites: webCites.length > 0 ? webCites : undefined,
+      assistantText: typeof meta.assistant_text === "string" ? meta.assistant_text : undefined,
+    };
+  }
 }
 
 function applyAssistantTextStamp(history: ChatMessage[], text: string): ChatMessage[] {

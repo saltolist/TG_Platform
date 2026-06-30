@@ -57,6 +57,42 @@ def _pick_llm_model(ai_profile: dict[str, Any], llm_id: str | None) -> dict[str,
     return models[0] if models else None
 
 
+def _pick_web_model(ai_profile: dict[str, Any], web_id: str | None) -> dict[str, Any] | None:
+    models = ai_profile.get("webSearchModels") or []
+    if web_id:
+        for model in models:
+            if model.get("id") == web_id:
+                return model
+    for model in models:
+        if model.get("active"):
+            return model
+    return models[0] if models else None
+
+
+def _resolve_web_model_for_reply(
+    ai_profile: dict[str, Any],
+    web_id: str | None,
+    provider: str | None,
+    model_name: str | None,
+) -> dict[str, Any] | None:
+    """Resolve web search model from Postgres profile, with client overlay overrides."""
+    profile_model = _pick_web_model(ai_profile, web_id)
+    provider_name = (provider or "").strip()
+    web_model = (model_name or "").strip()
+
+    if provider_name and web_model:
+        base = dict(profile_model or {})
+        return {
+            **base,
+            "id": web_id or base.get("id", "client"),
+            "provider": provider_name,
+            "model": web_model,
+            "active": True,
+        }
+
+    return profile_model
+
+
 def _resolve_llm_model_for_reply(
     ai_profile: dict[str, Any],
     llm_id: str | None,
@@ -212,16 +248,14 @@ async def ai_reply(
     if payload.web_provider and payload.web_model:
         web_spec = get_web_search_spec(payload.web_provider, payload.web_model)
         if web_spec is not None:
-            # Resolve API key: payload override → env fallback
-            web_key_str = (payload.web_api_key or "").strip()
-            if not web_key_str:
-                from app.services.ai.keys import LlmModelKey, resolve_api_key
-                web_resolution = resolve_api_key(
-                    LlmModelKey(provider=payload.web_provider, api_key=""),
-                    user,
-                    settings,
-                )
-                web_key_str = web_resolution.api_key or ""
+            web_model = _resolve_web_model_for_reply(
+                ai_profile,
+                payload.web_id,
+                payload.web_provider,
+                payload.web_model,
+            )
+            web_resolution = _resolve_reply_key(user, web_model, payload.web_api_key)
+            web_key_str = web_resolution.api_key or ""
             if web_key_str:
                 ctx.web_spec = web_spec
                 ctx.web_model = payload.web_model

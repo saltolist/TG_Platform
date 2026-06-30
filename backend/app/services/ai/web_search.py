@@ -242,11 +242,11 @@ async def call_perplexity_search(
     *,
     query: str,
     api_key: str,
-    max_results: int = 5,
+    max_results: int = 10,
 ) -> tuple[str, list[WebCite]]:
     """Call Perplexity Search API and return (context_markdown, cites)."""
     endpoint = "https://api.perplexity.ai/search"
-    body = {"query": query, "return_citations": True, "max_results": max_results}
+    body = {"query": query, "max_results": max_results}
     async with httpx.AsyncClient(timeout=_HTTP_TIMEOUT) as client:
         resp = await client.post(
             endpoint,
@@ -261,9 +261,11 @@ async def call_perplexity_search(
 
     results = data.get("results") or []
     for i, r in enumerate(results, 1):
-        url = r.get("url", "")
-        title = r.get("title", "") or url
-        snippet = r.get("snippet", "") or r.get("content", "")
+        if not isinstance(r, dict):
+            continue
+        url = str(r.get("url") or "").strip()
+        title = str(r.get("title") or "").strip() or url
+        snippet = str(r.get("snippet") or r.get("content") or "").strip()
         if url:
             cites.append(WebCite.from_url(url, title))
         if snippet:
@@ -271,6 +273,10 @@ async def call_perplexity_search(
 
     context = "\n\n".join(context_lines)
     return context, cites
+
+
+def web_cites_to_meta(cites: list[WebCite]) -> list[dict[str, str]]:
+    return [{"url": c.url, "title": c.title, "domain": c.domain} for c in cites]
 
 
 # ---------------------------------------------------------------------------

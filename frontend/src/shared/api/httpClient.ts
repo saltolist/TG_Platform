@@ -31,6 +31,7 @@ type RequestOptions = {
 
 type StreamRequestOptions = RequestOptions & {
   onChunk: (text: string) => void;
+  onMeta?: (meta: Record<string, unknown>) => void;
 };
 
 async function prepareApiFetch(path: string, options: RequestOptions = {}) {
@@ -96,7 +97,7 @@ export async function apiStream(
   path: string,
   options: StreamRequestOptions,
 ): Promise<{ text: string; meta: Record<string, unknown> | null }> {
-  const { onChunk, ...requestOptions } = options;
+  const { onChunk, onMeta, ...requestOptions } = options;
   const { method = "POST", body, signal, headers, url } = await prepareApiFetch(path, requestOptions);
 
   const res = await fetch(url, {
@@ -125,5 +126,5 @@ export async function apiStream(
   }
 
   const { consumeSseTextStream } = await import("@/shared/api/sse");
-  return consumeSseTextStream(res.body, onChunk);
+  return consumeSseTextStream(res.body, onChunk, { onMeta });
 }

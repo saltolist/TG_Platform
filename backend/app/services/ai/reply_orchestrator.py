@@ -28,7 +28,7 @@ from app.services.ai.chat_history import (
 from app.services.ai.note_citations import NoteCite, prepare_note_citations_for_reply
 from app.services.ai.web_citations import prepare_web_citations_for_reply
 from app.services.ai.context import append_user_text_to_pairs, assemble_reply_messages
-from app.services.ai.web_search import WebCite, WebSearchResult
+from app.services.ai.web_search import WebCite, WebSearchResult, web_cites_to_meta
 from app.services.ai.providers import WebSearchProviderSpec, WebSearchPath, get_web_search_spec
 from app.core.config import get_settings
 from app.services.ai.context_label import stamp_context_label_on_path
@@ -513,6 +513,9 @@ async def stream_reply_with_meta(ctx: ReplyContext, messages: list[dict[str, str
 
     # -- Path C / plain LLM stream ------------------------------------------------
     else:
+        # Path C: emit web cites before LLM stream so the client can render chips during streaming.
+        if ctx.web_cites:
+            yield format_sse_meta({"web_cites": web_cites_to_meta(ctx.web_cites)})
         async for event in stream_llm_sse(
             spec=ctx.spec,
             model=ctx.model_id,
@@ -547,9 +550,7 @@ async def stream_reply_with_meta(ctx: ReplyContext, messages: list[dict[str, str
         )
     updated_meta["assistant_text"] = assistant_text
     if web_cites:
-        updated_meta["web_cites"] = [
-            {"url": c.url, "title": c.title, "domain": c.domain} for c in web_cites
-        ]
+        updated_meta["web_cites"] = web_cites_to_meta(web_cites)
     yield format_sse_meta(updated_meta)
 
 

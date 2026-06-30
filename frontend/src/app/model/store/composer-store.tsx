@@ -19,6 +19,7 @@ import {
   completeStreamedAssistantReply,
   getChatSendValidationMessage,
   hasLlmForComposerScope,
+  pickWebCites,
   resolveLlmTarget,
   resolveWebTarget,
   resolveLlmLabel,
@@ -161,9 +162,9 @@ async function streamGlobalAssistantReply(params: {
         history: isOverlayAccount(accountId) ? (chat?.history ?? []) : undefined,
         chatMeta: extractChatContextMeta(chat ?? undefined),
         onMeta: (meta) => {
-          patchGlobalChatContextMeta(queryClient, chatId, meta, accountId);
           const parsed = parseWebCitesFromStreamMeta(meta as Record<string, unknown>);
           if (parsed.length) webCites = parsed;
+          patchGlobalChatContextMeta(queryClient, chatId, meta, accountId);
         },
         signal,
       },
@@ -224,9 +225,9 @@ async function streamPostAssistantReply(params: {
         history: isOverlayAccount(accountId) ? (chat?.history ?? []) : undefined,
         chatMeta: extractChatContextMeta(chat ?? undefined),
         onMeta: (meta) => {
-          patchPostChatContextMeta(queryClient, postId, chatId, meta, accountId);
           const parsed = parseWebCitesFromStreamMeta(meta as Record<string, unknown>);
           if (parsed.length) webCites = parsed;
+          patchPostChatContextMeta(queryClient, postId, chatId, meta, accountId);
         },
         signal,
       },
@@ -400,10 +401,11 @@ export function ComposerProvider({ children }: { children: ReactNode }) {
       const cfg = aiProfileRef.current;
       if (!cfg) return;
       const target = getTarget(scope);
-      const cachedCites =
-        webCites ??
+      const cachedCites = pickWebCites(
+        webCites,
         findLastVisibleAiMessage(readGlobalChat(queryClient, accountId, chatId)?.history ?? [])
-          ?.webCites;
+          ?.webCites,
+      );
       const reply = buildAiReplyMessage(cfg, baseReply, scope, target, variantTexts, cachedCites);
       await patchGlobalChatHistory(queryClient, chats, chatId, (history) =>
         updateLastVisibleAiMessage(history, () => reply),
@@ -423,10 +425,11 @@ export function ComposerProvider({ children }: { children: ReactNode }) {
       const cfg = aiProfileRef.current;
       if (!cfg) return;
       const target = getTarget("post");
-      const cachedCites =
-        webCites ??
+      const cachedCites = pickWebCites(
+        webCites,
         findLastVisibleAiMessage(readPostChatHistory(queryClient, accountId, postId, chatId))
-          ?.webCites;
+          ?.webCites,
+      );
       const reply = buildAiReplyMessage(cfg, baseReply, "post", target, variantTexts, cachedCites);
       await patchPostChatHistory(queryClient, posts, postId, chatId, (history) =>
         updateLastVisibleAiMessage(history, () => reply),

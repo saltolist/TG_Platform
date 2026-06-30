@@ -52,10 +52,10 @@ function streamAiReply(
     body,
     signal: options?.signal,
     onChunk,
+    onMeta: options?.onMeta
+      ? (meta) => options.onMeta?.(meta as ChatContextMeta & Record<string, unknown>)
+      : undefined,
   }).then((result) => {
-    if (result.meta && typeof result.meta === "object") {
-      options?.onMeta?.(result.meta as ChatContextMeta & Record<string, unknown>);
-    }
     const assistantText = result.meta?.assistant_text;
     if (typeof assistantText === "string") {
       return assistantText;
