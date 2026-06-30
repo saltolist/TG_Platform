@@ -11,17 +11,55 @@ from starlette.exceptions import HTTPException as StarletteHTTPException
 
 from app.api.v1.router import api_router
 from app.core.config import settings
+from app.core.crypto import ENC_PREFIX
 from app.db.session import engine, async_session_factory
 from app.services.ai.context_log import init_chat_filter
 from app.services.ai.rag_worker import embedding_worker
 
 logging.basicConfig(level=logging.INFO)
 _context_logger = logging.getLogger("tg.ai.context")
+_security_logger = logging.getLogger("tg.security")
+
+
+async def _check_byok_key_guard(session_factory) -> None:
+    """Warn at startup when enc:v1: values exist but BYOK_ENCRYPTION_KEY is unset.
+
+    This protects against accidentally clearing the key in .env / secrets while
+    there are still encrypted BYOK / Telegram secrets in the database.
+    Without the key those values cannot be decrypted — users would lose access
+    to their AI and Telegram integrations silently.
+    """
+    if settings.byok_encryption_key:
+        return
+
+    try:
+        from sqlalchemy import text  # noqa: PLC0415
+
+        async with session_factory() as session:
+            result = await session.execute(
+                text(
+                    "SELECT COUNT(*) FROM profiles "
+                    "WHERE ai::text LIKE :prefix OR telegram::text LIKE :prefix"
+                ),
+                {"prefix": f"%{ENC_PREFIX}%"},
+            )
+            count = result.scalar_one()
+            if count > 0:
+                _security_logger.warning(
+                    "BYOK_ENCRYPTION_KEY is not set but %d profile(s) contain "
+                    "enc:v1: encrypted secrets.  These values CANNOT be decrypted "
+                    "until the key is restored.  See docs/dev/security-byok.md.",
+                    count,
+                )
+    except Exception as exc:  # noqa: BLE001
+        _security_logger.warning("Could not run BYOK key guard check: %s", exc)
 
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     # Schema is managed by Alembic (see scripts/entrypoint.sh and `alembic upgrade head`).
+    await _check_byok_key_guard(async_session_factory)
+
     if settings.ai_context_log:
         init_chat_filter(settings.ai_context_log_chat)
         chat_id = settings.ai_context_log_chat.strip()

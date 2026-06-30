@@ -32,6 +32,26 @@ const allowedDevOrigins = [
   ...(process.env.NODE_ENV !== "production" ? getLanDevOrigins() : []),
 ];
 
+/**
+ * Security headers applied via next.config headers() — these complement the
+ * middleware CSP and cover edge cases (e.g. static asset routes excluded from
+ * the middleware matcher).  The CSP itself lives in middleware.ts (nonce-based,
+ * per-request); only the non-CSP headers are duplicated here.
+ *
+ * Not applied for static export (no server = no response headers).
+ */
+const securityHeaders = isStaticExport
+  ? []
+  : [
+      { key: "X-Content-Type-Options", value: "nosniff" },
+      { key: "Referrer-Policy", value: "strict-origin-when-cross-origin" },
+      {
+        key: "Permissions-Policy",
+        value: "camera=(), microphone=(), geolocation=(), payment=()",
+      },
+      { key: "X-Frame-Options", value: "DENY" },
+    ];
+
 const nextConfig: NextConfig = {
   ...(process.env.NODE_ENV === "production"
     ? { output: isStaticExport ? ("export" as const) : ("standalone" as const) }
@@ -42,6 +62,13 @@ const nextConfig: NextConfig = {
   images: { unoptimized: true },
   reactStrictMode: true,
   allowedDevOrigins,
+  ...(securityHeaders.length > 0
+    ? {
+        async headers() {
+          return [{ source: "/(.*)", headers: securityHeaders }];
+        },
+      }
+    : {}),
 };
 
 export default nextConfig;

@@ -403,3 +403,90 @@ class TestResolveApiKeyWithEncryption:
         result = resolve_api_key(model, _real_user(), s_wrong)
         # Decryption returns "" → treated as no key → unavailable for real user.
         assert result.unavailable
+
+
+# ---------------------------------------------------------------------------
+# Key rotation — MultiFernet support in crypto.py
+# ---------------------------------------------------------------------------
+
+OLD_KEY = "ZmDfcTF7_60GrrY167zsiPd67pEvs0aGOv2oasOM1Pg="
+NEW_KEY = "NuHMRFG5TrNRfQEuL1dCJqHnU4hWpxMzKqD1uKfKVL8="
+
+
+def _rotation_settings(*, primary: str, old_keys: str = "") -> Settings:
+    return Settings(byok_encryption_key=primary, byok_encryption_old_keys=old_keys)
+
+
+class TestKeyRotation:
+    def test_decrypt_with_old_key_in_rotation_set(self):
+        """Value encrypted with OLD_KEY must be decryptable when OLD_KEY is in old-keys list."""
+        s_old = _rotation_settings(primary=OLD_KEY)
+        enc = encrypt_byok("sk-secret", s_old)
+        assert is_encrypted(enc)
+
+        # Now primary is NEW_KEY, old key listed for rotation.
+        s_new = _rotation_settings(primary=NEW_KEY, old_keys=OLD_KEY)
+        result = decrypt_byok(enc, s_new)
+        assert result == "sk-secret"
+
+    def test_decrypt_without_old_key_fails(self):
+        """Same enc value must NOT decrypt when old key is absent from rotation set."""
+        s_old = _rotation_settings(primary=OLD_KEY)
+        enc = encrypt_byok("sk-secret", s_old)
+
+        s_new = _rotation_settings(primary=NEW_KEY, old_keys="")
+        result = decrypt_byok(enc, s_new)
+        assert result == ""
+
+    def test_encrypt_always_uses_primary_key(self):
+        """Encryption always uses the current primary key regardless of old-keys list."""
+        s = _rotation_settings(primary=NEW_KEY, old_keys=OLD_KEY)
+        enc = encrypt_byok("sk-fresh", s)
+        # Must be decryptable with NEW_KEY alone (no old keys needed).
+        s_primary_only = _rotation_settings(primary=NEW_KEY)
+        assert decrypt_byok(enc, s_primary_only) == "sk-fresh"
+
+    def test_rotate_value_in_profile(self):
+        """After rotation, value must be decryptable with new primary key only."""
+        from app.services.ai.byok_profile import encrypt_profile_keys, decrypt_model_api_key
+
+        s_old = _rotation_settings(primary=OLD_KEY)
+        profile = {
+            "llmModels": [{"id": "m1", "provider": "OpenAI", "apiKey": "sk-byok-key"}]
+        }
+        encrypted_profile = encrypt_profile_keys(profile, s_old)
+        enc_val = encrypted_profile["llmModels"][0]["apiKey"]
+        assert is_encrypted(enc_val)
+
+        # Rotate: decrypt with old key, re-encrypt with new key.
+        s_rotation = _rotation_settings(primary=NEW_KEY, old_keys=OLD_KEY)
+        plaintext = decrypt_byok(enc_val, s_rotation)
+        assert plaintext == "sk-byok-key"
+
+        re_enc = encrypt_byok(plaintext, s_rotation)
+        assert is_encrypted(re_enc)
+
+        # Now only new primary key is needed.
+        s_new_only = _rotation_settings(primary=NEW_KEY)
+        assert decrypt_byok(re_enc, s_new_only) == "sk-byok-key"
+
+    def test_multiple_old_keys_in_list(self):
+        """Support comma-separated list of multiple old keys."""
+        very_old_key = "iT7s8Jf3XgR2wBnE5pDqL0mK6cUyAhZv9F1oNxVWkIs="
+        s_very_old = _rotation_settings(primary=very_old_key)
+        enc_very_old = encrypt_byok("sk-ancient", s_very_old)
+
+        # Both old keys in the rotation set.
+        s_rotation = _rotation_settings(
+            primary=NEW_KEY, old_keys=f"{OLD_KEY},{very_old_key}"
+        )
+        assert decrypt_byok(enc_very_old, s_rotation) == "sk-ancient"
+
+    def test_no_primary_key_returns_empty(self):
+        """When BYOK_ENCRYPTION_KEY is unset, decrypt returns empty string."""
+        s_old = _rotation_settings(primary=OLD_KEY)
+        enc = encrypt_byok("sk-secret", s_old)
+
+        s_empty = _rotation_settings(primary="", old_keys=OLD_KEY)
+        result = decrypt_byok(enc, s_empty)
+        assert result == ""

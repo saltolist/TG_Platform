@@ -222,30 +222,37 @@
 
 ---
 
-## Безопасность — осталось сделать
+## Безопасность ✅ реализовано
 
-Текущая схема (шаг 5): маскирование + reveal-on-copy + Fernet at-rest. Ниже — задачи,
-которые **ещё не реализованы**.
+Текущая схема (шаг 5): маскирование + reveal-on-copy + Fernet at-rest.
 
-### CSP (отложено)
+### CSP ✅
 
-- [ ] Настроить **Content-Security-Policy** на фронтенде (заголовки или meta).
-- Маскирование и reveal-on-copy **снижают** риск утечки ключей при XSS, но **не заменяют**
-  CSP: при внедрении вредоносного скрипта злоумышленник всё ещё может вызвать
-  `POST /profile/ai/reveal-key/` и `POST /profile/telegram/reveal-secret/` от имени
-  залогиненного пользователя.
+- [x] **Content-Security-Policy** настроен на фронтенде.
+  - `frontend/src/middleware.ts` — nonce-based CSP + security-заголовки для Next.js-сервера
+    (Docker/standalone). Режим: **Report-Only** → переключить на enforce после проверки консоли.
+  - `frontend/src/app/layout.tsx` — permissive `<meta http-equiv="CSP">` для статического
+    экспорта (GitHub Pages / MSW-демо).
+  - `frontend/next.config.ts` — `X-Content-Type-Options`, `Referrer-Policy`,
+    `Permissions-Policy`, `X-Frame-Options` через `headers()`.
+- Переход из Report-Only в enforce: заменить заголовок в `middleware.ts`
+  (`Content-Security-Policy-Report-Only` → `Content-Security-Policy`).
+  См. `docs/dev/security-byok.md#csp`.
 
-### Продакшен-гигиена (перед выкладкой в prod)
+### Продакшен-гигиена ✅
 
-- [ ] **Бэкап `BYOK_ENCRYPTION_KEY`** — без него все зашифрованные BYOK и Telegram-секреты
-  в БД **не расшифровать** (потеря ключа = потеря данных).
-- [ ] **Ротация ключа** — сейчас не реализована; потребуется скрипт re-encrypt всех
-  `enc:v1:` значений в `profiles.ai` и `profiles.telegram` новым Fernet-ключом.
-- [ ] **KMS / Vault** вместо env-переменной — для prod предпочтительнее, чем хранить
-  `BYOK_ENCRYPTION_KEY` в `.env` / docker-compose secrets.
-- [ ] **`.env` не в git** — server-side ключи (`DEEPSEEK_API_KEY`, `JWT_SECRET`,
-  `BYOK_ENCRYPTION_KEY`, …) только в локальных / CI secrets; в репозитории — только
-  `.env.example` с плейсхолдерами.
+- [x] **`.env` не в git** — `.gitignore` покрывает все `.env`/`.env.local`; в репозитории
+  только `.env.example` с плейсхолдерами.
+- [x] **Бэкап `BYOK_ENCRYPTION_KEY`** — runbook и инструкции в
+  `docs/dev/security-byok.md`. Startup-guard в `backend/app/main.py` предупреждает,
+  если в БД есть `enc:v1:` значения, но ключ не задан.
+- [x] **Ротация ключа** — реализована через `MultiFernet`:
+  - `backend/app/core/crypto.py` — `_get_multi_fernet()`, `BYOK_ENCRYPTION_OLD_KEYS`.
+  - `backend/app/core/config.py` — поле `byok_encryption_old_keys` + свойство `byok_old_keys_list`.
+  - `backend/scripts/rotate_byok_key.py` — скрипт re-encrypt с `--dry-run`.
+  - Тесты: `TestKeyRotation` (6 тестов) в `tests/test_byok_encryption.py`.
+- [x] **KMS / Vault** — рекомендации и варианты подключения описаны в
+  `docs/dev/security-byok.md#kms--vault-prod-рекомендация`.
 
 ---
 

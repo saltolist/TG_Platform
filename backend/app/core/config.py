@@ -51,6 +51,17 @@ class Settings(BaseSettings):
     # If empty, BYOK keys are stored as plaintext (dev/test fallback only).
     byok_encryption_key: str = ""
 
+    # Comma-separated list of OLD Fernet keys used only for decryption during
+    # key rotation.  New encryptions always use byok_encryption_key.
+    # Example: BYOK_ENCRYPTION_OLD_KEYS=key2,key3
+    # After running scripts/rotate_byok_key.py all enc:v1: values are
+    # re-encrypted with the primary key and these can be cleared.
+    byok_encryption_old_keys: str = ""
+
+    @property
+    def byok_old_keys_list(self) -> list[str]:
+        return [k.strip() for k in self.byok_encryption_old_keys.split(",") if k.strip()]
+
     # AI provider keys (Phase 2) — empty by default; presentation/demo use stubs
     openai_api_key: str = ""
     deepseek_api_key: str = ""
