@@ -34,6 +34,7 @@ function buildCsp(apiUrl: string, isDev: boolean): string {
     : "'self' 'unsafe-inline'";
 
   const connectSrc = ["'self'", apiUrl].filter(Boolean).join(" ");
+  const mediaSrc = ["'self'", "data:", "blob:", apiUrl].filter(Boolean).join(" ");
 
   const reportUri = apiUrl ? `${apiUrl.replace(/\/$/, "")}/api/v1/csp-report/` : "";
 
@@ -41,10 +42,10 @@ function buildCsp(apiUrl: string, isDev: boolean): string {
     "default-src": "'self'",
     "script-src": scriptSrc,
     "style-src": "'self' 'unsafe-inline'",
-    "img-src": "'self' data: blob:",
+    "img-src": mediaSrc,
     "font-src": "'self'",
     "connect-src": connectSrc,
-    "media-src": "'self' blob:",
+    "media-src": mediaSrc,
     "object-src": "'none'",
     "base-uri": "'self'",
     "form-action": "'self'",

@@ -50,6 +50,6 @@ async def save_message_media(
         return None
 
     display_name = original_name or filename
-    base = settings.media_public_base_url.rstrip("/")
-    url = f"{base}/media/{user_id}/{filename}"
+    # Relative path in DB; frontend resolves via NEXT_PUBLIC_API_BASE_URL at render time.
+    url = f"/media/{user_id}/{filename}"
     return {"name": display_name, "url": url, "type": mime_type}

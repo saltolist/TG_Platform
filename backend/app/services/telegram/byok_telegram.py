@@ -35,7 +35,12 @@ _SECRET_FIELDS = ("apiHash", "botApiToken", "sessionString")
 
 # Transient MTProto auth-flow plumbing (encrypted, but NEVER sent to a client —
 # no preview either, just stripped). Written/read directly by auth_flow.py.
-_INTERNAL_FIELDS = ("_pendingSessionString", "_pendingPhoneCodeHash", "_pendingPhone")
+_INTERNAL_FIELDS = (
+    "_pendingSessionString",
+    "_pendingPhoneCodeHash",
+    "_pendingPhone",
+    "lastTelegramMessageId",
+)
 
 PREVIEW_STAR_COUNT = 10
 

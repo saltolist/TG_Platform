@@ -18,6 +18,7 @@ from app.core.deps import CurrentWriter, DbSession
 from app.schemas.requests import TelegramConnectChannelRequest
 from app.services.telegram.channel_flow import connect_channel
 from app.services.telegram.import_flow import run_channel_import
+from app.services.telegram.live_sync_worker import listener_registry
 
 router = APIRouter(prefix="/telegram/channel", tags=["Telegram"])
 
@@ -27,6 +28,7 @@ async def telegram_connect_channel(
     payload: TelegramConnectChannelRequest, user: CurrentWriter, session: DbSession
 ) -> dict[str, Any]:
     profile = await get_or_create_profile(session, user.id)
+    listener_registry.stop_user_listener(user.id)
     result = await apply_telegram_flow(
         session,
         profile,

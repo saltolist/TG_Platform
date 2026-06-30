@@ -282,6 +282,8 @@ function overlayProfile(inner: ProfileRepository): ProfileRepository {
         lastSync: new Date().toISOString(),
         importStatus: "done",
         importError: "",
+        syncStatus: "listening",
+        syncError: "",
         importedPosts: 42,
       });
       mutateOverlay((overlay) => {

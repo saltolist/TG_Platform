@@ -79,6 +79,12 @@ class Settings(BaseSettings):
     telegram_import_max_media_mb: float = 20.0
     telegram_import_timeout_seconds: float = 600.0
 
+    # Live-sync (Phase 3 / Step 3.5) — long-lived Telethon event listeners
+    telegram_live_sync_enabled: bool = True
+    telegram_live_sync_registry_refresh_seconds: float = 30.0
+    telegram_live_sync_reconnect_seconds: float = 15.0
+    telegram_album_debounce_seconds: float = 2.0
+
     @property
     def byok_old_keys_list(self) -> list[str]:
         return [k.strip() for k in self.byok_encryption_old_keys.split(",") if k.strip()]
@@ -123,6 +129,7 @@ class Settings(BaseSettings):
         "ai_context_stamps",
         "rag_query_rewrite_on_miss",
         "cookie_secure",
+        "telegram_live_sync_enabled",
         mode="before",
     )
     @classmethod

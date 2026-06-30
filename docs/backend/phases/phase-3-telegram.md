@@ -221,8 +221,44 @@ HTTP-ответ connect возвращается мгновенно с `importSt
 импорта может запустить вторую параллельную задачу (нет блокировки на уровне
 процесса); на фронте кнопка дизейблится при `importStatus === "importing"`.
 
-**Явно вне рамок:** комментарии к постам; ручная ресинхронизация; live-sync
-новых постов; персистентная очередь задач (используется `asyncio.create_task`).
+**Явно вне рамок:** комментарии к постам; ручная ресинхронизация; персистентная
+очередь задач для импорта (используется `asyncio.create_task`).
+
+---
+
+### Шаг 3.5 — Live-sync канала ✅
+
+**Механизм:** event-driven через Telethon — `NewMessage`, `MessageEdited`,
+`MessageDeleted`. Долгоживущий слушатель на пользователя в фоновом воркере
+(`telegram_live_sync_worker` в `lifespan`, по аналогии с `embedding_worker`).
+
+**Запуск:** после успешного импорта истории (Шаг 3) — `listener_registry.start_user_listener(user_id)`.
+При старте сервера — `reconcile_from_db()` поднимает слушателей для всех
+подключённых каналов с `importStatus != "importing"`. Останавливается при
+`POST /telegram/auth/reset/` и перед повторным `POST /telegram/channel/connect/`.
+
+**Реализация:**
+- `backend/app/services/telegram/message_mapping.py` — общий маппинг сообщений
+  (вынесен из `import_flow.py`).
+- `backend/app/services/telegram/post_sync.py` — инкрементальный upsert/update/delete
+  постов с `data.source = "telegram"`.
+- `backend/app/services/telegram/live_sync_worker.py` — `ListenerRegistry`,
+  catch-up через `iter_messages(min_id=lastTelegramMessageId)`, debounce альбомов,
+  reconnect при обрыве.
+- **Профиль:** `syncStatus` (`idle` | `listening` | `error`), `syncError`,
+  `lastSync`; internal `lastTelegramMessageId` (не отдаётся клиенту).
+- **`syncMode: "publish-only"`** — слушатель не запускается.
+
+**Настройки:** `telegram_live_sync_enabled`, `telegram_live_sync_registry_refresh_seconds`,
+`telegram_live_sync_reconnect_seconds`, `telegram_album_debounce_seconds`.
+
+**Frontend:** `TelegramLiveSyncPoll` — поллинг `GET /profile/telegram` каждые 15 с,
+при изменении `lastSync` — refetch постов; UI «Live-синхронизация» в настройках.
+
+**Ограничение v1:** только один backend-процесс с `TELEGRAM_LIVE_SYNC_ENABLED=1`
+(дубликат MTProto-сессии на нескольких репликах недопустим).
+
+**Явно вне рамок:** SSE/WebSocket push; синхронизация метрик (Шаг 5).
 
 ---
 
@@ -270,6 +306,7 @@ POST /api/v1/telegram/auth/verify-2fa/     ✅ реализован
 POST /api/v1/telegram/auth/reset/          ✅ реализован
 POST /api/v1/telegram/channel/connect/     ✅ реализован (+ фоновый импорт истории)
 POST /api/v1/media/                        ✅ статическая раздача (mount /media)
+                                          ✅ live-sync (Telethon events, фоновый воркер)
 POST /api/v1/posts/:id/publish
 POST /api/v1/posts/:id/schedule   { scheduledAt: ISO-8601 }
 GET  /api/v1/analytics/overview

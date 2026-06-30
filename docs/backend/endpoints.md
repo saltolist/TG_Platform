@@ -348,6 +348,25 @@ Telegram-настройки пользователя.
 
 ---
 
+### Live-sync (Telegram events)
+
+После импорта истории (Шаг 3) backend поднимает фоновый Telethon-слушатель
+(`NewMessage` / `MessageEdited` / `MessageDeleted`) для каналов с
+`syncMode != "publish-only"`. Новые и изменённые посты попадают в `posts`
+инкрементально; удаления — удаляют соответствующие telegram-посты.
+
+**Статус в `TelegramProfileConfig`:** `syncStatus` (`idle` | `listening` | `error`),
+`syncError`, `lastSync` (обновляется при каждом событии). Поле `lastTelegramMessageId`
+хранится только на backend (internal, не в API).
+
+**Env (backend):**
+- `TELEGRAM_LIVE_SYNC_ENABLED=1` — включить воркер (на secondary-репликах → `0`)
+- `TELEGRAM_LIVE_SYNC_REGISTRY_REFRESH_SECONDS=30`
+- `TELEGRAM_LIVE_SYNC_RECONNECT_SECONDS=15`
+- `TELEGRAM_ALBUM_DEBOUNCE_SECONDS=2`
+
+---
+
 ## AI Ассистент
 
 ### `POST /api/v1/ai/reply`

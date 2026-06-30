@@ -457,6 +457,8 @@ export const initialTelegramProfileConfig: TelegramProfileConfig = {
   importedPosts: 128,
   importStatus: "done",
   importError: "",
+  syncStatus: "listening",
+  syncError: "",
   botApiToken: "7123456789:AAHdemoOmniBotTokenForTGPlatform",
   botStatus: "idle",
   botUsername: "",

@@ -244,6 +244,8 @@ export const handlers = [
       store.telegramProfile.channelTitle = DEMO_CHANNEL_TITLE;
       store.telegramProfile.importStatus = "done";
       store.telegramProfile.importError = "";
+      store.telegramProfile.syncStatus = "listening";
+      store.telegramProfile.syncError = "";
     }
 
     return HttpResponse.json(store.telegramProfile);
@@ -333,6 +335,8 @@ export const handlers = [
       lastSync: new Date().toISOString(),
       importStatus: "done",
       importError: "",
+      syncStatus: "listening",
+      syncError: "",
       importedPosts: 42,
     };
     return HttpResponse.json(store.telegramProfile);

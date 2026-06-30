@@ -18,6 +18,7 @@ from app.core.crypto import ENC_PREFIX
 from app.db.session import engine, async_session_factory
 from app.services.ai.context_log import init_chat_filter
 from app.services.ai.rag_worker import embedding_worker
+from app.services.telegram.live_sync_worker import telegram_live_sync_worker
 
 logging.basicConfig(level=logging.INFO)
 _context_logger = logging.getLogger("tg.ai.context")
@@ -78,13 +79,22 @@ async def lifespan(app: FastAPI):
         embedding_worker(async_session_factory, stop_event),
         name="rag-embedding-worker",
     )
+    live_sync_task = asyncio.create_task(
+        telegram_live_sync_worker(async_session_factory, stop_event),
+        name="telegram-live-sync-worker",
+    )
 
     yield
 
     stop_event.set()
     worker_task.cancel()
+    live_sync_task.cancel()
     try:
         await worker_task
+    except asyncio.CancelledError:
+        pass
+    try:
+        await live_sync_task
     except asyncio.CancelledError:
         pass
     await engine.dispose()

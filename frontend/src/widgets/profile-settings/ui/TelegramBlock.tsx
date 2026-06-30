@@ -20,6 +20,7 @@ export default function TelegramBlock({ active = true }: { active?: boolean }) {
         isConnected={tg.isConnected}
         syncing={tg.syncing}
         importing={tg.importing}
+        liveSyncing={tg.liveSyncing}
         onReset={tg.reset}
       />
 

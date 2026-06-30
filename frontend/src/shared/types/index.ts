@@ -104,6 +104,7 @@ export type TelegramSyncMode = "live-only" | "history-and-live" | "publish-only"
 
 export type TelegramBotStatus = "idle" | "connected";
 export type TelegramImportStatus = "idle" | "importing" | "done" | "error";
+export type TelegramSyncStatus = "idle" | "listening" | "error";
 
 export type TelegramProfileConfig = {
   authStatus: TelegramAuthStatus;
@@ -122,6 +123,8 @@ export type TelegramProfileConfig = {
   importedPosts: number;
   importStatus: TelegramImportStatus;
   importError: string;
+  syncStatus: TelegramSyncStatus;
+  syncError: string;
   botApiToken: string;
   botStatus: TelegramBotStatus;
   botUsername: string;

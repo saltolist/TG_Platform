@@ -181,6 +181,19 @@ def _format_channel_id(entity: Any) -> str:
     return str(bare_id)
 
 
+def channel_peer_id(entity: Any) -> int:
+    """Return Telethon peer id for a channel entity (real TL objects and test stubs)."""
+    try:
+        return utils.get_peer_id(entity)
+    except (TypeError, ValueError):
+        bare_id = getattr(entity, "id", None)
+        if bare_id is None:
+            raise ValueError("Cannot resolve channel peer id") from None
+        if hasattr(entity, "broadcast") or hasattr(entity, "megagroup"):
+            return _normalize_peer_id(int(bare_id))
+        return int(bare_id)
+
+
 def _non_empty_title(value: Any) -> str | None:
     if not isinstance(value, str):
         return None

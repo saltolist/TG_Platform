@@ -1,4 +1,5 @@
 import type { ChatMessage, Post, PostMedia } from "@/shared/types";
+import { API_BASE_URL } from "@/shared/config/dataSource";
 
 export function truncate(value: string | undefined | null, max: number): string {
   if (!value) return "";
@@ -178,16 +179,47 @@ export function getPostMediaItems(post: Post | null | undefined): PostMedia[] {
   return [];
 }
 
+/** Resolve Telegram media paths to a browser-reachable API URL (backend serves /media/*). */
+export function resolveMediaUrl(url: string): string {
+  if (!url) return url;
+
+  const toAbsolute = (path: string) => {
+    if (!API_BASE_URL) return path;
+    return `${API_BASE_URL}${path.startsWith("/") ? path : `/${path}`}`;
+  };
+
+  if (url.startsWith("/media/")) {
+    return toAbsolute(url);
+  }
+
+  try {
+    const parsed = new URL(url);
+    if (parsed.pathname.startsWith("/media/")) {
+      return toAbsolute(parsed.pathname);
+    }
+    return url;
+  } catch {
+    return url;
+  }
+}
+
 export function isImageMedia(m: PostMedia): boolean {
+  const url = resolveMediaUrl(m.url);
   return (
     m.type.startsWith("image/") ||
     /\.(png|jpe?g|gif|webp|avif|svg)$/i.test(m.name) ||
-    /^data:image\//i.test(m.url)
+    /\.(png|jpe?g|gif|webp|avif|svg)$/i.test(url) ||
+    /^data:image\//i.test(url)
   );
 }
 
 export function isVideoMedia(m: PostMedia): boolean {
-  return m.type.startsWith("video/") || /\.(mp4|webm|mov|m4v)$/i.test(m.name);
+  const url = resolveMediaUrl(m.url);
+  return (
+    m.type.startsWith("video/") ||
+    /\.(mp4|webm|mov|m4v)$/i.test(m.name) ||
+    /\.(mp4|webm|mov|m4v)$/i.test(url)
+  );
 }
 
 function userMessagePlainText(m: ChatMessage): string {

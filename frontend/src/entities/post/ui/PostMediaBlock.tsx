@@ -1,6 +1,6 @@
 "use client";
 
-import { isImageMedia, isVideoMedia } from "@/shared/lib/helpers";
+import { isImageMedia, isVideoMedia, resolveMediaUrl } from "@/shared/lib/helpers";
 import type { PostMedia } from "@/shared/types";
 
 type Props = {
@@ -54,15 +54,16 @@ export default function PostMediaBlock({ media, onRemove }: Props) {
 }
 
 function MediaInner({ media }: { media: PostMedia }) {
-  if (isImageMedia(media) && media.url) {
+  const src = resolveMediaUrl(media.url);
+  if (isImageMedia(media) && src) {
     // eslint-disable-next-line @next/next/no-img-element
-    return <img className="tg-media-img" src={media.url} alt={media.name} loading="lazy" />;
+    return <img className="tg-media-img" src={src} alt={media.name} loading="lazy" />;
   }
-  if (isVideoMedia(media) && media.url) {
+  if (isVideoMedia(media) && src) {
     return (
       <video
         className="tg-media-video"
-        src={media.url}
+        src={src}
         controls
         preload="metadata"
         playsInline

@@ -153,6 +153,7 @@ export function useTelegramBlock() {
   }, [cfg.importStatus, profile, dispatch, applyPatch, queryClient, clearImportPolling]);
 
   const importing = cfg.importStatus === "importing";
+  const liveSyncing = cfg.syncStatus === "listening";
   const status = getTelegramStatusLabel(cfg, syncing, importing);
   const isConnected = cfg.authStatus === "connected" && cfg.channelStatus === "connected";
   const isAuthorized = cfg.authStatus === "authorized" || cfg.authStatus === "connected";
@@ -450,6 +451,8 @@ export function useTelegramBlock() {
         importedPosts: 0,
         importStatus: "idle",
         importError: "",
+        syncStatus: "idle",
+        syncError: "",
         botApiToken: "",
         botStatus: "idle",
         botUsername: "",
@@ -500,6 +503,7 @@ export function useTelegramBlock() {
     awaitingPassword,
     syncing,
     importing,
+    liveSyncing,
     code,
     setCode,
     password,

@@ -379,6 +379,8 @@
       "importedPosts": 9,
       "importStatus": "done",
       "importError": "",
+      "syncStatus": "listening",
+      "syncError": "",
       "botApiToken": "",
       "botStatus": "idle",
       "botUsername": "",

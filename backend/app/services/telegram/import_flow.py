@@ -14,14 +14,13 @@ from typing import Any
 from uuid import UUID
 
 from sqlalchemy import delete, select
-from telethon.tl.types import MessageMediaDocument, MessageMediaPhoto
 
 from app.core.config import Settings, get_settings
 from app.db.models import Post, Profile
 from app.db.seed_ids import user_scoped_entity_uuid
 from app.db.session import async_session_factory
 from app.services.telegram.channel_flow import parse_channel_input, resolve_channel_entity
-from app.services.telegram.media_storage import save_message_media
+from app.services.telegram.message_mapping import collect_posts_from_iter
 from app.services.telegram.mtproto_client import build_client
 from app.services.telegram.net import (
     decrypt_field,
@@ -31,131 +30,6 @@ from app.services.telegram.net import (
 )
 
 logger = logging.getLogger(__name__)
-
-# Safety cap on raw messages fetched from Telegram (albums count as one post).
-_RAW_MESSAGE_SCAN_FACTOR = 10
-
-
-def _message_is_importable(message: Any) -> bool:
-    if getattr(message, "action", None) is not None:
-        return False
-    text = getattr(message, "message", None) or ""
-    if str(text).strip():
-        return True
-    media = getattr(message, "media", None)
-    if isinstance(media, MessageMediaPhoto):
-        return True
-    if isinstance(media, MessageMediaDocument):
-        doc = getattr(media, "document", None)
-        if doc is None:
-            return False
-        mime = getattr(doc, "mime_type", "") or ""
-        return (
-            mime.startswith("image/")
-            or mime.startswith("video/")
-            or mime.startswith("application/")
-        )
-    return False
-
-
-def _format_views(views: Any) -> str:
-    if views is None:
-        return "0"
-    return str(views)
-
-
-async def _map_group_to_post(
-    client: Any, messages: list[Any], user_id: UUID, settings: Settings
-) -> dict[str, Any] | None:
-    primary = messages[0]
-    text = ""
-    for msg in messages:
-        candidate = str(getattr(msg, "message", None) or "").strip()
-        if candidate:
-            text = candidate
-            break
-
-    media_items: list[dict[str, str]] = []
-    for msg in messages:
-        item = await save_message_media(client, msg, user_id, settings)
-        if item:
-            media_items.append(item)
-
-    date = getattr(primary, "date", None)
-    if date and date.tzinfo is None:
-        date = date.replace(tzinfo=timezone.utc)
-    iso_date = date.astimezone(timezone.utc).isoformat() if date else datetime.now(timezone.utc).isoformat()
-
-    views = getattr(primary, "views", None)
-    post: dict[str, Any] = {
-        "id": str(getattr(primary, "id", "")),
-        "status": "published",
-        "date": iso_date,
-        "rubric": None,
-        "text": text,
-        "metrics": {
-            "views": _format_views(views),
-            "reposts": 0,
-            "reactions": [],
-        },
-        "notes": [],
-        "chats": [],
-        "comments": [],
-        "source": "telegram",
-        "telegramMessageId": str(getattr(primary, "id", "")),
-    }
-    if media_items:
-        post["media"] = media_items
-    if not text and not media_items:
-        return None
-    return post
-
-
-async def _collect_posts(
-    client: Any, entity: Any, user_id: UUID, settings: Settings
-) -> list[dict[str, Any]]:
-    limit = settings.telegram_import_post_limit
-    raw_limit = max(limit * _RAW_MESSAGE_SCAN_FACTOR, limit)
-    posts: list[dict[str, Any]] = []
-    group: list[Any] = []
-    group_id: int | None = None
-
-    async def flush_group() -> None:
-        nonlocal group, group_id
-        if not group:
-            return
-        mapped = await _map_group_to_post(client, group, user_id, settings)
-        if mapped is not None:
-            posts.append(mapped)
-        group = []
-        group_id = None
-
-    async for message in client.iter_messages(entity, limit=raw_limit):
-        if not _message_is_importable(message):
-            continue
-
-        gid = getattr(message, "grouped_id", None) or None
-        if gid:
-            if group_id is not None and gid != group_id:
-                await flush_group()
-                if len(posts) >= limit:
-                    break
-            group_id = gid
-            group.append(message)
-        else:
-            await flush_group()
-            if len(posts) >= limit:
-                break
-            mapped = await _map_group_to_post(client, [message], user_id, settings)
-            if mapped is not None:
-                posts.append(mapped)
-            if len(posts) >= limit:
-                break
-
-    if len(posts) < limit and group:
-        await flush_group()
-
-    return posts[:limit]
 
 
 async def _persist_import_result(
@@ -182,6 +56,7 @@ async def _persist_import_result(
         )
         remaining = list(result.scalars())
 
+        max_message_id = 0
         for index, post_data in enumerate(posts_data):
             seed_id = f"tg-{post_data['telegramMessageId']}"
             session.add(
@@ -192,6 +67,10 @@ async def _persist_import_result(
                     data=post_data,
                 )
             )
+            try:
+                max_message_id = max(max_message_id, int(post_data["telegramMessageId"]))
+            except (TypeError, ValueError, KeyError):
+                pass
 
         offset = len(posts_data)
         for index, post in enumerate(remaining):
@@ -202,9 +81,16 @@ async def _persist_import_result(
         telegram["lastSync"] = datetime.now(timezone.utc).isoformat()
         telegram["importStatus"] = import_status
         telegram["importError"] = import_error
+        if max_message_id > 0:
+            telegram["lastTelegramMessageId"] = str(max_message_id)
         profile.telegram = telegram
 
         await session.commit()
+
+    if import_status == "done":
+        from app.services.telegram.live_sync_worker import listener_registry
+
+        listener_registry.start_user_listener(user_id)
 
 
 async def _set_import_error(user_id: UUID, error: str) -> None:
@@ -242,7 +128,13 @@ async def _import_channel_history(user_id: UUID, settings: Settings) -> None:
     try:
         await with_timeout(client.connect(), settings)
         entity = await resolve_channel_entity(client, parsed, settings)
-        posts_data = await _collect_posts(client, entity, user_id, settings)
+        posts_data = await collect_posts_from_iter(
+            client,
+            entity,
+            user_id,
+            settings,
+            limit=settings.telegram_import_post_limit,
+        )
         await _persist_import_result(user_id, posts_data, import_status="done")
     finally:
         await disconnect_safely(client)

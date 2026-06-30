@@ -26,6 +26,14 @@ function getImportStatusLabel(cfg: TelegramProfileConfig, importing: boolean): s
   return "—";
 }
 
+function getLiveSyncStatusLabel(cfg: TelegramProfileConfig): string {
+  if (cfg.syncStatus === "listening") return "Слушаем канал…";
+  if (cfg.syncStatus === "error") {
+    return cfg.syncError || "Ошибка live-синхронизации";
+  }
+  return "—";
+}
+
 export default function TelegramChannelSection({
   cfg,
   isAuthorized,
@@ -99,6 +107,10 @@ export default function TelegramChannelSection({
           <div>
             <div className="profile-label">Импорт истории</div>
             <div className="profile-val">{getImportStatusLabel(cfg, importing)}</div>
+          </div>
+          <div>
+            <div className="profile-label">Live-синхронизация</div>
+            <div className="profile-val">{getLiveSyncStatusLabel(cfg)}</div>
           </div>
           <div>
             <div className="profile-label">Импортировано постов</div>

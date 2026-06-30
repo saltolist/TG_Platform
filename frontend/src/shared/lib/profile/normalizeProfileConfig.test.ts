@@ -19,5 +19,7 @@ describe("normalizeProfileConfig", () => {
     expect(cfg.channel).toBe("");
     expect(cfg.importStatus).toBe("idle");
     expect(cfg.importError).toBe("");
+    expect(cfg.syncStatus).toBe("idle");
+    expect(cfg.syncError).toBe("");
   });
 });

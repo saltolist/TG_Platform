@@ -203,6 +203,8 @@ export function createSeedRepositories(): RepositoryBundle {
           lastSync: new Date().toISOString(),
           importStatus: "done",
           importError: "",
+          syncStatus: "listening",
+          syncError: "",
           importedPosts: 42,
         };
         return telegramProfile;

@@ -18,6 +18,7 @@ from app.schemas.requests import (
     TelegramVerifyCodeRequest,
 )
 from app.services.telegram.auth_flow import reset_auth, send_code, verify_code, verify_password
+from app.services.telegram.live_sync_worker import listener_registry
 
 router = APIRouter(prefix="/telegram/auth", tags=["Telegram"])
 
@@ -57,6 +58,7 @@ async def telegram_verify_2fa(
 @router.post("/reset/")
 async def telegram_reset_auth(user: CurrentWriter, session: DbSession) -> dict[str, Any]:
     profile = await get_or_create_profile(session, user.id)
+    listener_registry.stop_user_listener(user.id)
     return await apply_telegram_flow(
         session, profile, lambda telegram, settings: reset_auth(telegram, settings)
     )
