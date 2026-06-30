@@ -85,6 +85,36 @@ export function stripInvalidNoteCitations(text: string, validPaths: ReadonlySet<
   });
 }
 
+/** Replace wrong LLM link labels with canonical note titles when path is known. */
+export function rewriteNoteCitationLinkTitles(
+  text: string,
+  titleByPath: ReadonlyMap<string, string>,
+): string {
+  if (titleByPath.size === 0) return text;
+  NOTE_CITE_LINK_RE.lastIndex = 0;
+  return text.replace(NOTE_CITE_LINK_RE, (match, _title: string, href: string) => {
+    const normalized = normalizeNoteCitationPath(href);
+    if (!normalized) return match;
+    const canonical = titleByPath.get(normalized);
+    if (!canonical) return match;
+    return ` [${canonical}](${href})`;
+  });
+}
+
+export function resolveNoteCitationChipLabel(
+  href: string,
+  linkTitle: string,
+  titleByPath?: ReadonlyMap<string, string>,
+): { label: string; fullTitle?: string } {
+  const normalized = normalizeNoteCitationPath(href);
+  const canonical = normalized ? titleByPath?.get(normalized) : undefined;
+  const fullTitle = (canonical || linkTitle).trim() || undefined;
+  return {
+    label: citationChipLabel(canonical || linkTitle),
+    fullTitle,
+  };
+}
+
 function detachCitationsInParagraph(paragraph: string): string {
   const cites: string[] = [];
   const body = paragraph
@@ -122,11 +152,13 @@ export function detachNoteCitations(text: string): string {
 export function prepareNoteCitationsForDisplay(
   text: string,
   validPaths?: ReadonlySet<string>,
+  titleByPath?: ReadonlyMap<string, string>,
 ): string {
   const normalized = normalizeNoteCitationMarkdown(text);
   const validated =
     validPaths !== undefined ? stripInvalidNoteCitations(normalized, validPaths) : normalized;
-  return detachNoteCitations(validated);
+  const titled = titleByPath ? rewriteNoteCitationLinkTitles(validated, titleByPath) : validated;
+  return detachNoteCitations(titled);
 }
 
 export function splitNoteCitationSegments(text: string): NoteCitationSegment[] {

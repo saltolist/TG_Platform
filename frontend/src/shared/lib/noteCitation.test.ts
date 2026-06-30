@@ -5,7 +5,9 @@ import {
   detachNoteCitations,
   isNoteCitationHref,
   normalizeNoteCitationMarkdown,
+  resolveNoteCitationChipLabel,
   resolveNoteCitationHref,
+  rewriteNoteCitationLinkTitles,
   splitNoteCitationSegments,
   stripInvalidNoteCitations,
 } from "./noteCitation";
@@ -106,6 +108,30 @@ describe("stripInvalidNoteCitations", () => {
 
   it("removes all citations when valid set is empty", () => {
     expect(stripInvalidNoteCitations("Текст.[A](/note/global/1/)", new Set())).toBe("Текст.");
+  });
+});
+
+describe("rewriteNoteCitationLinkTitles", () => {
+  it("replaces wrong LLM link label with canonical note title", () => {
+    const titles = new Map([["/note/global/1/", "Серия постов"]]);
+    expect(
+      rewriteNoteCitationLinkTitles(
+        "Судя по вашей заметке [Вижу](/note/global/1/), вы запланировали три публикации.",
+        titles,
+      ),
+    ).toBe(
+      "Судя по вашей заметке [Серия постов](/note/global/1/), вы запланировали три публикации.",
+    );
+  });
+});
+
+describe("resolveNoteCitationChipLabel", () => {
+  it("prefers canonical title from map over link text", () => {
+    const titles = new Map([["/note/global/1/", "Серия постов"]]);
+    expect(resolveNoteCitationChipLabel("/note/global/1/", "Вижу", titles)).toEqual({
+      label: "Серия постов",
+      fullTitle: "Серия постов",
+    });
   });
 });
 

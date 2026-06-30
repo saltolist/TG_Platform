@@ -7,7 +7,7 @@ import ChatAiVariantNav from "./ChatAiVariantNav";
 import type { ChatMessageCtx } from "@/entities/message";
 import { useGlobalNotes } from "@/entities/note";
 import { usePosts } from "@/entities/post";
-import { buildValidNoteCitationPaths } from "@/shared/lib/buildValidNoteCitationPaths";
+import { buildNoteCitationTitlesByPath, buildValidNoteCitationPaths } from "@/shared/lib/buildValidNoteCitationPaths";
 import { useMemo } from "react";
 import type { WebCite } from "@/shared/api/schemas/post";
 
@@ -38,9 +38,13 @@ export default function ChatAiMessage({
 }: Props) {
   const { data: posts = [] } = usePosts();
   const { data: globalNotes = [] } = useGlobalNotes();
-  const validNotePaths = useMemo(
-    () => buildValidNoteCitationPaths(globalNotes, posts),
+  const noteTitleByPath = useMemo(
+    () => buildNoteCitationTitlesByPath(globalNotes, posts),
     [globalNotes, posts],
+  );
+  const validNotePaths = useMemo(
+    () => new Set(noteTitleByPath.keys()),
+    [noteTitleByPath],
   );
   const showTyping = isStreaming && !plainAi.trim();
   const showMultiStreamingNav = isStreaming && showVariantNav && !!ctx;
@@ -53,7 +57,12 @@ export default function ChatAiMessage({
           <AiTypingIndicator />
         ) : (
           <div className="msg-text">
-            <ChatMarkdown text={plainAi} validNotePaths={validNotePaths} webCites={webCites} />
+            <ChatMarkdown
+              text={plainAi}
+              validNotePaths={validNotePaths}
+              noteTitleByPath={noteTitleByPath}
+              webCites={webCites}
+            />
           </div>
         )}
         {showFooter ? (

@@ -38,6 +38,14 @@ def test_inject_missing_citation_when_title_mentioned() -> None:
     )
 
 
+def test_rewrite_wrong_link_title() -> None:
+    cites = [NoteCite(path="/note/global/1/", title="Серия постов")]
+    text = "Судя по вашей заметке [Вижу](/note/global/1/), вы запланировали три публикации."
+    assert prepare_note_citations_for_reply(text, cites) == (
+        "Судя по вашей заметке, вы запланировали три публикации. [Серия постов](/note/global/1/)"
+    )
+
+
 def test_prepare_note_citations_for_reply() -> None:
     cites = [NoteCite(path="/note/global/1/", title="Работа")]
     text = "В [Работа](/note/global/1/) тексте есть факты."

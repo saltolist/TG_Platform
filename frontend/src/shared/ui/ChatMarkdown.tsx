@@ -5,10 +5,10 @@ import ReactMarkdown, { defaultUrlTransform } from "react-markdown";
 import remarkGfm from "remark-gfm";
 
 import {
-  citationChipLabel,
   isNoteCitationHref,
   prepareNoteCitationsForDisplay,
   resolveNoteCitationHref,
+  resolveNoteCitationChipLabel,
   splitNoteCitationSegments,
   type NoteCitationSegment,
 } from "@/shared/lib/noteCitation";
@@ -21,6 +21,7 @@ type Props = {
   text: string;
   className?: string;
   validNotePaths?: ReadonlySet<string>;
+  noteTitleByPath?: ReadonlyMap<string, string>;
   webCites?: WebCite[];
 };
 
@@ -46,12 +47,15 @@ function renderWebCitationLink(href: string, webCites: WebCite[] | undefined, ke
   return renderWebCitationChip(cite, key);
 }
 
-function renderCitationSegment(seg: Extract<NoteCitationSegment, { type: "cite" }>, key: string) {
+function renderCitationSegment(
+  seg: Extract<NoteCitationSegment, { type: "cite" }>,
+  key: string,
+  noteTitleByPath?: ReadonlyMap<string, string>,
+) {
   const noteHref = resolveNoteCitationHref(seg.href);
   if (!noteHref) return null;
 
-  const fullTitle = seg.title.trim() || undefined;
-  const label = citationChipLabel(seg.title);
+  const { label, fullTitle } = resolveNoteCitationChipLabel(seg.href, seg.title, noteTitleByPath);
 
   return (
     <span key={key} className="chat-citation-inline">
@@ -65,12 +69,17 @@ function renderMarkdownLink(
   children: React.ReactNode,
   webCites: WebCite[] | undefined,
   key: string,
+  noteTitleByPath?: ReadonlyMap<string, string>,
 ) {
   if (href && resolveWebCitationHref(href) !== null) {
     return renderWebCitationLink(href, webCites, key);
   }
   if (href && isNoteCitationHref(href)) {
-    return renderCitationSegment({ type: "cite", title: String(children), href }, key);
+    return renderCitationSegment(
+      { type: "cite", title: String(children), href },
+      key,
+      noteTitleByPath,
+    );
   }
   if (href?.startsWith("/") || href?.startsWith("http://") || href?.startsWith("https://")) {
     const external = href.startsWith("http");
@@ -87,7 +96,15 @@ function renderMarkdownLink(
   return <span>{children}</span>;
 }
 
-function MarkdownInline({ text, webCites }: { text: string; webCites?: WebCite[] }) {
+function MarkdownInline({
+  text,
+  webCites,
+  noteTitleByPath,
+}: {
+  text: string;
+  webCites?: WebCite[];
+  noteTitleByPath?: ReadonlyMap<string, string>;
+}) {
   if (!text.trim()) return null;
 
   return (
@@ -96,7 +113,8 @@ function MarkdownInline({ text, webCites }: { text: string; webCites?: WebCite[]
       urlTransform={allowNoteUrls}
       components={{
         p: ({ children }) => <span className="chat-markdown-inline">{children}</span>,
-        a: ({ href, children }) => renderMarkdownLink(href, children, webCites, href ?? "link"),
+        a: ({ href, children }) =>
+          renderMarkdownLink(href, children, webCites, href ?? "link", noteTitleByPath),
         strong: ({ children }) => <strong className="chat-markdown-strong">{children}</strong>,
         em: ({ children }) => <em className="chat-markdown-em">{children}</em>,
         code: ({ children }) => <code className="chat-markdown-code">{children}</code>,
@@ -107,7 +125,15 @@ function MarkdownInline({ text, webCites }: { text: string; webCites?: WebCite[]
   );
 }
 
-function MarkdownBlock({ text, webCites }: { text: string; webCites?: WebCite[] }) {
+function MarkdownBlock({
+  text,
+  webCites,
+  noteTitleByPath,
+}: {
+  text: string;
+  webCites?: WebCite[];
+  noteTitleByPath?: ReadonlyMap<string, string>;
+}) {
   if (!text.trim()) return null;
 
   return (
@@ -115,7 +141,8 @@ function MarkdownBlock({ text, webCites }: { text: string; webCites?: WebCite[] 
       remarkPlugins={[remarkGfm]}
       urlTransform={allowNoteUrls}
       components={{
-        a: ({ href, children }) => renderMarkdownLink(href, children, webCites, href ?? "link"),
+        a: ({ href, children }) =>
+          renderMarkdownLink(href, children, webCites, href ?? "link", noteTitleByPath),
         p: ({ children }) => <p className="chat-markdown-p">{children}</p>,
         ul: ({ children }) => <ul className="chat-markdown-ul">{children}</ul>,
         ol: ({ children }) => <ol className="chat-markdown-ol">{children}</ol>,
@@ -143,12 +170,20 @@ function renderParagraphSegments(
   paragraph: string,
   keyPrefix: string,
   webCites?: WebCite[],
+  noteTitleByPath?: ReadonlyMap<string, string>,
 ): ReactNode {
   const segments = splitNoteCitationSegments(paragraph);
   const firstCiteIdx = segments.findIndex((seg) => seg.type === "cite");
 
   if (firstCiteIdx < 0) {
-    return <MarkdownBlock key={keyPrefix} text={paragraph} webCites={webCites} />;
+    return (
+      <MarkdownBlock
+        key={keyPrefix}
+        text={paragraph}
+        webCites={webCites}
+        noteTitleByPath={noteTitleByPath}
+      />
+    );
   }
 
   const bodySegments = segments.slice(0, firstCiteIdx);
@@ -165,6 +200,7 @@ function renderParagraphSegments(
             key={`${keyPrefix}-text-${index}`}
             text={seg.text}
             webCites={webCites}
+            noteTitleByPath={noteTitleByPath}
           />
         );
       })}
@@ -173,7 +209,7 @@ function renderParagraphSegments(
           {bodySegments.some((seg) => seg.type === "text" && seg.text.trim()) ? " " : null}
           <span className="chat-citation-group">
             {citeSegments.map((seg, index) =>
-              renderCitationSegment(seg, `${keyPrefix}-cite-${index}`),
+              renderCitationSegment(seg, `${keyPrefix}-cite-${index}`, noteTitleByPath),
             )}
           </span>
         </>
@@ -182,8 +218,14 @@ function renderParagraphSegments(
   );
 }
 
-export default function ChatMarkdown({ text, className, validNotePaths, webCites }: Props) {
-  const prepared = prepareNoteCitationsForDisplay(text, validNotePaths);
+export default function ChatMarkdown({
+  text,
+  className,
+  validNotePaths,
+  noteTitleByPath,
+  webCites,
+}: Props) {
+  const prepared = prepareNoteCitationsForDisplay(text, validNotePaths, noteTitleByPath);
   const displayText = prepareWebCitationsForDisplay(prepared, webCites);
   if (!displayText.trim() && (!webCites || webCites.length === 0)) return null;
 
@@ -192,7 +234,7 @@ export default function ChatMarkdown({ text, className, validNotePaths, webCites
   return (
     <div className={`chat-markdown${className ? ` ${className}` : ""}`}>
       {blocks.map((block, index) =>
-        renderParagraphSegments(block, `block-${index}`, webCites),
+        renderParagraphSegments(block, `block-${index}`, webCites, noteTitleByPath),
       )}
     </div>
   );

@@ -7,19 +7,27 @@ export function buildValidNoteCitationPaths(
   globalNotes: GlobalNote[],
   posts: Post[],
 ): Set<string> {
-  const paths = new Set<string>();
+  return new Set(buildNoteCitationTitlesByPath(globalNotes, posts).keys());
+}
+
+/** Canonical note titles keyed by normalized citation path. */
+export function buildNoteCitationTitlesByPath(
+  globalNotes: GlobalNote[],
+  posts: Post[],
+): Map<string, string> {
+  const titles = new Map<string, string>();
 
   for (const note of globalNotes) {
     const path = normalizeNoteCitationPath(routes.noteGlobal(note.id));
-    if (path) paths.add(path);
+    if (path) titles.set(path, (note.title || "Заметка").trim() || "Заметка");
   }
 
   for (const post of posts) {
     for (const note of post.notes ?? []) {
       const path = normalizeNoteCitationPath(routes.notePost(post.id, note.id));
-      if (path) paths.add(path);
+      if (path) titles.set(path, (note.title || "Заметка").trim() || "Заметка");
     }
   }
 
-  return paths;
+  return titles;
 }
