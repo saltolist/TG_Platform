@@ -20,7 +20,8 @@ from app.services.ai.embeddings import resolve_embedding_backend
 from app.services.ai.keys import KeyResolution, KeySource, get_account_mode
 from app.services.ai.providers import get_provider_spec
 from app.services.ai.note_citations import NoteCite
-from app.services.ai.rag import format_rag_context, retrieve_top_k
+from app.services.ai.rag_query import retrieve_rag_for_reply
+from app.services.ai.rag_reasoner import resolve_rag_reasoner_llm
 from app.services.ai.byok_profile import MASKED_VALUE, is_api_key_preview
 from app.services.ai.reply_orchestrator import (
     ReplyContext,
@@ -212,25 +213,28 @@ async def ai_reply(
     if settings.rag_enabled:
         try:
             embedding_backend = resolve_embedding_backend(user, ai_profile, settings)
-            query_vec = await embedding_backend.embed_query(payload.text)
-            top_k_results = await retrieve_top_k(
+            rag_reasoner_llm = resolve_rag_reasoner_llm(user, ai_profile, settings)
+            rewrite_spec = rewrite_model = rewrite_api_key = None
+            if rag_reasoner_llm is not None:
+                rewrite_spec, rewrite_model, rewrite_api_key = rag_reasoner_llm
+            rag_context, rag_cites = await retrieve_rag_for_reply(
                 session=session,
                 user_id=user.id,
                 scope=payload.scope,
-                query_vec=query_vec,
-                model_key=embedding_backend.model_key,
-                k=settings.rag_top_k,
-                min_similarity=settings.rag_min_similarity,
-                post_id=payload.post_id,
-                tenant_key=tenant_key,
-            )
-            rag_context, rag_cites = await format_rag_context(
-                session=session,
-                user_id=user.id,
-                results=top_k_results,
-                scope=payload.scope,
+                user_text=payload.text,
+                history=history,
+                embedding_backend=embedding_backend,
                 post_data=post_data,
                 tenant_key=tenant_key,
+                post_id=payload.post_id,
+                top_k=settings.rag_top_k,
+                min_similarity=settings.rag_min_similarity,
+                history_turns=settings.rag_query_history_turns,
+                query_max_chars=settings.rag_query_max_chars,
+                rewrite_on_miss=settings.rag_query_rewrite_on_miss,
+                rewrite_spec=rewrite_spec,
+                rewrite_model=rewrite_model,
+                rewrite_api_key=rewrite_api_key,
             )
         except Exception as exc:
             import logging

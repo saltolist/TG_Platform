@@ -71,6 +71,12 @@ class Settings(BaseSettings):
     rag_min_similarity: float = 0.38
     # Hard cap on note text fed to the embedder (chars); long notes are chunked
     rag_max_note_chars: int = 4000
+    # Recent dialogue turns to prepend to the RAG embedding query (0 = current message only).
+    rag_query_history_turns: int = 2
+    # Max chars for the expanded RAG query sent to the embedder.
+    rag_query_max_chars: int = 2000
+    # When retrieval misses, rewrite the query via a short LLM call and retry once.
+    rag_query_rewrite_on_miss: bool = True
 
     # Embeddings configuration
     # Local model name for fastembed (must be in TextEmbedding.list_supported_models())
@@ -79,7 +85,7 @@ class Settings(BaseSettings):
     # When set, the user's embeddings key for this provider is used; otherwise local model.
     embedding_provider_byok: str = ""
 
-    @field_validator("rag_enabled", "ai_context_log", "ai_context_stamps", mode="before")
+    @field_validator("rag_enabled", "ai_context_log", "ai_context_stamps", "rag_query_rewrite_on_miss", mode="before")
     @classmethod
     def _parse_bool_fields(cls, value: Any) -> bool:
         return _parse_bool_env(value)
