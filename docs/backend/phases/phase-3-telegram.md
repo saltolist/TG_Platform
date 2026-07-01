@@ -258,6 +258,20 @@ HTTP-ответ connect возвращается мгновенно с `importSt
 **Ограничение v1:** только один backend-процесс с `TELEGRAM_LIVE_SYNC_ENABLED=1`
 (дубликат MTProto-сессии на нескольких репликах недопустим).
 
+**Docker на macOS — расхождение часов:** VM Docker Desktop / Colima часто отстаёт
+от хоста на 30+ секунд. Telethon игнорирует push-обновления при skew > 30 с
+(`Server sent a very new message … ignoring`). Монтирование `/etc/localtime` **не**
+чинит часы. Решения (по приоритету):
+
+1. **Авто-фикс в коде** — `clock_sync.py` при каждом `connect()` берёт время по HTTP
+   (`Date` header) и выставляет `time_offset` в Telethon
+   (`TELEGRAM_CLOCK_SYNC_ENABLED=1`, по умолчанию включено). При старте API в лог
+   пишется предупреждение, если skew ≥ 25 с.
+2. **Dev без Docker для backend** — postgres/minio в Docker, API на хосте:
+   `cd backend && .venv/bin/uvicorn app.main:app --reload --port 8000`
+   (в `.env` — `DATABASE_URL=postgresql+asyncpg://tg:tg@localhost:5432/tg`).
+3. **Перезапуск Colima** — иногда сбрасывает drift VM: `colima stop && colima start`.
+
 **Явно вне рамок:** SSE/WebSocket push; синхронизация метрик (Шаг 5).
 
 ---

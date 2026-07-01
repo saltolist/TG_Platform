@@ -8,12 +8,24 @@ instead of duplicating it.
 from __future__ import annotations
 
 import asyncio
+import logging
 from typing import Any, TypeVar
 
 from app.core.config import Settings
 from app.core.crypto import decrypt_byok, is_encrypted
+from app.services.telegram.clock_sync import (
+    apply_time_offset_to_client,
+    measure_http_time_offset_seconds,
+)
+
+logger = logging.getLogger(__name__)
 
 _T = TypeVar("_T")
+
+TELEGRAM_TIMEOUT_MESSAGE = (
+    "Telegram не отвечает. Проверьте интернет/VPN или настройте TELEGRAM_PROXY_* "
+    "(из Docker до серверов Telegram часто нет прямого доступа)."
+)
 
 
 class TelegramAuthError(Exception):
@@ -44,7 +56,26 @@ async def with_timeout(coro: Any, settings: Settings) -> _T:
     try:
         return await asyncio.wait_for(coro, timeout=settings.telegram_rpc_timeout_seconds)
     except asyncio.TimeoutError:
-        raise TelegramAuthError("Telegram не отвечает, попробуйте позже", 504) from None
+        raise TelegramAuthError(TELEGRAM_TIMEOUT_MESSAGE, 504) from None
+
+
+async def connect_telegram_client(client: Any, settings: Settings) -> None:
+    """Connect Telethon and pre-seed MTProto ``time_offset`` when Docker clock drifts."""
+    await with_timeout(client.connect(), settings)
+    if not settings.telegram_clock_sync_enabled:
+        return
+
+    offset = await measure_http_time_offset_seconds()
+    if offset is None:
+        return
+
+    previous = apply_time_offset_to_client(client, offset)
+    if abs(offset) >= 25 and previous != offset:
+        logger.warning(
+            "Applied HTTP Telethon time offset %ds (was %s) after connect",
+            offset,
+            previous,
+        )
 
 
 async def disconnect_safely(client: Any) -> None:

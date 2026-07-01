@@ -8,6 +8,7 @@ from uuid import UUID
 
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy.orm.attributes import flag_modified
 
 from app.db.models import Post, Profile
 from app.db.seed_ids import user_scoped_entity_uuid
@@ -60,6 +61,7 @@ async def touch_telegram_profile(
         stored = _parse_message_id(telegram.get("lastTelegramMessageId"))
         telegram["lastTelegramMessageId"] = str(max(seen, stored))
     telegram["lastSync"] = datetime.now(timezone.utc).isoformat()
+    telegram["syncRevision"] = int(telegram.get("syncRevision") or 0) + 1
     telegram["syncStatus"] = sync_status
     telegram["syncError"] = sync_error[:500] if sync_error else ""
     profile.telegram = telegram
@@ -79,6 +81,7 @@ async def upsert_telegram_post(
     existing = await _find_telegram_post(session, user_id, msg_id)
     if existing is not None:
         existing.data = post_data
+        flag_modified(existing, "data")
     else:
         await _shift_positions(session, user_id, 1)
         session.add(
@@ -118,6 +121,7 @@ async def update_telegram_post(
     if not new_media and old_media:
         merged["media"] = old_media
     existing.data = merged
+    flag_modified(existing, "data")
     await touch_telegram_profile(session, profile, last_message_id=msg_id)
 
 
@@ -140,7 +144,6 @@ async def delete_telegram_post(
     telegram["importedPosts"] = max(0, count - 1)
     profile.telegram = telegram
     await touch_telegram_profile(session, profile, last_message_id=telegram_message_id)
-
 
 async def set_sync_error(user_id: UUID, error: str, session_factory: Any) -> None:
     async with session_factory() as session:

@@ -205,6 +205,7 @@ export function createSeedRepositories(): RepositoryBundle {
           importError: "",
           syncStatus: "listening",
           syncError: "",
+          syncRevision: 0,
           importedPosts: 42,
         };
         return telegramProfile;

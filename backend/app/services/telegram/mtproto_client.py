@@ -12,6 +12,9 @@ from __future__ import annotations
 from telethon import TelegramClient
 from telethon.sessions import StringSession
 
+from app.core.config import get_settings
+from app.services.telegram.proxy import build_telethon_proxy
+
 DEVICE_MODEL = "TG Platform"
 APP_VERSION = "1.0"
 SYSTEM_VERSION = "Linux"
@@ -25,13 +28,20 @@ def build_client(api_id: int, api_hash: str, session_string: str = "") -> Telegr
     previously saved session (used to finish ``sign_in`` after the code/
     password is known).
     """
+    settings = get_settings()
+    proxy = build_telethon_proxy(settings)
     return TelegramClient(
         StringSession(session_string),
         api_id,
         api_hash,
+        proxy=proxy,
         device_model=DEVICE_MODEL,
         app_version=APP_VERSION,
         system_version=SYSTEM_VERSION,
+        connection_retries=5,
+        retry_delay=2,
+        timeout=30,
+        request_retries=3,
     )
 
 

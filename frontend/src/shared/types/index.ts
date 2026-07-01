@@ -125,6 +125,7 @@ export type TelegramProfileConfig = {
   importError: string;
   syncStatus: TelegramSyncStatus;
   syncError: string;
+  syncRevision: number;
   botApiToken: string;
   botStatus: TelegramBotStatus;
   botUsername: string;

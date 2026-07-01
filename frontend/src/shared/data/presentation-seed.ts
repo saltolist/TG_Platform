@@ -364,6 +364,7 @@ const presentationTelegramProfile = (): TelegramProfileConfig => ({
   importError: "",
   syncStatus: "listening",
   syncError: "",
+  syncRevision: 0,
   botApiToken: "",
   botStatus: "idle",
   botUsername: "",

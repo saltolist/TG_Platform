@@ -18,6 +18,7 @@ from app.core.crypto import ENC_PREFIX
 from app.db.session import engine, async_session_factory
 from app.services.ai.context_log import init_chat_filter
 from app.services.ai.rag_worker import embedding_worker
+from app.services.telegram.clock_sync import log_container_clock_skew
 from app.services.telegram.live_sync_worker import telegram_live_sync_worker
 
 logging.basicConfig(level=logging.INFO)
@@ -63,6 +64,8 @@ async def _check_byok_key_guard(session_factory) -> None:
 async def lifespan(app: FastAPI):
     # Schema is managed by Alembic (see scripts/entrypoint.sh and `alembic upgrade head`).
     await _check_byok_key_guard(async_session_factory)
+    if settings.telegram_clock_sync_enabled:
+        await log_container_clock_skew()
 
     if settings.ai_context_log:
         init_chat_filter(settings.ai_context_log_chat)

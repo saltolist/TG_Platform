@@ -337,6 +337,7 @@ export const handlers = [
       importError: "",
       syncStatus: "listening",
       syncError: "",
+      syncRevision: 0,
       importedPosts: 42,
     };
     return HttpResponse.json(store.telegramProfile);

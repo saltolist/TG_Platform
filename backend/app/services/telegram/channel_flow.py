@@ -30,6 +30,7 @@ from app.core.config import Settings, get_settings
 from app.services.telegram.mtproto_client import build_client
 from app.services.telegram.net import (
     TelegramAuthError,
+    connect_telegram_client,
     decrypt_field,
     disconnect_safely,
     require_api_credentials,
@@ -248,7 +249,7 @@ async def connect_channel(
 
     client = build_client(api_id, api_hash, session_string)
     try:
-        await with_timeout(client.connect(), settings)
+        await connect_telegram_client(client, settings)
         entity = await _resolve_entity(client, parsed, settings)
 
         if not hasattr(entity, "broadcast") and not hasattr(entity, "megagroup"):

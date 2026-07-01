@@ -24,15 +24,17 @@ function mergeTelegramSyncFields(
     lastSync: telegram.lastSync,
     syncStatus: telegram.syncStatus,
     syncError: telegram.syncError,
+    syncRevision: telegram.syncRevision,
   };
 }
 
-/** Polls Telegram profile for live-sync updates and refreshes the posts feed when lastSync changes. */
+/** Polls backend telegram profile; refetches posts when syncRevision advances. */
 export function TelegramLiveSyncPoll() {
   const { profile } = useRepositories();
   const queryClient = useQueryClient();
   const accountId = useQueryAccountScope();
   const enabled = useAuthenticatedQueryEnabled();
+  const syncRevisionRef = useRef<number | null>(null);
   const lastSyncRef = useRef<string | null>(null);
 
   useEffect(() => {
@@ -40,41 +42,61 @@ export function TelegramLiveSyncPoll() {
 
     let cancelled = false;
 
+    const applyTelegramPoll = async (telegram: TelegramProfileConfig) => {
+      const liveSyncActive =
+        telegram.channelStatus === "connected" && telegram.syncMode !== "publish-only";
+      if (!liveSyncActive) {
+        syncRevisionRef.current = null;
+        lastSyncRef.current = null;
+        return;
+      }
+
+      queryClient.setQueryData(queryKeys.profile.telegram(accountId), telegram);
+
+      const current = useProfileDraftStore.getState().telegramProfileConfig;
+      useProfileDraftStore.getState().updateTelegramConfig(mergeTelegramSyncFields(current, telegram));
+
+      const previousRevision = syncRevisionRef.current;
+      const previousLastSync = lastSyncRef.current;
+      const revision = telegram.syncRevision ?? 0;
+      const lastSync = telegram.lastSync ?? "";
+
+      const shouldRefreshPosts =
+        previousRevision !== null &&
+        (revision > previousRevision || (lastSync && lastSync !== previousLastSync));
+
+      if (shouldRefreshPosts) {
+        await queryClient.refetchQueries({ queryKey: queryKeys.posts.list(accountId) });
+      }
+
+      syncRevisionRef.current = revision;
+      lastSyncRef.current = lastSync;
+    };
+
     const tick = async () => {
       try {
         const telegram = normalizeTelegramProfileConfig(await profile.getTelegram());
         if (cancelled) return;
-
-        const liveSyncActive =
-          telegram.channelStatus === "connected" && telegram.syncMode !== "publish-only";
-        if (!liveSyncActive) {
-          lastSyncRef.current = null;
-          return;
-        }
-
-        queryClient.setQueryData(queryKeys.profile.telegram(accountId), telegram);
-
-        const current = useProfileDraftStore.getState().telegramProfileConfig;
-        useProfileDraftStore.getState().updateTelegramConfig(mergeTelegramSyncFields(current, telegram));
-
-        const previous = lastSyncRef.current;
-        if (previous !== null && previous !== telegram.lastSync) {
-          await queryClient.invalidateQueries({ queryKey: queryKeys.posts.all(accountId) });
-        }
-        lastSyncRef.current = telegram.lastSync;
+        await applyTelegramPoll(telegram);
       } catch {
         // Transient errors — keep polling.
       }
+    };
+
+    const onFocus = () => {
+      void tick();
     };
 
     void tick();
     const intervalId = window.setInterval(() => {
       void tick();
     }, POLL_INTERVAL_MS);
+    window.addEventListener("focus", onFocus);
 
     return () => {
       cancelled = true;
       window.clearInterval(intervalId);
+      window.removeEventListener("focus", onFocus);
     };
   }, [accountId, enabled, profile, queryClient]);
 

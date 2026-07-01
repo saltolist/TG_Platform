@@ -15,7 +15,6 @@ from telethon import events
 from telethon.tl.types import MessageMediaPhoto
 
 from app.core.config import get_settings
-from app.services.telegram.channel_flow import channel_peer_id
 from app.db.models import Post, Profile
 from app.services.telegram import import_flow as import_flow_module
 from app.services.telegram import live_sync_worker as live_sync_module
@@ -78,6 +77,7 @@ class LiveSyncFakeClient:
     def __init__(self, *args: Any, **kwargs: Any) -> None:
         self.handlers: list[tuple[Any, Any]] = []
         self._disconnect = asyncio.Event()
+        self.known_messages: dict[int, Any] = {}
         self.catchup_messages = list(LiveSyncFakeClient.catchup_messages)
         LiveSyncFakeClient._latest = self
 
@@ -114,27 +114,35 @@ class LiveSyncFakeClient:
                 handle.write(b"fake-image")
         return file
 
-    async def get_messages(self, entity: Any, grouped_id: int | None = None, ids: Any = None) -> list[Any]:
+    async def get_messages(
+        self,
+        entity: Any,
+        grouped_id: int | None = None,
+        ids: Any = None,
+    ) -> list[Any]:
+        if ids is not None:
+            id_list = list(ids) if isinstance(ids, (list, tuple)) else [ids]
+            return [self.known_messages[mid] for mid in id_list if mid in self.known_messages]
         if grouped_id is not None:
             return [m for m in self.catchup_messages if getattr(m, "grouped_id", None) == grouped_id]
         return []
 
     async def emit_new(self, message: Any) -> None:
+        self.known_messages[getattr(message, "id", 0)] = message
         for callback, event in self.handlers:
             if isinstance(event, events.NewMessage):
                 await callback(SimpleNamespace(message=message))
 
     async def emit_edited(self, message: Any) -> None:
-        chat_id = channel_peer_id(SimpleNamespace(id=123, broadcast=True))
+        self.known_messages[getattr(message, "id", 0)] = message
         for callback, event in self.handlers:
             if isinstance(event, events.MessageEdited):
-                await callback(SimpleNamespace(message=message, chat_id=chat_id))
+                await callback(SimpleNamespace(message=message))
 
     async def emit_deleted(self, deleted_ids: list[int]) -> None:
-        chat_id = channel_peer_id(SimpleNamespace(id=123, broadcast=True))
         for callback, event in self.handlers:
             if isinstance(event, events.MessageDeleted):
-                await callback(SimpleNamespace(deleted_ids=deleted_ids, chat_id=chat_id))
+                await callback(SimpleNamespace(deleted_ids=deleted_ids))
 
 
 @pytest.fixture(autouse=True)
@@ -200,6 +208,7 @@ async def _seed_connected_profile(
         "lastTelegramMessageId": last_message_id,
         "syncStatus": "idle",
         "syncError": "",
+        "syncRevision": 0,
         "botApiToken": "",
         "botStatus": "idle",
         "botUsername": "",
@@ -256,6 +265,7 @@ async def test_upsert_new_message_at_position_zero(
         profile = await session.get(Profile, user_id)
         assert profile.telegram["importedPosts"] == 2
         assert profile.telegram["syncStatus"] == "listening"
+        assert int(profile.telegram.get("syncRevision") or 0) >= 1
 
 
 @pytest.mark.asyncio
@@ -276,9 +286,17 @@ async def test_update_and_delete_telegram_post(
         await update_telegram_post(session, user_id, updated)
         await session.commit()
     async with TestSessionLocal() as session:
+        profile = await session.get(Profile, user_id)
+        rev_after_first = int(profile.telegram.get("syncRevision") or 0)
+    async with TestSessionLocal() as session:
+        await update_telegram_post(session, user_id, updated)
+        await session.commit()
+    async with TestSessionLocal() as session:
         result = await session.execute(select(Post).where(Post.user_id == user_id))
         post = result.scalar_one()
         assert post.data["text"] == "After"
+        profile = await session.get(Profile, user_id)
+        assert int(profile.telegram.get("syncRevision") or 0) == rev_after_first + 1
     async with TestSessionLocal() as session:
         await delete_telegram_post(session, user_id, "30")
         await session.commit()

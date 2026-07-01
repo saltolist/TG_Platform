@@ -70,7 +70,18 @@ class Settings(BaseSettings):
     # call is wrapped in this timeout so a stuck/invalid api_id (Telegram can
     # silently stall instead of returning ApiIdInvalidError — see
     # https://github.com/LonamiWebs/Telethon/issues/1056) cannot hang a worker.
-    telegram_rpc_timeout_seconds: float = 25.0
+    telegram_rpc_timeout_seconds: float = 45.0
+    telegram_listener_stop_timeout_seconds: float = 35.0
+    # Pre-seed Telethon time_offset from HTTP Date headers (Docker macOS clock skew).
+    telegram_clock_sync_enabled: bool = True
+    # Optional proxy when MTProto is blocked (common in Docker / some ISPs).
+    # socks5 | http | mtproxy — use host.docker.internal from Docker to reach a local VPN SOCKS port.
+    telegram_proxy_type: str = ""
+    telegram_proxy_host: str = ""
+    telegram_proxy_port: int = 0
+    telegram_proxy_secret: str = ""
+    telegram_proxy_username: str = ""
+    telegram_proxy_password: str = ""
 
     # Local media storage for Telegram import (Phase 3, step 3)
     media_storage_root: str = "media"
@@ -130,6 +141,7 @@ class Settings(BaseSettings):
         "rag_query_rewrite_on_miss",
         "cookie_secure",
         "telegram_live_sync_enabled",
+        "telegram_clock_sync_enabled",
         mode="before",
     )
     @classmethod

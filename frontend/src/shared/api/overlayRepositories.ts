@@ -284,6 +284,7 @@ function overlayProfile(inner: ProfileRepository): ProfileRepository {
         importError: "",
         syncStatus: "listening",
         syncError: "",
+        syncRevision: 0,
         importedPosts: 42,
       });
       mutateOverlay((overlay) => {

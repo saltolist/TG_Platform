@@ -9,12 +9,11 @@ from uuid import UUID
 
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
-from telethon import events, utils
+from telethon import events
 
 from app.core.config import Settings, get_settings
 from app.db.models import Profile
 from app.services.telegram.channel_flow import (
-    channel_peer_id,
     parse_channel_input,
     resolve_channel_entity,
 )
@@ -25,6 +24,8 @@ from app.services.telegram.message_mapping import (
 )
 from app.services.telegram.mtproto_client import build_client
 from app.services.telegram.net import (
+    TelegramAuthError,
+    connect_telegram_client,
     decrypt_field,
     disconnect_safely,
     require_api_credentials,
@@ -36,6 +37,7 @@ from app.services.telegram.post_sync import (
     update_telegram_post,
     upsert_telegram_post,
 )
+from app.services.telegram.session_guard import telegram_session_lock
 
 logger = logging.getLogger(__name__)
 
@@ -112,18 +114,50 @@ class ListenerRegistry:
             return
         stop_event = asyncio.Event()
         self._stop_events[user_id] = stop_event
-        self._tasks[user_id] = asyncio.create_task(
+        task = asyncio.create_task(
             _run_user_listener(user_id, stop_event),
             name=f"telegram-live-sync-{user_id}",
         )
+        task.add_done_callback(lambda _t: self._cleanup_user(user_id))
+        self._tasks[user_id] = task
 
     def stop_user_listener(self, user_id: UUID) -> None:
-        stop_event = self._stop_events.pop(user_id, None)
+        stop_event = self._stop_events.get(user_id)
         if stop_event is not None:
             stop_event.set()
-        task = self._tasks.pop(user_id, None)
+        task = self._tasks.get(user_id)
         if task is not None and not task.done():
             task.cancel()
+
+    async def await_stop_user_listener(
+        self, user_id: UUID, timeout: float | None = None
+    ) -> None:
+        """Signal the listener to stop and wait until its MTProto session is released."""
+        settings = get_settings()
+        wait_seconds = (
+            timeout if timeout is not None else settings.telegram_listener_stop_timeout_seconds
+        )
+        stop_event = self._stop_events.get(user_id)
+        task = self._tasks.get(user_id)
+        if stop_event is None and task is None:
+            return
+        if stop_event is not None:
+            stop_event.set()
+        if task is not None and not task.done():
+            try:
+                await asyncio.wait_for(task, timeout=wait_seconds)
+            except asyncio.TimeoutError:
+                logger.warning("Live-sync listener stop timed out for user %s", user_id)
+                task.cancel()
+                try:
+                    await task
+                except asyncio.CancelledError:
+                    pass
+        self._cleanup_user(user_id)
+
+    def _cleanup_user(self, user_id: UUID) -> None:
+        self._stop_events.pop(user_id, None)
+        self._tasks.pop(user_id, None)
 
     async def reconcile_from_db(
         self, session_factory: async_sessionmaker[AsyncSession]
@@ -143,6 +177,34 @@ class ListenerRegistry:
 
 
 listener_registry = ListenerRegistry()
+
+
+def effective_sync_status(telegram: dict[str, Any], user_id: UUID) -> tuple[str, str]:
+    """Return public ``(syncStatus, syncError)`` reflecting the real listener state."""
+    if not should_listen(telegram):
+        return str(telegram.get("syncStatus") or "idle"), str(telegram.get("syncError") or "")
+    if listener_registry.is_running(user_id):
+        return "listening", ""
+    stored_status = str(telegram.get("syncStatus") or "idle")
+    stored_error = str(telegram.get("syncError") or "")
+    if stored_status == "listening":
+        return "idle", stored_error
+    return stored_status, stored_error
+
+
+def ensure_user_listener(user_id: UUID, telegram: dict[str, Any]) -> None:
+    """Start the MTProto listener when the profile expects live-sync but none is running."""
+    if should_listen(telegram) and not listener_registry.is_running(user_id):
+        listener_registry.start_user_listener(user_id)
+
+
+def apply_effective_sync_fields(telegram: dict[str, Any], user_id: UUID) -> dict[str, Any]:
+    """Overlay sync fields with the effective listener state for API responses."""
+    result = dict(telegram)
+    sync_status, sync_error = effective_sync_status(telegram, user_id)
+    result["syncStatus"] = sync_status
+    result["syncError"] = sync_error
+    return result
 
 
 async def _load_listener_credentials(
@@ -194,6 +256,21 @@ async def _catch_up(
         await session.commit()
 
 
+async def _refresh_channel_message(client: Any, entity: Any, message: Any) -> Any:
+    """Fetch the full channel message — edit events often carry a partial payload."""
+    msg_id = getattr(message, "id", None)
+    if not msg_id:
+        return message
+    try:
+        fetched = await client.get_messages(entity, ids=msg_id)
+    except Exception:
+        logger.debug("Failed to refresh message %s for live-sync edit", msg_id, exc_info=True)
+        return message
+    if not fetched:
+        return message
+    return fetched[0] if isinstance(fetched, (list, tuple)) else fetched
+
+
 async def _persist_group(
     client: Any,
     messages: list[Any],
@@ -216,6 +293,12 @@ async def _persist_group(
         else:
             await upsert_telegram_post(session, user_id, post_data)
         await session.commit()
+    logger.info(
+        "Live-sync %s post tg-%s for user %s",
+        "updated" if update else "upserted",
+        post_data.get("telegramMessageId"),
+        user_id,
+    )
 
 
 async def _run_user_listener(user_id: UUID, stop_event: asyncio.Event) -> None:
@@ -228,124 +311,128 @@ async def _run_user_listener(user_id: UUID, stop_event: asyncio.Event) -> None:
             return
 
         _telegram, api_id, api_hash, session_string, parsed, min_id = creds
-        client = build_client(api_id, api_hash, session_string)
-        album_buffer = AlbumBuffer(
-            settings.telegram_album_debounce_seconds,
-            lambda msgs: _persist_group(
-                client,
-                [m for m in msgs if message_is_importable(m)],
-                user_id,
-                settings,
-                session_factory,
-                update=False,
-            ),
-        )
 
         try:
-            await with_timeout(client.connect(), settings)
-            entity = await resolve_channel_entity(client, parsed, settings)
-            await _catch_up(client, entity, user_id, settings, min_id, session_factory)
-            expected_peer_id = channel_peer_id(entity)
-
-            def _matches_channel(event: events.common.EventCommon) -> bool:
-                chat_id = getattr(event, "chat_id", None)
-                if chat_id is None:
-                    return False
-                try:
-                    return utils.get_peer_id(chat_id) == expected_peer_id
-                except (TypeError, ValueError):
-                    return int(chat_id) == expected_peer_id
-
-            async def _handle_message_edit(message: Any) -> None:
-                if not message_is_importable(message):
+            async with telegram_session_lock(user_id):
+                if stop_event.is_set():
                     return
-                gid = getattr(message, "grouped_id", None) or None
-                messages = [message]
-                if gid:
-                    siblings = await client.get_messages(entity, grouped_id=gid)
-                    if siblings:
-                        messages = list(siblings)
-                await _persist_group(
-                    client,
-                    messages,
-                    user_id,
-                    settings,
-                    session_factory,
-                    update=True,
+
+                client = build_client(api_id, api_hash, session_string)
+                album_buffer = AlbumBuffer(
+                    settings.telegram_album_debounce_seconds,
+                    lambda msgs: _persist_group(
+                        client,
+                        [m for m in msgs if message_is_importable(m)],
+                        user_id,
+                        settings,
+                        session_factory,
+                        update=False,
+                    ),
                 )
 
-            @client.on(events.NewMessage(chats=entity))
-            async def on_new_message(event: events.NewMessage.Event) -> None:
                 try:
-                    message = event.message
-                    grouped_id = getattr(message, "grouped_id", None) or None
-                    if grouped_id:
-                        await album_buffer.add(message)
-                        return
-                    if not message_is_importable(message):
-                        return
-                    await album_buffer.add(message)
-                except Exception as exc:  # noqa: BLE001
-                    logger.exception("Live-sync NewMessage failed for user %s", user_id)
-                    await set_sync_error(user_id, str(exc), session_factory)
+                    await connect_telegram_client(client, settings)
+                    entity = await resolve_channel_entity(client, parsed, settings)
+                    await _catch_up(client, entity, user_id, settings, min_id, session_factory)
 
-            @client.on(events.MessageEdited())
-            async def on_message_edited(event: events.MessageEdited.Event) -> None:
-                try:
-                    if not _matches_channel(event):
-                        return
-                    await _handle_message_edit(event.message)
-                except Exception as exc:  # noqa: BLE001
-                    logger.exception("Live-sync MessageEdited failed for user %s", user_id)
-                    await set_sync_error(user_id, str(exc), session_factory)
+                    async def _handle_message_edit(message: Any) -> None:
+                        message = await _refresh_channel_message(client, entity, message)
+                        if not message_is_importable(message):
+                            return
+                        gid = getattr(message, "grouped_id", None) or None
+                        messages = [message]
+                        if gid:
+                            siblings = await client.get_messages(entity, grouped_id=gid)
+                            if siblings:
+                                messages = list(siblings)
+                        await _persist_group(
+                            client,
+                            messages,
+                            user_id,
+                            settings,
+                            session_factory,
+                            update=True,
+                        )
 
-            @client.on(events.MessageDeleted())
-            async def on_message_deleted(event: events.MessageDeleted.Event) -> None:
-                try:
-                    if not _matches_channel(event):
-                        return
-                    deleted_ids = getattr(event, "deleted_ids", None) or []
+                    @client.on(events.NewMessage(chats=entity))
+                    async def on_new_message(event: events.NewMessage.Event) -> None:
+                        try:
+                            message = event.message
+                            grouped_id = getattr(message, "grouped_id", None) or None
+                            if grouped_id:
+                                await album_buffer.add(message)
+                                return
+                            if not message_is_importable(message):
+                                return
+                            await album_buffer.add(message)
+                        except Exception as exc:  # noqa: BLE001
+                            logger.exception("Live-sync NewMessage failed for user %s", user_id)
+                            await set_sync_error(user_id, str(exc), session_factory)
+
+                    @client.on(events.MessageEdited(chats=entity))
+                    async def on_message_edited(event: events.MessageEdited.Event) -> None:
+                        try:
+                            await _handle_message_edit(event.message)
+                        except Exception as exc:  # noqa: BLE001
+                            logger.exception("Live-sync MessageEdited failed for user %s", user_id)
+                            await set_sync_error(user_id, str(exc), session_factory)
+
+                    @client.on(events.MessageDeleted(chats=entity))
+                    async def on_message_deleted(event: events.MessageDeleted.Event) -> None:
+                        try:
+                            deleted_ids = getattr(event, "deleted_ids", None) or []
+                            async with session_factory() as session:
+                                for msg_id in deleted_ids:
+                                    await delete_telegram_post(session, user_id, str(msg_id))
+                                await session.commit()
+                        except Exception as exc:  # noqa: BLE001
+                            logger.exception("Live-sync MessageDeleted failed for user %s", user_id)
+                            await set_sync_error(user_id, str(exc), session_factory)
+
                     async with session_factory() as session:
-                        for msg_id in deleted_ids:
-                            await delete_telegram_post(session, user_id, str(msg_id))
-                        await session.commit()
-                except Exception as exc:  # noqa: BLE001
-                    logger.exception("Live-sync MessageDeleted failed for user %s", user_id)
-                    await set_sync_error(user_id, str(exc), session_factory)
-
-            async with session_factory() as session:
-                profile = await session.get(Profile, user_id)
-                if profile is not None:
-                    from app.services.telegram.post_sync import touch_telegram_profile
+                        profile = await session.get(Profile, user_id)
+                        if profile is not None:
+                            from app.services.telegram.post_sync import touch_telegram_profile
 
                     await touch_telegram_profile(
                         session, profile, sync_status="listening", sync_error=""
                     )
                     await session.commit()
+                    logger.info("Live-sync listening for user %s", user_id)
 
-            disconnect_task = asyncio.create_task(client.run_until_disconnected())
-            stop_wait = asyncio.create_task(stop_event.wait())
-            done, pending = await asyncio.wait(
-                {disconnect_task, stop_wait},
-                return_when=asyncio.FIRST_COMPLETED,
-            )
-            for task in pending:
-                task.cancel()
-                try:
-                    await task
+                    disconnect_task = asyncio.create_task(client.run_until_disconnected())
+                    stop_wait = asyncio.create_task(stop_event.wait())
+                    done, pending = await asyncio.wait(
+                        {disconnect_task, stop_wait},
+                        return_when=asyncio.FIRST_COMPLETED,
+                    )
+                    for task in pending:
+                        task.cancel()
+                        try:
+                            await task
+                        except asyncio.CancelledError:
+                            pass
+                    if stop_event.is_set():
+                        await album_buffer.flush_all()
+                        return
                 except asyncio.CancelledError:
-                    pass
-            if stop_event.is_set():
-                await album_buffer.flush_all()
-                return
+                    await album_buffer.flush_all()
+                    raise
+                except TelegramAuthError as exc:
+                    if exc.status_code == 504:
+                        logger.warning(
+                            "Live-sync Telegram timeout for user %s: %s", user_id, exc.detail
+                        )
+                    else:
+                        logger.exception("Live-sync listener error for user %s", user_id)
+                        await set_sync_error(user_id, str(exc), session_factory)
+                except Exception as exc:  # noqa: BLE001
+                    logger.exception("Live-sync listener error for user %s", user_id)
+                    await set_sync_error(user_id, str(exc), session_factory)
+                finally:
+                    await disconnect_safely(client)
         except asyncio.CancelledError:
-            await album_buffer.flush_all()
             raise
-        except Exception as exc:  # noqa: BLE001
-            logger.exception("Live-sync listener error for user %s", user_id)
-            await set_sync_error(user_id, str(exc), session_factory)
-        finally:
-            await disconnect_safely(client)
 
         if stop_event.is_set():
             return

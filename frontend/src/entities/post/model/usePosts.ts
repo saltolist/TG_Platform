@@ -29,8 +29,6 @@ export function usePost(id: string) {
   return useQuery({
     queryKey: queryKeys.posts.detail(accountId, id),
     queryFn: async () => {
-      const cached = queryClient.getQueryData<Post>(queryKeys.posts.detail(accountId, id));
-      if (cached) return cached;
       const list = await posts.list();
       const post = list.find((p) => p.id === id);
       if (!post) throw new Error(`Post ${id} not found`);

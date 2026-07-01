@@ -25,6 +25,7 @@ from app.core.crypto import encrypt_byok
 from app.services.telegram.mtproto_client import build_client, save_session
 from app.services.telegram.net import (
     TelegramAuthError,
+    connect_telegram_client,
     decrypt_field as _decrypt_field,
     disconnect_safely as _disconnect_safely,
     require_api_credentials as _require_api_credentials,
@@ -64,7 +65,7 @@ async def send_code(
 
     client = build_client(api_id, api_hash)
     try:
-        await _with_timeout(client.connect(), settings)
+        await connect_telegram_client(client, settings)
         try:
             sent = await _with_timeout(client.send_code_request(phone), settings)
         except errors.PhoneNumberInvalidError:
@@ -104,7 +105,7 @@ async def verify_code(
 
     client = build_client(api_id, api_hash, session_string)
     try:
-        await _with_timeout(client.connect(), settings)
+        await connect_telegram_client(client, settings)
         try:
             await _with_timeout(
                 client.sign_in(phone, code, phone_code_hash=phone_code_hash), settings
@@ -155,7 +156,7 @@ async def verify_password(
 
     client = build_client(api_id, api_hash, session_string)
     try:
-        await _with_timeout(client.connect(), settings)
+        await connect_telegram_client(client, settings)
         try:
             await _with_timeout(client.sign_in(password=password), settings)
         except errors.PasswordHashInvalidError:
@@ -191,7 +192,7 @@ async def reset_auth(
             if session_string and api_hash:
                 client = build_client(api_id, api_hash, session_string)
                 try:
-                    await _with_timeout(client.connect(), settings)
+                    await connect_telegram_client(client, settings)
                     await _with_timeout(client.log_out(), settings)
                 finally:
                     await _disconnect_safely(client)
