@@ -7,6 +7,9 @@ export type CtxMenuItem = {
   danger?: boolean;
   active?: boolean;
   disabled?: boolean;
+  kind?: "checkbox";
+  checked?: boolean;
+  keepOpen?: boolean;
 };
 
 export type PortalLayout = {

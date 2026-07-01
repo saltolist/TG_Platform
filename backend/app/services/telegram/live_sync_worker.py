@@ -104,10 +104,31 @@ class ListenerRegistry:
     def __init__(self) -> None:
         self._tasks: dict[UUID, asyncio.Task[None]] = {}
         self._stop_events: dict[UUID, asyncio.Event] = {}
+        self._clients: dict[UUID, Any] = {}
 
     def is_running(self, user_id: UUID) -> bool:
         task = self._tasks.get(user_id)
         return task is not None and not task.done()
+
+    def register_client(self, user_id: UUID, client: Any) -> None:
+        self._clients[user_id] = client
+
+    def unregister_client(self, user_id: UUID, client: Any) -> None:
+        if self._clients.get(user_id) is client:
+            self._clients.pop(user_id, None)
+
+    async def force_disconnect_active_client(self, user_id: UUID) -> None:
+        client = self._clients.pop(user_id, None)
+        if client is None:
+            return
+        try:
+            await disconnect_safely(client)
+        except Exception:  # noqa: BLE001
+            logger.debug(
+                "Forced live-sync client disconnect failed for user %s",
+                user_id,
+                exc_info=True,
+            )
 
     def start_user_listener(self, user_id: UUID) -> None:
         if self.is_running(user_id):
@@ -148,9 +169,15 @@ class ListenerRegistry:
                 await asyncio.wait_for(task, timeout=wait_seconds)
             except asyncio.TimeoutError:
                 logger.warning("Live-sync listener stop timed out for user %s", user_id)
+                await self.force_disconnect_active_client(user_id)
                 task.cancel()
                 try:
-                    await task
+                    await asyncio.wait_for(task, timeout=10.0)
+                except asyncio.TimeoutError:
+                    logger.warning(
+                        "Live-sync listener did not exit after forced disconnect for user %s",
+                        user_id,
+                    )
                 except asyncio.CancelledError:
                     pass
         self._cleanup_user(user_id)
@@ -158,6 +185,7 @@ class ListenerRegistry:
     def _cleanup_user(self, user_id: UUID) -> None:
         self._stop_events.pop(user_id, None)
         self._tasks.pop(user_id, None)
+        self._clients.pop(user_id, None)
 
     async def reconcile_from_db(
         self, session_factory: async_sessionmaker[AsyncSession]
@@ -318,6 +346,7 @@ async def _run_user_listener(user_id: UUID, stop_event: asyncio.Event) -> None:
                     return
 
                 client = build_client(api_id, api_hash, session_string)
+                listener_registry.register_client(user_id, client)
                 album_buffer = AlbumBuffer(
                     settings.telegram_album_debounce_seconds,
                     lambda msgs: _persist_group(
@@ -394,10 +423,10 @@ async def _run_user_listener(user_id: UUID, stop_event: asyncio.Event) -> None:
                         if profile is not None:
                             from app.services.telegram.post_sync import touch_telegram_profile
 
-                    await touch_telegram_profile(
-                        session, profile, sync_status="listening", sync_error=""
-                    )
-                    await session.commit()
+                            await touch_telegram_profile(
+                                session, profile, sync_status="listening", sync_error=""
+                            )
+                            await session.commit()
                     logger.info("Live-sync listening for user %s", user_id)
 
                     disconnect_task = asyncio.create_task(client.run_until_disconnected())
@@ -430,6 +459,7 @@ async def _run_user_listener(user_id: UUID, stop_event: asyncio.Event) -> None:
                     logger.exception("Live-sync listener error for user %s", user_id)
                     await set_sync_error(user_id, str(exc), session_factory)
                 finally:
+                    listener_registry.unregister_client(user_id, client)
                     await disconnect_safely(client)
         except asyncio.CancelledError:
             raise

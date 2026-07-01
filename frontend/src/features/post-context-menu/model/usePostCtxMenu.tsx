@@ -107,9 +107,20 @@ export function usePostCtxMenuItems(
             destructive: true,
           });
           if (!ok) return;
-          void deletePost.mutateAsync(post.id).then(() => {
-            router.replace(routes.feed());
-          });
+          void deletePost
+            .mutateAsync(post.id)
+            .then(() => {
+              router.replace(routes.feed());
+            })
+            .catch((error) => {
+              showToast({
+                message: getApiErrorMessage(
+                  error,
+                  "Не удалось удалить пост в Telegram — пост оставлен на платформе",
+                ),
+                variant: "error",
+              });
+            });
         })();
       },
     });

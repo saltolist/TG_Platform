@@ -27,17 +27,31 @@ export function filterPostsByStatus(
 export type FeedPostSections = {
   published: Post[];
   scheduled: Post[];
+  deleted: Post[];
   drafts: Post[];
 };
 
-export function buildFeedPostSections(posts: Post[], query = ""): FeedPostSections {
+export function buildFeedPostSections(
+  posts: Post[],
+  query = "",
+  options: { showDeleted?: boolean } = {},
+): FeedPostSections {
+  const active = posts.filter((p) => p.status !== "deleted");
+  const deleted = options.showDeleted
+    ? sortPostsByPublicationTime(
+        filterPostsByStatus(posts, "deleted", query),
+        "desc",
+      )
+    : [];
+
   return {
-    published: filterPostsByStatus(posts, "published", query),
+    published: filterPostsByStatus(active, "published", query),
     scheduled: sortPostsByPublicationTime(
-      filterPostsByStatus(posts, "scheduled", query),
+      filterPostsByStatus(active, "scheduled", query),
       "asc",
     ),
-    drafts: filterPostsByStatus(posts, "draft", query),
+    deleted,
+    drafts: filterPostsByStatus(active, "draft", query),
   };
 }
 

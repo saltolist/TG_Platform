@@ -82,7 +82,11 @@ export function createHttpRepositories(): RepositoryBundle {
           method: "PUT",
           body: { posts },
         }).then((data) => postsListSchema.parse(data)),
-      remove: (id) => apiRequest<void>(apiV1Path(`posts/${id}`), { method: "DELETE" }),
+      remove: (id) =>
+        apiRequest<void>(apiV1Path(`posts/${id}`), {
+          method: "DELETE",
+          signal: AbortSignal.timeout(120_000),
+        }),
       publish: (id) =>
         apiRequest<unknown>(apiV1Path(`posts/${id}/publish`), { method: "POST" }).then((data) =>
           postSchema.parse(data),

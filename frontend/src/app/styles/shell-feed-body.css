@@ -413,6 +413,7 @@
 .dot-g { color: var(--green); } .dot-o { color: var(--orange); } .dot-gr { color: var(--text3); }
 .post-status-icon--published { color: var(--green); }
 .post-status-icon--scheduled { color: var(--orange); }
+.post-status-icon--deleted { color: var(--text3); }
 .post-telegram-sync-label {
   display: inline-flex;
   align-items: center;

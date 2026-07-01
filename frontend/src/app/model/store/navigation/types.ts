@@ -22,6 +22,7 @@ export type NavigationState = {
   noteFilter: NoteListFilter;
   notesSearch: string;
   feedSearch: string;
+  feedShowDeleted: boolean;
   analyticsPeriod: AnalyticsPeriod;
 };
 
@@ -38,6 +39,7 @@ export const initialNavigationState: NavigationState = {
   noteFilter: "all",
   notesSearch: "",
   feedSearch: "",
+  feedShowDeleted: false,
   analyticsPeriod: "30d",
 };
 

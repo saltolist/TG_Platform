@@ -29,6 +29,7 @@ export type NavigationStore = NavigationState & {
   setNoteFilter: (filter: NoteListFilter) => void;
   setNotesSearch: (notesSearch: string) => void;
   setFeedSearch: (feedSearch: string) => void;
+  setFeedShowDeleted: (feedShowDeleted: boolean) => void;
   setAnalyticsPeriod: (analyticsPeriod: AnalyticsPeriod) => void;
 };
 
@@ -41,5 +42,6 @@ export const useNavigationStore = create<NavigationStore>((set) => ({
   setNoteFilter: (noteFilter) => set({ noteFilter }),
   setNotesSearch: (notesSearch) => set({ notesSearch }),
   setFeedSearch: (feedSearch) => set({ feedSearch }),
+  setFeedShowDeleted: (feedShowDeleted) => set({ feedShowDeleted }),
   setAnalyticsPeriod: (analyticsPeriod) => set({ analyticsPeriod }),
 }));

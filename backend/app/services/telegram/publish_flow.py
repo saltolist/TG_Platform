@@ -33,6 +33,7 @@ from app.services.telegram.net import (
 from app.services.telegram.message_mapping import map_group_to_post
 from app.services.telegram.post_sync import finalize_published_from_telegram, mark_post_published
 from app.services.telegram.session_guard import exclusive_telegram_access
+from app.services.telegram.sync_pending import telegram_sync_pending
 
 _PUBLISHABLE_STATUSES = {"draft", "scheduled"}
 
@@ -150,32 +151,33 @@ async def publish_post(
     telegram_payload: dict[str, Any] | None = None
     telegram_message_id = ""
 
-    async with exclusive_telegram_access(user_id):
-        client = build_client(api_id, api_hash, session_string)
-        try:
-            await connect_telegram_client(client, settings)
-            entity = await resolve_channel_entity(client, parsed, settings)
-            sent = await with_timeout(_send(client, entity, text, file_paths), settings)
-            telegram_message_id = _extract_message_id(sent)
-            if not telegram_message_id:
-                raise TelegramAuthError(
-                    "Telegram не подтвердил публикацию (часто из‑за рассинхрона часов в Docker). "
-                    "Попробуйте ещё раз; если не помогает — запустите backend на хосте, не в контейнере.",
-                    502,
+    async with telegram_sync_pending(user_id, post_id):
+        async with exclusive_telegram_access(user_id):
+            client = build_client(api_id, api_hash, session_string)
+            try:
+                await connect_telegram_client(client, settings)
+                entity = await resolve_channel_entity(client, parsed, settings)
+                sent = await with_timeout(_send(client, entity, text, file_paths), settings)
+                telegram_message_id = _extract_message_id(sent)
+                if not telegram_message_id:
+                    raise TelegramAuthError(
+                        "Telegram не подтвердил публикацию (часто из‑за рассинхрона часов в Docker). "
+                        "Попробуйте ещё раз; если не помогает — запустите backend на хосте, не в контейнере.",
+                        502,
+                    )
+                messages = await _fetch_published_messages(
+                    client, entity, telegram_message_id, sent
                 )
-            messages = await _fetch_published_messages(
-                client, entity, telegram_message_id, sent
-            )
-            telegram_payload = await map_group_to_post(client, messages, user_id, settings)
-        finally:
-            await disconnect_safely(client)
+                telegram_payload = await map_group_to_post(client, messages, user_id, settings)
+            finally:
+                await disconnect_safely(client)
 
-    async with async_session_factory() as session:
-        if telegram_payload is not None:
-            return await finalize_published_from_telegram(
-                session, user_id, post_id, telegram_payload
-            )
-        return await mark_post_published(session, user_id, post_id, telegram_message_id)
+        async with async_session_factory() as session:
+            if telegram_payload is not None:
+                return await finalize_published_from_telegram(
+                    session, user_id, post_id, telegram_payload
+                )
+            return await mark_post_published(session, user_id, post_id, telegram_message_id)
 
 
 __all__ = ["publish_post"]

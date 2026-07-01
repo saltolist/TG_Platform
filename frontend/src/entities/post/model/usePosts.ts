@@ -33,6 +33,10 @@ export function usePosts() {
     queryFn: () => posts.list(),
     enabled,
     placeholderData: (previous) => previous,
+    refetchInterval: (query) => {
+      const items = query.state.data;
+      return items?.some((post) => post.telegramSyncPending) ? 3000 : false;
+    },
   });
 }
 
@@ -104,14 +108,16 @@ export function useUpdatePost() {
 
 export function usePostTelegramSyncing(postId: string) {
   const accountId = useQueryAccountScope();
-  const syncingIds = useMutationState({
+  const { data: posts = [] } = usePosts();
+  const pendingMutationIds = useMutationState({
     filters: {
       mutationKey: queryKeys.posts.telegramSync(accountId),
       status: "pending",
     },
     select: (mutation) => mutation.state.variables as string,
   });
-  return syncingIds.includes(postId);
+  const post = posts.find((item) => item.id === postId);
+  return pendingMutationIds.includes(postId) || post?.telegramSyncPending === true;
 }
 
 export function usePublishPost() {
@@ -157,6 +163,7 @@ export function useDeletePost() {
   const accountId = useQueryAccountScope();
 
   return useMutation({
+    mutationKey: queryKeys.posts.telegramSync(accountId),
     mutationFn: (id: string) => posts.remove(id),
     onSuccess: (_data, id) => {
       void queryClient.invalidateQueries({ queryKey: queryKeys.posts.all(accountId) });

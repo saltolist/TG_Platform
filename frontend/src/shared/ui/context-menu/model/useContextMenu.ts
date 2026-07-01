@@ -107,7 +107,7 @@ export function useContextMenu({
   const onItemSelect = useCallback(
     (item: CtxMenuItem) => {
       if (item.disabled) return;
-      closePortal();
+      if (!item.keepOpen) closePortal();
       item.onClick?.();
     },
     [closePortal],

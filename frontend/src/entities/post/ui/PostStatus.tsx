@@ -1,4 +1,4 @@
-import { CheckIcon, ClockIcon, PencilIcon } from "@/shared/ui/icons/post-status-icons";
+import { CheckIcon, ClockIcon, PencilIcon, TrashIcon } from "@/shared/ui/icons/post-status-icons";
 import { formatStoredDate } from "@/shared/lib/helpers";
 import { PostTelegramSyncLabel } from "@/entities/post/ui/PostTelegramSyncLabel";
 import type { Post } from "@/shared/types";
@@ -24,6 +24,13 @@ export function PostStatusIcon({
       </span>
     );
   }
+  if (post.status === "deleted") {
+    return (
+      <span className="post-status-icon post-status-icon--deleted" aria-hidden>
+        <TrashIcon size={size} />
+      </span>
+    );
+  }
   return (
     <span className="post-status-icon" aria-hidden>
       <PencilIcon size={size} />
@@ -35,7 +42,7 @@ export default function PostStatus({
   post,
   syncing = false,
 }: {
-  post: Pick<Post, "status" | "date" | "created">;
+  post: Pick<Post, "status" | "date" | "created" | "deletedAt">;
   syncing?: boolean;
 }) {
   if (syncing) {
@@ -62,6 +69,19 @@ export default function PostStatus({
           <span className="post-status-title">Отложено</span>
           {post.date ? (
             <span className="post-status-time">{formatStoredDate(post.date)}</span>
+          ) : null}
+        </span>
+      </span>
+    );
+  }
+  if (post.status === "deleted") {
+    return (
+      <span className="post-status">
+        <PostStatusIcon post={post} />
+        <span className="post-status-text">
+          <span className="post-status-title">Удалён</span>
+          {post.deletedAt ? (
+            <span className="post-status-time">{formatStoredDate(post.deletedAt)}</span>
           ) : null}
         </span>
       </span>

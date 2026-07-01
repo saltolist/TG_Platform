@@ -16,10 +16,13 @@ from app.services.ai.context_meta import apply_rolling_summary_reconcile_to_chat
 from app.services.ai.summary_catalog import catalog_from_profile, register_local_summary_version
 from app.services.ai.rag_worker import enqueue_note_job
 from app.services.profile_defaults import empty_channel_profile, empty_telegram_profile
+from app.services.telegram.delete_flow import delete_message_in_telegram
 from app.services.telegram.edit_flow import sync_edit_to_telegram
 from app.services.telegram.net import TelegramAuthError
+from app.services.telegram.post_sync import mark_post_deleted
 from app.services.telegram.publish_flow import parse_scheduled_at
 from app.services.telegram.publish_flow import publish_post as run_telegram_publish
+from app.services.telegram.sync_pending import enrich_posts_for_user, telegram_sync_pending
 from app.tasks.publish import publish_scheduled_post
 
 router = APIRouter(prefix="/posts", tags=["Posts"])
@@ -30,7 +33,9 @@ async def list_posts(user: CurrentUser, session: DbSession) -> list[dict[str, An
     result = await session.execute(
         select(Post).where(Post.user_id == user.id).order_by(Post.position, Post.created_at)
     )
-    return [post.data for post in result.scalars().all()]
+    return await enrich_posts_for_user(
+        user.id, [post.data for post in result.scalars().all()]
+    )
 
 
 @router.post("/", status_code=status.HTTP_201_CREATED)
@@ -168,9 +173,11 @@ async def update_post(
         and isinstance(patch.get("text"), str)
         and merged.get("text") != previous_text
     ):
-        sync_error = await sync_edit_to_telegram(
-            profile, str(telegram_message_id), str(merged.get("text") or ""), user.id
-        )
+        sync_error: str | None = None
+        async with telegram_sync_pending(user.id, post_id):
+            sync_error = await sync_edit_to_telegram(
+                profile, str(telegram_message_id), str(merged.get("text") or ""), user.id
+            )
         if sync_error:
             response["telegramSyncError"] = sync_error
 
@@ -231,6 +238,24 @@ async def schedule_post_endpoint(
 @router.delete("/{post_id}/", status_code=status.HTTP_204_NO_CONTENT)
 async def delete_post(post_id: str, user: CurrentWriter, session: DbSession) -> Response:
     post = await get_owned_post(session, user.id, post_id)
-    await session.delete(post)
-    await session.commit()
+
+    if post.data.get("status") == "deleted":
+        return Response(status_code=status.HTTP_204_NO_CONTENT)
+
+    async with telegram_sync_pending(user.id, post_id):
+        # Step 4c (delete): a Telegram-linked post is a mirror of the channel — remove
+        # the channel message first and abort (keep the platform post) if that fails.
+        telegram_message_id = post.data.get("telegramMessageId")
+        if telegram_message_id:
+            profile = await session.get(Profile, user.id)
+            if profile is not None:
+                try:
+                    await delete_message_in_telegram(
+                        profile, str(telegram_message_id), user.id
+                    )
+                except TelegramAuthError as exc:
+                    raise HTTPException(status_code=exc.status_code, detail=exc.detail) from exc
+
+        await mark_post_deleted(post)
+        await session.commit()
     return Response(status_code=status.HTTP_204_NO_CONTENT)

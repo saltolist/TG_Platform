@@ -31,6 +31,7 @@ export function useFeedScreen() {
   const pathname = usePathname() ?? "/";
   const onFeed = isFeedPath(pathname);
   const search = useNavigationStore((s) => s.feedSearch);
+  const feedShowDeleted = useNavigationStore((s) => s.feedShowDeleted);
   const setNav = useNavigationStore((s) => s.setNav);
   const { data: posts = [], isLoading } = usePosts();
   const showPostsLoading = isListQueryBootstrapping(isLoading, posts);
@@ -49,9 +50,9 @@ export function useFeedScreen() {
     if (taRef.current) autoResize(taRef.current, 16);
   }, [draft]);
 
-  const { published, scheduled, drafts } = useMemo(
-    () => buildFeedPostSections(posts, search),
-    [posts, search],
+  const { published, scheduled, deleted, drafts } = useMemo(
+    () => buildFeedPostSections(posts, search, { showDeleted: feedShowDeleted }),
+    [feedShowDeleted, posts, search],
   );
   const publishedDayGroups = useMemo(
     () => buildPublishedFeedDayGroups(published),
@@ -179,9 +180,14 @@ export function useFeedScreen() {
     data: {
       publishedDayGroups,
       scheduled,
+      deleted,
       drafts,
       isLoading: showPostsLoading,
-      isEmpty: published.length === 0 && scheduled.length === 0 && drafts.length === 0,
+      isEmpty:
+        published.length === 0 &&
+        scheduled.length === 0 &&
+        drafts.length === 0 &&
+        (!feedShowDeleted || deleted.length === 0),
     },
     ui: {
       layoutClassName,

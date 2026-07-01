@@ -6,6 +6,8 @@ import { useNavigationStore, useUiStore } from "@/app/model/store";
 import { useMobile760 } from "@/shared/lib/hooks/useMobile760";
 import { useScreenBack } from "@/widgets/app-shell/model/useScreenBack";
 import { FeedComposer } from "@/screens/feed/ui/FeedComposer";
+import { FeedDeletedSection } from "@/screens/feed/ui/FeedDeletedSection";
+import { FeedHeaderMenu } from "@/screens/feed/ui/FeedHeaderMenu";
 import { FeedPublishedSection } from "@/screens/feed/ui/FeedPublishedSection";
 import { FeedScheduledSection } from "@/screens/feed/ui/FeedScheduledSection";
 import { useFeedScreen } from "@/screens/feed/model/useFeedScreen";
@@ -23,6 +25,8 @@ export function FeedScreen() {
   const isMobile = useMobile760();
   const search = useNavigationStore((s) => s.feedSearch);
   const setFeedSearch = useNavigationStore((s) => s.setFeedSearch);
+  const feedShowDeleted = useNavigationStore((s) => s.feedShowDeleted);
+  const setFeedShowDeleted = useNavigationStore((s) => s.setFeedShowDeleted);
   const feedPostWidth = useUiStore((s) => s.feedCardWidth);
   const setFeedPostWidth = useUiStore((s) => s.setFeedCardWidth);
   const { data, ui, actions } = useFeedScreen();
@@ -51,12 +55,35 @@ export function FeedScreen() {
     [feedPostWidth, setFeedPostWidth],
   );
 
+  const feedHeaderMenu = useMemo(
+    () => (
+      <FeedHeaderMenu
+        showDeleted={feedShowDeleted}
+        onShowDeletedChange={setFeedShowDeleted}
+      />
+    ),
+    [feedShowDeleted, setFeedShowDeleted],
+  );
+
+  const feedOverflowItems = useMemo(
+    () => [
+      {
+        label: "Показать удалённые",
+        active: feedShowDeleted,
+        onClick: () => setFeedShowDeleted(!feedShowDeleted),
+      },
+    ],
+    [feedShowDeleted, setFeedShowDeleted],
+  );
+
   return (
     <div className={`feed-screen-wrap${layoutClassName}`} style={layoutStyle}>
       <PageHeader
         title="Лента"
         onBack={onBack}
         compactSearchAtWidth={804}
+        actions={!isMobile ? feedHeaderMenu : undefined}
+        overflowItems={isMobile ? feedOverflowItems : undefined}
         mobileSelect={
           !isMobile ? <PageHeaderSelect {...feedPostWidthSelectProps} /> : undefined
         }
@@ -86,6 +113,9 @@ export function FeedScreen() {
                       onOpenComments={openPostComments}
                     />
                     <FeedScheduledSection posts={data.scheduled} onOpen={openPost} />
+                    {feedShowDeleted ? (
+                      <FeedDeletedSection posts={data.deleted} onOpen={openPost} />
+                    ) : null}
                     <FeedDraftsSection drafts={data.drafts} onOpen={openPost} />
                   </>
                 )}

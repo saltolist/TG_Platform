@@ -67,9 +67,10 @@ export const handlers = [
     const store = requireStore(request);
     if (!store) return unauthorized();
     const id = String(params.id);
-    const before = store.posts.length;
-    store.posts = store.posts.filter((p) => p.id !== id);
-    if (store.posts.length === before) return notFound(`Post ${id} not found`);
+    const post = store.posts.find((p) => p.id === id);
+    if (!post) return notFound(`Post ${id} not found`);
+    post.status = "deleted";
+    post.deletedAt = new Date().toISOString();
     return new HttpResponse(null, { status: 204 });
   }),
 

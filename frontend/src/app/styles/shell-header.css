@@ -910,6 +910,23 @@
   color: inherit;
 }
 .ctx-item-label { flex: 1; min-width: 0; }
+.ctx-item--checkbox {
+  cursor: default;
+  user-select: none;
+}
+.ctx-item--checkbox:hover {
+  background: transparent;
+  color: var(--text2);
+}
+.ctx-dropdown--page-header-control .ctx-item--checkbox:hover {
+  background: transparent;
+  border-color: transparent;
+  color: var(--text2);
+}
+.ctx-item-checkbox {
+  flex-shrink: 0;
+  margin: 0;
+}
 .ctx-item:hover {
   background: color-mix(in srgb, var(--bg4) 72%, transparent);
   color: var(--text);

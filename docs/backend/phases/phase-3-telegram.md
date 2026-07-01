@@ -417,22 +417,34 @@ Live-sync остаётся in-process в API (долгоживущий MTProto l
    **игнорирует** устаревшие `MessageEdited`, если их `edit_date` раньше
    платформенной правки. Полное решение (UI-конфликт, merge) — отдельная задача.
 6. **Ограничение v1:** синхронизация **текста**; замена медиа/альбомов в канале —
-   вне рамок. Удаление поста на платформе **не** удаляет сообщение в канале.
+   вне рамок.
+7. **Удаление (delete-sync):** удаление поста на платформе (`DELETE /posts/:id/`)
+   для поста с `telegramMessageId` сначала удаляет сообщение в канале
+   (`delete_flow.delete_message_in_telegram` через `exclusive_telegram_access`),
+   и только затем переводит пост в ``status: deleted`` (soft-delete, поле
+   ``deletedAt``). Платформа = зеркало канала: если удаление в Telegram не
+   удалось, эндпоинт **прерывается** с ошибкой и пост остаётся в прежнем
+   статусе. Удаление в канале (live-sync ``MessageDeleted``) тоже переводит
+   пост в ``deleted``, а не стирает запись. Черновики без ``telegramMessageId``
+   помечаются удалёнными только на платформе. В ленте секция «Удалённые»
+   скрыта по умолчанию и включается галочкой в меню «•••».
 
 **Тесты:** `backend/tests/test_telegram_publish.py` (publish success/idempotent/
 media/precondition-failures), `backend/tests/test_telegram_schedule.py`
 (enqueue с `eta`, reschedule revoke+new task, cancel via PATCH revoke, worker-startup
 reconcile), `backend/tests/test_telegram_edit_sync.py` (PATCH → `edit_message`,
 no-op без изменения текста, failure → `telegramSyncError` без потери DB-записи,
-loop-guard в live-sync).
+loop-guard в live-sync), `backend/tests/test_telegram_delete_sync.py`
+(DELETE → `delete_messages`, no-op для черновика, abort с сохранением поста
+при ошибке Telegram).
 
 **Настройки:** `redis_url`, `telegram_publish_max_retries`,
 `telegram_rpc_timeout_seconds` (переиспользуется для Telethon-вызовов).
 
 **Явно вне рамок шага 4:** разрешение конфликтов правки платформа ↔ канал
 (сейчас last-write-wins, см. п. 5 в 4c); редактирование медиа в канале;
-публикация в несколько каналов; удаление поста в канале при удалении на
-платформе; перенос импорта/RAG в Celery (фаза 4, тот же `celery_app`);
+публикация в несколько каналов; окончательное удаление записи из БД
+(сейчас soft-delete ``status: deleted``); перенос импорта/RAG в Celery (фаза 4, тот же `celery_app`);
 Celery Beat/Flower.
 
 ---

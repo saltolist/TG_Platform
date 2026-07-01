@@ -11,7 +11,8 @@ import PostScreenHeader from "@/screens/post/ui/PostScreenHeader";
 
 export function PostScreen() {
   const { isLoading, error, data, ui, actions } = usePostWorkspace();
-  const isTelegramSyncing = usePostTelegramSyncing(data.post?.id ?? "");
+  const isTelegramSyncing =
+    usePostTelegramSyncing(data.post?.id ?? "") || data.isSavingPost === true;
 
   if (isLoading) {
     return (

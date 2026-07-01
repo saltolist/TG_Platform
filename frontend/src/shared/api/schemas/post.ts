@@ -1,7 +1,7 @@
 import { z } from "zod";
 import { chatContextMetaSchema } from "./chatContextMeta";
 
-export const postStatusSchema = z.enum(["published", "scheduled", "draft"]);
+export const postStatusSchema = z.enum(["published", "scheduled", "draft", "deleted"]);
 
 export const postReactionSchema = z.object({
   emoji: z.string(),
@@ -152,6 +152,7 @@ export const postSchema = z.object({
   status: postStatusSchema,
   date: z.string().optional(),
   created: z.string().optional(),
+  deletedAt: z.string().optional(),
   rubric: z.string().nullable(),
   metrics: postMetricsSchema.optional(),
   text: z.string(),
@@ -161,6 +162,8 @@ export const postSchema = z.object({
   comments: z.array(postCommentSchema).optional(),
   /** Best-effort Telegram edit-sync failure from the last PATCH (Phase 3 / Step 4c). */
   telegramSyncError: z.string().optional(),
+  /** True while a publish/edit/delete Telegram RPC is in flight (Redis-backed). */
+  telegramSyncPending: z.boolean().optional(),
 });
 
 export const postsListSchema = z.array(postSchema);

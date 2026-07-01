@@ -67,6 +67,17 @@ async def touch_telegram_profile(
     profile.telegram = telegram
 
 
+async def mark_post_deleted(post: Post) -> None:
+    """Soft-delete: keep the row but move the post to ``status: deleted``."""
+    data = dict(post.data)
+    if data.get("status") == "deleted":
+        return
+    data["status"] = "deleted"
+    data["deletedAt"] = datetime.now(timezone.utc).isoformat()
+    post.data = data
+    flag_modified(post, "data")
+
+
 async def upsert_telegram_post(
     session: AsyncSession, user_id: UUID, post_data: dict[str, Any]
 ) -> None:
@@ -249,13 +260,7 @@ async def delete_telegram_post(
     if existing is None:
         return
 
-    await session.delete(existing)
-    await _recompact_positions(session, user_id)
-
-    telegram = dict(profile.telegram or {})
-    count = int(telegram.get("importedPosts") or 0)
-    telegram["importedPosts"] = max(0, count - 1)
-    profile.telegram = telegram
+    await mark_post_deleted(existing)
     await touch_telegram_profile(session, profile, last_message_id=telegram_message_id)
 
 async def set_sync_error(user_id: UUID, error: str, session_factory: Any) -> None:

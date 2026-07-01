@@ -30,7 +30,7 @@ export default function PostChatView({ post, data, ui, actions }: Props) {
   const { isEditing, isSavingPost, mediaItems, flatMessages, lastAssistantFlat, activeChat } = data;
   const { phoneFormat, chatScrollRef, postCardRef } = ui;
   const { startEdit, cancelEdit, savePost, openComments, sendPost } = actions;
-  const isTelegramSyncing = usePostTelegramSyncing(post.id);
+  const isTelegramSyncing = usePostTelegramSyncing(post.id) || isSavingPost;
   const firstUserFlat = firstUserFlatIndex(flatMessages);
 
   return (

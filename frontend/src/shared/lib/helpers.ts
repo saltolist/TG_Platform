@@ -63,9 +63,11 @@ export function parsePostDateTime(raw: string | undefined | null): Date | null {
 
 export function postFreshness(post: Post): number {
   const raw =
-    post.status === "published" || post.status === "scheduled"
-      ? post.date
-      : post.date || post.created;
+    post.status === "deleted"
+      ? post.deletedAt ?? post.date ?? post.created
+      : post.status === "published" || post.status === "scheduled"
+        ? post.date
+        : post.date || post.created;
   if (!raw) return 0;
   return parsePostDateTime(raw)?.getTime() ?? 0;
 }

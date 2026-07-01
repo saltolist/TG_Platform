@@ -315,9 +315,11 @@ async def test_update_and_delete_telegram_post(
         await session.commit()
     async with TestSessionLocal() as session:
         result = await session.execute(select(Post).where(Post.user_id == user_id))
-        assert result.scalars().first() is None
+        post = result.scalar_one()
+        assert post.data["status"] == "deleted"
+        assert post.data.get("deletedAt")
         profile = await session.get(Profile, user_id)
-        assert profile.telegram["importedPosts"] == 1
+        assert int(profile.telegram.get("syncRevision") or 0) > rev_after_first
 
 
 @pytest.mark.asyncio

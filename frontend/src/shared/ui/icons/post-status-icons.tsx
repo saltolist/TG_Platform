@@ -55,3 +55,25 @@ export function ClockIcon({ size = "100%" }: IconProps) {
     </svg>
   );
 }
+
+export function TrashIcon({ size = "100%" }: IconProps) {
+  return (
+    <svg
+      width={size}
+      height={size}
+      viewBox="0 0 24 24"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="1.75"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+      aria-hidden
+    >
+      <path d="M5.5 7.5h13" />
+      <path d="M9.25 7.5V6.25a1.75 1.75 0 0 1 1.75-1.75h2a1.75 1.75 0 0 1 1.75 1.75V7.5" />
+      <path d="M8.25 7.5v10.25a1.75 1.75 0 0 0 1.75 1.75h4a1.75 1.75 0 0 0 1.75-1.75V7.5" />
+      <path d="M10.25 11v5.5" />
+      <path d="M13.75 11v5.5" />
+    </svg>
+  );
+}

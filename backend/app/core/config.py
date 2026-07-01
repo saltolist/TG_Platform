@@ -72,6 +72,7 @@ class Settings(BaseSettings):
     # https://github.com/LonamiWebs/Telethon/issues/1056) cannot hang a worker.
     telegram_rpc_timeout_seconds: float = 45.0
     telegram_listener_stop_timeout_seconds: float = 35.0
+    telegram_lock_acquire_timeout_seconds: float = 20.0
     # Pre-seed Telethon time_offset from HTTP Date headers (Docker macOS clock skew).
     telegram_clock_sync_enabled: bool = True
     # Optional proxy when MTProto is blocked (common in Docker / some ISPs).

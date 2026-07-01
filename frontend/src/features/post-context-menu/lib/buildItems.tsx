@@ -43,11 +43,13 @@ export function buildPostCtxMenuItems(post: Post, handlers: PostCtxHandlers): Ct
       { label: "Отменить публикацию", icon: <MenuIconCancel />, onClick: handlers.onCancelPublish },
     );
   }
-  items.push({
-    label: "Удалить",
-    icon: <MenuIconTrash />,
-    danger: true,
-    onClick: handlers.onDelete,
-  });
+  if (post.status !== "deleted") {
+    items.push({
+      label: "Удалить",
+      icon: <MenuIconTrash />,
+      danger: true,
+      onClick: handlers.onDelete,
+    });
+  }
   return items;
 }

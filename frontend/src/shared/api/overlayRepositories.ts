@@ -65,15 +65,13 @@ function overlayPosts(inner: PostsRepository): PostsRepository {
       return posts;
     },
     remove: async (id) => {
-      if (!shouldPersistLocally()) return inner.remove(id);
-      mutateOverlay((overlay) => {
-        if (!overlay.posts.removedIds.includes(id)) {
-          overlay.posts.removedIds.push(id);
-        }
-        delete overlay.posts.upserts[id];
-        if (overlay.posts.order) {
-          overlay.posts.order = overlay.posts.order.filter((itemId) => itemId !== id);
-        }
+      if (!shouldPersistLocally()) {
+        await inner.remove(id);
+        return;
+      }
+      await overlayPosts(inner).update(id, {
+        status: "deleted",
+        deletedAt: new Date().toISOString(),
       });
     },
     // Demo/seed accounts never had a real Telegram channel to publish to, so
