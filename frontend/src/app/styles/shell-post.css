@@ -749,24 +749,8 @@
 .post-edit-toolbar--syncing {
   justify-content: flex-end;
 }
-.post-edit-sync-status {
+.post-edit-sync-label {
   margin-left: auto;
-  display: inline-flex;
-  align-items: center;
-  min-height: 30px;
-  font-size: 12px;
-  font-weight: 500;
-  color: var(--text2);
-  animation: post-edit-sync-blink 1.2s ease-in-out infinite;
-}
-@keyframes post-edit-sync-blink {
-  0%,
-  100% {
-    opacity: 0.4;
-  }
-  50% {
-    opacity: 1;
-  }
 }
 
 /* post comments */

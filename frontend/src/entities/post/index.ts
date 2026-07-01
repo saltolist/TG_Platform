@@ -7,6 +7,7 @@ export {
   useDeletePost,
   usePublishPost,
   useSchedulePost,
+  usePostTelegramSyncing,
 } from "./model/usePosts";
 export {
   useAddLocalChat,
@@ -24,4 +25,5 @@ export {
 export { default as PostMediaBlock } from "./ui/PostMediaBlock";
 export { PostStatusBadge } from "./ui/PostStatusBadge";
 export { default as PostStatus, PostStatusIcon } from "./ui/PostStatus";
+export { PostTelegramSyncLabel } from "./ui/PostTelegramSyncLabel";
 export { RepostIcon, ViewsEyeIcon } from "./ui/PostMetricIcons";

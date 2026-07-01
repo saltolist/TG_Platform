@@ -3,7 +3,7 @@
 import { Composer } from "@/widgets/composer";
 import { ChatMessage } from "@/widgets/chat-thread";
 import { PostMessageCard, type PostWorkspace } from "@/widgets/post-workspace";
-import { PostStatusBadge } from "@/entities/post";
+import { PostStatusBadge, usePostTelegramSyncing } from "@/entities/post";
 import { isStreamingChatMessage } from "@/shared/lib/streaming/streamingMessage";
 import { firstUserFlatIndex, userMessageHasBranches } from "@/shared/lib/chatPaths";
 import type { Post } from "@/shared/types";
@@ -30,6 +30,7 @@ export default function PostChatView({ post, data, ui, actions }: Props) {
   const { isEditing, isSavingPost, mediaItems, flatMessages, lastAssistantFlat, activeChat } = data;
   const { phoneFormat, chatScrollRef, postCardRef } = ui;
   const { startEdit, cancelEdit, savePost, openComments, sendPost } = actions;
+  const isTelegramSyncing = usePostTelegramSyncing(post.id);
   const firstUserFlat = firstUserFlatIndex(flatMessages);
 
   return (
@@ -47,9 +48,17 @@ export default function PostChatView({ post, data, ui, actions }: Props) {
                 onStartEdit={startEdit}
                 onCancel={cancelEdit}
                 onSave={savePost}
-                badge={<PostStatusBadge post={post} />}
-                metrics={post.status === "published" && post.metrics ? post.metrics : null}
-                comments={post.status === "published" ? (post.comments ?? []) : undefined}
+                badge={<PostStatusBadge post={post} syncing={isTelegramSyncing} />}
+                metrics={
+                  !isTelegramSyncing && post.status === "published" && post.metrics
+                    ? post.metrics
+                    : null
+                }
+                comments={
+                  !isTelegramSyncing && post.status === "published"
+                    ? (post.comments ?? [])
+                    : undefined
+                }
                 onOpenComments={openComments}
                 isTextOnlyNoMedia={
                   mediaItems.length === 0 &&

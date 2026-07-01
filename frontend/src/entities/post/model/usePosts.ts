@@ -1,6 +1,6 @@
 "use client";
 
-import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import { useMutation, useMutationState, useQuery, useQueryClient } from "@tanstack/react-query";
 import { queryKeys } from "@/shared/api/queryKeys";
 import { useRepositories } from "@/app/providers/RepositoryProvider";
 import { useAuthenticatedQueryEnabled } from "@/app/providers/useAuthenticatedQueryEnabled";
@@ -13,9 +13,13 @@ function applyPostUpdate(
   accountId: string,
   updatedPost: Post,
 ) {
-  queryClient.setQueryData(queryKeys.posts.detail(accountId, updatedPost.id), updatedPost);
+  const normalized: Post =
+    updatedPost.status === "published"
+      ? { ...updatedPost, created: undefined }
+      : updatedPost;
+  queryClient.setQueryData(queryKeys.posts.detail(accountId, normalized.id), normalized);
   queryClient.setQueryData<Post[]>(queryKeys.posts.list(accountId), (prev) =>
-    prev?.map((p) => (p.id === updatedPost.id ? updatedPost : p)),
+    prev?.map((p) => (p.id === normalized.id ? normalized : p)),
   );
 }
 
@@ -98,12 +102,25 @@ export function useUpdatePost() {
   });
 }
 
+export function usePostTelegramSyncing(postId: string) {
+  const accountId = useQueryAccountScope();
+  const syncingIds = useMutationState({
+    filters: {
+      mutationKey: queryKeys.posts.telegramSync(accountId),
+      status: "pending",
+    },
+    select: (mutation) => mutation.state.variables as string,
+  });
+  return syncingIds.includes(postId);
+}
+
 export function usePublishPost() {
   const { posts } = useRepositories();
   const queryClient = useQueryClient();
   const accountId = useQueryAccountScope();
 
   return useMutation({
+    mutationKey: queryKeys.posts.telegramSync(accountId),
     mutationFn: (id: string) => posts.publish(id),
     onSuccess: (updatedPost) => applyPostUpdate(queryClient, accountId, updatedPost),
   });

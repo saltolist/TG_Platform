@@ -34,13 +34,22 @@ class FakeStringSession:
 
 
 class FakeMessage:
-    def __init__(self, msg_id: int) -> None:
+    def __init__(self, msg_id: int, *, text: str = "", views: int = 128) -> None:
+        from datetime import datetime, timezone
+
         self.id = msg_id
+        self.message = text
+        self.views = views
+        self.date = datetime.now(timezone.utc)
+        self.media = None
+        self.edit_date = None
+        self.action = None
 
 
 class PublishScenario:
     def __init__(self) -> None:
         self.sent: list[dict[str, Any]] = []
+        self.messages: dict[int, FakeMessage] = {}
         self.next_message_id = 1000
 
 
@@ -63,19 +72,31 @@ class PublishFakeTelegramClient:
     async def send_message(self, entity: Any, text: str) -> FakeMessage:
         SCENARIO.next_message_id += 1
         SCENARIO.sent.append({"kind": "message", "entity": entity, "text": text})
-        return FakeMessage(SCENARIO.next_message_id)
+        message = FakeMessage(SCENARIO.next_message_id, text=text)
+        SCENARIO.messages[message.id] = message
+        return message
 
     async def send_file(self, entity: Any, file: Any, caption: str = "") -> Any:
         SCENARIO.next_message_id += 1
         SCENARIO.sent.append({"kind": "file", "entity": entity, "file": file, "caption": caption})
+        message = FakeMessage(SCENARIO.next_message_id, text=caption)
+        SCENARIO.messages[message.id] = message
         if isinstance(file, list):
-            return [FakeMessage(SCENARIO.next_message_id) for _ in file]
-        return FakeMessage(SCENARIO.next_message_id)
+            return [message for _ in file]
+        return message
+
+    async def get_messages(self, entity: Any, ids: Any = None, **kwargs: Any) -> list[FakeMessage]:
+        if ids is None:
+            return []
+        msg_id = int(ids[0] if isinstance(ids, (list, tuple)) else ids)
+        message = SCENARIO.messages.get(msg_id)
+        return [message] if message is not None else []
 
 
 @pytest.fixture(autouse=True)
 def _patch_publish_environment(monkeypatch: pytest.MonkeyPatch, tmp_path):
     SCENARIO.sent = []
+    SCENARIO.messages = {}
     SCENARIO.next_message_id = 1000
     monkeypatch.setattr(mtproto_client, "StringSession", FakeStringSession)
     monkeypatch.setattr(mtproto_client, "TelegramClient", PublishFakeTelegramClient)
@@ -153,9 +174,31 @@ async def test_publish_sends_text_message_and_marks_published(
     assert body["status"] == "published"
     assert body["telegramMessageId"]
     assert body["source"] == "telegram"
+    assert body["metrics"]["views"] == "128"
+    assert body["comments"] == []
     assert len(SCENARIO.sent) == 1
     assert SCENARIO.sent[0]["kind"] == "message"
     assert SCENARIO.sent[0]["text"] == "Hello Telegram"
+    assert "created" not in body
+
+
+@pytest.mark.asyncio
+async def test_publish_uses_telegram_date_not_draft_created(
+    client: AsyncClient, writer_auth_headers: dict
+) -> None:
+    await _seed_connected_profile(client, writer_auth_headers)
+    post = await _create_draft(
+        client,
+        writer_auth_headers,
+        text="Timed publish",
+        created="2020-01-01T08:00:00.000Z",
+    )
+
+    resp = await client.post(f"/api/v1/posts/{post['id']}/publish/", headers=writer_auth_headers)
+    assert resp.status_code == 200
+    body = resp.json()
+    assert body["date"] != "2020-01-01T08:00:00.000Z"
+    assert "created" not in body
 
 
 @pytest.mark.asyncio

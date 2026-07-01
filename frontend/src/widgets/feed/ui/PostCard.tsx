@@ -2,7 +2,7 @@
 
 import { getPostMediaItems } from "@/shared/lib/helpers";
 import type { Post } from "@/shared/types";
-import { PostMediaBlock, PostStatus } from "@/entities/post";
+import { PostMediaBlock, PostStatus, usePostTelegramSyncing } from "@/entities/post";
 import PostCommentsRow from "@/widgets/post-workspace/ui/PostCommentsRow";
 import { PostReactionPills, PostViewsReposts } from "./PostEngagement";
 
@@ -23,6 +23,7 @@ export default function PostCard({
   };
 }) {
   const mediaItems = getPostMediaItems(post);
+  const isTelegramSyncing = usePostTelegramSyncing(post.id);
   const isDraftDnD = post.status === "draft" && !!draftHandleProps;
   const isTextOnlyPub =
     mediaItems.length === 0 && (post.status === "published" || post.status === "scheduled");
@@ -68,18 +69,18 @@ export default function PostCard({
         ) : (
           <div className="post-card-text empty">Пост пустой — нажми чтобы начать писать</div>
         )}
-        {post.status === "published" && post.metrics ? (
+        {post.status === "published" && post.metrics && !isTelegramSyncing ? (
           <PostReactionPills reactions={post.metrics.reactions} />
         ) : null}
         <div className="post-card-footer">
           <div className="post-meta">
-            <PostStatus post={post} />
+            <PostStatus post={post} syncing={isTelegramSyncing} />
           </div>
-          {post.status === "published" && post.metrics ? (
+          {post.status === "published" && post.metrics && !isTelegramSyncing ? (
             <PostViewsReposts views={post.metrics.views} reposts={post.metrics.reposts} />
           ) : null}
         </div>
-        {post.status === "published" && post.metrics ? (
+        {post.status === "published" && post.metrics && !isTelegramSyncing ? (
           <PostCommentsRow
             count={post.comments?.length ?? 0}
             onClick={(e) => {

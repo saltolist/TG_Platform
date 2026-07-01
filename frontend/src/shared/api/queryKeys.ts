@@ -5,6 +5,8 @@ export const queryKeys = {
     list: (accountId: string) => [...queryKeys.posts.all(accountId), "list"] as const,
     detail: (accountId: string, id: string) =>
       [...queryKeys.posts.all(accountId), "detail", id] as const,
+    telegramSync: (accountId: string) =>
+      [...queryKeys.posts.all(accountId), "telegramSync"] as const,
   },
   globalChats: {
     all: (accountId: string) => [...queryKeys.scope(accountId), "globalChats"] as const,

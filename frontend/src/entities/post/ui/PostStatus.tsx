@@ -1,5 +1,6 @@
 import { CheckIcon, ClockIcon, PencilIcon } from "@/shared/ui/icons/post-status-icons";
 import { formatStoredDate } from "@/shared/lib/helpers";
+import { PostTelegramSyncLabel } from "@/entities/post/ui/PostTelegramSyncLabel";
 import type { Post } from "@/shared/types";
 
 export function PostStatusIcon({
@@ -32,9 +33,14 @@ export function PostStatusIcon({
 
 export default function PostStatus({
   post,
+  syncing = false,
 }: {
   post: Pick<Post, "status" | "date" | "created">;
+  syncing?: boolean;
 }) {
+  if (syncing) {
+    return <PostTelegramSyncLabel className="post-status-sync" />;
+  }
   if (post.status === "published") {
     return (
       <span className="post-status">

@@ -3,6 +3,7 @@
 import { useEffect, useLayoutEffect, useRef, useState, type RefObject } from "react";
 
 import { PostMediaBlock } from "@/entities/post";
+import { PostTelegramSyncLabel } from "@/entities/post/ui/PostTelegramSyncLabel";
 import { readFileAsMedia } from "@/shared/lib/helpers";
 import { ensureVisibleInScrollParent } from "@/shared/lib/scrollIntoParent";
 import { NoteIconAttach } from "@/shared/ui/icons/note-header-icons";
@@ -204,9 +205,7 @@ export default function PostMessageCard({
           />
           <div className={`post-edit-toolbar${editorLocked ? " post-edit-toolbar--syncing" : ""}`}>
             {editorLocked ? (
-              <div className="post-edit-sync-status" role="status" aria-live="polite">
-                Синхронизация с Telegram
-              </div>
+              <PostTelegramSyncLabel className="post-edit-sync-label" />
             ) : (
               <div className="msg-user-edit-bar">
                 <button

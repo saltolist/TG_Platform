@@ -1,7 +1,7 @@
 "use client";
 
 import { PostCommentsPanel, usePostWorkspace } from "@/widgets/post-workspace";
-import { PostStatusBadge } from "@/entities/post";
+import { PostStatusBadge, usePostTelegramSyncing } from "@/entities/post";
 import { EmptyState } from "@/shared/ui/empty-state";
 import { PageHeader } from "@/widgets/page-header";
 import PostChatView from "@/screens/post/ui/PostChatView";
@@ -11,6 +11,7 @@ import PostScreenHeader from "@/screens/post/ui/PostScreenHeader";
 
 export function PostScreen() {
   const { isLoading, error, data, ui, actions } = usePostWorkspace();
+  const isTelegramSyncing = usePostTelegramSyncing(data.post?.id ?? "");
 
   if (isLoading) {
     return (
@@ -57,8 +58,12 @@ export function PostScreen() {
             post={post}
             search={ui.listSearch}
             postCardRef={ui.postCardRef}
-            badge={<PostStatusBadge post={post} />}
-            metrics={post.status === "published" && post.metrics ? post.metrics : null}
+            badge={<PostStatusBadge post={post} syncing={isTelegramSyncing} />}
+            metrics={
+              !isTelegramSyncing && post.status === "published" && post.metrics
+                ? post.metrics
+                : null
+            }
             media={data.mediaItems}
             phoneFormat={ui.phoneFormat}
           />

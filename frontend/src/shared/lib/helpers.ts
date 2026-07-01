@@ -62,9 +62,19 @@ export function parsePostDateTime(raw: string | undefined | null): Date | null {
 }
 
 export function postFreshness(post: Post): number {
-  const raw = post.date || post.created;
+  const raw =
+    post.status === "published" || post.status === "scheduled"
+      ? post.date
+      : post.date || post.created;
   if (!raw) return 0;
   return parsePostDateTime(raw)?.getTime() ?? 0;
+}
+
+export function postPublicationDate(post: Post): string | undefined {
+  if (post.status === "published" || post.status === "scheduled") {
+    return post.date;
+  }
+  return post.date || post.created;
 }
 
 export function postDayStart(post: Post): number {
@@ -94,14 +104,6 @@ export function formatPostDateTime(date = new Date()): string {
   return `${day} ${mon} · ${h}:${m}`;
 }
 
-function formatPostDateTimeUtc(date: Date): string {
-  const day = date.getUTCDate();
-  const mon = RU_MONTHS_SHORT_GENITIVE[date.getUTCMonth()];
-  const h = String(date.getUTCHours()).padStart(2, "0");
-  const m = String(date.getUTCMinutes()).padStart(2, "0");
-  return `${day} ${mon} · ${h}:${m}`;
-}
-
 function formatPostDateUtc(date: Date): string {
   const day = date.getUTCDate();
   const mon = RU_MONTHS_SHORT_GENITIVE[date.getUTCMonth()];
@@ -119,7 +121,7 @@ export function formatStoredDate(raw: string | undefined | null): string {
   const d = parsePostDateTime(trimmed);
   if (!d) return trimmed;
   if (isDateOnlyIso(trimmed)) return formatPostDateUtc(d);
-  return formatPostDateTimeUtc(d);
+  return formatPostDateTime(d);
 }
 
 export function postStatusIcon(post: Post): string {

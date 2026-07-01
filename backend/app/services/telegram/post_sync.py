@@ -174,6 +174,10 @@ async def update_telegram_post(
         return
 
     merged = {**existing.data, **post_data}
+    if post_data.get("date"):
+        merged["date"] = post_data["date"]
+    if merged.get("status") == "published" and merged.get("source") == "telegram":
+        merged.pop("created", None)
     new_media = post_data.get("media")
     old_media = existing.data.get("media")
     if not new_media and old_media:
@@ -195,12 +199,43 @@ async def mark_post_published(
     data["date"] = datetime.now(timezone.utc).isoformat()
     data["telegramMessageId"] = telegram_message_id
     data["source"] = "telegram"
+    data.pop("created", None)
     data.pop("_celeryTaskId", None)
     data.pop("publishError", None)
     post.data = data
     flag_modified(post, "data")
     await session.commit()
     return data
+
+
+async def finalize_published_from_telegram(
+    session: AsyncSession,
+    user_id: UUID,
+    post_id: UUID,
+    telegram_payload: dict[str, Any],
+) -> dict[str, Any]:
+    """Merge a Telethon-mapped channel post into an existing platform draft after publish."""
+    post = await session.get(Post, post_id)
+    if post is None or post.user_id != user_id:
+        return {}
+
+    existing = dict(post.data)
+    merged: dict[str, Any] = {
+        **telegram_payload,
+        "id": existing.get("id") or str(post_id),
+        "notes": existing.get("notes") or [],
+        "chats": existing.get("chats") or [],
+        "comments": telegram_payload.get("comments") or existing.get("comments") or [],
+    }
+    if telegram_payload.get("date"):
+        merged["date"] = telegram_payload["date"]
+    merged.pop("created", None)
+    merged.pop("_celeryTaskId", None)
+    merged.pop("publishError", None)
+    post.data = merged
+    flag_modified(post, "data")
+    await session.commit()
+    return merged
 
 
 async def delete_telegram_post(
