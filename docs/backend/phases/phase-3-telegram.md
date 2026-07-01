@@ -276,17 +276,113 @@ HTTP-ответ connect возвращается мгновенно с `importSt
 
 ---
 
-### Шаг 4 — Публикация и планирование
+### Шаг 4 — Публикация, планирование и правки в канал
+
+Двусторонняя работа с контентом **платформа → Telegram** (обратное направление
+Telegram → платформа уже закрыто live-sync в шаге 3.5).
 
 **Эндпоинты:**
 ```
 POST /api/v1/posts/:id/publish
-POST /api/v1/posts/:id/schedule  { scheduledAt: ISO-8601 }
+POST /api/v1/posts/:id/schedule   { scheduledAt: ISO-8601 }
+PATCH /api/v1/posts/:id           — при изменении текста опубликованного поста
+                                  с привязкой к Telegram → edit_message в канале
 ```
 
-1. Публикация поста в канал; обновление статуса поста.
-2. Планировщик отложенных публикаций (см. очередь задач — может потребовать
-   элементов [Фазы 4](phase-4-scaling.md): Celery/ARQ + Redis).
+#### 4a — Публикация черновика
+
+1. `POST /posts/:id/publish` — отправка поста в подключённый канал через MTProto
+   (`send_message` / альбомы / медиа с диска).
+2. Предусловия: `channelStatus=connected`, `authStatus ∈ {authorized, connected}`,
+   пост `status=draft`, у аккаунта есть права на публикацию (как в шаге 2).
+3. Успех → `status=published`, `date`, в `data` — `telegramMessageId`,
+   `data.source = "telegram"` (или отдельный маркер `publishedViaPlatform`), чтобы
+   live-sync и последующие правки знали id сообщения в канале.
+4. **Frontend:** «Опубликовать» в контекстном меню вызывает API, а не локальный
+   `PATCH` со сменой статуса.
+
+**Файлы (план):** `publish_flow.py`, `backend/app/api/v1/posts.py` (или
+`telegram_publish.py`), переиспользование `channel_flow.resolve_channel_entity`,
+`media_storage`, `session_guard`, `connect_telegram_client`.
+
+#### 4b — Отложенная публикация (prod: Redis + Celery)
+
+Планировщик делаем **сразу под продакшен** на **Celery + Redis** — та же очередь,
+к которой позже подключатся импорт, RAG и метрики ([Фаза 4](phase-4-scaling.md)).
+Без поллинга БД в API-процессе.
+
+1. `POST /posts/:id/schedule` — сохранить `scheduledAt`, `status=scheduled`, поставить
+   задачу `publish_scheduled_post.delay(post_id=…)` с **`eta=scheduledAt`**
+   (или `apply_async(..., eta=…)`).
+2. Отдельные процессы в `docker-compose` (не `uvicorn`):
+   - **`celery worker`** — выполняет `publish_scheduled_post` → вызывает ту же
+     `publish_post()` из `publish_flow.py`, что и 4a;
+   - **`celery beat`** (опционально на шаге 4) — периодическая задача reconcile
+     (см. п. 5); для одиночных отложенных постов достаточно `eta` на задаче.
+3. **Async Telethon в Celery:** задачи Celery — sync-обёртки; внутри
+   `asyncio.run(publish_post(...))` (или общий `run_async(coro)` хелпер).
+   Сессии — через `session_guard`, как в import/live-sync.
+4. **Идемпотентность:** перед отправкой в TG — атомарный переход
+   `scheduled → publishing` (`SELECT … FOR UPDATE`); повторный запуск задачи
+   (retry) не дублирует пост. Успех → `published`, ошибка → retry по политике
+   Celery + `publishError` в посте или статус `failed` (зафиксировать в контракте).
+5. **Reschedule / отмена:** детерминированный `task_id = f"publish:{post_id}"` при
+   enqueue; при смене даты — `app.control.revoke(old_id)` + новая задача с новым
+   `eta`. Internal-поле `_celeryTaskId` в `data` поста (не отдаётся клиенту).
+6. **Reconcile:** при старте worker или по beat-расписанию (например каждые 5 мин) —
+   посты `status=scheduled` и `scheduledAt < now` без активной задачи в Redis —
+   переenqueue (после рестарта брокера/потери ETA).
+7. **Frontend:** `SchedulePickerModal` → `schedule` API вместо локального `PATCH`.
+
+**Инфраструктура (шаг 4):**
+- `redis` в `docker-compose.yml` (broker + result backend, healthcheck).
+- `CELERY_BROKER_URL` / `CELERY_RESULT_BACKEND` (или единый `REDIS_URL`) в `.env` /
+  `Settings`.
+- Сервис `celery-worker` — тот же образ backend:
+  `celery -A app.celery_app worker -l info`.
+- Сервис `celery-beat` (если включён reconcile по cron):
+  `celery -A app.celery_app beat -l info`.
+- API **не** выполняет отложенный publish сам — только enqueue.
+- Опционально **Flower** для мониторинга задач в dev/staging.
+
+**Файлы (план):** `app/celery_app.py`, `app/tasks/publish.py`, общий
+`publish_flow.py` (вызывается и из API 4a, и из задачи 4b).
+
+> **Почему Celery:** зрелая prod-экосистема (Beat, retry, revoke, Flower),
+> единый стандарт очереди на весь продукт. ARQ не выбираем — чтобы не мигрировать
+> очередь дважды.
+
+Live-sync остаётся in-process в API (долгоживущий MTProto listener); в Celery
+переносится только отложенный publish (и позже — другие фоновые задачи).
+
+#### 4c — Правка опубликованного поста в канале
+
+Редактирование на платформе должно отражаться в Telegram-канале.
+
+1. Расширение существующего `PATCH /posts/:id`: если у поста есть
+   `data.telegramMessageId` и в патче меняется текст (`text` / поля контента по
+   контракту `Post`) — после сохранения в БД вызвать Telethon `edit_message`
+   в подключённом канале.
+2. Посты без `telegramMessageId` (чистые черновики, ещё не в канале) — только
+   локальное обновление, без MTProto.
+3. **Защита от петли с live-sync (3.5):** при правке с платформы выставлять
+   краткоживущий маркер в `data` (например `_telegramEditOrigin: "platform"`,
+   internal, не отдаётся клиенту) или сравнивать хеш текста — чтобы входящее
+   `MessageEdited` от того же изменения не перезаписывало пост повторно и не
+   дёргало второй `edit_message`.
+4. **Ограничение v1:** синхронизация **текста**; замена медиа/альбомов в канале —
+   вне рамок (отдельная задача). Удаление поста на платформе → удаление в канале
+   (`delete_messages`) — опционально в v1, явно задокументировать если не делаем.
+
+**Тесты (план):** фейковый Telethon — publish draft, schedule → publish at time,
+patch text → `edit_message` вызван, patch без `telegramMessageId` → только БД,
+loop-guard не вызывает повторный edit при echo от live-sync.
+
+**Настройки:** `celery_broker_url`, `celery_result_backend`, `telegram_publish_max_retries`,
+`telegram_rpc_timeout_seconds` (reuse для Telethon).
+
+**Явно вне рамок шага 4:** редактирование медиа в канале; публикация в несколько
+каналов; перенос импорта/RAG в Celery (фаза 4, та же `celery_app`).
 
 ---
 
@@ -323,6 +419,7 @@ POST /api/v1/media/                        ✅ статическая разда
                                           ✅ live-sync (Telethon events, фоновый воркер)
 POST /api/v1/posts/:id/publish
 POST /api/v1/posts/:id/schedule   { scheduledAt: ISO-8601 }
+PATCH /api/v1/posts/:id           (+ edit_message в TG при правке текста)
 GET  /api/v1/analytics/overview
 GET  /api/v1/analytics/top-posts
 ```
@@ -332,7 +429,8 @@ GET  /api/v1/analytics/top-posts
 ## Критерий завершения фазы
 
 - Реальный аккаунт подключает Telegram-канал через MTProto.
-- История импортируется; пост публикуется и планируется.
+- История импортируется; пост публикуется и планируется; правка текста на
+  платформе отражается в канале.
 - Метрики канала синхронизируются и отображаются в аналитике.
 - Telegram-секреты (`apiHash`, `botApiToken`) зашифрованы в БД; на фронт — preview.
 
