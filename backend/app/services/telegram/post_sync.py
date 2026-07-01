@@ -80,23 +80,75 @@ async def upsert_telegram_post(
 
     existing = await _find_telegram_post(session, user_id, msg_id)
     if existing is not None:
-        existing.data = post_data
-        flag_modified(existing, "data")
-    else:
-        await _shift_positions(session, user_id, 1)
-        session.add(
-            Post(
-                id=user_scoped_entity_uuid(user_id, "post", f"tg-{msg_id}"),
-                user_id=user_id,
-                position=0,
-                data=post_data,
-            )
+        await update_telegram_post(session, user_id, post_data)
+        return
+
+    await _shift_positions(session, user_id, 1)
+    session.add(
+        Post(
+            id=user_scoped_entity_uuid(user_id, "post", f"tg-{msg_id}"),
+            user_id=user_id,
+            position=0,
+            data=post_data,
         )
-        telegram = dict(profile.telegram or {})
-        telegram["importedPosts"] = int(telegram.get("importedPosts") or 0) + 1
-        profile.telegram = telegram
+    )
+    telegram = dict(profile.telegram or {})
+    telegram["importedPosts"] = int(telegram.get("importedPosts") or 0) + 1
+    profile.telegram = telegram
 
     await touch_telegram_profile(session, profile, last_message_id=msg_id)
+
+
+def _content_unchanged(existing: dict[str, Any], incoming: dict[str, Any]) -> bool:
+    """True when *incoming* text/media match *existing* — nothing worth persisting.
+
+    Guards against a live-sync loop: a platform-triggered edit (Step 4c) commits
+    the new text to the DB *before* calling Telethon ``edit_message``, so the
+    ``MessageEdited`` echo that live-sync receives afterwards carries exactly
+    the same content. Skipping the write avoids a spurious ``syncRevision``
+    bump (which would otherwise trigger an unnecessary frontend refetch).
+    """
+    existing_text = str(existing.get("text") or "")
+    incoming_text = str(incoming.get("text") or "")
+    if existing_text != incoming_text:
+        return False
+    incoming_media = incoming.get("media")
+    if incoming_media and incoming_media != existing.get("media"):
+        return False
+    return True
+
+
+def _incoming_telegram_edit_is_stale(existing: dict[str, Any], incoming: dict[str, Any]) -> bool:
+    """Drop a live-sync text update that predates the latest platform-side edit.
+
+    Compares Telethon's ``edit_date`` (carried as ``_telegramEditDate``) against
+    ``_platformTextEditAt``, set by ``PATCH /posts/:id`` when the user saves a
+    text change. Stale ``MessageEdited`` events that were in flight before the
+    platform edit no longer roll back the DB row.
+    """
+    if str(existing.get("text") or "") == str(incoming.get("text") or ""):
+        return False
+
+    platform_at_raw = existing.get("_platformTextEditAt")
+    if not platform_at_raw:
+        return False
+
+    telegram_edit_raw = incoming.get("_telegramEditDate")
+    if not telegram_edit_raw:
+        # Catch-up / delayed events without edit_date must not roll back a platform save
+        # that has not yet been echoed to Telegram.
+        return True
+
+    try:
+        platform_at = datetime.fromisoformat(str(platform_at_raw))
+        telegram_edit = datetime.fromisoformat(str(telegram_edit_raw))
+    except ValueError:
+        return True
+    if platform_at.tzinfo is None:
+        platform_at = platform_at.replace(tzinfo=timezone.utc)
+    if telegram_edit.tzinfo is None:
+        telegram_edit = telegram_edit.replace(tzinfo=timezone.utc)
+    return telegram_edit < platform_at
 
 
 async def update_telegram_post(
@@ -115,6 +167,12 @@ async def update_telegram_post(
         await upsert_telegram_post(session, user_id, post_data)
         return
 
+    if _content_unchanged(existing.data, post_data):
+        return
+
+    if _incoming_telegram_edit_is_stale(existing.data, post_data):
+        return
+
     merged = {**existing.data, **post_data}
     new_media = post_data.get("media")
     old_media = existing.data.get("media")
@@ -123,6 +181,26 @@ async def update_telegram_post(
     existing.data = merged
     flag_modified(existing, "data")
     await touch_telegram_profile(session, profile, last_message_id=msg_id)
+
+
+async def mark_post_published(
+    session: AsyncSession, user_id: UUID, post_id: UUID, telegram_message_id: str
+) -> dict[str, Any]:
+    """Persist the result of a successful platform → Telegram publish (Step 4a/4b)."""
+    post = await session.get(Post, post_id)
+    if post is None or post.user_id != user_id:
+        return {}
+    data = dict(post.data)
+    data["status"] = "published"
+    data["date"] = datetime.now(timezone.utc).isoformat()
+    data["telegramMessageId"] = telegram_message_id
+    data["source"] = "telegram"
+    data.pop("_celeryTaskId", None)
+    data.pop("publishError", None)
+    post.data = data
+    flag_modified(post, "data")
+    await session.commit()
+    return data
 
 
 async def delete_telegram_post(

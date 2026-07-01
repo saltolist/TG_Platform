@@ -53,6 +53,23 @@ export function createSeedRepositories(): RepositoryBundle {
       async remove(id) {
         posts = posts.filter((p) => p.id !== id);
       },
+      async publish(id) {
+        const idx = posts.findIndex((p) => p.id === id);
+        if (idx < 0) throw new Error(`Post ${id} not found`);
+        posts[idx] = {
+          ...posts[idx],
+          status: "published",
+          date: new Date().toISOString(),
+          metrics: { views: "0", reposts: 0, reactions: [] },
+        };
+        return posts[idx];
+      },
+      async schedule(id, scheduledAt) {
+        const idx = posts.findIndex((p) => p.id === id);
+        if (idx < 0) throw new Error(`Post ${id} not found`);
+        posts[idx] = { ...posts[idx], status: "scheduled", date: scheduledAt };
+        return posts[idx];
+      },
     },
     chats: {
       async listGlobal() {

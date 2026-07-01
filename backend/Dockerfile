@@ -13,7 +13,8 @@ COPY alembic ./alembic
 COPY fixtures ./fixtures
 COPY app ./app
 COPY scripts/entrypoint.sh ./scripts/entrypoint.sh
-RUN chmod +x ./scripts/entrypoint.sh
+COPY scripts/entrypoint-celery.sh ./scripts/entrypoint-celery.sh
+RUN chmod +x ./scripts/entrypoint.sh ./scripts/entrypoint-celery.sh
 
 EXPOSE 8000
 

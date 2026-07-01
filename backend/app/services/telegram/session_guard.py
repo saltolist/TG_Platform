@@ -21,3 +21,33 @@ async def telegram_session_lock(user_id: UUID) -> AsyncIterator[None]:
         yield
     finally:
         lock.release()
+
+
+@asynccontextmanager
+async def exclusive_telegram_access(user_id: UUID) -> AsyncIterator[None]:
+    """Pause live-sync, hold the MTProto lock for a short RPC, then restart the listener.
+
+    The live-sync worker keeps a long-lived Telethon connection and holds
+    ``telegram_session_lock`` for its whole lifetime. Platform publish/edit
+    (Step 4a/4c) must stop that listener first — same pattern as channel
+    connect and history import.
+    """
+    from app.db.models import Profile
+    from app.db.session import async_session_factory
+    from app.services.telegram.live_sync_worker import (
+        ensure_user_listener,
+        listener_registry,
+    )
+
+    was_listening = listener_registry.is_running(user_id)
+    if was_listening:
+        await listener_registry.await_stop_user_listener(user_id)
+    try:
+        async with telegram_session_lock(user_id):
+            yield
+    finally:
+        if was_listening:
+            async with async_session_factory() as session:
+                profile = await session.get(Profile, user_id)
+                if profile is not None:
+                    ensure_user_listener(user_id, profile.telegram or {})

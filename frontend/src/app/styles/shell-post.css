@@ -738,6 +738,36 @@
   color: var(--text3);
   font-style: italic;
 }
+.post-msg-block--saving .post-msg-card {
+  opacity: 0.92;
+}
+.post-msg-textarea--locked {
+  cursor: default;
+  color: var(--text);
+  opacity: 0.85;
+}
+.post-edit-toolbar--syncing {
+  justify-content: flex-end;
+}
+.post-edit-sync-status {
+  margin-left: auto;
+  display: inline-flex;
+  align-items: center;
+  min-height: 30px;
+  font-size: 12px;
+  font-weight: 500;
+  color: var(--text2);
+  animation: post-edit-sync-blink 1.2s ease-in-out infinite;
+}
+@keyframes post-edit-sync-blink {
+  0%,
+  100% {
+    opacity: 0.4;
+  }
+  50% {
+    opacity: 1;
+  }
+}
 
 /* post comments */
 .post-comments-body {

@@ -76,6 +76,21 @@ function overlayPosts(inner: PostsRepository): PostsRepository {
         }
       });
     },
+    // Demo/seed accounts never had a real Telegram channel to publish to, so
+    // keep the previous "always succeeds instantly" simulation locally; real
+    // accounts fall through to the actual Telegram publish/schedule flow.
+    publish: async (id) => {
+      if (!shouldPersistLocally()) return inner.publish(id);
+      return overlayPosts(inner).update(id, {
+        status: "published",
+        date: new Date().toISOString(),
+        metrics: { views: "0", reposts: 0, reactions: [] },
+      });
+    },
+    schedule: async (id, scheduledAt) => {
+      if (!shouldPersistLocally()) return inner.schedule(id, scheduledAt);
+      return overlayPosts(inner).update(id, { status: "scheduled", date: scheduledAt });
+    },
   };
 }
 

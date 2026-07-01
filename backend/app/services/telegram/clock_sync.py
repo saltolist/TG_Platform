@@ -68,7 +68,13 @@ def apply_time_offset_to_client(client: Any, offset_seconds: int) -> int | None:
         return None
 
     old_offset = int(getattr(state, "time_offset", 0) or 0)
-    state.time_offset = int(offset_seconds)
+    # Small buffer past Telethon's 30s MSG_TOO_NEW_DELTA — Docker Desktop often drifts ~31s.
+    adjusted = int(offset_seconds)
+    if adjusted > 20:
+        adjusted += 2
+    elif adjusted < -20:
+        adjusted -= 2
+    state.time_offset = adjusted
     if state.time_offset != old_offset:
         state._last_msg_id = 0  # noqa: SLF001 — Telethon resets this on offset change
     return old_offset

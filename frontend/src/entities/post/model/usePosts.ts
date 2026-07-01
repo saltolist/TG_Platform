@@ -5,7 +5,19 @@ import { queryKeys } from "@/shared/api/queryKeys";
 import { useRepositories } from "@/app/providers/RepositoryProvider";
 import { useAuthenticatedQueryEnabled } from "@/app/providers/useAuthenticatedQueryEnabled";
 import { useQueryAccountScope } from "@/app/providers/useQueryAccountScope";
+import { showToast } from "@/shared/ui/toast";
 import type { Post } from "@/shared/types";
+
+function applyPostUpdate(
+  queryClient: ReturnType<typeof useQueryClient>,
+  accountId: string,
+  updatedPost: Post,
+) {
+  queryClient.setQueryData(queryKeys.posts.detail(accountId, updatedPost.id), updatedPost);
+  queryClient.setQueryData<Post[]>(queryKeys.posts.list(accountId), (prev) =>
+    prev?.map((p) => (p.id === updatedPost.id ? updatedPost : p)),
+  );
+}
 
 export function usePosts() {
   const { posts } = useRepositories();
@@ -75,11 +87,37 @@ export function useUpdatePost() {
   return useMutation({
     mutationFn: ({ id, patch }: { id: string; patch: Partial<Post> }) => posts.update(id, patch),
     onSuccess: (updatedPost) => {
-      queryClient.setQueryData(queryKeys.posts.detail(accountId, updatedPost.id), updatedPost);
-      queryClient.setQueryData<Post[]>(queryKeys.posts.list(accountId), (prev) =>
-        prev?.map((p) => (p.id === updatedPost.id ? updatedPost : p)),
-      );
+      applyPostUpdate(queryClient, accountId, updatedPost);
+      if (updatedPost.telegramSyncError) {
+        showToast({
+          message: `Правка сохранена, но не синхронизирована с Telegram: ${updatedPost.telegramSyncError}`,
+          variant: "error",
+        });
+      }
     },
+  });
+}
+
+export function usePublishPost() {
+  const { posts } = useRepositories();
+  const queryClient = useQueryClient();
+  const accountId = useQueryAccountScope();
+
+  return useMutation({
+    mutationFn: (id: string) => posts.publish(id),
+    onSuccess: (updatedPost) => applyPostUpdate(queryClient, accountId, updatedPost),
+  });
+}
+
+export function useSchedulePost() {
+  const { posts } = useRepositories();
+  const queryClient = useQueryClient();
+  const accountId = useQueryAccountScope();
+
+  return useMutation({
+    mutationFn: ({ id, scheduledAt }: { id: string; scheduledAt: string }) =>
+      posts.schedule(id, scheduledAt),
+    onSuccess: (updatedPost) => applyPostUpdate(queryClient, accountId, updatedPost),
   });
 }
 

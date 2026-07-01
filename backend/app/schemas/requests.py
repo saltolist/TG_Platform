@@ -79,6 +79,12 @@ class TelegramConnectChannelRequest(BaseModel):
     channel: str
 
 
+class PostScheduleRequest(BaseModel):
+    model_config = ConfigDict(populate_by_name=True)
+
+    scheduled_at: str = Field(validation_alias="scheduledAt")
+
+
 __all__ = [
     "PostIn",
     "ReorderRequest",
@@ -93,4 +99,5 @@ __all__ = [
     "TelegramVerifyCodeRequest",
     "TelegramVerify2faRequest",
     "TelegramConnectChannelRequest",
+    "PostScheduleRequest",
 ]

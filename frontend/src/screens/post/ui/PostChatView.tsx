@@ -13,6 +13,7 @@ type Props = {
   data: Pick<
     PostWorkspace["data"],
     | "isEditing"
+    | "isSavingPost"
     | "mediaItems"
     | "flatMessages"
     | "lastAssistantFlat"
@@ -26,7 +27,7 @@ type Props = {
 };
 
 export default function PostChatView({ post, data, ui, actions }: Props) {
-  const { isEditing, mediaItems, flatMessages, lastAssistantFlat, activeChat } = data;
+  const { isEditing, isSavingPost, mediaItems, flatMessages, lastAssistantFlat, activeChat } = data;
   const { phoneFormat, chatScrollRef, postCardRef } = ui;
   const { startEdit, cancelEdit, savePost, openComments, sendPost } = actions;
   const firstUserFlat = firstUserFlatIndex(flatMessages);
@@ -40,6 +41,7 @@ export default function PostChatView({ post, data, ui, actions }: Props) {
               <PostMessageCard
                 cardRef={postCardRef}
                 isEditing={isEditing}
+                isSaving={isSavingPost}
                 text={post.text}
                 media={mediaItems}
                 onStartEdit={startEdit}

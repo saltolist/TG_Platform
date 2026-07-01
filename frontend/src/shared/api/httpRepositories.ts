@@ -83,6 +83,15 @@ export function createHttpRepositories(): RepositoryBundle {
           body: { posts },
         }).then((data) => postsListSchema.parse(data)),
       remove: (id) => apiRequest<void>(apiV1Path(`posts/${id}`), { method: "DELETE" }),
+      publish: (id) =>
+        apiRequest<unknown>(apiV1Path(`posts/${id}/publish`), { method: "POST" }).then((data) =>
+          postSchema.parse(data),
+        ),
+      schedule: (id, scheduledAt) =>
+        apiRequest<unknown>(apiV1Path(`posts/${id}/schedule`), {
+          method: "POST",
+          body: { scheduledAt },
+        }).then((data) => postSchema.parse(data)),
     },
     chats: {
       listGlobal: () =>

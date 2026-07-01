@@ -9,10 +9,12 @@ import {
   buildPostCtxMenuItems,
   getDefaultScheduleDate,
 } from "@/features/post-context-menu/lib/buildItems";
-import { useDeletePost, useUpdatePost } from "@/entities/post";
+import { useDeletePost, usePublishPost, useSchedulePost, useUpdatePost } from "@/entities/post";
+import { getApiErrorMessage } from "@/shared/api/getApiErrorMessage";
 import { parsePostDateTime, postTitle } from "@/shared/lib/helpers";
 import { routes } from "@/shared/lib/routes";
 import { confirmDialog } from "@/shared/ui/dialog";
+import { showToast } from "@/shared/ui/toast";
 import type { CtxMenuItem } from "@/shared/ui/context-menu";
 import type { Post } from "@/shared/types";
 
@@ -32,6 +34,8 @@ export function usePostCtxMenuItems(
 ): PostCtxMenuResult {
   const router = useRouter();
   const updatePost = useUpdatePost();
+  const publishPost = usePublishPost();
+  const schedulePost = useSchedulePost();
   const deletePost = useDeletePost();
   const [isScheduleOpen, setIsScheduleOpen] = useState(false);
   const [scheduleInitialDate, setScheduleInitialDate] = useState<Date>(() => getDefaultScheduleDate());
@@ -50,16 +54,17 @@ export function usePostCtxMenuItems(
       if (!post) return;
       const selected = new Date(value);
       if (Number.isNaN(selected.getTime())) return;
-      void updatePost.mutateAsync({
-        id: post.id,
-        patch: {
-          status: "scheduled",
-          date: selected.toISOString(),
-        },
-      });
       setIsScheduleOpen(false);
+      void schedulePost
+        .mutateAsync({ id: post.id, scheduledAt: selected.toISOString() })
+        .catch((error) => {
+          showToast({
+            message: getApiErrorMessage(error, "Не удалось запланировать публикацию"),
+            variant: "error",
+          });
+        });
     },
-    [post, updatePost],
+    [post, schedulePost],
   );
 
   useEffect(() => {
@@ -78,13 +83,11 @@ export function usePostCtxMenuItems(
       onNewChat: actions.onNewChat,
       onNewNote: actions.onNewNote,
       onPublish: () => {
-        void updatePost.mutateAsync({
-          id: post.id,
-          patch: {
-            status: "published",
-            date: new Date().toISOString(),
-            metrics: { views: "0", reposts: 0, reactions: [] },
-          },
+        void publishPost.mutateAsync(post.id).catch((error) => {
+          showToast({
+            message: getApiErrorMessage(error, "Не удалось опубликовать пост"),
+            variant: "error",
+          });
         });
       },
       onSchedule: () => openScheduleModal(),
@@ -110,7 +113,16 @@ export function usePostCtxMenuItems(
         })();
       },
     });
-  }, [actions.onNewChat, actions.onNewNote, deletePost, openScheduleModal, post, router, updatePost]);
+  }, [
+    actions.onNewChat,
+    actions.onNewNote,
+    deletePost,
+    openScheduleModal,
+    post,
+    publishPost,
+    router,
+    updatePost,
+  ]);
 
   const modal =
     isScheduleOpen && typeof document !== "undefined"

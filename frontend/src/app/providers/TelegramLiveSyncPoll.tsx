@@ -35,7 +35,6 @@ export function TelegramLiveSyncPoll() {
   const accountId = useQueryAccountScope();
   const enabled = useAuthenticatedQueryEnabled();
   const syncRevisionRef = useRef<number | null>(null);
-  const lastSyncRef = useRef<string | null>(null);
 
   useEffect(() => {
     if (!enabled) return;
@@ -47,7 +46,6 @@ export function TelegramLiveSyncPoll() {
         telegram.channelStatus === "connected" && telegram.syncMode !== "publish-only";
       if (!liveSyncActive) {
         syncRevisionRef.current = null;
-        lastSyncRef.current = null;
         return;
       }
 
@@ -57,20 +55,15 @@ export function TelegramLiveSyncPoll() {
       useProfileDraftStore.getState().updateTelegramConfig(mergeTelegramSyncFields(current, telegram));
 
       const previousRevision = syncRevisionRef.current;
-      const previousLastSync = lastSyncRef.current;
       const revision = telegram.syncRevision ?? 0;
-      const lastSync = telegram.lastSync ?? "";
 
-      const shouldRefreshPosts =
-        previousRevision !== null &&
-        (revision > previousRevision || (lastSync && lastSync !== previousLastSync));
+      const shouldRefreshPosts = previousRevision !== null && revision > previousRevision;
 
       if (shouldRefreshPosts) {
         await queryClient.refetchQueries({ queryKey: queryKeys.posts.list(accountId) });
       }
 
       syncRevisionRef.current = revision;
-      lastSyncRef.current = lastSync;
     };
 
     const tick = async () => {

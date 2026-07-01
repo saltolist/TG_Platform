@@ -22,7 +22,7 @@ def test_apply_time_offset_to_client_updates_state() -> None:
     previous = apply_time_offset_to_client(client, 32)
 
     assert previous == 0
-    assert state.time_offset == 32
+    assert state.time_offset == 34
     assert state._last_msg_id == 0
 
 

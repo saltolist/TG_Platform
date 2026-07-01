@@ -277,7 +277,10 @@ async def test_update_and_delete_telegram_post(
     settings = get_settings().model_copy(update={"media_storage_root": str(tmp_path / "media")})
     original = await map_group_to_post(fake_client, [_fake_message(30, text="Before")], user_id, settings)
     updated = await map_group_to_post(fake_client, [_fake_message(30, text="After")], user_id, settings)
-    assert original and updated
+    updated_again = await map_group_to_post(
+        fake_client, [_fake_message(30, text="After again")], user_id, settings
+    )
+    assert original and updated and updated_again
 
     async with TestSessionLocal() as session:
         await upsert_telegram_post(session, user_id, original)
@@ -288,13 +291,23 @@ async def test_update_and_delete_telegram_post(
     async with TestSessionLocal() as session:
         profile = await session.get(Profile, user_id)
         rev_after_first = int(profile.telegram.get("syncRevision") or 0)
+
+    # Re-applying the exact same content (e.g. a duplicated Telethon event) is a
+    # no-op — the content-based loop-guard (Step 4c) must not bump syncRevision again.
     async with TestSessionLocal() as session:
         await update_telegram_post(session, user_id, updated)
         await session.commit()
     async with TestSessionLocal() as session:
+        profile = await session.get(Profile, user_id)
+        assert int(profile.telegram.get("syncRevision") or 0) == rev_after_first
+
+    async with TestSessionLocal() as session:
+        await update_telegram_post(session, user_id, updated_again)
+        await session.commit()
+    async with TestSessionLocal() as session:
         result = await session.execute(select(Post).where(Post.user_id == user_id))
         post = result.scalar_one()
-        assert post.data["text"] == "After"
+        assert post.data["text"] == "After again"
         profile = await session.get(Profile, user_id)
         assert int(profile.telegram.get("syncRevision") or 0) == rev_after_first + 1
     async with TestSessionLocal() as session:

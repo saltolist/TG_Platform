@@ -43,6 +43,16 @@ def format_views(views: Any) -> str:
     return str(views)
 
 
+def _telegram_edit_timestamp_iso(message: Any) -> str | None:
+    """ISO timestamp of the last Telegram-side edit, if the message was edited."""
+    edit_date = getattr(message, "edit_date", None)
+    if edit_date is None:
+        return None
+    if edit_date.tzinfo is None:
+        edit_date = edit_date.replace(tzinfo=timezone.utc)
+    return edit_date.astimezone(timezone.utc).isoformat()
+
+
 async def map_group_to_post(
     client: Any, messages: list[Any], user_id: UUID, settings: Settings
 ) -> dict[str, Any] | None:
@@ -89,6 +99,9 @@ async def map_group_to_post(
     }
     if media_items:
         post["media"] = media_items
+    telegram_edit = _telegram_edit_timestamp_iso(primary)
+    if telegram_edit:
+        post["_telegramEditDate"] = telegram_edit
     if not text and not media_items:
         return None
     return post

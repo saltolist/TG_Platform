@@ -159,6 +159,8 @@ export const postSchema = z.object({
   notes: z.array(localNoteSchema),
   chats: z.array(localChatSchema),
   comments: z.array(postCommentSchema).optional(),
+  /** Best-effort Telegram edit-sync failure from the last PATCH (Phase 3 / Step 4c). */
+  telegramSyncError: z.string().optional(),
 });
 
 export const postsListSchema = z.array(postSchema);

@@ -96,6 +96,11 @@ class Settings(BaseSettings):
     telegram_live_sync_reconnect_seconds: float = 15.0
     telegram_album_debounce_seconds: float = 2.0
 
+    # Publish / schedule (Phase 3, Step 4) — Celery + Redis for deferred publish only;
+    # immediate publish (4a) and edit-sync (4c) run synchronously in the API request.
+    redis_url: str = "redis://redis:6379/0"
+    telegram_publish_max_retries: int = 3
+
     @property
     def byok_old_keys_list(self) -> list[str]:
         return [k.strip() for k in self.byok_encryption_old_keys.split(",") if k.strip()]

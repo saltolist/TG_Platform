@@ -21,9 +21,16 @@ export function getApiErrorMessage(error: unknown, fallback: string): string {
     return "Не удалось связаться с сервером. Запустите docker compose up и откройте http://localhost:3000";
   }
   if (error instanceof ApiError) {
-    const body = error.body as { error?: string; details?: ValidationDetail[] } | undefined;
+    const body = error.body as
+      | { error?: string; detail?: string | ValidationDetail[]; details?: ValidationDetail[] }
+      | undefined;
     if (body?.details?.length) {
       const detailMessage = validationDetailMessage(body.details);
+      if (detailMessage) return detailMessage;
+    }
+    if (typeof body?.detail === "string" && body.detail.trim()) return body.detail;
+    if (Array.isArray(body?.detail) && body.detail.length) {
+      const detailMessage = validationDetailMessage(body.detail);
       if (detailMessage) return detailMessage;
     }
     if (body?.error) return body.error;

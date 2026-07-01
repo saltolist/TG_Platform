@@ -8,6 +8,7 @@ import { useNavigationStore } from "@/app/model/store/navigation-store";
 import { usePostNavigationStore } from "@/app/model/store/post-navigation-store";
 import { activePostChatIdFromPost, displayPostChatId } from "@/entities/post/lib/resolvePostChatId";
 import { usePost, useUpdatePost } from "@/entities/post";
+import { getApiErrorMessage } from "@/shared/api/getApiErrorMessage";
 import {
   flattenVisibleWithPaths,
   lastAssistantFlatIndex,
@@ -24,6 +25,7 @@ import { useFeedPostLayout } from "@/widgets/feed";
 import { usePostScreenHeader } from "./usePostScreenHeader";
 import { useCompactHeader1000 } from "@/shared/lib/hooks/useCompactHeader1000";
 import { useMobile760 } from "@/shared/lib/hooks/useMobile760";
+import { showToast } from "@/shared/ui/toast";
 import type { LocalNote, NoteListFilter, PostMedia, PostMode } from "@/shared/types";
 
 export function usePostWorkspace() {
@@ -56,6 +58,7 @@ export function usePostWorkspace() {
 
   const [listSearch, setListSearch] = useState("");
   const [listContextFilter, setListContextFilter] = useState<NoteListFilter>("all");
+  const [isSavingPost, setIsSavingPost] = useState(false);
 
   const mediaItems: PostMedia[] = post?.media ?? [];
   const chatIdFromUrl =
@@ -156,19 +159,30 @@ export function usePostWorkspace() {
   }, [setNav]);
 
   const cancelEdit = useCallback(() => {
+    if (isSavingPost) return;
     setNav({ isEditing: false });
-  }, [setNav]);
+  }, [isSavingPost, setNav]);
 
   const savePost = useCallback(
-    (text: string, media: PostMedia[]) => {
-      if (!post) return;
-      void updatePost.mutateAsync({
-        id: post.id,
-        patch: { text, media: media.length > 0 ? [...media] : undefined },
-      });
-      setNav({ isEditing: false });
+    async (text: string, media: PostMedia[]) => {
+      if (!post || isSavingPost) return;
+      setIsSavingPost(true);
+      try {
+        await updatePost.mutateAsync({
+          id: post.id,
+          patch: { text, media: media.length > 0 ? [...media] : undefined },
+        });
+        setNav({ isEditing: false });
+      } catch (error) {
+        showToast({
+          message: getApiErrorMessage(error, "Не удалось сохранить пост"),
+          variant: "error",
+        });
+      } finally {
+        setIsSavingPost(false);
+      }
     },
-    [post, setNav, updatePost],
+    [isSavingPost, post, setNav, updatePost],
   );
 
   const openNote = useCallback(
@@ -222,6 +236,7 @@ export function usePostWorkspace() {
       post: post ?? null,
       postMode,
       isEditing,
+      isSavingPost,
       currentPostChatId: validatedPostChatId,
       activeChat,
       flatMessages,

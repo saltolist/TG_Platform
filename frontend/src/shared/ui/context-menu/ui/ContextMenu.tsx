@@ -60,7 +60,9 @@ export function ContextMenu({
                   : `min(280px, calc(100vw - ${FLOATING_PANEL_EDGE_MARGIN_PX * 2}px))`,
                 zIndex: 2000,
                 visibility: panelStyle.visible ? "visible" : "hidden",
-                pointerEvents: panelStyle.visible ? "auto" : "none",
+                // Keep clicks working while layout is measured — pointer-events:none let
+                // mousedown pass through and dismiss the menu before onClick fired.
+                pointerEvents: open ? "auto" : "none",
               }}
             >
               <ContextMenuItems items={items} onSelect={onItemSelect} />

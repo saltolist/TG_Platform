@@ -46,6 +46,9 @@ type Post = {
   notes: LocalNote[]          // заметки к посту
   chats: LocalChat[]          // чаты к посту
   comments?: PostComment[]
+  telegramSyncError?: string  // Phase 3, Step 4c: последний PATCH не смог
+                               // применить правку в Telegram (best-effort,
+                               // не персистится — только в этом ответе)
 }
 
 type PostMetrics = {
@@ -150,9 +153,11 @@ type ChatMessage = {
 |-------|------|----------|------|-------|
 | `GET` | `/api/v1/posts` | Список постов | — | `Post[]` |
 | `POST` | `/api/v1/posts` | Создать пост | `Post` | `Post` (201) |
-| `PATCH` | `/api/v1/posts/:id` | Обновить пост | `Partial<Post>` | `Post` |
+| `PATCH` | `/api/v1/posts/:id` | Обновить пост (+ edit-sync в Telegram, Phase 3 Step 4c) | `Partial<Post>` | `Post` |
 | `PUT` | `/api/v1/posts/reorder` | Переупорядочить | `{ posts: Post[] }` | `Post[]` |
 | `DELETE` | `/api/v1/posts/:id` | Удалить пост | — | `204` |
+| `POST` | `/api/v1/posts/:id/publish` | Опубликовать в Telegram сейчас (Step 4a) | — | `Post` |
+| `POST` | `/api/v1/posts/:id/schedule` | Запланировать публикацию (Step 4b, Celery) | `{ scheduledAt: string }` | `Post` |
 
 ### Global Chats
 

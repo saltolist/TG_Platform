@@ -32,10 +32,21 @@ services:
       - "9000:9000"
       - "9001:9001"
 
+  redis:
+    image: redis:7-alpine
+    restart: unless-stopped
+    volumes:
+      - redis-data:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
   backend:
     build:
       context: ./backend
-    environment:
+    environment: &backend-env
       DATABASE_URL: postgresql+asyncpg://${POSTGRES_USER:-tg}:${POSTGRES_PASSWORD:-tg}@postgres:5432/${POSTGRES_DB:-tg}
       JWT_SECRET: ${JWT_SECRET:-change-me-please}
       CORS_ORIGINS: ${CORS_ORIGINS:-http://localhost:3000,http://127.0.0.1:3000,http://localhost:3020}
@@ -56,6 +67,8 @@ services:
       AI_CONTEXT_STAMPS: ${AI_CONTEXT_STAMPS:-0}
       MEDIA_STORAGE_ROOT: /app/media
       MEDIA_PUBLIC_BASE_URL: ${PUBLIC_API_URL:-http://localhost:8000}
+      REDIS_URL: redis://redis:6379/0
+      TELEGRAM_PUBLISH_MAX_RETRIES: ${TELEGRAM_PUBLISH_MAX_RETRIES:-3}
       TELEGRAM_RPC_TIMEOUT_SECONDS: ${TELEGRAM_RPC_TIMEOUT_SECONDS:-60}
       TELEGRAM_LISTENER_STOP_TIMEOUT_SECONDS: ${TELEGRAM_LISTENER_STOP_TIMEOUT_SECONDS:-35}
       TELEGRAM_CLOCK_SYNC_ENABLED: ${TELEGRAM_CLOCK_SYNC_ENABLED:-1}
@@ -73,8 +86,26 @@ services:
     depends_on:
       postgres:
         condition: service_healthy
+      redis:
+        condition: service_healthy
     ports:
       - "8000:8000"
+    volumes:
+      - media-data:/app/media
+      - /etc/localtime:/etc/localtime:ro
+
+  celery-worker:
+    build:
+      context: ./backend
+    entrypoint: ./scripts/entrypoint-celery.sh
+    command: worker
+    restart: unless-stopped
+    environment: *backend-env
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
     volumes:
       - media-data:/app/media
       - /etc/localtime:/etc/localtime:ro
@@ -98,3 +129,5 @@ volumes:
     name: tg_platform_minio-data
   media-data:
     name: tg_platform_media-data
+  redis-data:
+    name: tg_platform_redis-data

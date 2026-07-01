@@ -32,6 +32,7 @@ export function computePortalLayout(
     top: r.bottom + DROPDOWN_OFFSET,
     left: clampFloatingPanelLeft(preferredLeft, panelWidth),
     minWidth: panelWidth,
-    visible: measured > 0,
+    // Always accept clicks once the menu is open; hiding only avoids a 1-frame position flash.
+    visible: true,
   };
 }

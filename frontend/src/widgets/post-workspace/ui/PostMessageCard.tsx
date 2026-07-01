@@ -15,6 +15,7 @@ import PostCommentsRow from "./PostCommentsRow";
 type Props = {
   cardRef: RefObject<HTMLDivElement | null>;
   isEditing: boolean;
+  isSaving?: boolean;
   text: string;
   media: PostMedia[];
   isTextOnlyNoMedia?: boolean;
@@ -31,6 +32,7 @@ type Props = {
 export default function PostMessageCard({
   cardRef,
   isEditing,
+  isSaving = false,
   text,
   media,
   onStartEdit,
@@ -48,14 +50,25 @@ export default function PostMessageCard({
   const [mediaDraft, setMediaDraft] = useState<PostMedia[]>(media);
   const taRef = useRef<HTMLTextAreaElement>(null);
   const fileRef = useRef<HTMLInputElement>(null);
+  const wasEditingRef = useRef(false);
 
   useEffect(() => {
-    setDraft(text);
-    setMediaDraft(media);
-  }, [text, media, isEditing]);
+    const enteredEdit = isEditing && !wasEditingRef.current;
+    wasEditingRef.current = isEditing;
+
+    if (enteredEdit) {
+      setDraft(text);
+      setMediaDraft(media);
+      return;
+    }
+    if (!isEditing && !isSaving) {
+      setDraft(text);
+      setMediaDraft(media);
+    }
+  }, [text, media, isEditing, isSaving]);
 
   useEffect(() => {
-    if (!isEditing) return;
+    if (!isEditing || isSaving) return;
     const id = window.setTimeout(() => {
       const ta = taRef.current;
       if (ta) {
@@ -69,7 +82,7 @@ export default function PostMessageCard({
       }
     }, 30);
     return () => window.clearTimeout(id);
-  }, [isEditing, cardRef]);
+  }, [isEditing, isSaving, cardRef]);
 
   useLayoutEffect(() => {
     if (!isEditing) return;
@@ -80,6 +93,7 @@ export default function PostMessageCard({
   }, [isEditing, draft]);
 
   async function onPickFile(e: React.ChangeEvent<HTMLInputElement>) {
+    if (isSaving) return;
     const file = e.target.files?.[0];
     if (file) {
       try {
@@ -93,10 +107,11 @@ export default function PostMessageCard({
   }
 
   const copyText = text.trim() || "";
+  const editorLocked = isSaving;
 
   return (
     <div
-      className={`post-msg-block${phoneFormat ? " post-format-phone" : ""}`}
+      className={`post-msg-block${phoneFormat ? " post-format-phone" : ""}${editorLocked ? " post-msg-block--saving" : ""}`}
       id="post-msg-card"
     >
       <div
@@ -116,7 +131,11 @@ export default function PostMessageCard({
               <div className="post-msg-media-edit">
                 <PostMediaBlock
                   media={mediaDraft}
-                  onRemove={(i) => setMediaDraft((arr) => arr.filter((_, j) => j !== i))}
+                  onRemove={
+                    editorLocked
+                      ? undefined
+                      : (i) => setMediaDraft((arr) => arr.filter((_, j) => j !== i))
+                  }
                 />
               </div>
             ) : null
@@ -132,6 +151,7 @@ export default function PostMessageCard({
                 "post-card-text",
                 "post-msg-textarea",
                 !draft.trim() ? "empty" : "",
+                editorLocked ? "post-msg-textarea--locked" : "",
               ]
                 .filter(Boolean)
                 .join(" ")}
@@ -141,6 +161,9 @@ export default function PostMessageCard({
               rows={1}
               spellCheck={false}
               aria-label="Текст поста"
+              disabled={editorLocked}
+              readOnly={editorLocked}
+              aria-busy={editorLocked}
             />
           ) : text ? (
             <div className="post-card-text">{text}</div>
@@ -177,29 +200,36 @@ export default function PostMessageCard({
             style={{ display: "none" }}
             accept="image/*,video/*"
             onChange={onPickFile}
+            disabled={editorLocked}
           />
-          <div className="post-edit-toolbar">
-            <div className="msg-user-edit-bar">
-              <button
-                className="note-header-plain-btn note-header-plain-btn--sm note-header-plain-btn--attach"
-                onClick={() => fileRef.current?.click()}
-                type="button"
-                title="Прикрепить файл"
-                aria-label="Прикрепить файл"
-              >
-                <NoteIconAttach />
-              </button>
-              <button
-                className="btn btn-primary post-edit-btn"
-                onClick={() => onSave(draft, mediaDraft)}
-                type="button"
-              >
-                Сохранить
-              </button>
-              <button className="btn btn-ghost post-edit-btn" onClick={onCancel} type="button">
-                Отмена
-              </button>
-            </div>
+          <div className={`post-edit-toolbar${editorLocked ? " post-edit-toolbar--syncing" : ""}`}>
+            {editorLocked ? (
+              <div className="post-edit-sync-status" role="status" aria-live="polite">
+                Синхронизация с Telegram
+              </div>
+            ) : (
+              <div className="msg-user-edit-bar">
+                <button
+                  className="note-header-plain-btn note-header-plain-btn--sm note-header-plain-btn--attach"
+                  onClick={() => fileRef.current?.click()}
+                  type="button"
+                  title="Прикрепить файл"
+                  aria-label="Прикрепить файл"
+                >
+                  <NoteIconAttach />
+                </button>
+                <button
+                  className="btn btn-primary post-edit-btn"
+                  onClick={() => onSave(draft, mediaDraft)}
+                  type="button"
+                >
+                  Сохранить
+                </button>
+                <button className="btn btn-ghost post-edit-btn" onClick={onCancel} type="button">
+                  Отмена
+                </button>
+              </div>
+            )}
           </div>
         </div>
       ) : (

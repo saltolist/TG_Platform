@@ -5,6 +5,8 @@ export {
   useUpdatePost,
   useReorderPosts,
   useDeletePost,
+  usePublishPost,
+  useSchedulePost,
 } from "./model/usePosts";
 export {
   useAddLocalChat,
