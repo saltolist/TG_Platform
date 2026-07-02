@@ -18,13 +18,14 @@ function replyPreviewText(comment: PostComment): string {
 type Props = {
   replyTo: PostComment | null;
   onCancelReply: () => void;
-  onSubmit: (text: string, media: PostMedia[]) => void;
+  onSubmit: (text: string, media: PostMedia[]) => void | Promise<void>;
   disabled?: boolean;
 };
 
 export default function CommentComposer({ replyTo, onCancelReply, onSubmit, disabled = false }: Props) {
   const [draft, setDraft] = useState("");
   const [pendingMedia, setPendingMedia] = useState<PostMedia[]>([]);
+  const [isSubmitting, setIsSubmitting] = useState(false);
   const taRef = useRef<HTMLTextAreaElement>(null);
 
   useEffect(() => {
@@ -39,13 +40,20 @@ export default function CommentComposer({ replyTo, onCancelReply, onSubmit, disa
     setPendingMedia((arr) => arr.filter((_, i) => i !== index));
   }
 
-  function submit() {
-    if (disabled) return;
+  async function submit() {
+    if (disabled || isSubmitting) return;
     const text = draft.trim();
     if (!text && pendingMedia.length === 0) return;
-    onSubmit(text, pendingMedia);
-    setDraft("");
-    setPendingMedia([]);
+    setIsSubmitting(true);
+    try {
+      await onSubmit(text, pendingMedia);
+      setDraft("");
+      setPendingMedia([]);
+    } catch {
+      // The parent shows the toast; keep the draft so the user can retry.
+    } finally {
+      setIsSubmitting(false);
+    }
   }
 
   return (
@@ -88,7 +96,7 @@ export default function CommentComposer({ replyTo, onCancelReply, onSubmit, disa
           onKeyDown={(e) => {
             if (e.key === "Enter" && !e.shiftKey) {
               e.preventDefault();
-              submit();
+              void submit();
             }
             if (e.key === "Escape" && replyTo) {
               e.preventDefault();
@@ -118,9 +126,9 @@ export default function CommentComposer({ replyTo, onCancelReply, onSubmit, disa
           </div>
           <button
             className="send-btn"
-            onClick={submit}
+            onClick={() => void submit()}
             type="button"
-            disabled={disabled}
+            disabled={disabled || isSubmitting}
             aria-label="Отправить комментарий"
           >
             ↑

@@ -18,7 +18,11 @@ from app.services.telegram.message_mapping import (
     map_message_for_reconcile,
     telethon_message_fetchable,
 )
-from app.services.telegram.comments_flow import comments_enabled, reconcile_post_comments
+from app.services.telegram.comments_flow import (
+    comments_enabled,
+    reconcile_post_comments,
+    refresh_channel_comments_settings,
+)
 from app.services.telegram.post_sync import (
     _find_telegram_post,
     delete_telegram_post,
@@ -168,6 +172,14 @@ async def reconcile_channel_window(
         profile = await session.get(Profile, user_id)
         if profile is None:
             return stats
+
+        telegram = dict(profile.telegram or {})
+        refreshed = await refresh_channel_comments_settings(
+            client, entity, telegram, settings
+        )
+        if refreshed != telegram:
+            profile.telegram = refreshed
+            telegram = refreshed
 
         for msg_id, post in posts_by_msg_id.items():
             tg_message = tg_messages.get(msg_id)

@@ -73,6 +73,8 @@ export function createHttpRepositories(): RepositoryBundle {
     posts: {
       list: () =>
         apiRequest<unknown>(apiV1Path("posts")).then((data) => postsListSchema.parse(data)),
+      get: (id) =>
+        apiRequest<unknown>(apiV1Path(`posts/${id}`)).then((data) => postSchema.parse(data)),
       create: (post) =>
         apiRequest<unknown>(apiV1Path("posts"), { method: "POST", body: post }).then((data) =>
           postSchema.parse(data),

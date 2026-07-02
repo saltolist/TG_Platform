@@ -18,6 +18,7 @@ from app.services.ai.rag_worker import enqueue_note_job
 from app.services.profile_defaults import empty_channel_profile, empty_telegram_profile
 from app.services.telegram.comments_flow import (
     comments_enabled,
+    normalize_post_comments,
     require_comments_enabled,
     sync_post_comments_pull,
     sync_post_comments_push,
@@ -42,6 +43,14 @@ async def list_posts(user: CurrentUser, session: DbSession) -> list[dict[str, An
     return await enrich_posts_for_user(
         user.id, [post.data for post in result.scalars().all()]
     )
+
+
+@router.get("/{post_id}/")
+async def get_post(post_id: str, user: CurrentUser, session: DbSession) -> dict[str, Any]:
+    """Return one post from DB (no Telegram round-trip). Used by open-post polling."""
+    post = await get_owned_post(session, user.id, post_id)
+    enriched = await enrich_posts_for_user(user.id, [post.data])
+    return enriched[0]
 
 
 @router.post("/", status_code=status.HTTP_201_CREATED)
@@ -89,9 +98,10 @@ async def update_post(
     previous_status = post.data.get("status")
     previous_telegram_message_id = post.data.get("telegramMessageId")
     previous_task_id = post.data.get("_celeryTaskId")
-    previous_comments = list(post.data.get("comments") or [])
 
     merged = {**post.data, **patch}
+    if isinstance(merged.get("comments"), list):
+        merged["comments"] = normalize_post_comments(merged["comments"])
     if isinstance(patch.get("chats"), list) and isinstance(post.data.get("chats"), list):
         existing_by_id = {
             str(chat.get("id")): chat
@@ -201,14 +211,12 @@ async def update_post(
         and isinstance(patch.get("comments"), list)
         and merged.get("status") == "published"
     ):
-        new_without_tg = [
+        pending_without_tg = [
             item
             for item in merged.get("comments") or []
-            if isinstance(item, Mapping)
-            and str(item.get("id") or "") not in {str(c.get("id")) for c in previous_comments}
-            and not item.get("telegramMessageId")
+            if isinstance(item, Mapping) and not item.get("telegramMessageId")
         ]
-        if new_without_tg:
+        if pending_without_tg:
             if not comments_enabled(telegram):
                 response["commentSyncError"] = (
                     "В канале не включены обсуждения — включите их в настройках Telegram"
@@ -216,18 +224,19 @@ async def update_post(
             else:
                 async with telegram_sync_pending(user.id, post_id):
                     comment_result = await sync_post_comments_push(
-                        profile, merged, previous_comments, user.id
+                        profile, merged, user.id
                     )
                 if comment_result.error:
                     response["commentSyncError"] = comment_result.error
                 elif comment_result.comments is not None:
                     post = await get_owned_post(session, user.id, post_id)
                     updated = dict(post.data)
-                    updated["comments"] = comment_result.comments
+                    updated["comments"] = normalize_post_comments(comment_result.comments)
                     if comment_result.telegram_discussion_message_id:
                         updated["telegramDiscussionMessageId"] = (
                             comment_result.telegram_discussion_message_id
                         )
+                        updated["commentsThreadAvailable"] = True
                     post.data = updated
                     await session.commit()
                     response = dict(updated)
@@ -260,9 +269,13 @@ async def sync_post_comments_endpoint(
     response = dict(post.data)
     if result.comments is not None:
         updated = dict(post.data)
-        updated["comments"] = result.comments
+        updated["comments"] = normalize_post_comments(result.comments)
         if result.telegram_discussion_message_id:
             updated["telegramDiscussionMessageId"] = result.telegram_discussion_message_id
+        if result.comments_thread_available is not None:
+            updated["commentsThreadAvailable"] = result.comments_thread_available
+            if not result.comments_thread_available:
+                updated.pop("telegramDiscussionMessageId", None)
         post.data = updated
         await session.commit()
         response = dict(updated)

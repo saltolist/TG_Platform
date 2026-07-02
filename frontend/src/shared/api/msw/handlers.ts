@@ -48,6 +48,15 @@ export const handlers = [
     return HttpResponse.json(post, { status: 201 });
   }),
 
+  http.get(apiV1MswPath("posts/:id"), ({ params, request }) => {
+    const store = requireStore(request);
+    if (!store) return unauthorized();
+    const id = String(params.id);
+    const post = store.posts.find((p) => p.id === id);
+    if (!post) return notFound(`Post ${id} not found`);
+    return HttpResponse.json(post);
+  }),
+
   http.patch(apiV1MswPath("posts/:id"), async ({ params, request }) => {
     const store = requireStore(request);
     if (!store) return unauthorized();

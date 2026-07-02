@@ -40,6 +40,11 @@ export function createSeedRepositories(): RepositoryBundle {
       async list() {
         return posts;
       },
+      async get(id) {
+        const post = posts.find((p) => p.id === id);
+        if (!post) throw new Error(`Post ${id} not found`);
+        return post;
+      },
       async create(post) {
         posts = [post, ...posts.filter((p) => p.id !== post.id)];
         return post;

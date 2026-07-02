@@ -19,6 +19,7 @@ export const initialPosts: Post[] = [
     status: "published",
     date: "2026-04-28T14:22:00.000Z",
     rubric: null,
+    commentsThreadAvailable: true,
     metrics: {
       views: "5 100",
       reposts: 23,
@@ -129,6 +130,7 @@ export const initialPosts: Post[] = [
     status: "published",
     date: "2026-04-25T11:10:00.000Z",
     rubric: null,
+    commentsThreadAvailable: true,
     metrics: {
       views: "4 200",
       reposts: 18,

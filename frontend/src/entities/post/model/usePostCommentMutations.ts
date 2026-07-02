@@ -12,16 +12,22 @@ export function useAddPostComment() {
   const updatePost = useUpdatePost();
   const queryClient = useQueryClient();
 
-  return useCallback(
+  const addComment = useCallback(
     async (postId: string, comment: PostComment) => {
       const post = getCachedPost(queryClient, postId);
       if (!post) return;
-      const comments = [...(post.comments ?? []), comment];
-      const updated = { ...post, comments };
-      await updatePost.mutateAsync({ id: postId, patch: { comments } });
-
-      setCachedPost(queryClient, updated);
+      const previousComments = post.comments ?? [];
+      const comments = [...previousComments, comment];
+      setCachedPost(queryClient, { ...post, comments });
+      try {
+        await updatePost.mutateAsync({ id: postId, patch: { comments } });
+      } catch (error) {
+        setCachedPost(queryClient, { ...post, comments: previousComments });
+        throw error;
+      }
     },
     [queryClient, updatePost],
   );
+
+  return { addComment, isPending: updatePost.isPending };
 }

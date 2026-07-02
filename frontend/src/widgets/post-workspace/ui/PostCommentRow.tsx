@@ -1,6 +1,7 @@
 "use client";
 
 import { PostMediaBlock } from "@/entities/post";
+import { PostTelegramSyncLabel } from "@/entities/post/ui/PostTelegramSyncLabel";
 import { formatStoredDate } from "@/shared/lib/helpers";
 import { avatarHue, avatarInitials } from "@/shared/lib/postComments";
 import type { PostComment } from "@/shared/types";
@@ -9,22 +10,27 @@ type Props = {
   comment: PostComment;
   parent?: PostComment;
   onReply?: () => void;
+  telegramSyncing?: boolean;
 };
 
-export default function PostCommentRow({ comment, parent, onReply }: Props) {
+export default function PostCommentRow({ comment, parent, onReply, telegramSyncing = false }: Props) {
   const hue = avatarHue(comment.author);
   return (
     <article className={`post-comment${parent ? " post-comment--reply" : ""}`}>
       <div
         className="post-comment-avatar"
-        style={{ background: `hsl(${hue} 42% 38%)` }}
+        style={{ background: telegramSyncing ? "var(--surface2)" : `hsl(${hue} 42% 38%)` }}
         aria-hidden
       >
-        {avatarInitials(comment.author)}
+        {telegramSyncing ? "↻" : avatarInitials(comment.author)}
       </div>
       <div className="post-comment-main">
         <div className="post-comment-head">
-          <span className="post-comment-author">{comment.author}</span>
+          {telegramSyncing ? (
+            <PostTelegramSyncLabel className="post-comment-sync-label" />
+          ) : (
+            <span className="post-comment-author">{comment.author}</span>
+          )}
           <span className="post-comment-date">{formatStoredDate(comment.date)}</span>
         </div>
         {parent ? (

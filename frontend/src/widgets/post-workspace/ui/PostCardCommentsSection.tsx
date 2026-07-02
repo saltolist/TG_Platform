@@ -3,6 +3,7 @@
 import { useMemo } from "react";
 
 import { filterPostComments, findPostComment } from "@/shared/lib/postComments";
+import { isPostCommentTelegramPending } from "@/entities/post/lib/isPostCommentTelegramPending";
 import type { PostComment } from "@/shared/types";
 
 import PostCommentRow from "./PostCommentRow";
@@ -14,6 +15,7 @@ type Props = {
   onOpenComments?: () => void;
   onReply?: (comment: PostComment) => void;
   emptyHint?: string;
+  postTelegramLinked?: boolean;
 };
 
 export default function PostCardCommentsSection({
@@ -22,6 +24,7 @@ export default function PostCardCommentsSection({
   onOpenComments,
   onReply,
   emptyHint = "Пока нет комментариев — напишите первый",
+  postTelegramLinked = false,
 }: Props) {
   const filtered = useMemo(() => filterPostComments(comments, search), [comments, search]);
 
@@ -49,6 +52,7 @@ export default function PostCardCommentsSection({
               key={c.id}
               comment={c}
               parent={c.replyToId ? findPostComment(comments, c.replyToId) : undefined}
+              telegramSyncing={isPostCommentTelegramPending(c, postTelegramLinked)}
               onReply={onReply ? () => onReply(c) : undefined}
             />
           ))}

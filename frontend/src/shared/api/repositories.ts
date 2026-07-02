@@ -18,6 +18,8 @@ export type GlobalChatPatch = Partial<
 
 export interface PostsRepository {
   list(): Promise<Post[]>;
+  /** Read one post from DB (no Telegram sync). */
+  get(id: string): Promise<Post>;
   create(post: Post): Promise<Post>;
   update(id: string, patch: Partial<Post>): Promise<Post>;
   reorder(posts: Post[]): Promise<Post[]>;

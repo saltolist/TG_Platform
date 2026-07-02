@@ -25,10 +25,19 @@ function mergeTelegramSyncFields(
     syncStatus: telegram.syncStatus,
     syncError: telegram.syncError,
     syncRevision: telegram.syncRevision,
+    commentsRevision: telegram.commentsRevision,
+    commentsEnabled: telegram.commentsEnabled,
+    discussionChatId: telegram.discussionChatId,
   };
 }
 
-/** Polls backend telegram profile; refetches posts when syncRevision advances. */
+/**
+ * Polls backend telegram profile; refetches the post list when ``syncRevision``
+ * advances (new/edited/deleted posts). Inbound discussion comments intentionally
+ * bump ``commentsRevision`` instead, so a high-volume comment stream does NOT
+ * refetch every post — comments are pulled lazily on post open / comments tab /
+ * reconcile.
+ */
 export function TelegramLiveSyncPoll() {
   const { profile } = useRepositories();
   const queryClient = useQueryClient();

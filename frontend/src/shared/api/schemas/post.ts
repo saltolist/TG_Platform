@@ -143,7 +143,11 @@ export const postCommentSchema = z.object({
   author: z.string(),
   text: z.string(),
   date: z.string(),
-  replyToId: z.string().optional(),
+  replyToId: z
+    .string()
+    .nullish()
+    .transform((value) => value ?? undefined)
+    .optional(),
   media: z.array(postMediaSchema).optional(),
   /** Telegram discussion message id after sync (Phase 3 / Step 5b). */
   telegramMessageId: z.string().optional(),
@@ -164,6 +168,8 @@ export const postSchema = z.object({
   comments: z.array(postCommentSchema).optional(),
   telegramMessageId: z.string().optional(),
   telegramDiscussionMessageId: z.string().optional(),
+  /** True when Telegram has a discussion thread for this post (Step 5b). */
+  commentsThreadAvailable: z.boolean().optional(),
   /** Best-effort Telegram edit-sync failure from the last PATCH (Phase 3 / Step 4c). */
   telegramSyncError: z.string().optional(),
   /** Best-effort Telegram comment-sync failure from the last PATCH or sync-comments (Step 5b). */

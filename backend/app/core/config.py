@@ -98,6 +98,10 @@ class Settings(BaseSettings):
     telegram_live_sync_reconnect_seconds: float = 15.0
     telegram_live_sync_catch_up_seconds: float = 90.0
     telegram_album_debounce_seconds: float = 2.0
+    # Debounce window for high-volume discussion-group comments: buffer inbound
+    # comments per thread and persist them in one batch (one commit + one
+    # syncRevision bump) instead of per message.
+    telegram_comment_debounce_seconds: float = 1.5
 
     # Window reconcile — drift correction between channel and platform DB
     telegram_reconcile_enabled: bool = True

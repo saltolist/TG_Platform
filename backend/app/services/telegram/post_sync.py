@@ -73,6 +73,7 @@ async def touch_telegram_profile(
     last_message_id: str | int | None = None,
     sync_status: str = "listening",
     sync_error: str = "",
+    comment_only: bool = False,
 ) -> None:
     telegram = dict(profile.telegram or {})
     if last_message_id is not None:
@@ -80,7 +81,13 @@ async def touch_telegram_profile(
         stored = _parse_message_id(telegram.get("lastTelegramMessageId"))
         telegram["lastTelegramMessageId"] = str(max(seen, stored))
     telegram["lastSync"] = datetime.now(timezone.utc).isoformat()
-    telegram["syncRevision"] = int(telegram.get("syncRevision") or 0) + 1
+    if comment_only:
+        # Comment-only updates bump a separate revision so the frontend does not
+        # refetch the whole post list on every inbound discussion comment. Comments
+        # are pulled lazily (post open / comments tab / reconcile) instead.
+        telegram["commentsRevision"] = int(telegram.get("commentsRevision") or 0) + 1
+    else:
+        telegram["syncRevision"] = int(telegram.get("syncRevision") or 0) + 1
     telegram["syncStatus"] = sync_status
     telegram["syncError"] = sync_error[:500] if sync_error else ""
     profile.telegram = telegram
@@ -334,14 +341,39 @@ async def apply_discussion_comment(
     discussion_root_id: str | None = None,
 ) -> bool:
     """Merge one discussion comment into *post*; return True when persisted."""
+    return await apply_discussion_comments(
+        session,
+        user_id,
+        post,
+        [comment],
+        discussion_root_id=discussion_root_id,
+    )
+
+
+async def apply_discussion_comments(
+    session: AsyncSession,
+    user_id: UUID,
+    post: Post,
+    comments: list[dict[str, Any]],
+    *,
+    discussion_root_id: str | None = None,
+) -> bool:
+    """Merge a batch of discussion comments into *post*; one profile touch.
+
+    Batching keeps high-volume threads from bumping ``syncRevision`` (and the
+    frontend refetch it triggers) once per inbound comment.
+    """
     from app.services.telegram.comments_flow import merge_comments
+
+    if not comments:
+        return False
 
     profile = await session.get(Profile, user_id)
     if profile is None:
         return False
 
     existing = list(post.data.get("comments") or [])
-    merged = merge_comments(existing, [comment])
+    merged = merge_comments(existing, comments)
     if merged == existing:
         return False
 
@@ -351,7 +383,7 @@ async def apply_discussion_comment(
         data["telegramDiscussionMessageId"] = discussion_root_id
     post.data = data
     flag_modified(post, "data")
-    await touch_telegram_profile(session, profile)
+    await touch_telegram_profile(session, profile, comment_only=True)
     return True
 
 

@@ -37,6 +37,12 @@ async def test_posts_create_patch_delete_contract(
     assert patched.rubric == "News"
     assert patched.id == post_id
 
+    fetched = await client.get(f"/api/v1/posts/{post_id}/", headers=writer_auth_headers)
+    assert fetched.status_code == 200
+    got = PostContract.model_validate(fetched.json())
+    assert got.id == post_id
+    assert got.text == "After patch"
+
     listed = await client.get("/api/v1/posts/", headers=writer_auth_headers)
     posts = parse_posts_list(listed.json())
     assert any(post.id == post_id and post.text == "After patch" for post in posts)

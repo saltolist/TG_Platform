@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import asyncio
+import logging
 from contextlib import asynccontextmanager
 from dataclasses import dataclass
 from datetime import datetime, timezone
@@ -31,11 +33,14 @@ from app.services.telegram.net import (
 )
 from app.services.telegram.session_guard import exclusive_telegram_access
 
+logger = logging.getLogger(__name__)
+
 
 @dataclass
 class CommentSyncResult:
     comments: list[dict[str, Any]] | None = None
     telegram_discussion_message_id: str | None = None
+    comments_thread_available: bool | None = None
     error: str | None = None
 
 
@@ -67,6 +72,61 @@ async def resolve_discussion_chat_id(
         return None
 
 
+def apply_discussion_settings(
+    telegram: dict[str, Any], discussion_chat_id: int | None
+) -> dict[str, Any]:
+    """Merge linked discussion group fields into a telegram profile dict."""
+    updated = dict(telegram)
+    updated["discussionChatId"] = str(discussion_chat_id) if discussion_chat_id else ""
+    updated["commentsEnabled"] = bool(discussion_chat_id)
+    return updated
+
+
+async def refresh_channel_comments_settings(
+    client: Any,
+    channel_entity: Any,
+    telegram: dict[str, Any],
+    settings: Settings,
+) -> dict[str, Any]:
+    """Re-read linked discussion group from Telegram (e.g. after channel goes public)."""
+    discussion_chat_id = await resolve_discussion_chat_id(client, channel_entity, settings)
+    return apply_discussion_settings(telegram, discussion_chat_id)
+
+
+def apply_comments_thread_probe(
+    post_data: dict[str, Any], root_id: int | None
+) -> tuple[dict[str, Any], bool]:
+    """Set per-post comment thread availability from a Telegram probe."""
+    updated = dict(post_data)
+    if root_id is None:
+        updated["commentsThreadAvailable"] = False
+        updated.pop("telegramDiscussionMessageId", None)
+        changed = post_data.get("commentsThreadAvailable") is not False or bool(
+            post_data.get("telegramDiscussionMessageId")
+        )
+        return updated, changed
+
+    updated["commentsThreadAvailable"] = True
+    updated["telegramDiscussionMessageId"] = str(root_id)
+    changed = post_data.get("commentsThreadAvailable") is not True or post_data.get(
+        "telegramDiscussionMessageId"
+    ) != str(root_id)
+    return updated, changed
+
+
+async def post_has_discussion_thread(
+    client: Any,
+    channel_entity: Any,
+    channel_message_id: int,
+    settings: Settings,
+) -> bool:
+    """True when Telegram has a discussion root for this channel post."""
+    root_id = await get_discussion_root_message_id(
+        client, channel_entity, channel_message_id, settings
+    )
+    return root_id is not None
+
+
 def _discussion_peer_id(discussion_chat_id: int | str) -> int:
     try:
         value = int(discussion_chat_id)
@@ -95,31 +155,52 @@ async def get_discussion_root_message_id(
     messages = list(getattr(result, "messages", None) or [])
     if not messages:
         return None
-    discussion_peer = None
+
+    try:
+        channel_id = channel_peer_id(channel_entity)
+    except (TypeError, ValueError):
+        channel_id = None
+
+    def _safe_peer_id(obj: Any) -> int | None:
+        try:
+            return utils.get_peer_id(obj)
+        except (TypeError, ValueError, AttributeError):
+            return None
+
+    # A linked discussion group shows up as a second chat (a megagroup) distinct
+    # from the broadcast channel itself. Its absence means the post has no
+    # comment thread (e.g. published before discussions were enabled).
     discussion_chat_id = None
+    has_discussion_group = False
     for chat in getattr(result, "chats", None) or []:
-        try:
-            if utils.get_peer_id(chat) != channel_peer_id(channel_entity):
-                discussion_peer = chat
-                discussion_chat_id = utils.get_peer_id(chat)
-                break
-        except (TypeError, ValueError):
+        if getattr(chat, "broadcast", False):
             continue
+        if getattr(chat, "megagroup", False) or getattr(chat, "gigagroup", False):
+            has_discussion_group = True
+            discussion_chat_id = _safe_peer_id(chat)
+            break
+        peer = _safe_peer_id(chat)
+        if peer is not None and channel_id is not None and peer != channel_id:
+            has_discussion_group = True
+            discussion_chat_id = peer
+            break
+
+    if not has_discussion_group:
+        return None
+
     for message in messages:
-        try:
-            peer = utils.get_peer_id(getattr(message, "peer_id", None))
-        except (TypeError, ValueError):
-            peer = None
-        if discussion_chat_id is not None and peer == discussion_chat_id:
+        if (
+            discussion_chat_id is not None
+            and _safe_peer_id(getattr(message, "peer_id", None)) == discussion_chat_id
+        ):
             msg_id = getattr(message, "id", None)
             if msg_id:
                 return int(msg_id)
-    if len(messages) >= 2:
-        root = messages[-1]
-        msg_id = getattr(root, "id", None)
-        if msg_id:
-            return int(msg_id)
-    root = messages[0]
+
+    # Peers couldn't be resolved to ids (common in unit mocks and some
+    # Telethon payloads); the discussion root is returned last, so fall back
+    # to it now that we know a discussion group exists.
+    root = messages[-1]
     msg_id = getattr(root, "id", None)
     return int(msg_id) if msg_id else None
 
@@ -133,11 +214,26 @@ def _message_date_iso(message: Any) -> str:
     return date.astimezone(timezone.utc).isoformat()
 
 
-async def _sender_display_name(client: Any, message: Any) -> str:
-    try:
-        sender = await message.get_sender()
-    except Exception:
-        sender = None
+def _sender_id(message: Any) -> int | None:
+    """Best-effort stable sender id used to cache display names within a batch."""
+    from_id = getattr(message, "from_id", None)
+    for attr in ("user_id", "channel_id", "chat_id"):
+        value = getattr(from_id, attr, None)
+        if value is not None:
+            try:
+                return int(value)
+            except (TypeError, ValueError):
+                return None
+    sender_id = getattr(message, "sender_id", None)
+    if sender_id is not None:
+        try:
+            return int(sender_id)
+        except (TypeError, ValueError):
+            return None
+    return None
+
+
+def _format_sender_name(sender: Any) -> str:
     if sender is None:
         return "Пользователь"
     first = str(getattr(sender, "first_name", None) or "").strip()
@@ -151,6 +247,30 @@ async def _sender_display_name(client: Any, message: Any) -> str:
     if username:
         return f"@{username.lstrip('@')}"
     return "Пользователь"
+
+
+async def _sender_display_name(
+    client: Any,
+    message: Any,
+    *,
+    cache: dict[int, str] | None = None,
+) -> str:
+    """Resolve a comment author name, caching by sender id to avoid repeat RPCs.
+
+    Under high comment volume many messages share the same author; caching by
+    ``sender_id`` collapses N ``get_sender()`` round-trips into one per author.
+    """
+    sender_id = _sender_id(message)
+    if cache is not None and sender_id is not None and sender_id in cache:
+        return cache[sender_id]
+    try:
+        sender = await message.get_sender()
+    except Exception:
+        sender = None
+    name = _format_sender_name(sender)
+    if cache is not None and sender_id is not None:
+        cache[sender_id] = name
+    return name
 
 
 def _reply_to_message_id(message: Any) -> int | None:
@@ -168,6 +288,21 @@ def _reply_to_message_id(message: Any) -> int | None:
 
 def _comment_platform_id(message_id: int) -> str:
     return f"tg-{message_id}"
+
+
+def normalize_post_comments(comments: Any) -> list[dict[str, Any]]:
+    """Drop null optional fields so API JSON matches frontend schema."""
+    if not isinstance(comments, list):
+        return []
+    normalized: list[dict[str, Any]] = []
+    for item in comments:
+        if not isinstance(item, Mapping):
+            continue
+        row = dict(item)
+        if row.get("replyToId") is None:
+            row.pop("replyToId", None)
+        normalized.append(row)
+    return normalized
 
 
 def merge_comments(
@@ -189,14 +324,18 @@ def merge_comments(
         tg_id = str(copy.get("telegramMessageId") or "")
         if tg_id and tg_id in by_tg_id:
             incoming = by_tg_id[tg_id]
+            reply_to_id = incoming.get("replyToId", copy.get("replyToId"))
             copy.update(
                 {
                     "author": incoming.get("author", copy.get("author")),
                     "text": incoming.get("text", copy.get("text")),
                     "date": incoming.get("date", copy.get("date")),
-                    "replyToId": incoming.get("replyToId", copy.get("replyToId")),
                 }
             )
+            if reply_to_id is not None:
+                copy["replyToId"] = reply_to_id
+            else:
+                copy.pop("replyToId", None)
             merged.append(copy)
             seen_tg.add(tg_id)
         elif not tg_id:
@@ -219,6 +358,7 @@ async def map_telegram_messages_to_comments(
     *,
     discussion_root_id: int,
     existing: list[dict[str, Any]] | None = None,
+    sender_cache: dict[int, str] | None = None,
 ) -> list[dict[str, Any]]:
     existing = existing or []
     platform_id_by_tg: dict[str, str] = {}
@@ -247,7 +387,7 @@ async def map_telegram_messages_to_comments(
         comments.append(
             {
                 "id": platform_id,
-                "author": await _sender_display_name(client, message),
+                "author": await _sender_display_name(client, message, cache=sender_cache),
                 "text": text,
                 "date": _message_date_iso(message),
                 "telegramMessageId": str(msg_id),
@@ -347,17 +487,20 @@ async def _send_comment_message(
     return _extract_sent_message_id(sent)
 
 
-def _find_new_platform_comments(
-    previous: list[dict[str, Any]], current: list[dict[str, Any]]
+def _find_pending_platform_comments(
+    comments: list[dict[str, Any]],
 ) -> list[dict[str, Any]]:
-    previous_ids = {str(item.get("id")) for item in previous if item.get("id")}
-    new_items = [
+    """Comments authored on the platform that Telegram hasn't confirmed yet.
+
+    This intentionally ignores whether the comment is brand new: a comment whose
+    previous push failed (e.g. VPN/network drop) stays without ``telegramMessageId``
+    and must be retried on the next sync instead of being stuck forever.
+    """
+    return [
         dict(item)
-        for item in current
-        if str(item.get("id") or "") not in previous_ids
-        and not item.get("telegramMessageId")
+        for item in comments
+        if isinstance(item, Mapping) and not item.get("telegramMessageId")
     ]
-    return new_items
 
 
 async def sync_new_comments_to_telegram(
@@ -452,11 +595,12 @@ async def pull_comments_from_telegram(
         existing=existing,
     )
     if root_id is None:
-        return CommentSyncResult(comments=existing)
+        return CommentSyncResult(comments=existing, comments_thread_available=False)
     merged = merge_comments(existing, from_tg)
     return CommentSyncResult(
         comments=merged,
         telegram_discussion_message_id=str(root_id),
+        comments_thread_available=True,
     )
 
 
@@ -501,26 +645,28 @@ async def sync_post_comments_pull(
     if not discussion_chat_id:
         return CommentSyncResult(error="В канале не включены обсуждения")
 
-    async with _with_telegram_client(profile, user_id, settings) as (
-        client,
-        channel_entity,
-        _telegram,
-    ):
-        return await pull_comments_from_telegram(
+    try:
+        async with _with_telegram_client(profile, user_id, settings) as (
             client,
             channel_entity,
-            discussion_chat_id,
-            channel_msg_id,
-            post_data,
-            settings,
-        )
+            _telegram,
+        ):
+            return await pull_comments_from_telegram(
+                client,
+                channel_entity,
+                discussion_chat_id,
+                channel_msg_id,
+                post_data,
+                settings,
+            )
+    except TelegramAuthError as exc:
+        return CommentSyncResult(error=exc.detail)
     return CommentSyncResult(error="Не удалось подключиться к Telegram")
 
 
 async def sync_post_comments_push(
     profile: Profile,
     post_data: dict[str, Any],
-    previous_comments: list[dict[str, Any]],
     user_id: UUID,
     settings: Settings | None = None,
 ) -> CommentSyncResult:
@@ -539,27 +685,28 @@ async def sync_post_comments_push(
             error="В канале не включены обсуждения — включите их в настройках Telegram"
         )
 
-    new_comments = _find_new_platform_comments(
-        previous_comments, list(post_data.get("comments") or [])
-    )
+    new_comments = _find_pending_platform_comments(list(post_data.get("comments") or []))
     if not new_comments:
         return CommentSyncResult(comments=list(post_data.get("comments") or []))
 
-    async with _with_telegram_client(profile, user_id, settings) as (
-        client,
-        channel_entity,
-        _telegram,
-    ):
-        return await sync_new_comments_to_telegram(
+    try:
+        async with _with_telegram_client(profile, user_id, settings) as (
             client,
             channel_entity,
-            discussion_chat_id,
-            channel_msg_id,
-            post_data,
-            new_comments,
-            user_id,
-            settings,
-        )
+            _telegram,
+        ):
+            return await sync_new_comments_to_telegram(
+                client,
+                channel_entity,
+                discussion_chat_id,
+                channel_msg_id,
+                post_data,
+                new_comments,
+                user_id,
+                settings,
+            )
+    except TelegramAuthError as exc:
+        return CommentSyncResult(error=exc.detail)
     return CommentSyncResult(error="Не удалось подключиться к Telegram")
 
 
@@ -570,44 +717,150 @@ async def handle_live_discussion_message(
     session_factory: Any,
 ) -> None:
     """Upsert one discussion-group message into the matching platform post."""
+    await handle_live_discussion_messages(client, [message], user_id, session_factory)
+
+
+async def handle_live_discussion_messages(
+    client: Any,
+    messages: list[Any],
+    user_id: UUID,
+    session_factory: Any,
+) -> None:
+    """Upsert a batch of discussion messages, grouped per post.
+
+    All comments for the same post are merged and persisted with a single
+    commit (one ``syncRevision`` bump), so a burst of dozens of comments/sec
+    does not translate into dozens of DB writes and frontend refetch signals.
+    """
     from app.services.telegram.post_sync import (
-        apply_discussion_comment,
+        apply_discussion_comments,
         find_post_for_discussion_reply,
     )
 
-    reply_to = _reply_to_message_id(message)
-    if reply_to is None:
+    if not messages:
         return
 
+    messages_by_reply: dict[int, list[Any]] = {}
+    for message in messages:
+        reply_to = _reply_to_message_id(message)
+        if reply_to is None:
+            continue
+        messages_by_reply.setdefault(reply_to, []).append(message)
+
+    if not messages_by_reply:
+        return
+
+    sender_cache: dict[int, str] = {}
+
     async with session_factory() as session:
-        post = await find_post_for_discussion_reply(session, user_id, reply_to)
-        if post is None:
-            return
+        # Multiple reply-to roots may resolve to the same post; collapse them.
+        grouped_by_post: dict[Any, tuple[Any, int, list[Any]]] = {}
+        for reply_to, thread_messages in messages_by_reply.items():
+            post = await find_post_for_discussion_reply(session, user_id, reply_to)
+            if post is None:
+                continue
+            root_raw = post.data.get("telegramDiscussionMessageId")
+            try:
+                root_id = int(root_raw) if root_raw else reply_to
+            except (TypeError, ValueError):
+                root_id = reply_to
+            entry = grouped_by_post.get(post.id)
+            if entry is None:
+                grouped_by_post[post.id] = (post, root_id, list(thread_messages))
+            else:
+                entry[2].extend(thread_messages)
 
-        root_raw = post.data.get("telegramDiscussionMessageId")
-        try:
-            root_id = int(root_raw) if root_raw else reply_to
-        except (TypeError, ValueError):
-            root_id = reply_to
+        changed_any = False
+        for post, root_id, thread_messages in grouped_by_post.values():
+            comments = await map_telegram_messages_to_comments(
+                client,
+                thread_messages,
+                discussion_root_id=root_id,
+                existing=list(post.data.get("comments") or []),
+                sender_cache=sender_cache,
+            )
+            if not comments:
+                continue
+            changed = await apply_discussion_comments(
+                session,
+                user_id,
+                post,
+                comments,
+                discussion_root_id=str(root_id),
+            )
+            changed_any = changed_any or changed
 
-        comment = await map_single_discussion_message(
-            client,
-            message,
-            discussion_root_id=root_id,
-            existing=list(post.data.get("comments") or []),
-        )
-        if comment is None:
-            return
-
-        changed = await apply_discussion_comment(
-            session,
-            user_id,
-            post,
-            comment,
-            discussion_root_id=str(root_id),
-        )
-        if changed:
+        if changed_any:
             await session.commit()
+
+
+class DiscussionCommentBuffer:
+    """Debounce inbound discussion-group comments and flush them in batches.
+
+    A single flush persists every buffered comment for the channel with one DB
+    transaction per affected post, so a burst of dozens of comments/sec is
+    coalesced into a handful of writes and one ``syncRevision`` bump per post.
+    """
+
+    def __init__(
+        self,
+        client: Any,
+        user_id: UUID,
+        session_factory: Any,
+        *,
+        debounce_seconds: float,
+        on_error: Any | None = None,
+    ) -> None:
+        self._client = client
+        self._user_id = user_id
+        self._session_factory = session_factory
+        self._debounce_seconds = max(0.0, debounce_seconds)
+        self._on_error = on_error
+        self._pending: list[Any] = []
+        self._lock = asyncio.Lock()
+        self._flush_task: asyncio.Task[None] | None = None
+
+    async def add(self, message: Any) -> None:
+        async with self._lock:
+            self._pending.append(message)
+        if self._debounce_seconds <= 0:
+            await self._flush_now()
+            return
+        if self._flush_task is None or self._flush_task.done():
+            self._flush_task = asyncio.create_task(self._debounced_flush())
+
+    async def _debounced_flush(self) -> None:
+        try:
+            await asyncio.sleep(self._debounce_seconds)
+            await self._flush_now()
+        except asyncio.CancelledError:
+            pass
+
+    async def _flush_now(self) -> None:
+        async with self._lock:
+            batch = self._pending
+            self._pending = []
+        if not batch:
+            return
+        try:
+            await handle_live_discussion_messages(
+                self._client, batch, self._user_id, self._session_factory
+            )
+        except Exception as exc:  # noqa: BLE001
+            logger.exception(
+                "Discussion comment batch flush failed for user %s", self._user_id
+            )
+            if self._on_error is not None:
+                try:
+                    await self._on_error(str(exc))
+                except Exception:  # noqa: BLE001
+                    logger.debug("Comment buffer on_error hook failed", exc_info=True)
+
+    async def flush(self) -> None:
+        task = self._flush_task
+        if task is not None and not task.done():
+            task.cancel()
+        await self._flush_now()
 
 
 async def reconcile_post_comments(
@@ -635,16 +888,14 @@ async def reconcile_post_comments(
         settings,
         existing=existing,
     )
+    probed, probe_changed = apply_comments_thread_probe(post_data, root_id)
     if root_id is None:
-        return post_data, False
+        return probed, probe_changed
 
     merged_comments = merge_comments(existing, from_tg)
-    updated = dict(post_data)
+    updated = dict(probed)
     updated["comments"] = merged_comments
-    updated["telegramDiscussionMessageId"] = str(root_id)
-    changed = merged_comments != existing or post_data.get(
-        "telegramDiscussionMessageId"
-    ) != str(root_id)
+    changed = probe_changed or merged_comments != existing
     return updated, changed
 
 
@@ -667,14 +918,20 @@ async def map_single_discussion_message(
 
 __all__ = [
     "CommentSyncResult",
+    "DiscussionCommentBuffer",
+    "apply_comments_thread_probe",
     "comments_enabled",
     "fetch_comments_from_telegram",
     "get_discussion_root_message_id",
     "handle_live_discussion_message",
+    "handle_live_discussion_messages",
     "map_single_discussion_message",
     "map_telegram_messages_to_comments",
     "merge_comments",
+    "normalize_post_comments",
+    "post_has_discussion_thread",
     "pull_comments_from_telegram",
+    "refresh_channel_comments_settings",
     "reconcile_post_comments",
     "require_comments_enabled",
     "resolve_discussion_chat_id",

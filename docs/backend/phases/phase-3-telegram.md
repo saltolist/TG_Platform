@@ -533,9 +533,11 @@ GET /api/v1/analytics/top-posts/?period=30d
 
 **Профиль (`TelegramProfileConfig`):**
 - `discussionChatId` — peer id linked discussion group (из `GetFullChannelRequest` при connect).
-- `commentsEnabled: boolean` — `true`, если группа обсуждений привязана.
+- `commentsEnabled: boolean` — `true`, если группа обсуждений привязана (уровень канала).
 
 **Пост (`post.data`):**
+- `commentsThreadAvailable: boolean` — есть ли у **этого** поста тред в TG (`GetDiscussionMessage`).
+  Посты, опубликованные до включения обсуждений, получают `false` при reconcile.
 - `telegramDiscussionMessageId` — id корневого сообщения треда (кэш для `reply_to`).
 - Комментарий: опциональный `telegramMessageId` для идемпотентности.
 
@@ -544,15 +546,37 @@ GET /api/v1/analytics/top-posts/?period=30d
 - `PATCH /api/v1/posts/:id/` — push новых комментариев без `telegramMessageId` после commit;
   при ошибке — `commentSyncError` (DB не откатывается).
 - `POST /api/v1/posts/:id/sync-comments/` — форсированный pull при открытии вкладки комментариев.
+- `GET /api/v1/posts/:id/` — один пост из DB (для polling открытой страницы, без TG).
 - `reconcile_channel_window` — подтягивает комментарии для связанных постов.
-- `live_sync_worker` — `NewMessage` на discussion group entity.
+- `live_sync_worker` — `NewMessage` на discussion group entity, входящие сообщения
+  кладутся в `DiscussionCommentBuffer`.
+
+**Высокая нагрузка (десятки комментариев/сек):**
+- `DiscussionCommentBuffer` (`comments_flow.py`) дебаунсит входящие сообщения обсуждения
+  (`telegram_comment_debounce_seconds`, по умолчанию 1.5 c) и сбрасывает их пачкой:
+  `handle_live_discussion_messages` группирует по посту и делает **один** commit на пост.
+- `_sender_display_name` кэширует имена авторов по `sender_id` внутри пачки — вместо
+  N вызовов `get_sender()` (RPC) — один на автора.
+- Комментарии бампят отдельный `commentsRevision` (а не `syncRevision`) через
+  `touch_telegram_profile(comment_only=True)`, поэтому фронт **не рефетчит весь фид**
+  на каждый чужой комментарий.
+- Комментарии обновляются **лениво**: при заходе на пост / открытии вкладки /
+  reconcile / перезагрузке страницы. Реалтайм-поллинга открытого поста нет
+  (чтобы не устраивать сотни `sync-comments` в минуту на единственную TG-сессию).
 
 **Без discussion group:** `commentsEnabled=false` — добавление комментариев к
 опубликованному TG-посту блокируется (composer disabled + `commentSyncError` на PATCH).
 
 **Frontend:**
-- `commentsEnabled` в профиле; блокировка `CommentComposer` без обсуждений.
-- `useSyncPostComments` — вызов `sync-comments` при `postMode === "comments"`.
+- `commentsEnabled` в профиле — канал поддерживает обсуждения.
+- UI комментариев показывается **per-post** (`commentsThreadAvailable` / `telegramDiscussionMessageId`),
+  а не для всех опубликованных постов сразу.
+- блокировка `CommentComposer` без обсуждений.
+- `useSyncPostComments` — вызов `sync-comments` при `postMode === "comments"` (ленивый pull из TG).
+- `usePollOpenPost` — пока открыта страница поста, раз в 5 с `GET /posts/:id` (только DB,
+  без Telegram); подтягивает комментарии, уже записанные live-sync.
+- `TelegramLiveSyncPoll` рефетчит фид только на рост `syncRevision`; `commentsRevision`
+  фид не трогает.
 - Toast при `commentSyncError`.
 
 **Тесты:** `backend/tests/test_telegram_comments_sync.py`.

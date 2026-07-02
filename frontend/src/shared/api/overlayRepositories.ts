@@ -33,6 +33,12 @@ function overlayPosts(inner: PostsRepository): PostsRepository {
       const overlay = readOverlay();
       return mergeEntityList(base, overlay.posts, overlay.posts.order);
     },
+    get: async (id) => {
+      const list = await overlayPosts(inner).list();
+      const post = list.find((item) => item.id === id);
+      if (!post) throw new Error(`Post ${id} not found`);
+      return post;
+    },
     create: async (post) => {
       if (!shouldPersistLocally()) return inner.create(post);
       mutateOverlay((overlay) => {

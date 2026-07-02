@@ -9,6 +9,8 @@ import { usePostNavigationStore } from "@/app/model/store/post-navigation-store"
 import { activePostChatIdFromPost, displayPostChatId } from "@/entities/post/lib/resolvePostChatId";
 import { usePost, useUpdatePost } from "@/entities/post";
 import { useSyncPostComments } from "@/entities/post/model/useSyncPostComments";
+import { useRetryPendingComments } from "@/entities/post/model/useRetryPendingComments";
+import { usePollOpenPost } from "@/entities/post/model/usePollOpenPost";
 import { getApiErrorMessage } from "@/shared/api/getApiErrorMessage";
 import {
   flattenVisibleWithPaths,
@@ -50,7 +52,9 @@ export function usePostWorkspace() {
   const handleBack = useScreenBack();
 
   const { data: post, isLoading, error } = usePost(postId ?? "");
+  usePollOpenPost(postId, Boolean(postId));
   useSyncPostComments(post, postMode === "comments");
+  useRetryPendingComments(post, postMode === "comments");
   const { phoneFormat, layoutClassName, layoutStyle } = useFeedPostLayout();
   const isMobile = useMobile760();
   const postHeaderCompact1000 = useCompactHeader1000();

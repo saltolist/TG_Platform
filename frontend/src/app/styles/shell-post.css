@@ -865,6 +865,10 @@
   margin-bottom: 4px;
 }
 .post-comment-author { font-size: 13px; font-weight: 600; color: var(--text); }
+.post-comment-sync-label {
+  font-size: 13px;
+  font-weight: 500;
+}
 .post-comment-date { font-size: 11px; color: var(--text3); }
 .post-comment-quote {
   display: flex;

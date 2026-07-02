@@ -3,6 +3,7 @@
 import { getPostMediaItems } from "@/shared/lib/helpers";
 import type { Post } from "@/shared/types";
 import { useTelegramProfile } from "@/entities/channel";
+import { postSupportsComments } from "@/entities/post/lib/postSupportsComments";
 import { PostMediaBlock, PostStatus, usePostTelegramSyncing } from "@/entities/post";
 import PostCommentsRow from "@/widgets/post-workspace/ui/PostCommentsRow";
 import { PostReactionPills, PostViewsReposts } from "./PostEngagement";
@@ -26,7 +27,8 @@ export default function PostCard({
   const mediaItems = getPostMediaItems(post);
   const isTelegramSyncing = usePostTelegramSyncing(post.id);
   const { data: telegramProfile } = useTelegramProfile();
-  const commentsEnabled = telegramProfile?.commentsEnabled !== false;
+  const channelCommentsEnabled = telegramProfile?.commentsEnabled !== false;
+  const showComments = postSupportsComments(post, channelCommentsEnabled);
   const isDraftDnD = post.status === "draft" && !!draftHandleProps;
   const isTextOnlyPub =
     mediaItems.length === 0 &&
@@ -86,7 +88,7 @@ export default function PostCard({
             <PostViewsReposts views={post.metrics.views} reposts={post.metrics.reposts} />
           ) : null}
         </div>
-        {post.status === "published" && post.metrics && !isTelegramSyncing && commentsEnabled ? (
+        {post.status === "published" && post.metrics && !isTelegramSyncing && showComments ? (
           <PostCommentsRow
             count={post.comments?.length ?? 0}
             onClick={(e) => {

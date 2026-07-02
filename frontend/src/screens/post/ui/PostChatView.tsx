@@ -4,6 +4,7 @@ import { Composer } from "@/widgets/composer";
 import { ChatMessage } from "@/widgets/chat-thread";
 import { PostMessageCard, type PostWorkspace } from "@/widgets/post-workspace";
 import { useTelegramProfile } from "@/entities/channel";
+import { postSupportsComments } from "@/entities/post/lib/postSupportsComments";
 import { PostStatusBadge, usePostTelegramSyncing } from "@/entities/post";
 import { isStreamingChatMessage } from "@/shared/lib/streaming/streamingMessage";
 import { firstUserFlatIndex, userMessageHasBranches } from "@/shared/lib/chatPaths";
@@ -33,7 +34,8 @@ export default function PostChatView({ post, data, ui, actions }: Props) {
   const { startEdit, cancelEdit, savePost, openComments, sendPost } = actions;
   const isTelegramSyncing = usePostTelegramSyncing(post.id) || isSavingPost;
   const { data: telegramProfile } = useTelegramProfile();
-  const commentsEnabled = telegramProfile?.commentsEnabled !== false;
+  const channelCommentsEnabled = telegramProfile?.commentsEnabled !== false;
+  const showComments = postSupportsComments(post, channelCommentsEnabled);
   const firstUserFlat = firstUserFlatIndex(flatMessages);
 
   return (
@@ -62,8 +64,8 @@ export default function PostChatView({ post, data, ui, actions }: Props) {
                     ? (post.comments ?? [])
                     : undefined
                 }
-                onOpenComments={openComments}
-                commentsEnabled={commentsEnabled}
+                onOpenComments={showComments ? openComments : undefined}
+                commentsEnabled={showComments}
                 isTextOnlyNoMedia={
                   mediaItems.length === 0 &&
                   (post.status === "published" ||

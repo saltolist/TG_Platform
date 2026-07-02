@@ -3,9 +3,12 @@
 import { useRef, useState } from "react";
 
 import { useTelegramProfile } from "@/entities/channel";
+import { postSupportsComments } from "@/entities/post/lib/postSupportsComments";
 import { useAddPostComment } from "@/entities/post/model/usePostCommentMutations";
 import { PostMediaBlock } from "@/entities/post";
+import { getApiErrorMessage } from "@/shared/api/getApiErrorMessage";
 import { randomId } from "@/shared/lib/randomId";
+import { showToast } from "@/shared/ui/toast";
 import { PostReactionPills, PostViewsReposts } from "@/widgets/feed";
 import type { Post, PostComment, PostMedia, PostMetrics } from "@/shared/types";
 
@@ -31,11 +34,12 @@ export default function PostCommentsPanel({
   media,
   phoneFormat = false,
 }: Props) {
-  const addPostComment = useAddPostComment();
+  const { addComment: savePostComment, isPending: isSavingComment } = useAddPostComment();
   const { data: telegramProfile } = useTelegramProfile();
-  const commentsEnabled = telegramProfile?.commentsEnabled !== false;
+  const channelCommentsEnabled = telegramProfile?.commentsEnabled !== false;
+  const showComments = postSupportsComments(post, channelCommentsEnabled);
   const canSyncComments = Boolean(post.telegramMessageId);
-  const composerDisabled = canSyncComments && !commentsEnabled;
+  const composerDisabled = canSyncComments && !showComments;
   const [replyTo, setReplyTo] = useState<PostComment | null>(null);
   const scrollRef = useRef<HTMLDivElement>(null);
   const comments = post.comments ?? [];
@@ -49,11 +53,19 @@ export default function PostCommentsPanel({
       ...(commentMedia.length > 0 ? { media: [...commentMedia] } : {}),
       ...(replyTo ? { replyToId: replyTo.id } : {}),
     };
-    await addPostComment(post.id, comment);
-    setReplyTo(null);
-    requestAnimationFrame(() => {
-      if (scrollRef.current) scrollRef.current.scrollTop = scrollRef.current.scrollHeight;
-    });
+    try {
+      await savePostComment(post.id, comment);
+      setReplyTo(null);
+      requestAnimationFrame(() => {
+        if (scrollRef.current) scrollRef.current.scrollTop = scrollRef.current.scrollHeight;
+      });
+    } catch (error) {
+      showToast({
+        message: getApiErrorMessage(error, "Не удалось отправить комментарий"),
+        variant: "error",
+      });
+      throw error;
+    }
   }
 
   return (
@@ -98,6 +110,7 @@ export default function PostCommentsPanel({
                   <PostCardCommentsSection
                     comments={comments}
                     search={search}
+                    postTelegramLinked={canSyncComments}
                     onReply={(c) => setReplyTo(c)}
                   />
                 </div>
@@ -115,7 +128,7 @@ export default function PostCommentsPanel({
         replyTo={replyTo}
         onCancelReply={() => setReplyTo(null)}
         onSubmit={addComment}
-        disabled={composerDisabled}
+        disabled={composerDisabled || isSavingComment}
       />
     </>
   );

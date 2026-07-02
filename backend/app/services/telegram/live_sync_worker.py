@@ -31,7 +31,7 @@ from app.services.telegram.net import (
     require_api_credentials,
     with_timeout,
 )
-from app.services.telegram.comments_flow import handle_live_discussion_message
+from app.services.telegram.comments_flow import DiscussionCommentBuffer
 from app.services.telegram.post_sync import (
     delete_telegram_post,
     set_sync_error,
@@ -170,6 +170,8 @@ class ListenerRegistry:
         if task is not None and not task.done():
             try:
                 await asyncio.wait_for(task, timeout=wait_seconds)
+            except asyncio.CancelledError:
+                pass
             except asyncio.TimeoutError:
                 logger.warning("Live-sync listener stop timed out for user %s", user_id)
                 await self.force_disconnect_active_client(user_id)
@@ -437,6 +439,15 @@ async def _run_user_listener(user_id: UUID, stop_event: asyncio.Event) -> None:
                         update=False,
                     ),
                 )
+                comment_buffer = DiscussionCommentBuffer(
+                    client,
+                    user_id,
+                    session_factory,
+                    debounce_seconds=settings.telegram_comment_debounce_seconds,
+                    on_error=lambda detail: set_sync_error(
+                        user_id, detail, session_factory
+                    ),
+                )
 
                 periodic_reconcile_task: asyncio.Task[None] | None = None
                 periodic_catch_up_task: asyncio.Task[None] | None = None
@@ -552,12 +563,7 @@ async def _run_user_listener(user_id: UUID, stop_event: asyncio.Event) -> None:
                             event: events.NewMessage.Event,
                         ) -> None:
                             try:
-                                await handle_live_discussion_message(
-                                    client,
-                                    event.message,
-                                    user_id,
-                                    session_factory,
-                                )
+                                await comment_buffer.add(event.message)
                             except Exception as exc:  # noqa: BLE001
                                 logger.exception(
                                     "Live-sync discussion NewMessage failed for user %s",
@@ -590,9 +596,11 @@ async def _run_user_listener(user_id: UUID, stop_event: asyncio.Event) -> None:
                             pass
                     if stop_event.is_set():
                         await album_buffer.flush_all()
+                        await comment_buffer.flush()
                         return
                 except asyncio.CancelledError:
                     await album_buffer.flush_all()
+                    await comment_buffer.flush()
                     raise
                 except TelegramAuthError as exc:
                     if exc.status_code == 504:
