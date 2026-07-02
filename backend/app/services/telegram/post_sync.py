@@ -163,6 +163,8 @@ def _content_unchanged(existing: dict[str, Any], incoming: dict[str, Any]) -> bo
     incoming_media = incoming.get("media")
     if incoming_media and incoming_media != existing.get("media"):
         return False
+    if (existing.get("metrics") or {}) != (incoming.get("metrics") or {}):
+        return False
     return True
 
 

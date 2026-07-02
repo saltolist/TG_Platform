@@ -1,9 +1,14 @@
 "use client";
 
 import { useRouter } from "next/navigation";
-import { useCallback, useMemo, type CSSProperties } from "react";
+import { useCallback, useEffect, useMemo, type CSSProperties } from "react";
 
 import { useNavigationStore } from "@/app/model/store";
+import {
+  useChannelAnalyticsOverview,
+  useChannelAnalyticsTopPosts,
+} from "@/entities/analytics";
+import { useChannelConnected } from "@/entities/channel";
 import { usePosts } from "@/entities/post";
 import { buildAnalyticsTopPostsFromPosts } from "@/shared/lib/analytics/buildTopPostsFromPosts";
 import {
@@ -12,7 +17,9 @@ import {
   ANALYTICS_PERIOD_LABELS,
 } from "@/shared/lib/analyticsPeriod";
 import { getChannelTopPostsTableMetrics } from "@/shared/lib/channelAnalyticsTrend";
+import { loadChannelMetricsFromApi } from "@/shared/lib/channelMetricsDb";
 import { useMobile760 } from "@/shared/lib/hooks/useMobile760";
+import { shouldPersistLocally } from "@/shared/lib/overlay/isOverlayAccount";
 import { routes } from "@/shared/lib/routes";
 import type { AnalyticsPeriod } from "@/shared/data/analytics-seed";
 import { usePageHeaderLe780 } from "@/widgets/page-header";
@@ -24,6 +31,16 @@ export function useAnalyticsScreen() {
   const isMobile = useMobile760();
   const isHeaderLe780 = usePageHeaderLe780();
   const { data: posts = [] } = usePosts();
+  const { isConnected: isChannelConnected } = useChannelConnected();
+  const useRealAnalytics = !shouldPersistLocally();
+  const overviewQuery = useChannelAnalyticsOverview(period, isChannelConnected);
+  const topPostsQuery = useChannelAnalyticsTopPosts(period, isChannelConnected);
+
+  useEffect(() => {
+    if (overviewQuery.data) {
+      loadChannelMetricsFromApi(overviewQuery.data);
+    }
+  }, [overviewQuery.data]);
 
   const periodIndex = analyticsPeriodToIndex(period);
 
@@ -32,10 +49,19 @@ export function useAnalyticsScreen() {
     [isMobile, isHeaderLe780],
   );
 
-  const rankedTopPosts = useMemo(
-    () => buildAnalyticsTopPostsFromPosts(posts),
-    [posts],
-  );
+  const rankedTopPosts = useMemo(() => {
+    if (useRealAnalytics && topPostsQuery.data) {
+      return topPostsQuery.data;
+    }
+    return buildAnalyticsTopPostsFromPosts(posts);
+  }, [posts, topPostsQuery.data, useRealAnalytics]);
+
+  const channelReactions = useMemo(() => {
+    if (useRealAnalytics && overviewQuery.data?.reactions?.length) {
+      return overviewQuery.data.reactions;
+    }
+    return undefined;
+  }, [overviewQuery.data?.reactions, useRealAnalytics]);
 
   const topPostsDesktopGridStyle = useMemo(
     () =>
@@ -89,6 +115,11 @@ export function useAnalyticsScreen() {
       rankedTopPosts,
       topPostsDesktopGridStyle,
       topPostsTableWrapStyle,
+      channelReactions,
+      isLoadingAnalytics:
+        useRealAnalytics &&
+        isChannelConnected &&
+        (overviewQuery.isLoading || topPostsQuery.isLoading),
     },
     ui: {
       isMobile,

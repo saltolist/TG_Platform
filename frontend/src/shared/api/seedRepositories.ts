@@ -21,6 +21,10 @@ import type {
 } from "@/shared/types";
 import type { AiModelListField } from "@/shared/lib/profile/aiModelListField";
 import { PLATFORM_ANALYTICS_PERIODS } from "@/shared/lib/platformAnalyticsPeriods";
+import {
+  buildChannelOverviewFromPosts,
+  buildChannelTopPostsFromPosts,
+} from "@/shared/lib/analytics/buildChannelOverviewFromPosts";
 import { buildModelUsage } from "@/shared/lib/profile/platformAnalytics";
 
 export function createSeedRepositories(): RepositoryBundle {
@@ -259,6 +263,12 @@ export function createSeedRepositories(): RepositoryBundle {
             posts: posts.length,
           },
         };
+      },
+      async getChannelOverview(period) {
+        return buildChannelOverviewFromPosts(posts, period);
+      },
+      async getChannelTopPosts(period) {
+        return buildChannelTopPostsFromPosts(posts, period);
       },
     },
   };

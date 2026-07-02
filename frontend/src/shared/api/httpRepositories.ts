@@ -24,6 +24,10 @@ import type {
   TelegramProfileConfig,
 } from "@/shared/types";
 import {
+  channelAnalyticsOverviewSchema,
+  channelAnalyticsTopPostsSchema,
+} from "@/shared/api/schemas/channelAnalytics";
+import {
   platformModelAnalyticsSchema,
 } from "@/shared/api/schemas/platformAnalytics";
 
@@ -216,6 +220,14 @@ export function createHttpRepositories(): RepositoryBundle {
         apiRequest<unknown>(
           `${apiV1Path("analytics/platform-models")}?period=${period}&points=${points}`,
         ).then((data) => platformModelAnalyticsSchema.parse(data)),
+      getChannelOverview: (period) =>
+        apiRequest<unknown>(`${apiV1Path("analytics/overview")}?period=${period}`).then((data) =>
+          channelAnalyticsOverviewSchema.parse(data),
+        ),
+      getChannelTopPosts: (period) =>
+        apiRequest<unknown>(`${apiV1Path("analytics/top-posts")}?period=${period}`).then((data) =>
+          channelAnalyticsTopPostsSchema.parse(data).posts,
+        ),
     },
   };
 }

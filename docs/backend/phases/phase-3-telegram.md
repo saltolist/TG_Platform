@@ -487,19 +487,43 @@ Celery Beat/Flower.
 
 ---
 
-### Шаг 5 — Синхронизация метрик
+### Шаг 5 — Синхронизация метрик ✅
 
 **Эндпоинты:**
 ```
-GET /api/v1/analytics/overview
-GET /api/v1/analytics/top-posts
+GET /api/v1/analytics/overview/?period=30d
+GET /api/v1/analytics/top-posts/?period=30d
 ```
 
-1. Сбор просмотров, реакций, репостов из Telegram.
-2. Маппинг на `PostMetrics` / `PostReaction`.
-3. Периодическое обновление (фоновая задача).
+`period`: `24h` | `7d` | `30d` | `90d` | `all`.
 
----
+**Сбор из Telegram (MTProto):**
+- `message_mapping.extract_metrics_from_message()` — `views`, `forwards` → `reposts`,
+  `reactions.results` → `PostReaction[]` (`emoji`, `count`).
+- Используется при импорте, publish, live-sync и **оконной сверке** (шаг 3.5b).
+
+**Обновление в БД:**
+- `post_sync._content_unchanged` учитывает изменение `metrics` — reconcile может
+  обновлять просмотры/реакции/репосты без правки текста.
+- Периодическое обновление — через существующий `reconcile_channel_window`
+  (`telegram_reconcile_periodic_seconds`, по умолчанию 15 мин).
+
+**Агрегация для UI:**
+- `backend/app/services/analytics/channel_metrics.py` — `build_overview`,
+  `build_top_posts` из `post.data.metrics` опубликованных постов.
+- Overview: `startTotals` / `endTotals`, дневные бакеты по дате публикации,
+  разбивка реакций по emoji.
+- Top-posts: ранжирование по `views` за выбранный период.
+
+**Frontend:**
+- `useChannelAnalyticsOverview` / `useChannelAnalyticsTopPosts` — реальные аккаунты.
+- Demo/overlay — прежние seed-данные (`channelMetricsDb`, `shouldPersistLocally()`).
+- `ChannelReactionsPanel` — реакции из API; графики — через `loadChannelMetricsFromApi`.
+
+**Тесты:** `backend/tests/test_telegram_metrics.py`.
+
+**Ограничение v1:** исторические тренды строятся по **текущим** снимкам метрик постов,
+сгруппированным по дате публикации (нет отдельного time-series store). Heatmap — seed.
 
 ### Шаг 6 — Бот для уведомлений (опционально)
 
@@ -521,8 +545,8 @@ POST /api/v1/media/                        ✅ статическая разда
 POST /api/v1/posts/:id/publish/            ✅ реализован (шаг 4a)
 POST /api/v1/posts/:id/schedule/           ✅ реализован — Celery + Redis (шаг 4b)
 PATCH /api/v1/posts/:id/                   ✅ + edit_message в TG при правке текста (шаг 4c)
-GET  /api/v1/analytics/overview
-GET  /api/v1/analytics/top-posts
+GET  /api/v1/analytics/overview/            ✅ реализован (шаг 5)
+GET  /api/v1/analytics/top-posts/           ✅ реализован (шаг 5)
 ```
 
 ---
@@ -532,7 +556,7 @@ GET  /api/v1/analytics/top-posts
 - Реальный аккаунт подключает Telegram-канал через MTProto. ✅
 - История импортируется; пост публикуется и планируется; правка текста на
   платформе отражается в канале. ✅ (шаг 4)
-- Метрики канала синхронизируются и отображаются в аналитике. — шаг 5, не сделан.
+- Метрики канала синхронизируются и отображаются в аналитике. ✅ (шаг 5)
 - Telegram-секреты (`apiHash`, `botApiToken`) зашифрованы в БД; на фронт — preview. ✅
 
 > CSP и продакшен-гигиена (`BYOK_ENCRYPTION_KEY`, KMS, ротация) — см.

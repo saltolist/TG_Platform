@@ -19,14 +19,18 @@ import { useChartSeriesVisibility } from "@/shared/lib/hooks/useChartSeriesVisib
 import { useMobile760 } from "@/shared/lib/hooks/useMobile760";
 import { usePageHeaderLe1080, usePageHeaderLe640 } from "@/widgets/page-header";
 
+import type { PostReaction } from "@/shared/types";
+
 export default function ChannelAnalyticsSection({
   periodIndex,
   periods,
   onPeriodChange,
+  reactions,
 }: {
   periodIndex: number;
   periods: string[];
   onPeriodChange: (next: number) => void;
+  reactions?: PostReaction[];
 }) {
   const isMobile = useMobile760();
   const isHeaderLe1080 = usePageHeaderLe1080();
@@ -141,7 +145,7 @@ export default function ChannelAnalyticsSection({
         <div className="analytics-card channel-reactions-card platform-analytics-section analytics-metrics-card">
           <div className="analytics-metrics-card-title">Реакции</div>
           <div className="analytics-metrics-card-body">
-            <ChannelReactionsPanel />
+            <ChannelReactionsPanel reactions={reactions} />
           </div>
         </div>
       </div>

@@ -68,6 +68,10 @@ export interface ProfileRepository {
 }
 
 import type { ChatContextMeta } from "@/shared/api/schemas/chatContextMeta";
+import type {
+  AnalyticsTopPostRow,
+  ChannelAnalyticsOverview,
+} from "@/shared/api/schemas/channelAnalytics";
 import type { PlatformModelAnalyticsDto } from "@/shared/api/schemas/platformAnalytics";
 
 export type AssistantStreamOptions = {
@@ -106,6 +110,8 @@ export interface AssistantRepository {
 
 export interface AnalyticsRepository {
   getPlatformModels(period: number, points: number): Promise<PlatformModelAnalyticsDto>;
+  getChannelOverview(period: string): Promise<ChannelAnalyticsOverview>;
+  getChannelTopPosts(period: string): Promise<AnalyticsTopPostRow[]>;
 }
 
 export type RepositoryBundle = {

@@ -1,4 +1,11 @@
 export {
+  channelAnalyticsOverviewSchema,
+  channelAnalyticsTopPostsSchema,
+  analyticsTopPostRowSchema,
+} from "./channelAnalytics";
+export type { ChannelAnalyticsOverview, AnalyticsTopPostRow } from "./channelAnalytics";
+
+export {
   postSchema,
   postsListSchema,
   postStatusSchema,

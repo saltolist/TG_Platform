@@ -37,6 +37,7 @@ export function AnalyticsScreen() {
               periodIndex={data.periodIndex}
               periods={data.periods}
               onPeriodChange={actions.setPeriod}
+              reactions={data.channelReactions}
             />
             <AnalyticsHeatmap />
             <AnalyticsTopPostsTable

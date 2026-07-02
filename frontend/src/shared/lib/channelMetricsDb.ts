@@ -57,6 +57,10 @@ export function getChannelMetricsDatabase(): ChannelMetricsDatabase {
   return db;
 }
 
+export function loadChannelMetricsFromApi(dataset: ChannelMetricsDataset): void {
+  db = cloneMetricsDataset(dataset);
+}
+
 export const CHANNEL_METRICS_DAY_COUNT = db.dayCount;
 
 const CHANNEL_ALL_TIME_MAX_LABELS = 30;

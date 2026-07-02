@@ -6,6 +6,10 @@ import { appendToActiveHistory } from "@/shared/lib/chatPaths";
 import { getGlobalReply, getPostReply } from "@/shared/api/assistantReplies";
 import { chunkTextForStream, formatSseData } from "@/shared/api/sse";
 import { PLATFORM_ANALYTICS_PERIODS } from "@/shared/lib/platformAnalyticsPeriods";
+import {
+  buildChannelOverviewFromPosts,
+  buildChannelTopPostsFromPosts,
+} from "@/shared/lib/analytics/buildChannelOverviewFromPosts";
 import { buildModelUsage } from "@/shared/lib/profile/platformAnalytics";
 import type { GlobalChat, GlobalNote, Post, TelegramProfileConfig } from "@/shared/types";
 import {
@@ -404,5 +408,19 @@ export const handlers = [
         posts: store.posts.length,
       },
     });
+  }),
+
+  http.get(apiV1MswPath("analytics/overview"), ({ request }) => {
+    const store = requireStore(request);
+    if (!store) return unauthorized();
+    const period = new URL(request.url).searchParams.get("period") ?? "30d";
+    return HttpResponse.json(buildChannelOverviewFromPosts(store.posts, period));
+  }),
+
+  http.get(apiV1MswPath("analytics/top-posts"), ({ request }) => {
+    const store = requireStore(request);
+    if (!store) return unauthorized();
+    const period = new URL(request.url).searchParams.get("period") ?? "30d";
+    return HttpResponse.json({ posts: buildChannelTopPostsFromPosts(store.posts, period) });
   }),
 ];

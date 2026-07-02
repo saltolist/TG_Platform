@@ -30,5 +30,9 @@ export const queryKeys = {
     all: (accountId: string) => [...queryKeys.scope(accountId), "analytics"] as const,
     platformModels: (accountId: string, period: number, points: number) =>
       [...queryKeys.analytics.all(accountId), "platformModels", period, points] as const,
+    channelOverview: (accountId: string, period: string) =>
+      [...queryKeys.analytics.all(accountId), "channelOverview", period] as const,
+    channelTopPosts: (accountId: string, period: string) =>
+      [...queryKeys.analytics.all(accountId), "channelTopPosts", period] as const,
   },
 } as const;

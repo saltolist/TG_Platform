@@ -74,6 +74,33 @@ def format_views(views: Any) -> str:
     return str(views)
 
 
+def _reaction_to_emoji(reaction: Any) -> str | None:
+    emoticon = getattr(reaction, "emoticon", None)
+    if emoticon:
+        return str(emoticon)
+    return None
+
+
+def extract_metrics_from_message(message: Any) -> dict[str, Any]:
+    """Map Telethon message counters to platform ``PostMetrics``."""
+    views = format_views(getattr(message, "views", None))
+    forwards = getattr(message, "forwards", None)
+    reposts = int(forwards) if forwards else 0
+
+    reactions: list[dict[str, Any]] = []
+    msg_reactions = getattr(message, "reactions", None)
+    if msg_reactions is not None:
+        for item in getattr(msg_reactions, "results", None) or []:
+            count = int(getattr(item, "count", 0) or 0)
+            if count <= 0:
+                continue
+            emoji = _reaction_to_emoji(getattr(item, "reaction", None))
+            if emoji:
+                reactions.append({"emoji": emoji, "count": count})
+
+    return {"views": views, "reposts": reposts, "reactions": reactions}
+
+
 def _telegram_edit_timestamp_iso(message: Any) -> str | None:
     """ISO timestamp of the last Telegram-side edit, if the message was edited."""
     edit_date = getattr(message, "edit_date", None)
@@ -117,11 +144,7 @@ async def map_group_to_post(
         "date": iso_date,
         "rubric": None,
         "text": text,
-        "metrics": {
-            "views": format_views(views),
-            "reposts": 0,
-            "reactions": [],
-        },
+        "metrics": extract_metrics_from_message(primary),
         "notes": [],
         "chats": [],
         "comments": [],
@@ -153,16 +176,11 @@ def map_message_for_reconcile(message: Any) -> dict[str, Any] | None:
         else datetime.now(timezone.utc).isoformat()
     )
 
-    views = getattr(message, "views", None)
     post: dict[str, Any] = {
         "status": "published",
         "date": iso_date,
         "text": text,
-        "metrics": {
-            "views": format_views(views),
-            "reposts": 0,
-            "reactions": [],
-        },
+        "metrics": extract_metrics_from_message(message),
         "source": "telegram",
         "telegramMessageId": str(getattr(message, "id", "")),
     }
