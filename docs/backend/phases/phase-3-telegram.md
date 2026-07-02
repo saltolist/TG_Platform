@@ -560,9 +560,12 @@ GET /api/v1/analytics/top-posts/?period=30d
 - Комментарии бампят отдельный `commentsRevision` (а не `syncRevision`) через
   `touch_telegram_profile(comment_only=True)`, поэтому фронт **не рефетчит весь фид**
   на каждый чужой комментарий.
+- Просмотры/репосты/реакции из live `MessageEdited` бампят `metricsRevision`
+  (`touch_telegram_profile(metrics_only=True)`) — фид не обновляется в реалтайме;
+  метрики подтягиваются при открытии поста (`usePollOpenPost`), reconcile и перезагрузке.
 - Комментарии обновляются **лениво**: при заходе на пост / открытии вкладки /
-  reconcile / перезагрузке страницы. Реалтайм-поллинга открытого поста нет
-  (чтобы не устраивать сотни `sync-comments` в минуту на единственную TG-сессию).
+  reconcile / перезагрузке страницы (`usePollOpenPost` — DB poll раз в 5 с на
+  открытой странице поста, без запросов в Telegram).
 - После **публикации** поста с включёнными обсуждениями сразу проставляются
   `commentsThreadAvailable` / `telegramDiscussionMessageId` (probe с ретраями;
   если TG ещё не отдал тред — оптимистично `commentsThreadAvailable=true`).
@@ -576,10 +579,10 @@ GET /api/v1/analytics/top-posts/?period=30d
   а не для всех опубликованных постов сразу.
 - блокировка `CommentComposer` без обсуждений.
 - `useSyncPostComments` — вызов `sync-comments` при `postMode === "comments"` (ленивый pull из TG).
-- `usePollOpenPost` — пока открыта страница поста, раз в 5 с `GET /posts/:id` (только DB,
-  без Telegram); подтягивает комментарии, уже записанные live-sync.
+- `usePollOpenPost` — пока открыта страница поста, раз в 5 с `GET /posts/:id` (DB:
+  комментарии + метрики/реакции, без Telegram).
 - `TelegramLiveSyncPoll` рефетчит фид только на рост `syncRevision`; `commentsRevision`
-  фид не трогает.
+  и `metricsRevision` фид не трогают.
 - Toast при `commentSyncError`.
 
 **Тесты:** `backend/tests/test_telegram_comments_sync.py`.

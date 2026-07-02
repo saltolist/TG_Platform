@@ -127,6 +127,7 @@ export type TelegramProfileConfig = {
   syncError: string;
   syncRevision: number;
   commentsRevision?: number;
+  metricsRevision?: number;
   discussionChatId?: string;
   commentsEnabled?: boolean;
   botApiToken: string;

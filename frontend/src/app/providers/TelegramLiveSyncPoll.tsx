@@ -26,6 +26,7 @@ function mergeTelegramSyncFields(
     syncError: telegram.syncError,
     syncRevision: telegram.syncRevision,
     commentsRevision: telegram.commentsRevision,
+    metricsRevision: telegram.metricsRevision,
     commentsEnabled: telegram.commentsEnabled,
     discussionChatId: telegram.discussionChatId,
   };
@@ -36,7 +37,7 @@ function mergeTelegramSyncFields(
  * advances (new/edited/deleted posts). Inbound discussion comments intentionally
  * bump ``commentsRevision`` instead, so a high-volume comment stream does NOT
  * refetch every post — comments are pulled lazily on post open / comments tab /
- * reconcile.
+ * reconcile. The same applies to views/reposts/reactions (``metricsRevision``).
  */
 export function TelegramLiveSyncPoll() {
   const { profile } = useRepositories();

@@ -64,6 +64,7 @@ export function createEmptyTelegramProfile(): TelegramProfileConfig {
     syncError: "",
     syncRevision: 0,
     commentsRevision: 0,
+    metricsRevision: 0,
     discussionChatId: "",
     commentsEnabled: false,
     botApiToken: "",

@@ -12,8 +12,8 @@ const POLL_INTERVAL_MS = 5_000;
 
 /**
  * While a post page (or its comments tab) is open, periodically refetch that
- * post from our DB. Live-sync already writes inbound TG comments in batches;
- * this keeps the UI fresh without hitting Telegram on every tick.
+ * post from our DB. Live-sync writes inbound comments and metrics/reactions in
+ * the background; this keeps the open post UI fresh without Telegram round-trips.
  */
 export function usePollOpenPost(postId: string | null | undefined, enabled: boolean) {
   const { posts } = useRepositories();

@@ -74,6 +74,7 @@ async def touch_telegram_profile(
     sync_status: str = "listening",
     sync_error: str = "",
     comment_only: bool = False,
+    metrics_only: bool = False,
 ) -> None:
     telegram = dict(profile.telegram or {})
     if last_message_id is not None:
@@ -86,6 +87,10 @@ async def touch_telegram_profile(
         # refetch the whole post list on every inbound discussion comment. Comments
         # are pulled lazily (post open / comments tab / reconcile) instead.
         telegram["commentsRevision"] = int(telegram.get("commentsRevision") or 0) + 1
+    elif metrics_only:
+        # Views/reposts/reactions from live MessageEdited — same lazy model as
+        # comments: persist to DB, refresh on open post / reconcile, not feed.
+        telegram["metricsRevision"] = int(telegram.get("metricsRevision") or 0) + 1
     else:
         telegram["syncRevision"] = int(telegram.get("syncRevision") or 0) + 1
     telegram["syncStatus"] = sync_status
@@ -175,6 +180,17 @@ def _content_unchanged(existing: dict[str, Any], incoming: dict[str, Any]) -> bo
     return True
 
 
+def _is_metrics_only_change(existing: dict[str, Any], incoming: dict[str, Any]) -> bool:
+    """True when only views/reposts/reactions differ (text and media unchanged)."""
+    if str(existing.get("text") or "") != str(incoming.get("text") or ""):
+        return False
+    incoming_media = incoming.get("media")
+    existing_media = existing.get("media")
+    if incoming_media and incoming_media != existing_media:
+        return False
+    return (existing.get("metrics") or {}) != (incoming.get("metrics") or {})
+
+
 def _incoming_telegram_edit_is_stale(existing: dict[str, Any], incoming: dict[str, Any]) -> bool:
     """Drop a live-sync text update that predates the latest platform-side edit.
 
@@ -242,9 +258,12 @@ async def update_telegram_post(
     old_media = existing.data.get("media")
     if not new_media and old_media:
         merged["media"] = old_media
+    metrics_only = _is_metrics_only_change(existing.data, merged)
     existing.data = merged
     flag_modified(existing, "data")
-    await touch_telegram_profile(session, profile, last_message_id=msg_id)
+    await touch_telegram_profile(
+        session, profile, last_message_id=msg_id, metrics_only=metrics_only
+    )
 
 
 async def mark_post_published(

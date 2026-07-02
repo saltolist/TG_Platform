@@ -13,7 +13,7 @@ from app.db.models import Post, Profile
 from app.services.analytics.channel_metrics import build_overview, build_top_posts
 from app.services.telegram.message_mapping import extract_metrics_from_message
 from app.services.telegram.post_sync import update_telegram_post
-from tests.conftest import TestSessionLocal, writer_auth_headers
+from tests.conftest import TestSessionLocal, writer_auth_headers, writer_user
 
 
 def test_extract_metrics_from_message_maps_reactions_and_forwards() -> None:
@@ -41,23 +41,24 @@ def test_extract_metrics_from_message_maps_reactions_and_forwards() -> None:
 
 
 @pytest.mark.asyncio
-async def test_update_telegram_post_persists_metrics_only_change() -> None:
-    user_id = uuid.uuid4()
+async def test_update_telegram_post_persists_metrics_only_change(writer_user) -> None:
+    user_id = writer_user.id
     async with TestSessionLocal() as db_session:
-        db_session.add(Profile(user_id=user_id, telegram={}))
+        if await db_session.get(Profile, user_id) is None:
+            db_session.add(Profile(user_id=user_id, telegram={}))
         post = Post(
-        id=uuid.uuid4(),
-        user_id=user_id,
-        position=0,
-        data={
-            "id": "post-1",
-            "status": "published",
-            "text": "Same text",
-            "telegramMessageId": "9001",
-            "source": "telegram",
-            "metrics": {"views": "10", "reposts": 0, "reactions": []},
-        },
-    )
+            id=uuid.uuid4(),
+            user_id=user_id,
+            position=0,
+            data={
+                "id": "post-1",
+                "status": "published",
+                "text": "Same text",
+                "telegramMessageId": "9001",
+                "source": "telegram",
+                "metrics": {"views": "10", "reposts": 0, "reactions": []},
+            },
+        )
         db_session.add(post)
         await db_session.commit()
 
@@ -74,11 +75,56 @@ async def test_update_telegram_post_persists_metrics_only_change() -> None:
                 },
             },
         )
+        await db_session.commit()
         await db_session.refresh(post)
 
         assert post.data["metrics"]["views"] == "42"
         assert post.data["metrics"]["reposts"] == 3
         assert post.data["metrics"]["reactions"] == [{"emoji": "👍", "count": 5}]
+
+        profile = await db_session.get(Profile, user_id)
+        assert profile is not None
+        assert int(profile.telegram.get("metricsRevision") or 0) == 1
+        assert int(profile.telegram.get("syncRevision") or 0) == 0
+
+
+@pytest.mark.asyncio
+async def test_update_telegram_post_text_change_bumps_sync_revision(writer_user) -> None:
+    user_id = writer_user.id
+    async with TestSessionLocal() as db_session:
+        if await db_session.get(Profile, user_id) is None:
+            db_session.add(Profile(user_id=user_id, telegram={}))
+        post = Post(
+            id=uuid.uuid4(),
+            user_id=user_id,
+            position=0,
+            data={
+                "id": "post-2",
+                "status": "published",
+                "text": "Before",
+                "telegramMessageId": "9002",
+                "source": "telegram",
+                "metrics": {"views": "10", "reposts": 0, "reactions": []},
+            },
+        )
+        db_session.add(post)
+        await db_session.commit()
+
+        await update_telegram_post(
+            db_session,
+            user_id,
+            {
+                "telegramMessageId": "9002",
+                "text": "After",
+                "metrics": {"views": "10", "reposts": 0, "reactions": []},
+            },
+        )
+        await db_session.commit()
+
+        profile = await db_session.get(Profile, user_id)
+        assert profile is not None
+        assert int(profile.telegram.get("syncRevision") or 0) == 1
+        assert int(profile.telegram.get("metricsRevision") or 0) == 0
 
 
 @pytest.mark.asyncio
