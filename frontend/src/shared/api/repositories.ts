@@ -21,7 +21,7 @@ export interface PostsRepository {
   create(post: Post): Promise<Post>;
   update(id: string, patch: Partial<Post>): Promise<Post>;
   reorder(posts: Post[]): Promise<Post[]>;
-  remove(id: string): Promise<void>;
+  remove(id: string, options?: { permanent?: boolean }): Promise<void>;
   /** Publish a draft to the connected Telegram channel now (Phase 3 / Step 4a). */
   publish(id: string): Promise<Post>;
   /** Queue a draft for publication at `scheduledAt` via Celery (Phase 3 / Step 4b). */

@@ -5,6 +5,7 @@ export {
   useUpdatePost,
   useReorderPosts,
   useDeletePost,
+  usePermanentDeletePost,
   usePublishPost,
   useSchedulePost,
   usePostTelegramSyncing,

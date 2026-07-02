@@ -171,3 +171,17 @@ export function useDeletePost() {
     },
   });
 }
+
+export function usePermanentDeletePost() {
+  const { posts } = useRepositories();
+  const queryClient = useQueryClient();
+  const accountId = useQueryAccountScope();
+
+  return useMutation({
+    mutationFn: (id: string) => posts.remove(id, { permanent: true }),
+    onSuccess: (_data, id) => {
+      void queryClient.invalidateQueries({ queryKey: queryKeys.posts.all(accountId) });
+      queryClient.removeQueries({ queryKey: queryKeys.posts.detail(accountId, id) });
+    },
+  });
+}

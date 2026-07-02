@@ -47,7 +47,15 @@ function overlayPosts(inner: PostsRepository): PostsRepository {
       const list = await overlayPosts(inner).list();
       const current = list.find((post) => post.id === id);
       if (!current) throw new Error(`Post ${id} not found`);
-      const updated = { ...current, ...patch };
+      let updated = { ...current, ...patch };
+      if (current.status === "deleted" && patch.status === "draft") {
+        const { deletedAt, metrics, date, ...rest } = updated;
+        updated = {
+          ...rest,
+          status: "draft",
+          created: patch.created ?? new Date().toISOString(),
+        };
+      }
       mutateOverlay((overlay) => {
         overlay.posts.upserts[id] = updated;
       });
@@ -64,9 +72,16 @@ function overlayPosts(inner: PostsRepository): PostsRepository {
       });
       return posts;
     },
-    remove: async (id) => {
+    remove: async (id, options) => {
       if (!shouldPersistLocally()) {
-        await inner.remove(id);
+        await inner.remove(id, options);
+        return;
+      }
+      if (options?.permanent) {
+        mutateOverlay((overlay) => {
+          delete overlay.posts.upserts[id];
+          overlay.posts.order = (overlay.posts.order ?? []).filter((itemId) => itemId !== id);
+        });
         return;
       }
       await overlayPosts(inner).update(id, {

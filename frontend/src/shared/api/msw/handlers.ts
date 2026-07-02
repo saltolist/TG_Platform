@@ -51,7 +51,16 @@ export const handlers = [
     const patch = (await request.json()) as Partial<Post>;
     const idx = store.posts.findIndex((p) => p.id === id);
     if (idx < 0) return notFound(`Post ${id} not found`);
-    store.posts[idx] = { ...store.posts[idx], ...patch };
+    let updated = { ...store.posts[idx], ...patch };
+    if (store.posts[idx].status === "deleted" && patch.status === "draft") {
+      const { deletedAt, metrics, date, ...rest } = updated;
+      updated = {
+        ...rest,
+        status: "draft",
+        created: patch.created ?? new Date().toISOString(),
+      };
+    }
+    store.posts[idx] = updated;
     return HttpResponse.json(store.posts[idx]);
   }),
 
@@ -69,6 +78,17 @@ export const handlers = [
     const id = String(params.id);
     const post = store.posts.find((p) => p.id === id);
     if (!post) return notFound(`Post ${id} not found`);
+    const permanent = new URL(request.url).searchParams.get("permanent") === "true";
+    if (permanent) {
+      if (post.status !== "deleted") {
+        return HttpResponse.json(
+          { detail: "Удалить навсегда можно только пост из раздела удалённых" },
+          { status: 400 },
+        );
+      }
+      store.posts = store.posts.filter((p) => p.id !== id);
+      return new HttpResponse(null, { status: 204 });
+    }
     post.status = "deleted";
     post.deletedAt = new Date().toISOString();
     return new HttpResponse(null, { status: 204 });

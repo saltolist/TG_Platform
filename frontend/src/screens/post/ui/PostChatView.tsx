@@ -64,7 +64,8 @@ export default function PostChatView({ post, data, ui, actions }: Props) {
                   mediaItems.length === 0 &&
                   (post.status === "published" ||
                     post.status === "scheduled" ||
-                    post.status === "draft")
+                    post.status === "draft" ||
+                    post.status === "deleted")
                 }
                 phoneFormat={phoneFormat}
               />

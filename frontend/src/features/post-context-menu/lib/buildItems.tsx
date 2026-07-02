@@ -1,11 +1,12 @@
 import type { CtxMenuItem } from "@/shared/ui/context-menu";
 import {
-  MenuIconCancel,
   MenuIconClock,
+  MenuIconCancel,
   MenuIconPlus,
   MenuIconPublish,
   MenuIconTrash,
 } from "@/shared/ui/icons/header-menu-icons";
+import { PencilIcon } from "@/shared/ui/icons/post-status-icons";
 import type { Post } from "@/shared/types";
 
 export type PostCtxHandlers = {
@@ -16,6 +17,8 @@ export type PostCtxHandlers = {
   onReschedule: () => void;
   onCancelPublish: () => void;
   onDelete: () => void;
+  onRestoreToDraft: () => void;
+  onPermanentDelete: () => void;
 };
 
 export function getDefaultScheduleDate(): Date {
@@ -26,6 +29,22 @@ export function getDefaultScheduleDate(): Date {
 }
 
 export function buildPostCtxMenuItems(post: Post, handlers: PostCtxHandlers): CtxMenuItem[] {
+  if (post.status === "deleted") {
+    return [
+      {
+        label: "Перенести в черновики",
+        icon: <PencilIcon size={18} />,
+        onClick: handlers.onRestoreToDraft,
+      },
+      {
+        label: "Удалить",
+        icon: <MenuIconTrash />,
+        danger: true,
+        onClick: handlers.onPermanentDelete,
+      },
+    ];
+  }
+
   const items: CtxMenuItem[] = [
     { label: "Новый чат", icon: <MenuIconPlus />, onClick: handlers.onNewChat },
     { label: "Новая заметка", icon: <MenuIconPlus />, onClick: handlers.onNewNote },
@@ -43,13 +62,11 @@ export function buildPostCtxMenuItems(post: Post, handlers: PostCtxHandlers): Ct
       { label: "Отменить публикацию", icon: <MenuIconCancel />, onClick: handlers.onCancelPublish },
     );
   }
-  if (post.status !== "deleted") {
-    items.push({
-      label: "Удалить",
-      icon: <MenuIconTrash />,
-      danger: true,
-      onClick: handlers.onDelete,
-    });
-  }
+  items.push({
+    label: "Удалить",
+    icon: <MenuIconTrash />,
+    danger: true,
+    onClick: handlers.onDelete,
+  });
   return items;
 }

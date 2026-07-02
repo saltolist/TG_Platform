@@ -2,7 +2,7 @@ import uuid
 from datetime import datetime, timezone
 from typing import Any, Mapping
 
-from fastapi import APIRouter, HTTPException, Response, status
+from fastapi import APIRouter, HTTPException, Query, Response, status
 from sqlalchemy import func, select
 
 from app.celery_app import celery_app
@@ -19,7 +19,7 @@ from app.services.profile_defaults import empty_channel_profile, empty_telegram_
 from app.services.telegram.delete_flow import delete_message_in_telegram
 from app.services.telegram.edit_flow import sync_edit_to_telegram
 from app.services.telegram.net import TelegramAuthError
-from app.services.telegram.post_sync import mark_post_deleted
+from app.services.telegram.post_sync import mark_post_deleted, restore_deleted_post_to_draft
 from app.services.telegram.publish_flow import parse_scheduled_at
 from app.services.telegram.publish_flow import publish_post as run_telegram_publish
 from app.services.telegram.sync_pending import enrich_posts_for_user, telegram_sync_pending
@@ -114,6 +114,9 @@ async def update_post(
             merged_chats.append(chat_copy)
         merged["chats"] = merged_chats
     merged["id"] = post.data.get("id", str(post.id))
+
+    if previous_status == "deleted" and merged.get("status") == "draft":
+        merged = restore_deleted_post_to_draft(merged)
 
     telegram_message_id_for_edit = previous_telegram_message_id or merged.get("telegramMessageId")
     if (
@@ -239,8 +242,36 @@ async def schedule_post_endpoint(
 
 
 @router.delete("/{post_id}/", status_code=status.HTTP_204_NO_CONTENT)
-async def delete_post(post_id: str, user: CurrentWriter, session: DbSession) -> Response:
+async def delete_post(
+    post_id: str,
+    user: CurrentWriter,
+    session: DbSession,
+    permanent: bool = Query(False),
+) -> Response:
     post = await get_owned_post(session, user.id, post_id)
+
+    if permanent:
+        if post.data.get("status") != "deleted":
+            raise HTTPException(
+                status_code=400,
+                detail="Удалить навсегда можно только пост из раздела удалённых",
+            )
+        effective_post_id = str(post.data.get("id") or post_id)
+        notes = post.data.get("notes")
+        if isinstance(notes, list):
+            for note in notes:
+                if isinstance(note, Mapping) and note.get("id"):
+                    await enqueue_note_job(
+                        session,
+                        user.id,
+                        "delete",
+                        "post",
+                        str(note["id"]),
+                        effective_post_id,
+                    )
+        await session.delete(post)
+        await session.commit()
+        return Response(status_code=status.HTTP_204_NO_CONTENT)
 
     if post.data.get("status") == "deleted":
         return Response(status_code=status.HTTP_204_NO_CONTENT)

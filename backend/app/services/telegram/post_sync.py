@@ -97,6 +97,24 @@ async def mark_post_deleted(post: Post) -> None:
     flag_modified(post, "data")
 
 
+def restore_deleted_post_to_draft(merged: dict[str, Any]) -> dict[str, Any]:
+    """Turn a soft-deleted post back into a draft (clears Telegram link and metrics)."""
+    data = dict(merged)
+    data["status"] = "draft"
+    data["created"] = data.get("created") or datetime.now(timezone.utc).isoformat()
+    for key in (
+        "deletedAt",
+        "telegramMessageId",
+        "metrics",
+        "source",
+        "date",
+        "_celeryTaskId",
+        "publishError",
+    ):
+        data.pop(key, None)
+    return data
+
+
 async def upsert_telegram_post(
     session: AsyncSession, user_id: UUID, post_data: dict[str, Any]
 ) -> None:

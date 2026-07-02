@@ -9,7 +9,7 @@ import {
   buildPostCtxMenuItems,
   getDefaultScheduleDate,
 } from "@/features/post-context-menu/lib/buildItems";
-import { useDeletePost, usePublishPost, useSchedulePost, useUpdatePost } from "@/entities/post";
+import { useDeletePost, usePermanentDeletePost, usePublishPost, useSchedulePost, useUpdatePost } from "@/entities/post";
 import { getApiErrorMessage } from "@/shared/api/getApiErrorMessage";
 import { parsePostDateTime, postTitle } from "@/shared/lib/helpers";
 import { routes } from "@/shared/lib/routes";
@@ -37,6 +37,7 @@ export function usePostCtxMenuItems(
   const publishPost = usePublishPost();
   const schedulePost = useSchedulePost();
   const deletePost = useDeletePost();
+  const permanentDeletePost = usePermanentDeletePost();
   const [isScheduleOpen, setIsScheduleOpen] = useState(false);
   const [scheduleInitialDate, setScheduleInitialDate] = useState<Date>(() => getDefaultScheduleDate());
 
@@ -123,11 +124,50 @@ export function usePostCtxMenuItems(
             });
         })();
       },
+      onRestoreToDraft: () => {
+        void updatePost
+          .mutateAsync({
+            id: post.id,
+            patch: { status: "draft", created: new Date().toISOString() },
+          })
+          .then(() => {
+            router.replace(routes.post(post.id));
+          })
+          .catch((error) => {
+            showToast({
+              message: getApiErrorMessage(error, "Не удалось перенести пост в черновики"),
+              variant: "error",
+            });
+          });
+      },
+      onPermanentDelete: () => {
+        void (async () => {
+          const ok = await confirmDialog({
+            title: "Удалить пост навсегда?",
+            message: `Пост «${postTitle(post)}» будет удалён безвозвратно вместе со всеми данными. Это действие нельзя отменить.`,
+            confirmLabel: "Удалить навсегда",
+            destructive: true,
+          });
+          if (!ok) return;
+          void permanentDeletePost
+            .mutateAsync(post.id)
+            .then(() => {
+              router.replace(routes.feed());
+            })
+            .catch((error) => {
+              showToast({
+                message: getApiErrorMessage(error, "Не удалось удалить пост"),
+                variant: "error",
+              });
+            });
+        })();
+      },
     });
   }, [
     actions.onNewChat,
     actions.onNewNote,
     deletePost,
+    permanentDeletePost,
     openScheduleModal,
     post,
     publishPost,

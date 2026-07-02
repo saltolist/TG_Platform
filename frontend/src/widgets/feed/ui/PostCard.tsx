@@ -26,7 +26,10 @@ export default function PostCard({
   const isTelegramSyncing = usePostTelegramSyncing(post.id);
   const isDraftDnD = post.status === "draft" && !!draftHandleProps;
   const isTextOnlyPub =
-    mediaItems.length === 0 && (post.status === "published" || post.status === "scheduled");
+    mediaItems.length === 0 &&
+    (post.status === "published" ||
+      post.status === "scheduled" ||
+      post.status === "deleted");
 
   const draftDragHandle = isDraftDnD && draftHandleProps && (
     <div
