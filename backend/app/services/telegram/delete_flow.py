@@ -1,10 +1,9 @@
 """Delete a published Telegram message when its platform post is deleted
 (Phase 3 / Step 4c — delete).
 
-Unlike edit-sync (best-effort), delete-sync is strict: the platform is treated
-as a mirror of the channel, so if the Telegram delete fails the caller must
-abort and keep the platform post. This function therefore *raises*
-``TelegramAuthError`` on failure instead of swallowing it.
+The platform mirrors the channel: if the message is already gone in Telegram,
+delete-sync treats that as success and lets the caller soft-delete the platform
+post. Other Telegram failures still abort so the platform post is kept.
 """
 
 from __future__ import annotations
@@ -14,6 +13,7 @@ from uuid import UUID
 from app.core.config import Settings, get_settings
 from app.db.models import Profile
 from app.services.telegram.channel_flow import parse_channel_input, resolve_channel_entity
+from app.services.telegram.message_mapping import is_message_gone_error, telethon_fetch_has_messages
 from app.services.telegram.mtproto_client import build_client
 from app.services.telegram.net import (
     TelegramAuthError,
@@ -36,8 +36,7 @@ async def delete_message_in_telegram(
     """Delete *telegram_message_id* in the connected channel.
 
     Raises :class:`TelegramAuthError` if the channel is not reachable or the
-    delete fails, so the caller can keep the platform post (platform mirrors
-    the channel).
+    delete fails for a reason other than the message already being gone.
     """
     settings = settings or get_settings()
     telegram = profile.telegram or {}
@@ -58,18 +57,49 @@ async def delete_message_in_telegram(
     except ValueError as exc:
         raise TelegramAuthError("Некорректный идентификатор сообщения", 400) from exc
 
-    async with exclusive_telegram_access(user_id):
+    async with exclusive_telegram_access(
+        user_id, listener_stop_timeout=settings.telegram_short_rpc_listener_stop_seconds
+    ):
         client = build_client(api_id, api_hash, session_string)
         try:
             await connect_telegram_client(client, settings)
             entity = await resolve_channel_entity(client, parsed, settings)
-            await with_timeout(client.delete_messages(entity, [msg_id]), settings)
+
+            try:
+                fetched = await with_timeout(
+                    client.get_messages(entity, ids=msg_id), settings
+                )
+            except Exception:
+                fetched = None
+            if not telethon_fetch_has_messages(fetched):
+                return
+
+            try:
+                await with_timeout(client.delete_messages(entity, [msg_id]), settings)
+            except TelegramAuthError as exc:
+                if is_message_gone_error(exc):
+                    return
+                raise
+            except Exception as exc:
+                if is_message_gone_error(exc):
+                    return
+                raise TelegramAuthError(
+                    str(exc) or "Не удалось удалить сообщение в Telegram", 502
+                ) from exc
+
             await maybe_reconcile_after_rpc(
-                client, entity, user_id, settings, force=True
+                client,
+                entity,
+                user_id,
+                settings,
+                force=True,
+                include_new_scan=False,
             )
         except TelegramAuthError:
             raise
-        except Exception as exc:  # noqa: BLE001 — surface as a strict delete failure
+        except Exception as exc:  # noqa: BLE001
+            if is_message_gone_error(exc):
+                return
             raise TelegramAuthError(
                 str(exc) or "Не удалось удалить сообщение в Telegram", 502
             ) from exc

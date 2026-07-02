@@ -18,7 +18,7 @@ from sqlalchemy import select
 
 from app.core.config import get_settings
 from app.db import session as db_session_module
-from app.db.models import Post
+from app.db.models import Post, Profile
 from app.services.telegram import mtproto_client
 from app.services.telegram import publish_flow as publish_flow_module
 from tests.conftest import TestSessionLocal, sample_post
@@ -194,6 +194,23 @@ async def test_publish_sends_text_message_and_marks_published(
     assert SCENARIO.sent[0]["kind"] == "message"
     assert SCENARIO.sent[0]["text"] == "Hello Telegram"
     assert "created" not in body
+
+
+@pytest.mark.asyncio
+async def test_publish_updates_profile_last_telegram_message_id(
+    client: AsyncClient, writer_auth_headers: dict, writer_user
+) -> None:
+    await _seed_connected_profile(client, writer_auth_headers)
+    post = await _create_draft(client, writer_auth_headers)
+
+    resp = await client.post(f"/api/v1/posts/{post['id']}/publish/", headers=writer_auth_headers)
+    assert resp.status_code == 200
+    msg_id = resp.json()["telegramMessageId"]
+
+    async with TestSessionLocal() as session:
+        profile = await session.get(Profile, writer_user.id)
+        assert profile is not None
+        assert profile.telegram.get("lastTelegramMessageId") == msg_id
 
 
 @pytest.mark.asyncio

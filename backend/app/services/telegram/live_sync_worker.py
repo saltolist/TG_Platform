@@ -268,15 +268,22 @@ async def _catch_up(
     session_factory: async_sessionmaker[AsyncSession],
 ) -> None:
     if min_id <= 0:
-        return
-    posts = await collect_posts_from_iter(
-        client,
-        entity,
-        user_id,
-        settings,
-        limit=settings.telegram_import_post_limit,
-        min_id=min_id,
-    )
+        posts = await collect_posts_from_iter(
+            client,
+            entity,
+            user_id,
+            settings,
+            limit=settings.telegram_reconcile_new_scan_limit,
+        )
+    else:
+        posts = await collect_posts_from_iter(
+            client,
+            entity,
+            user_id,
+            settings,
+            limit=settings.telegram_import_post_limit,
+            min_id=min_id,
+        )
     if not posts:
         return
     async with session_factory() as session:

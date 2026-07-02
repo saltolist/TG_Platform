@@ -464,6 +464,26 @@ async def test_live_sync_catch_up_on_start(
 
 
 @pytest.mark.asyncio
+async def test_live_sync_catch_up_when_last_message_id_empty(
+    client: AsyncClient, writer_auth_headers, writer_user
+) -> None:
+    await _seed_connected_profile(client, writer_auth_headers, last_message_id="")
+    user_id = writer_user.id
+    LiveSyncFakeClient.catchup_messages = [_fake_message(70, text="Caught without cursor")]
+    listener_registry.start_user_listener(user_id)
+    await asyncio.sleep(0.2)
+    async with TestSessionLocal() as session:
+        result = await session.execute(
+            select(Post).where(
+                Post.user_id == user_id,
+                Post.data["telegramMessageId"].astext == "70",
+            )
+        )
+        assert result.scalar_one_or_none() is not None
+    listener_registry.stop_user_listener(user_id)
+
+
+@pytest.mark.asyncio
 async def test_reconcile_skips_publish_only(
     client: AsyncClient, writer_auth_headers, writer_user
 ) -> None:

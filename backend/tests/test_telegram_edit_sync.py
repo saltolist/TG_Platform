@@ -15,6 +15,7 @@ import pytest
 from httpx import AsyncClient
 from sqlalchemy import select
 
+from app.db import session as db_session_module
 from app.db.models import Post, Profile
 from app.services.telegram import mtproto_client
 from app.services.telegram.post_sync import update_telegram_post
@@ -24,6 +25,11 @@ API_ID = "12345678"
 API_HASH = "abcdef1234567890abcdef1234567890"
 SESSION_VALUE = "fake-session-string"
 TELEGRAM_MESSAGE_ID = "777"
+
+
+class MessageEmpty:
+    def __init__(self, msg_id: int) -> None:
+        self.id = msg_id
 
 
 class FakeStringSession:
@@ -38,6 +44,8 @@ class EditScenario:
     def __init__(self) -> None:
         self.edits: list[dict[str, Any]] = []
         self.fail_with: Exception | None = None
+        self.message_missing: bool = False
+        self.message_empty: bool = False
 
 
 SCENARIO = EditScenario()
@@ -62,13 +70,24 @@ class EditFakeTelegramClient:
         SCENARIO.edits.append({"entity": entity, "message_id": message_id, "text": text})
         return SimpleNamespace(id=message_id)
 
+    async def get_messages(self, entity: Any, ids: Any = None, **kwargs: Any) -> list[Any]:
+        msg_id = int(ids[0] if isinstance(ids, (list, tuple)) else ids)
+        if SCENARIO.message_missing:
+            return [None]
+        if SCENARIO.message_empty:
+            return [MessageEmpty(msg_id)]
+        return [SimpleNamespace(id=msg_id, message="exists")]
+
 
 @pytest.fixture(autouse=True)
 def _patch_edit_environment(monkeypatch: pytest.MonkeyPatch) -> None:
     SCENARIO.edits = []
     SCENARIO.fail_with = None
+    SCENARIO.message_missing = False
+    SCENARIO.message_empty = False
     monkeypatch.setattr(mtproto_client, "StringSession", FakeStringSession)
     monkeypatch.setattr(mtproto_client, "TelegramClient", EditFakeTelegramClient)
+    monkeypatch.setattr(db_session_module, "async_session_factory", TestSessionLocal)
     yield
 
 
@@ -164,6 +183,69 @@ async def test_patch_without_text_change_does_not_call_telegram(
     )
     assert resp.status_code == 200
     assert SCENARIO.edits == []
+
+
+@pytest.mark.asyncio
+async def test_patch_edit_when_message_empty_in_telegram_soft_deletes_without_edit(
+    client: AsyncClient, writer_auth_headers: dict
+) -> None:
+    await _seed_connected_profile(client, writer_auth_headers)
+    post = await _create_published_post(client, writer_auth_headers)
+    SCENARIO.message_empty = True
+
+    resp = await client.patch(
+        f"/api/v1/posts/{post['id']}/",
+        headers=writer_auth_headers,
+        json={"text": "Edited after TG delete"},
+    )
+    assert resp.status_code == 200
+    body = resp.json()
+    assert body["status"] == "deleted"
+    assert "telegramSyncError" not in body
+    assert SCENARIO.edits == []
+
+
+@pytest.mark.asyncio
+async def test_patch_edit_when_message_deleted_in_telegram_soft_deletes_without_error(
+    client: AsyncClient, writer_auth_headers: dict
+) -> None:
+    await _seed_connected_profile(client, writer_auth_headers)
+    post = await _create_published_post(client, writer_auth_headers)
+    SCENARIO.message_missing = True
+
+    resp = await client.patch(
+        f"/api/v1/posts/{post['id']}/",
+        headers=writer_auth_headers,
+        json={"text": "Edited after TG delete"},
+    )
+    assert resp.status_code == 200
+    body = resp.json()
+    assert body["status"] == "deleted"
+    assert body.get("deletedAt")
+    assert "telegramSyncError" not in body
+    assert SCENARIO.edits == []
+
+
+@pytest.mark.asyncio
+async def test_patch_edit_message_gone_error_soft_deletes_without_error(
+    client: AsyncClient, writer_auth_headers: dict
+) -> None:
+    await _seed_connected_profile(client, writer_auth_headers)
+    post = await _create_published_post(client, writer_auth_headers)
+    SCENARIO.fail_with = RuntimeError(
+        "The specified message ID is invalid or you can't do that operation "
+        "on such message (caused by EditMessageRequest)"
+    )
+
+    resp = await client.patch(
+        f"/api/v1/posts/{post['id']}/",
+        headers=writer_auth_headers,
+        json={"text": "Edited after TG delete"},
+    )
+    assert resp.status_code == 200
+    body = resp.json()
+    assert body["status"] == "deleted"
+    assert "telegramSyncError" not in body
 
 
 @pytest.mark.asyncio

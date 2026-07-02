@@ -15,6 +15,7 @@ from app.db.models import Post, Profile
 from app.services.telegram.message_mapping import (
     collect_posts_from_iter,
     map_message_for_reconcile,
+    telethon_message_fetchable,
 )
 from app.services.telegram.post_sync import (
     _find_telegram_post,
@@ -114,11 +115,11 @@ async def _fetch_messages_by_ids(
             fetched = [fetched]
         if len(fetched) == len(chunk):
             for msg_id, message in zip(chunk, fetched, strict=False):
-                if message is not None:
+                if telethon_message_fetchable(message):
                     found[msg_id] = message
         else:
             for message in fetched:
-                if message is not None:
+                if telethon_message_fetchable(message):
                     found[int(getattr(message, "id", 0))] = message
     return found
 

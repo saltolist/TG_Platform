@@ -9,6 +9,8 @@ error (if any) as ``telegramSyncError`` on the response, never rolls back.
 
 from __future__ import annotations
 
+from dataclasses import dataclass
+from typing import Any
 from uuid import UUID
 
 from app.core.config import Settings, get_settings
@@ -23,8 +25,27 @@ from app.services.telegram.net import (
     require_api_credentials,
     with_timeout,
 )
+from app.services.telegram.message_mapping import (
+    is_message_gone_error,
+    telethon_fetch_has_messages,
+)
+from app.services.telegram.post_sync import delete_telegram_post
 from app.services.telegram.reconcile_flow import maybe_reconcile_after_rpc
 from app.services.telegram.session_guard import exclusive_telegram_access
+
+
+@dataclass
+class EditSyncResult:
+    error: str | None = None
+    deleted_in_telegram: bool = False
+
+
+async def _mark_deleted_in_platform(user_id: UUID, telegram_message_id: str) -> None:
+    from app.db.session import async_session_factory
+
+    async with async_session_factory() as session:
+        await delete_telegram_post(session, user_id, telegram_message_id)
+        await session.commit()
 
 
 async def sync_edit_to_telegram(
@@ -33,44 +54,65 @@ async def sync_edit_to_telegram(
     new_text: str,
     user_id: UUID,
     settings: Settings | None = None,
-) -> str | None:
-    """Edit *telegram_message_id* in the connected channel. Returns an error string, or ``None`` on success."""
+) -> EditSyncResult:
+    """Edit *telegram_message_id* in the connected channel."""
     settings = settings or get_settings()
     telegram = profile.telegram or {}
 
     if telegram.get("channelStatus") != "connected":
-        return None  # nothing to sync to — not an error worth surfacing
+        return EditSyncResult()
     if telegram.get("authStatus") not in ("authorized", "connected"):
-        return None
+        return EditSyncResult()
 
     try:
         api_id, api_hash = require_api_credentials(telegram, settings)
         session_string = decrypt_field(str(telegram.get("sessionString") or ""), settings)
         parsed = parse_channel_input(str(telegram.get("channel") or ""))
         if not parsed or not session_string:
-            return "Не удалось подготовить синхронизацию с Telegram"
+            return EditSyncResult(error="Не удалось подготовить синхронизацию с Telegram")
 
         msg_id = int(telegram_message_id)
     except (TelegramAuthError, ValueError) as exc:
-        return str(getattr(exc, "detail", exc))
+        return EditSyncResult(error=str(getattr(exc, "detail", exc)))
 
-    async with exclusive_telegram_access(user_id):
+    async with exclusive_telegram_access(
+        user_id, listener_stop_timeout=settings.telegram_short_rpc_listener_stop_seconds
+    ):
         client = build_client(api_id, api_hash, session_string)
         try:
             await connect_telegram_client(client, settings)
             entity = await resolve_channel_entity(client, parsed, settings)
+
+            try:
+                fetched = await with_timeout(
+                    client.get_messages(entity, ids=msg_id), settings
+                )
+            except Exception:
+                fetched = None
+            if not telethon_fetch_has_messages(fetched):
+                await _mark_deleted_in_platform(user_id, telegram_message_id)
+                return EditSyncResult(deleted_in_telegram=True)
+
             await with_timeout(client.edit_message(entity, msg_id, new_text), settings)
             await maybe_reconcile_after_rpc(
                 client, entity, user_id, settings, force=False
             )
         except TelegramAuthError as exc:
-            return exc.detail
+            if is_message_gone_error(exc):
+                await _mark_deleted_in_platform(user_id, telegram_message_id)
+                return EditSyncResult(deleted_in_telegram=True)
+            return EditSyncResult(error=exc.detail)
         except Exception as exc:  # noqa: BLE001 — best-effort sync, never raises to the caller
-            return str(exc) or "Не удалось синхронизировать правку с Telegram"
+            if is_message_gone_error(exc):
+                await _mark_deleted_in_platform(user_id, telegram_message_id)
+                return EditSyncResult(deleted_in_telegram=True)
+            return EditSyncResult(
+                error=str(exc) or "Не удалось синхронизировать правку с Telegram"
+            )
         finally:
             await disconnect_safely(client)
 
-    return None
+    return EditSyncResult()
 
 
-__all__ = ["sync_edit_to_telegram"]
+__all__ = ["EditSyncResult", "sync_edit_to_telegram"]

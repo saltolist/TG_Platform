@@ -173,13 +173,16 @@ async def update_post(
         and isinstance(patch.get("text"), str)
         and merged.get("text") != previous_text
     ):
-        sync_error: str | None = None
         async with telegram_sync_pending(user.id, post_id):
-            sync_error = await sync_edit_to_telegram(
+            sync_result = await sync_edit_to_telegram(
                 profile, str(telegram_message_id), str(merged.get("text") or ""), user.id
             )
-        if sync_error:
-            response["telegramSyncError"] = sync_error
+        if sync_result.deleted_in_telegram:
+            post = await get_owned_post(session, user.id, post_id)
+            await session.refresh(post)
+            response = dict(post.data)
+        elif sync_result.error:
+            response["telegramSyncError"] = sync_result.error
 
     return response
 

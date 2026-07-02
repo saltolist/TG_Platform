@@ -30,7 +30,7 @@ from app.services.telegram.net import (
     require_api_credentials,
     with_timeout,
 )
-from app.services.telegram.message_mapping import map_group_to_post
+from app.services.telegram.message_mapping import map_group_to_post, telethon_message_fetchable
 from app.services.telegram.post_sync import finalize_published_from_telegram, mark_post_published
 from app.services.telegram.reconcile_flow import maybe_reconcile_after_rpc
 from app.services.telegram.session_guard import exclusive_telegram_access
@@ -92,9 +92,11 @@ async def _fetch_published_messages(
             fetched = None
         if fetched:
             if isinstance(fetched, (list, tuple)):
-                messages = [item for item in fetched if item is not None]
+                messages = [
+                    item for item in fetched if telethon_message_fetchable(item)
+                ]
             else:
-                messages = [fetched]
+                messages = [fetched] if telethon_message_fetchable(fetched) else []
             if messages and getattr(messages[0], "date", None) is not None:
                 return messages
         if attempt == 0:

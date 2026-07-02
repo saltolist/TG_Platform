@@ -16,9 +16,10 @@ import pytest
 from httpx import AsyncClient
 from sqlalchemy import select
 
+from app.db import session as db_session_module
 from app.db.models import Post
 from app.services.telegram import mtproto_client
-from tests.conftest import sample_post
+from tests.conftest import TestSessionLocal, sample_post
 
 API_ID = "12345678"
 API_HASH = "abcdef1234567890abcdef1234567890"
@@ -38,6 +39,7 @@ class DeleteScenario:
     def __init__(self) -> None:
         self.deleted: list[dict[str, Any]] = []
         self.fail_with: Exception | None = None
+        self.message_missing: bool = False
 
 
 SCENARIO = DeleteScenario()
@@ -56,6 +58,12 @@ class DeleteFakeTelegramClient:
     async def get_entity(self, handle: str) -> SimpleNamespace:
         return SimpleNamespace(id=555, title="Delete Channel", broadcast=True)
 
+    async def get_messages(self, entity: Any, ids: Any = None, **kwargs: Any) -> list[Any]:
+        if SCENARIO.message_missing:
+            return [None]
+        msg_id = int(ids[0] if isinstance(ids, (list, tuple)) else ids)
+        return [SimpleNamespace(id=msg_id, message="exists")]
+
     async def delete_messages(self, entity: Any, message_ids: list[int]) -> Any:
         if SCENARIO.fail_with is not None:
             raise SCENARIO.fail_with
@@ -67,8 +75,10 @@ class DeleteFakeTelegramClient:
 def _patch_delete_environment(monkeypatch: pytest.MonkeyPatch) -> None:
     SCENARIO.deleted = []
     SCENARIO.fail_with = None
+    SCENARIO.message_missing = False
     monkeypatch.setattr(mtproto_client, "StringSession", FakeStringSession)
     monkeypatch.setattr(mtproto_client, "TelegramClient", DeleteFakeTelegramClient)
+    monkeypatch.setattr(db_session_module, "async_session_factory", TestSessionLocal)
     yield
 
 
@@ -164,6 +174,42 @@ async def test_delete_draft_post_does_not_call_telegram(
     listed = await client.get("/api/v1/posts/", headers=writer_auth_headers)
     draft = next(p for p in listed.json() if p["id"] == post_id)
     assert draft["status"] == "deleted"
+
+
+@pytest.mark.asyncio
+async def test_delete_when_message_already_gone_in_telegram_succeeds(
+    client: AsyncClient, writer_auth_headers: dict
+) -> None:
+    await _seed_connected_profile(client, writer_auth_headers)
+    post = await _create_published_post(client, writer_auth_headers)
+    SCENARIO.message_missing = True
+
+    resp = await client.delete(f"/api/v1/posts/{post['id']}/", headers=writer_auth_headers)
+    assert resp.status_code == 204
+    assert SCENARIO.deleted == []
+
+    listed = await client.get("/api/v1/posts/", headers=writer_auth_headers)
+    deleted_post = next(p for p in listed.json() if p["id"] == post["id"])
+    assert deleted_post["status"] == "deleted"
+
+
+@pytest.mark.asyncio
+async def test_delete_when_delete_raises_message_gone_succeeds(
+    client: AsyncClient, writer_auth_headers: dict
+) -> None:
+    await _seed_connected_profile(client, writer_auth_headers)
+    post = await _create_published_post(client, writer_auth_headers)
+    SCENARIO.fail_with = RuntimeError(
+        "The specified message ID is invalid or you can't do that operation "
+        "on such message (caused by DeleteMessagesRequest)"
+    )
+
+    resp = await client.delete(f"/api/v1/posts/{post['id']}/", headers=writer_auth_headers)
+    assert resp.status_code == 204
+
+    listed = await client.get("/api/v1/posts/", headers=writer_auth_headers)
+    deleted_post = next(p for p in listed.json() if p["id"] == post["id"])
+    assert deleted_post["status"] == "deleted"
 
 
 @pytest.mark.asyncio

@@ -38,7 +38,9 @@ async def telegram_session_lock(
 
 
 @asynccontextmanager
-async def exclusive_telegram_access(user_id: UUID) -> AsyncIterator[None]:
+async def exclusive_telegram_access(
+    user_id: UUID, *, listener_stop_timeout: float | None = None
+) -> AsyncIterator[None]:
     """Pause live-sync, hold the MTProto lock for a short RPC, then restart the listener.
 
     The live-sync worker keeps a long-lived Telethon connection and holds
@@ -56,7 +58,9 @@ async def exclusive_telegram_access(user_id: UUID) -> AsyncIterator[None]:
     settings = get_settings()
     was_listening = listener_registry.is_running(user_id)
     if was_listening:
-        await listener_registry.await_stop_user_listener(user_id)
+        await listener_registry.await_stop_user_listener(
+            user_id, timeout=listener_stop_timeout
+        )
     try:
         async with telegram_session_lock(
             user_id, acquire_timeout=settings.telegram_lock_acquire_timeout_seconds

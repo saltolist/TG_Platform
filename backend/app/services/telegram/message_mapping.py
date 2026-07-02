@@ -13,6 +13,37 @@ from app.services.telegram.media_storage import save_message_media
 
 # Safety cap on raw messages fetched from Telegram (albums count as one post).
 RAW_MESSAGE_SCAN_FACTOR = 10
+_NON_FETCHABLE_MESSAGE_TYPES = frozenset({"MessageEmpty", "MessageService"})
+MESSAGE_GONE_MARKERS = (
+    "message id is invalid",
+    "message_id_invalid",
+    "can't do that operation on such message",
+    "message to edit not found",
+    "message to delete not found",
+    "message not found",
+)
+
+
+def is_message_gone_error(exc: BaseException) -> bool:
+    text = str(exc).lower()
+    return any(marker in text for marker in MESSAGE_GONE_MARKERS)
+
+
+def telethon_message_fetchable(message: Any) -> bool:
+    """True when ``get_messages`` returned a real post, not a tombstone."""
+    if message is None:
+        return False
+    if type(message).__name__ in _NON_FETCHABLE_MESSAGE_TYPES:
+        return False
+    return bool(getattr(message, "id", None))
+
+
+def telethon_fetch_has_messages(fetched: Any) -> bool:
+    if fetched is None:
+        return False
+    if isinstance(fetched, (list, tuple)):
+        return any(telethon_message_fetchable(message) for message in fetched)
+    return telethon_message_fetchable(fetched)
 
 
 def message_is_importable(message: Any) -> bool:

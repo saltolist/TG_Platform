@@ -237,6 +237,11 @@ async def mark_post_published(
     data.pop("publishError", None)
     post.data = data
     flag_modified(post, "data")
+    profile = await session.get(Profile, user_id)
+    if profile is not None:
+        await touch_telegram_profile(
+            session, profile, last_message_id=telegram_message_id
+        )
     await session.commit()
     return data
 
@@ -267,6 +272,11 @@ async def finalize_published_from_telegram(
     merged.pop("publishError", None)
     post.data = merged
     flag_modified(post, "data")
+    profile = await session.get(Profile, user_id)
+    if profile is not None:
+        await touch_telegram_profile(
+            session, profile, last_message_id=merged.get("telegramMessageId")
+        )
     await session.commit()
     return merged
 
