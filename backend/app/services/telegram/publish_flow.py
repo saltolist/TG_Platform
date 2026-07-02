@@ -17,10 +17,17 @@ from pathlib import Path
 from typing import Any
 from uuid import UUID
 
+from sqlalchemy.orm.attributes import flag_modified
+
 from app.core.config import Settings, get_settings
 from app.db.models import Post, Profile
 from app.db.session import async_session_factory
 from app.services.telegram.channel_flow import parse_channel_input, resolve_channel_entity
+from app.services.telegram.comments_flow import (
+    apply_comments_thread_probe,
+    comments_enabled,
+    get_discussion_root_message_id,
+)
 from app.services.telegram.mtproto_client import build_client
 from app.services.telegram.net import (
     TelegramAuthError,
@@ -37,6 +44,8 @@ from app.services.telegram.session_guard import exclusive_telegram_access
 from app.services.telegram.sync_pending import telegram_sync_pending
 
 _PUBLISHABLE_STATUSES = {"draft", "scheduled"}
+_COMMENT_PROBE_ATTEMPTS = 5
+_COMMENT_PROBE_DELAY_SECONDS = 0.4
 
 
 def parse_scheduled_at(value: str) -> datetime:
@@ -103,6 +112,63 @@ async def _fetch_published_messages(
             await asyncio.sleep(0.4)
 
     return _normalize_sent_messages(sent)
+
+
+async def _apply_comments_thread_after_publish(
+    client: Any,
+    entity: Any,
+    merged_data: dict[str, Any],
+    telegram: dict[str, Any],
+    settings: Settings,
+) -> dict[str, Any]:
+    """Probe discussion thread so comments UI can appear right after publish."""
+    if not comments_enabled(telegram) or merged_data.get("status") != "published":
+        return merged_data
+
+    msg_id_raw = merged_data.get("telegramMessageId")
+    if not msg_id_raw:
+        return merged_data
+    try:
+        channel_msg_id = int(msg_id_raw)
+    except (TypeError, ValueError):
+        return merged_data
+
+    root_id = None
+    for attempt in range(_COMMENT_PROBE_ATTEMPTS):
+        root_id = await get_discussion_root_message_id(
+            client, entity, channel_msg_id, settings
+        )
+        if root_id is not None:
+            break
+        if attempt < _COMMENT_PROBE_ATTEMPTS - 1:
+            await asyncio.sleep(_COMMENT_PROBE_DELAY_SECONDS)
+
+    if root_id is not None:
+        probed, _ = apply_comments_thread_probe(merged_data, root_id)
+        return probed
+
+    # Linked discussion group exists but TG may not expose the thread instantly.
+    optimistic = dict(merged_data)
+    optimistic["commentsThreadAvailable"] = True
+    return optimistic
+
+
+async def _persist_post_data(user_id: UUID, post_id: UUID, data: dict[str, Any]) -> None:
+    async with async_session_factory() as session:
+        post = await session.get(Post, post_id)
+        if post is None or post.user_id != user_id:
+            return
+        post.data = data
+        flag_modified(post, "data")
+        await session.commit()
+
+
+async def _load_post_data(user_id: UUID, post_id: UUID) -> dict[str, Any]:
+    async with async_session_factory() as session:
+        post = await session.get(Post, post_id)
+        if post is None or post.user_id != user_id:
+            return {}
+        return dict(post.data)
 
 
 async def publish_post(
@@ -174,7 +240,10 @@ async def publish_post(
                 )
                 telegram_payload = await map_group_to_post(client, messages, user_id, settings)
 
+                telegram: dict[str, Any] = {}
                 async with async_session_factory() as session:
+                    profile = await session.get(Profile, user_id)
+                    telegram = dict(profile.telegram or {}) if profile else {}
                     if telegram_payload is not None:
                         merged_data = await finalize_published_from_telegram(
                             session, user_id, post_id, telegram_payload
@@ -184,6 +253,13 @@ async def publish_post(
                             session, user_id, post_id, telegram_message_id
                         )
 
+                probed_data = await _apply_comments_thread_after_publish(
+                    client, entity, merged_data, telegram, settings
+                )
+                if probed_data != merged_data:
+                    await _persist_post_data(user_id, post_id, probed_data)
+                    merged_data = probed_data
+
                 await maybe_reconcile_after_rpc(
                     client,
                     entity,
@@ -192,6 +268,10 @@ async def publish_post(
                     force=True,
                     include_new_scan=False,
                 )
+
+                fresh = await _load_post_data(user_id, post_id)
+                if fresh:
+                    merged_data = fresh
             finally:
                 await disconnect_safely(client)
 

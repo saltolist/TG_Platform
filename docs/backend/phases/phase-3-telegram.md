@@ -563,6 +563,9 @@ GET /api/v1/analytics/top-posts/?period=30d
 - Комментарии обновляются **лениво**: при заходе на пост / открытии вкладки /
   reconcile / перезагрузке страницы. Реалтайм-поллинга открытого поста нет
   (чтобы не устраивать сотни `sync-comments` в минуту на единственную TG-сессию).
+- После **публикации** поста с включёнными обсуждениями сразу проставляются
+  `commentsThreadAvailable` / `telegramDiscussionMessageId` (probe с ретраями;
+  если TG ещё не отдал тред — оптимистично `commentsThreadAvailable=true`).
 
 **Без discussion group:** `commentsEnabled=false` — добавление комментариев к
 опубликованному TG-посту блокируется (composer disabled + `commentSyncError` на PATCH).

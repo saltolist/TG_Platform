@@ -26,6 +26,8 @@ from tests.conftest import TestSessionLocal, sample_post
 API_ID = "12345678"
 API_HASH = "abcdef1234567890abcdef1234567890"
 SESSION_VALUE = "fake-session-string"
+DISCUSSION_ROOT_ID = 9001
+DISCUSSION_CHAT_ID = "123456789"
 
 
 class FakeStringSession:
@@ -94,6 +96,29 @@ class PublishFakeTelegramClient:
         msg_id = int(ids[0] if isinstance(ids, (list, tuple)) else ids)
         message = SCENARIO.messages.get(msg_id)
         return [message] if message is not None else []
+
+    async def __call__(self, request: Any) -> Any:
+        cls_name = type(request).__name__
+        if cls_name == "GetDiscussionMessageRequest":
+            root = SimpleNamespace(
+                id=DISCUSSION_ROOT_ID,
+                peer_id=SimpleNamespace(channel_id=int(DISCUSSION_CHAT_ID)),
+                message="Discussion root",
+            )
+            return SimpleNamespace(
+                messages=[root],
+                chats=[
+                    SimpleNamespace(id=555, broadcast=True, title="Channel"),
+                    SimpleNamespace(
+                        id=int(DISCUSSION_CHAT_ID), megagroup=True, title="Discussion"
+                    ),
+                ],
+            )
+        if cls_name == "GetFullChannelRequest":
+            return SimpleNamespace(
+                full_chat=SimpleNamespace(linked_chat_id=int(DISCUSSION_CHAT_ID))
+            )
+        raise AssertionError(f"Unexpected request: {cls_name}")
 
     async def iter_messages(self, entity: Any, min_id: int = 0, limit: int | None = None) -> Any:
         count = 0
@@ -324,6 +349,59 @@ async def test_publish_does_not_duplicate_post_when_reconcile_runs(
 
     assert len(linked) == 1
     assert linked[0].data["id"] == post["id"]
+
+
+@pytest.mark.asyncio
+async def test_publish_marks_comments_thread_available(
+    client: AsyncClient, writer_auth_headers: dict
+) -> None:
+    await _seed_connected_profile(
+        client,
+        writer_auth_headers,
+        commentsEnabled=True,
+        discussionChatId=DISCUSSION_CHAT_ID,
+    )
+    post = await _create_draft(client, writer_auth_headers, text="Published with comments")
+
+    resp = await client.post(f"/api/v1/posts/{post['id']}/publish/", headers=writer_auth_headers)
+    assert resp.status_code == 200
+    body = resp.json()
+    assert body["status"] == "published"
+    assert body.get("commentsThreadAvailable") is True
+    assert body.get("telegramDiscussionMessageId") == str(DISCUSSION_ROOT_ID)
+
+
+@pytest.mark.asyncio
+async def test_publish_optimistically_enables_comments_when_probe_is_slow(
+    client: AsyncClient, writer_auth_headers: dict, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    await _seed_connected_profile(
+        client,
+        writer_auth_headers,
+        commentsEnabled=True,
+        discussionChatId=DISCUSSION_CHAT_ID,
+    )
+    post = await _create_draft(client, writer_auth_headers, text="Slow thread")
+
+    async def no_root(*_args: Any, **_kwargs: Any) -> None:
+        return None
+
+    monkeypatch.setattr(
+        publish_flow_module,
+        "get_discussion_root_message_id",
+        no_root,
+    )
+
+    async def skip_reconcile(*_args: Any, **_kwargs: Any) -> None:
+        return None
+
+    monkeypatch.setattr(publish_flow_module, "maybe_reconcile_after_rpc", skip_reconcile)
+
+    resp = await client.post(f"/api/v1/posts/{post['id']}/publish/", headers=writer_auth_headers)
+    assert resp.status_code == 200
+    body = resp.json()
+    assert body.get("commentsThreadAvailable") is True
+    assert "telegramDiscussionMessageId" not in body
 
 
 @pytest.mark.asyncio
