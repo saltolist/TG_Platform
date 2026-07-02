@@ -151,6 +151,7 @@ async def publish_post(
 
     telegram_payload: dict[str, Any] | None = None
     telegram_message_id = ""
+    merged_data: dict[str, Any] = {}
 
     async with telegram_sync_pending(user_id, post_id):
         async with exclusive_telegram_access(user_id):
@@ -170,18 +171,29 @@ async def publish_post(
                     client, entity, telegram_message_id, sent
                 )
                 telegram_payload = await map_group_to_post(client, messages, user_id, settings)
+
+                async with async_session_factory() as session:
+                    if telegram_payload is not None:
+                        merged_data = await finalize_published_from_telegram(
+                            session, user_id, post_id, telegram_payload
+                        )
+                    else:
+                        merged_data = await mark_post_published(
+                            session, user_id, post_id, telegram_message_id
+                        )
+
                 await maybe_reconcile_after_rpc(
-                    client, entity, user_id, settings, force=True
+                    client,
+                    entity,
+                    user_id,
+                    settings,
+                    force=True,
+                    include_new_scan=False,
                 )
             finally:
                 await disconnect_safely(client)
 
-        async with async_session_factory() as session:
-            if telegram_payload is not None:
-                return await finalize_published_from_telegram(
-                    session, user_id, post_id, telegram_payload
-                )
-            return await mark_post_published(session, user_id, post_id, telegram_message_id)
+        return merged_data
 
 
 __all__ = ["publish_post"]

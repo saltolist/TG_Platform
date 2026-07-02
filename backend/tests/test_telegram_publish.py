@@ -14,8 +14,11 @@ from typing import Any
 
 import pytest
 from httpx import AsyncClient
+from sqlalchemy import select
 
 from app.core.config import get_settings
+from app.db import session as db_session_module
+from app.db.models import Post
 from app.services.telegram import mtproto_client
 from app.services.telegram import publish_flow as publish_flow_module
 from tests.conftest import TestSessionLocal, sample_post
@@ -92,6 +95,16 @@ class PublishFakeTelegramClient:
         message = SCENARIO.messages.get(msg_id)
         return [message] if message is not None else []
 
+    async def iter_messages(self, entity: Any, min_id: int = 0, limit: int | None = None) -> Any:
+        count = 0
+        for message in sorted(SCENARIO.messages.values(), key=lambda item: item.id, reverse=True):
+            if min_id and message.id <= min_id:
+                continue
+            yield message
+            count += 1
+            if limit is not None and count >= limit:
+                break
+
 
 @pytest.fixture(autouse=True)
 def _patch_publish_environment(monkeypatch: pytest.MonkeyPatch, tmp_path):
@@ -101,6 +114,7 @@ def _patch_publish_environment(monkeypatch: pytest.MonkeyPatch, tmp_path):
     monkeypatch.setattr(mtproto_client, "StringSession", FakeStringSession)
     monkeypatch.setattr(mtproto_client, "TelegramClient", PublishFakeTelegramClient)
     monkeypatch.setattr(publish_flow_module, "async_session_factory", TestSessionLocal)
+    monkeypatch.setattr(db_session_module, "async_session_factory", TestSessionLocal)
 
     settings = get_settings().model_copy(update={"media_storage_root": str(tmp_path / "media")})
     monkeypatch.setattr(publish_flow_module, "get_settings", lambda: settings)
@@ -265,6 +279,34 @@ async def test_publish_with_media_uses_send_file(
     assert resp.status_code == 200
     assert SCENARIO.sent[0]["kind"] == "file"
     assert SCENARIO.sent[0]["caption"] == "With photo"
+
+
+@pytest.mark.asyncio
+async def test_publish_does_not_duplicate_post_when_reconcile_runs(
+    client: AsyncClient, writer_auth_headers: dict, writer_user
+) -> None:
+    await _seed_connected_profile(
+        client, writer_auth_headers, syncMode="history-and-live"
+    )
+    post = await _create_draft(client, writer_auth_headers, text="No duplicate")
+
+    resp = await client.post(f"/api/v1/posts/{post['id']}/publish/", headers=writer_auth_headers)
+    assert resp.status_code == 200
+    body = resp.json()
+    msg_id = body["telegramMessageId"]
+
+    async with TestSessionLocal() as session:
+        result = await session.execute(
+            select(Post).where(
+                Post.user_id == writer_user.id,
+                Post.data["telegramMessageId"].astext == msg_id,
+                Post.data["status"].astext != "deleted",
+            )
+        )
+        linked = list(result.scalars())
+
+    assert len(linked) == 1
+    assert linked[0].data["id"] == post["id"]
 
 
 @pytest.mark.asyncio

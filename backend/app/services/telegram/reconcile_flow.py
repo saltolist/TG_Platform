@@ -226,6 +226,7 @@ async def maybe_reconcile_after_rpc(
     settings: Settings,
     *,
     force: bool = False,
+    include_new_scan: bool = True,
 ) -> None:
     """Best-effort reconcile after a short TG RPC; never raises."""
     try:
@@ -238,6 +239,7 @@ async def maybe_reconcile_after_rpc(
             settings,
             async_session_factory,
             force=force,
+            include_new_scan=include_new_scan,
         )
     except Exception:
         logger.exception("Channel reconcile after RPC failed for user %s", user_id)
