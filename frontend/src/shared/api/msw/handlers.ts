@@ -68,6 +68,15 @@ export const handlers = [
     return HttpResponse.json(store.posts[idx]);
   }),
 
+  http.post(apiV1MswPath("posts/:id/sync-comments"), ({ params, request }) => {
+    const store = requireStore(request);
+    if (!store) return unauthorized();
+    const id = String(params.id);
+    const post = store.posts.find((p) => p.id === id);
+    if (!post) return notFound(`Post ${id} not found`);
+    return HttpResponse.json(post);
+  }),
+
   http.put(apiV1MswPath("posts/reorder"), async ({ request }) => {
     const store = requireStore(request);
     if (!store) return unauthorized();

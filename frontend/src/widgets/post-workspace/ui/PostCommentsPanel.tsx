@@ -2,6 +2,7 @@
 
 import { useRef, useState } from "react";
 
+import { useTelegramProfile } from "@/entities/channel";
 import { useAddPostComment } from "@/entities/post/model/usePostCommentMutations";
 import { PostMediaBlock } from "@/entities/post";
 import { randomId } from "@/shared/lib/randomId";
@@ -31,6 +32,10 @@ export default function PostCommentsPanel({
   phoneFormat = false,
 }: Props) {
   const addPostComment = useAddPostComment();
+  const { data: telegramProfile } = useTelegramProfile();
+  const commentsEnabled = telegramProfile?.commentsEnabled !== false;
+  const canSyncComments = Boolean(post.telegramMessageId);
+  const composerDisabled = canSyncComments && !commentsEnabled;
   const [replyTo, setReplyTo] = useState<PostComment | null>(null);
   const scrollRef = useRef<HTMLDivElement>(null);
   const comments = post.comments ?? [];
@@ -101,7 +106,17 @@ export default function PostCommentsPanel({
           </div>
         </div>
       </div>
-      <CommentComposer replyTo={replyTo} onCancelReply={() => setReplyTo(null)} onSubmit={addComment} />
+      {composerDisabled ? (
+        <p className="post-comments-disabled-hint">
+          Включите обсуждения в настройках канала Telegram, чтобы писать комментарии с платформы.
+        </p>
+      ) : null}
+      <CommentComposer
+        replyTo={replyTo}
+        onCancelReply={() => setReplyTo(null)}
+        onSubmit={addComment}
+        disabled={composerDisabled}
+      />
     </>
   );
 }

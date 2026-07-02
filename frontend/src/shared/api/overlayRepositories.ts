@@ -104,6 +104,13 @@ function overlayPosts(inner: PostsRepository): PostsRepository {
       if (!shouldPersistLocally()) return inner.schedule(id, scheduledAt);
       return overlayPosts(inner).update(id, { status: "scheduled", date: scheduledAt });
     },
+    syncComments: async (id) => {
+      if (!shouldPersistLocally()) return inner.syncComments(id);
+      const list = await overlayPosts(inner).list();
+      const post = list.find((item) => item.id === id);
+      if (!post) throw new Error(`Post ${id} not found`);
+      return post;
+    },
   };
 }
 

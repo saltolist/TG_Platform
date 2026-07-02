@@ -1,0 +1,393 @@
+"""Tests for bidirectional Telegram comment sync (Phase 3 / Step 5b)."""
+
+from __future__ import annotations
+
+import uuid
+from datetime import datetime, timezone
+from types import SimpleNamespace
+from typing import Any
+
+import pytest
+from httpx import AsyncClient
+from sqlalchemy import select
+
+from app.db import session as db_session_module
+from app.db.models import Post, Profile
+from app.services.telegram import mtproto_client
+from app.services.telegram.comments_flow import merge_comments, map_telegram_messages_to_comments
+from app.services.telegram.reconcile_flow import reconcile_channel_window
+from tests.conftest import TestSessionLocal, sample_post, writer_auth_headers
+
+API_ID = "12345678"
+API_HASH = "abcdef1234567890abcdef1234567890"
+SESSION_VALUE = "fake-session-string"
+TELEGRAM_MESSAGE_ID = "501"
+DISCUSSION_ROOT_ID = 9001
+DISCUSSION_CHAT_ID = "123456789"
+
+
+class FakeStringSession:
+    def __init__(self, value: str = "") -> None:
+        self.value = value
+
+    def save(self) -> str:
+        return self.value
+
+
+class CommentScenario:
+    def __init__(self) -> None:
+        self.sent: list[dict[str, Any]] = []
+        self.discussion_messages: list[Any] = []
+        self.fail_send: Exception | None = None
+
+
+SCENARIO = CommentScenario()
+
+
+class CommentFakeTelegramClient:
+    def __init__(self, session: Any, api_id: int, api_hash: str, **kwargs: Any) -> None:
+        self.session = session
+
+    async def connect(self) -> None:
+        return None
+
+    async def disconnect(self) -> None:
+        return None
+
+    async def get_entity(self, handle: Any) -> SimpleNamespace:
+        if str(handle).startswith("-100"):
+            return SimpleNamespace(id=123456789, title="Discussion", megagroup=True)
+        return SimpleNamespace(id=555, title="Comment Channel", broadcast=True)
+
+    async def __call__(self, request: Any) -> Any:
+        cls_name = type(request).__name__
+        if cls_name == "GetDiscussionMessageRequest":
+            root = SimpleNamespace(
+                id=DISCUSSION_ROOT_ID,
+                peer_id=SimpleNamespace(channel_id=123456789),
+                message="Discussion root",
+            )
+            return SimpleNamespace(
+                messages=[root],
+                chats=[
+                    SimpleNamespace(id=555, broadcast=True, title="Channel"),
+                    SimpleNamespace(id=123456789, megagroup=True, title="Discussion"),
+                ],
+            )
+        if cls_name == "GetFullChannelRequest":
+            return SimpleNamespace(
+                full_chat=SimpleNamespace(linked_chat_id=int(DISCUSSION_CHAT_ID))
+            )
+        raise AssertionError(f"Unexpected request: {cls_name}")
+
+    async def iter_messages(self, entity: Any, reply_to: int | None = None, limit: int = 200):
+        for message in SCENARIO.discussion_messages:
+            reply = getattr(message, "reply_to", None)
+            if reply_to is None or reply is None:
+                continue
+            if reply.reply_to_msg_id == reply_to:
+                yield message
+
+    async def send_message(self, entity: Any, text: str, reply_to: int | None = None) -> Any:
+        if SCENARIO.fail_send is not None:
+            raise SCENARIO.fail_send
+        msg_id = 7000 + len(SCENARIO.sent)
+        SCENARIO.sent.append({"text": text, "reply_to": reply_to, "msg_id": msg_id})
+        return SimpleNamespace(id=msg_id)
+
+    async def send_file(self, entity: Any, file: Any, caption: str = "", reply_to: int | None = None):
+        return await self.send_message(entity, caption, reply_to=reply_to)
+
+
+@pytest.fixture(autouse=True)
+def _patch_comment_environment(monkeypatch: pytest.MonkeyPatch) -> None:
+    SCENARIO.sent = []
+    SCENARIO.discussion_messages = []
+    SCENARIO.fail_send = None
+    monkeypatch.setattr(mtproto_client, "StringSession", FakeStringSession)
+    monkeypatch.setattr(mtproto_client, "TelegramClient", CommentFakeTelegramClient)
+    monkeypatch.setattr(db_session_module, "async_session_factory", TestSessionLocal)
+    yield
+
+
+def _connected_telegram_payload(**overrides: Any) -> dict[str, Any]:
+    payload = {
+        "authStatus": "connected",
+        "authStep": "connected",
+        "apiId": API_ID,
+        "apiHash": API_HASH,
+        "phone": "",
+        "sessionName": "",
+        "sessionString": SESSION_VALUE,
+        "channel": "@commentchannel",
+        "channelTitle": "Comment Channel",
+        "channelId": "-100555",
+        "channelStatus": "connected",
+        "syncMode": "history-and-live",
+        "lastSync": "2026-01-01T00:00:00+00:00",
+        "importedPosts": 1,
+        "importStatus": "done",
+        "importError": "",
+        "lastTelegramMessageId": TELEGRAM_MESSAGE_ID,
+        "syncStatus": "idle",
+        "syncError": "",
+        "syncRevision": 0,
+        "discussionChatId": DISCUSSION_CHAT_ID,
+        "commentsEnabled": True,
+        "botApiToken": "",
+        "botStatus": "idle",
+        "botUsername": "",
+        "botLastActivity": "—",
+        "botMessageCount": 0,
+    }
+    payload.update(overrides)
+    return payload
+
+
+async def _seed_connected_profile(
+    client: AsyncClient, headers: dict[str, str], **overrides: Any
+) -> None:
+    resp = await client.put(
+        "/api/v1/profile/telegram/",
+        headers=headers,
+        json=_connected_telegram_payload(**overrides),
+    )
+    assert resp.status_code == 200
+
+
+async def _create_published_post(
+    client: AsyncClient, headers: dict[str, str], *, comments: list[dict[str, Any]] | None = None
+) -> dict[str, Any]:
+    post_id = str(uuid.uuid4())
+    payload = sample_post(post_id, text="Channel post")
+    payload["status"] = "published"
+    payload["telegramMessageId"] = TELEGRAM_MESSAGE_ID
+    payload["source"] = "telegram"
+    if comments is not None:
+        payload["comments"] = comments
+    resp = await client.post("/api/v1/posts/", headers=headers, json=payload)
+    assert resp.status_code == 201
+    return resp.json()
+
+
+def _discussion_message(
+    msg_id: int,
+    *,
+    text: str,
+    reply_to: int,
+    author: str,
+) -> SimpleNamespace:
+    message = SimpleNamespace(
+        id=msg_id,
+        message=text,
+        date=datetime(2026, 7, 2, 12, 0, tzinfo=timezone.utc),
+        reply_to=SimpleNamespace(reply_to_msg_id=reply_to),
+        media=None,
+    )
+
+    async def get_sender(_self: Any = message) -> SimpleNamespace:
+        return SimpleNamespace(first_name=author, last_name="", title="", username="")
+
+    message.get_sender = get_sender
+    return message
+
+
+@pytest.mark.asyncio
+async def test_merge_comments_keeps_pending_platform_comments() -> None:
+    existing = [
+        {"id": "local-1", "author": "Вы", "text": "Pending", "date": "2026-01-01T00:00:00Z"},
+        {
+            "id": "tg-100",
+            "author": "Old",
+            "text": "Old text",
+            "date": "2026-01-01T01:00:00Z",
+            "telegramMessageId": "100",
+        },
+    ]
+    from_tg = [
+        {
+            "id": "tg-100",
+            "author": "Alice",
+            "text": "Updated",
+            "date": "2026-01-01T02:00:00Z",
+            "telegramMessageId": "100",
+        },
+        {
+            "id": "tg-101",
+            "author": "Bob",
+            "text": "New from TG",
+            "date": "2026-01-01T03:00:00Z",
+            "telegramMessageId": "101",
+        },
+    ]
+    merged = merge_comments(existing, from_tg)
+    assert any(item["id"] == "local-1" for item in merged)
+    updated = next(item for item in merged if item.get("telegramMessageId") == "100")
+    assert updated["text"] == "Updated"
+    assert any(item.get("telegramMessageId") == "101" for item in merged)
+
+
+@pytest.mark.asyncio
+async def test_map_telegram_messages_to_comments_reply_chain() -> None:
+    parent = _discussion_message(100, text="Parent", reply_to=DISCUSSION_ROOT_ID, author="Alice")
+    child = _discussion_message(101, text="Reply", reply_to=100, author="Bob")
+
+    comments = await map_telegram_messages_to_comments(
+        SimpleNamespace(),
+        [parent, child],
+        discussion_root_id=DISCUSSION_ROOT_ID,
+    )
+    assert len(comments) == 2
+    by_id = {item["telegramMessageId"]: item for item in comments}
+    assert by_id["100"]["author"] == "Alice"
+    assert by_id["101"]["replyToId"] == by_id["100"]["id"]
+
+
+@pytest.mark.asyncio
+async def test_patch_new_comment_pushes_to_telegram(
+    client: AsyncClient, writer_auth_headers: dict[str, str]
+) -> None:
+    await _seed_connected_profile(client, writer_auth_headers)
+    post = await _create_published_post(client, writer_auth_headers)
+
+    response = await client.patch(
+        f"/api/v1/posts/{post['id']}/",
+        headers=writer_auth_headers,
+        json={
+            "comments": [
+                {
+                    "id": "new-local",
+                    "author": "Вы",
+                    "text": "Hello TG",
+                    "date": "2026-07-02T12:00:00Z",
+                }
+            ]
+        },
+    )
+    assert response.status_code == 200
+    body = response.json()
+    assert body["comments"][0]["telegramMessageId"] == "7000"
+    assert "commentSyncError" not in body
+    assert SCENARIO.sent[0]["reply_to"] == DISCUSSION_ROOT_ID
+
+
+@pytest.mark.asyncio
+async def test_patch_comment_without_discussion_returns_error(
+    client: AsyncClient, writer_auth_headers: dict[str, str]
+) -> None:
+    await _seed_connected_profile(
+        client,
+        writer_auth_headers,
+        discussionChatId="",
+        commentsEnabled=False,
+    )
+    post = await _create_published_post(client, writer_auth_headers)
+
+    response = await client.patch(
+        f"/api/v1/posts/{post['id']}/",
+        headers=writer_auth_headers,
+        json={
+            "comments": [
+                {
+                    "id": "new-local",
+                    "author": "Вы",
+                    "text": "Blocked",
+                    "date": "2026-07-02T12:00:00Z",
+                }
+            ]
+        },
+    )
+    assert response.status_code == 200
+    body = response.json()
+    assert body["commentSyncError"]
+    assert not body["comments"][0].get("telegramMessageId")
+
+
+@pytest.mark.asyncio
+async def test_sync_comments_endpoint_pulls_from_telegram(
+    client: AsyncClient, writer_auth_headers: dict[str, str]
+) -> None:
+    await _seed_connected_profile(client, writer_auth_headers)
+    post = await _create_published_post(client, writer_auth_headers)
+    SCENARIO.discussion_messages = [
+        _discussion_message(
+            8100,
+            text="From TG",
+            reply_to=DISCUSSION_ROOT_ID,
+            author="Carol",
+        )
+    ]
+
+    response = await client.post(
+        f"/api/v1/posts/{post['id']}/sync-comments/",
+        headers=writer_auth_headers,
+    )
+    assert response.status_code == 200
+    body = response.json()
+    assert any(item.get("telegramMessageId") == "8100" for item in body.get("comments") or [])
+    assert body.get("telegramDiscussionMessageId") == str(DISCUSSION_ROOT_ID)
+
+
+@pytest.mark.asyncio
+async def test_reconcile_pulls_comments(
+    client: AsyncClient, writer_auth_headers: dict[str, str], monkeypatch: pytest.MonkeyPatch
+) -> None:
+    await _seed_connected_profile(client, writer_auth_headers)
+    post = await _create_published_post(client, writer_auth_headers)
+    SCENARIO.discussion_messages = [
+        _discussion_message(
+            8200,
+            text="Reconcile comment",
+            reply_to=DISCUSSION_ROOT_ID,
+            author="Dan",
+        )
+    ]
+
+    async with TestSessionLocal() as session:
+        profile = (await session.execute(select(Profile))).scalar_one()
+        writer_user_id = profile.user_id
+
+    channel_entity = SimpleNamespace(id=555, broadcast=True)
+    tg_client = CommentFakeTelegramClient(None, 1, "hash")
+
+    async def fake_fetch_by_ids(_client: Any, _entity: Any, message_ids: list[int]) -> dict[int, Any]:
+        return {
+            int(TELEGRAM_MESSAGE_ID): SimpleNamespace(
+                id=int(TELEGRAM_MESSAGE_ID),
+                message="Channel post",
+                date=datetime(2026, 7, 1, tzinfo=timezone.utc),
+                media=None,
+            )
+        }
+
+    monkeypatch.setattr(
+        "app.services.telegram.reconcile_flow._fetch_messages_by_ids",
+        fake_fetch_by_ids,
+    )
+    async def always_acquire(*_args: Any, **_kwargs: Any) -> bool:
+        return True
+
+    monkeypatch.setattr(
+        "app.services.telegram.reconcile_flow.try_acquire_reconcile_slot",
+        always_acquire,
+    )
+
+    from app.core.config import get_settings
+
+    settings = get_settings()
+    stats = await reconcile_channel_window(
+        tg_client,
+        channel_entity,
+        writer_user_id,
+        settings,
+        TestSessionLocal,
+        force=True,
+        include_new_scan=False,
+    )
+    assert stats.updated >= 1
+
+    async with TestSessionLocal() as session:
+        refreshed = await session.get(Post, uuid.UUID(post["id"]))
+        assert refreshed is not None
+        comments = refreshed.data.get("comments") or []
+        assert any(item.get("telegramMessageId") == "8200" for item in comments)

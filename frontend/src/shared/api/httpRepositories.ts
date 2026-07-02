@@ -103,6 +103,10 @@ export function createHttpRepositories(): RepositoryBundle {
           method: "POST",
           body: { scheduledAt },
         }).then((data) => postSchema.parse(data)),
+      syncComments: (id) =>
+        apiRequest<unknown>(apiV1Path(`posts/${id}/sync-comments`), { method: "POST" }).then(
+          (data) => postSchema.parse(data),
+        ),
     },
     chats: {
       listGlobal: () =>

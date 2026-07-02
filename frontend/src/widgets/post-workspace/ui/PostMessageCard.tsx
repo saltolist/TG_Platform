@@ -27,6 +27,7 @@ type Props = {
   metrics: PostMetrics | null;
   comments?: PostComment[];
   onOpenComments?: () => void;
+  commentsEnabled?: boolean;
   phoneFormat?: boolean;
 };
 
@@ -43,10 +44,11 @@ export default function PostMessageCard({
   metrics,
   comments,
   onOpenComments,
+  commentsEnabled = true,
   isTextOnlyNoMedia,
   phoneFormat,
 }: Props) {
-  const showComments = !!metrics;
+  const showComments = !!metrics && commentsEnabled;
   const [draft, setDraft] = useState(text);
   const [mediaDraft, setMediaDraft] = useState<PostMedia[]>(media);
   const taRef = useRef<HTMLTextAreaElement>(null);

@@ -16,6 +16,12 @@ from app.services.ai.context_meta import apply_rolling_summary_reconcile_to_chat
 from app.services.ai.summary_catalog import catalog_from_profile, register_local_summary_version
 from app.services.ai.rag_worker import enqueue_note_job
 from app.services.profile_defaults import empty_channel_profile, empty_telegram_profile
+from app.services.telegram.comments_flow import (
+    comments_enabled,
+    require_comments_enabled,
+    sync_post_comments_pull,
+    sync_post_comments_push,
+)
 from app.services.telegram.delete_flow import delete_message_in_telegram
 from app.services.telegram.edit_flow import sync_edit_to_telegram
 from app.services.telegram.net import TelegramAuthError
@@ -83,6 +89,7 @@ async def update_post(
     previous_status = post.data.get("status")
     previous_telegram_message_id = post.data.get("telegramMessageId")
     previous_task_id = post.data.get("_celeryTaskId")
+    previous_comments = list(post.data.get("comments") or [])
 
     merged = {**post.data, **patch}
     if isinstance(patch.get("chats"), list) and isinstance(post.data.get("chats"), list):
@@ -187,6 +194,80 @@ async def update_post(
         elif sync_result.error:
             response["telegramSyncError"] = sync_result.error
 
+    telegram_message_id = previous_telegram_message_id or merged.get("telegramMessageId")
+    if (
+        telegram_message_id
+        and profile is not None
+        and isinstance(patch.get("comments"), list)
+        and merged.get("status") == "published"
+    ):
+        new_without_tg = [
+            item
+            for item in merged.get("comments") or []
+            if isinstance(item, Mapping)
+            and str(item.get("id") or "") not in {str(c.get("id")) for c in previous_comments}
+            and not item.get("telegramMessageId")
+        ]
+        if new_without_tg:
+            if not comments_enabled(telegram):
+                response["commentSyncError"] = (
+                    "В канале не включены обсуждения — включите их в настройках Telegram"
+                )
+            else:
+                async with telegram_sync_pending(user.id, post_id):
+                    comment_result = await sync_post_comments_push(
+                        profile, merged, previous_comments, user.id
+                    )
+                if comment_result.error:
+                    response["commentSyncError"] = comment_result.error
+                elif comment_result.comments is not None:
+                    post = await get_owned_post(session, user.id, post_id)
+                    updated = dict(post.data)
+                    updated["comments"] = comment_result.comments
+                    if comment_result.telegram_discussion_message_id:
+                        updated["telegramDiscussionMessageId"] = (
+                            comment_result.telegram_discussion_message_id
+                        )
+                    post.data = updated
+                    await session.commit()
+                    response = dict(updated)
+
+    return response
+
+
+@router.post("/{post_id}/sync-comments/")
+async def sync_post_comments_endpoint(
+    post_id: str, user: CurrentWriter, session: DbSession
+) -> dict[str, Any]:
+    """Pull discussion comments from Telegram for a linked post (Phase 3 / Step 5b)."""
+    post = await get_owned_post(session, user.id, post_id)
+    profile = await session.get(Profile, user.id)
+    if profile is None:
+        raise HTTPException(status_code=400, detail="Профиль не найден")
+
+    telegram = profile.telegram if profile.telegram else empty_telegram_profile()
+    if not post.data.get("telegramMessageId"):
+        return dict(post.data)
+
+    try:
+        require_comments_enabled(telegram)
+    except TelegramAuthError as exc:
+        raise HTTPException(status_code=exc.status_code, detail=exc.detail) from exc
+
+    async with telegram_sync_pending(user.id, post_id):
+        result = await sync_post_comments_pull(profile, post.data, user.id)
+
+    response = dict(post.data)
+    if result.comments is not None:
+        updated = dict(post.data)
+        updated["comments"] = result.comments
+        if result.telegram_discussion_message_id:
+            updated["telegramDiscussionMessageId"] = result.telegram_discussion_message_id
+        post.data = updated
+        await session.commit()
+        response = dict(updated)
+    if result.error:
+        response["commentSyncError"] = result.error
     return response
 
 

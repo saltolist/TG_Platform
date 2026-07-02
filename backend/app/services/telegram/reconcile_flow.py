@@ -9,6 +9,7 @@ from typing import Any
 from uuid import UUID
 
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
+from sqlalchemy.orm.attributes import flag_modified
 
 from app.core.config import Settings, get_settings
 from app.db.models import Post, Profile
@@ -17,6 +18,7 @@ from app.services.telegram.message_mapping import (
     map_message_for_reconcile,
     telethon_message_fetchable,
 )
+from app.services.telegram.comments_flow import comments_enabled, reconcile_post_comments
 from app.services.telegram.post_sync import (
     _find_telegram_post,
     delete_telegram_post,
@@ -183,6 +185,20 @@ async def reconcile_channel_window(
             await update_telegram_post(session, user_id, post_data)
             if dict(post.data) != before:
                 stats.updated += 1
+
+            telegram = profile.telegram or {}
+            if comments_enabled(telegram) and telegram.get("discussionChatId"):
+                updated_data, comments_changed = await reconcile_post_comments(
+                    client,
+                    entity,
+                    telegram["discussionChatId"],
+                    dict(post.data),
+                    settings,
+                )
+                if comments_changed:
+                    post.data = updated_data
+                    flag_modified(post, "data")
+                    stats.updated += 1
 
         if include_new_scan:
             scan_limit = settings.telegram_reconcile_new_scan_limit

@@ -301,6 +301,60 @@ async def finalize_published_from_telegram(
     return merged
 
 
+async def find_post_for_discussion_reply(
+    session: AsyncSession, user_id: UUID, reply_to_msg_id: int, *, window: int = 200
+) -> Post | None:
+    """Find a linked post whose discussion thread contains *reply_to_msg_id*."""
+    reply_str = str(reply_to_msg_id)
+    result = await session.execute(
+        select(Post).where(
+            Post.user_id == user_id,
+            Post.data["telegramDiscussionMessageId"].astext == reply_str,
+            Post.data["status"].astext != "deleted",
+        )
+    )
+    post = result.scalar_one_or_none()
+    if post is not None:
+        return post
+
+    linked = await load_linked_posts_for_reconcile(session, user_id, window)
+    for candidate in linked:
+        for comment in candidate.data.get("comments") or []:
+            if str(comment.get("telegramMessageId") or "") == reply_str:
+                return candidate
+    return None
+
+
+async def apply_discussion_comment(
+    session: AsyncSession,
+    user_id: UUID,
+    post: Post,
+    comment: dict[str, Any],
+    *,
+    discussion_root_id: str | None = None,
+) -> bool:
+    """Merge one discussion comment into *post*; return True when persisted."""
+    from app.services.telegram.comments_flow import merge_comments
+
+    profile = await session.get(Profile, user_id)
+    if profile is None:
+        return False
+
+    existing = list(post.data.get("comments") or [])
+    merged = merge_comments(existing, [comment])
+    if merged == existing:
+        return False
+
+    data = dict(post.data)
+    data["comments"] = merged
+    if discussion_root_id:
+        data["telegramDiscussionMessageId"] = discussion_root_id
+    post.data = data
+    flag_modified(post, "data")
+    await touch_telegram_profile(session, profile)
+    return True
+
+
 async def delete_telegram_post(
     session: AsyncSession, user_id: UUID, telegram_message_id: str
 ) -> None:

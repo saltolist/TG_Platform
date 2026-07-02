@@ -74,6 +74,11 @@ export function createSeedRepositories(): RepositoryBundle {
         posts[idx] = { ...posts[idx], status: "scheduled", date: scheduledAt };
         return posts[idx];
       },
+      async syncComments(id) {
+        const idx = posts.findIndex((p) => p.id === id);
+        if (idx < 0) throw new Error(`Post ${id} not found`);
+        return posts[idx];
+      },
     },
     chats: {
       async listGlobal() {

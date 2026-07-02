@@ -60,7 +60,7 @@ export function TelegramLiveSyncPoll() {
       const shouldRefreshPosts = previousRevision !== null && revision > previousRevision;
 
       if (shouldRefreshPosts) {
-        await queryClient.refetchQueries({ queryKey: queryKeys.posts.list(accountId) });
+        await queryClient.refetchQueries({ queryKey: queryKeys.posts.all(accountId) });
       }
 
       syncRevisionRef.current = revision;

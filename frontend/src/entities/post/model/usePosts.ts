@@ -8,7 +8,7 @@ import { useQueryAccountScope } from "@/app/providers/useQueryAccountScope";
 import { showToast } from "@/shared/ui/toast";
 import type { Post } from "@/shared/types";
 
-function applyPostUpdate(
+export function applyPostUpdate(
   queryClient: ReturnType<typeof useQueryClient>,
   accountId: string,
   updatedPost: Post,
@@ -42,23 +42,18 @@ export function usePosts() {
 
 export function usePost(id: string) {
   const { posts } = useRepositories();
-  const queryClient = useQueryClient();
   const enabled = useAuthenticatedQueryEnabled();
   const accountId = useQueryAccountScope();
 
   return useQuery({
-    queryKey: queryKeys.posts.detail(accountId, id),
-    queryFn: async () => {
-      const list = await posts.list();
-      const post = list.find((p) => p.id === id);
-      if (!post) throw new Error(`Post ${id} not found`);
-      return post;
-    },
-    placeholderData: () => {
-      const list = queryClient.getQueryData<Post[]>(queryKeys.posts.list(accountId));
-      return list?.find((p) => p.id === id);
-    },
+    queryKey: queryKeys.posts.list(accountId),
+    queryFn: () => posts.list(),
     enabled: enabled && !!id,
+    select: (list) => {
+      const post = list.find((p) => p.id === id);
+      if (!post) return undefined;
+      return post.status === "published" ? { ...post, created: undefined } : post;
+    },
   });
 }
 
@@ -99,6 +94,12 @@ export function useUpdatePost() {
       if (updatedPost.telegramSyncError) {
         showToast({
           message: `Правка сохранена, но не синхронизирована с Telegram: ${updatedPost.telegramSyncError}`,
+          variant: "error",
+        });
+      }
+      if (updatedPost.commentSyncError) {
+        showToast({
+          message: `Комментарий сохранён, но не синхронизирован с Telegram: ${updatedPost.commentSyncError}`,
           variant: "error",
         });
       }

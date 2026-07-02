@@ -160,10 +160,12 @@ def _patch_live_sync_environment(monkeypatch: pytest.MonkeyPatch, tmp_path):
         update={
             "media_storage_root": str(tmp_path / "media"),
             "media_public_base_url": "http://localhost:8000",
+            "telegram_clock_sync_enabled": False,
             "telegram_live_sync_enabled": True,
             "telegram_live_sync_registry_refresh_seconds": 0.05,
             "telegram_live_sync_reconnect_seconds": 0.01,
             "telegram_album_debounce_seconds": 0.05,
+            "telegram_live_sync_catch_up_seconds": 3600.0,
             "telegram_import_post_limit": 200,
         }
     )

@@ -96,6 +96,7 @@ class Settings(BaseSettings):
     telegram_live_sync_enabled: bool = True
     telegram_live_sync_registry_refresh_seconds: float = 30.0
     telegram_live_sync_reconnect_seconds: float = 15.0
+    telegram_live_sync_catch_up_seconds: float = 90.0
     telegram_album_debounce_seconds: float = 2.0
 
     # Window reconcile — drift correction between channel and platform DB

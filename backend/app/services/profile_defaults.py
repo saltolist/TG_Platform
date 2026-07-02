@@ -56,6 +56,8 @@ def empty_telegram_profile() -> dict[str, Any]:
         "syncStatus": "idle",
         "syncError": "",
         "syncRevision": 0,
+        "discussionChatId": "",
+        "commentsEnabled": False,
         "botApiToken": "",
         "botStatus": "idle",
         "botUsername": "",

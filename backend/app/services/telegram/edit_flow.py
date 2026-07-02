@@ -95,7 +95,7 @@ async def sync_edit_to_telegram(
 
             await with_timeout(client.edit_message(entity, msg_id, new_text), settings)
             await maybe_reconcile_after_rpc(
-                client, entity, user_id, settings, force=False
+                client, entity, user_id, settings, force=True
             )
         except TelegramAuthError as exc:
             if is_message_gone_error(exc):

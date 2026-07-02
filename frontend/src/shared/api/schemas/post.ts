@@ -145,6 +145,8 @@ export const postCommentSchema = z.object({
   date: z.string(),
   replyToId: z.string().optional(),
   media: z.array(postMediaSchema).optional(),
+  /** Telegram discussion message id after sync (Phase 3 / Step 5b). */
+  telegramMessageId: z.string().optional(),
 });
 
 export const postSchema = z.object({
@@ -160,8 +162,12 @@ export const postSchema = z.object({
   notes: z.array(localNoteSchema),
   chats: z.array(localChatSchema),
   comments: z.array(postCommentSchema).optional(),
+  telegramMessageId: z.string().optional(),
+  telegramDiscussionMessageId: z.string().optional(),
   /** Best-effort Telegram edit-sync failure from the last PATCH (Phase 3 / Step 4c). */
   telegramSyncError: z.string().optional(),
+  /** Best-effort Telegram comment-sync failure from the last PATCH or sync-comments (Step 5b). */
+  commentSyncError: z.string().optional(),
   /** True while a publish/edit/delete Telegram RPC is in flight (Redis-backed). */
   telegramSyncPending: z.boolean().optional(),
 });

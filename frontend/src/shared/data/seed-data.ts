@@ -460,6 +460,8 @@ export const initialTelegramProfileConfig: TelegramProfileConfig = {
   syncStatus: "listening",
   syncError: "",
   syncRevision: 0,
+  discussionChatId: "",
+  commentsEnabled: true,
   botApiToken: "7123456789:AAHdemoOmniBotTokenForTGPlatform",
   botStatus: "idle",
   botUsername: "",

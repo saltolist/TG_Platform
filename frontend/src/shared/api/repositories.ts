@@ -26,6 +26,8 @@ export interface PostsRepository {
   publish(id: string): Promise<Post>;
   /** Queue a draft for publication at `scheduledAt` via Celery (Phase 3 / Step 4b). */
   schedule(id: string, scheduledAt: string): Promise<Post>;
+  /** Pull discussion comments from Telegram (Phase 3 / Step 5b). */
+  syncComments(id: string): Promise<Post>;
 }
 
 export interface ChatsRepository {

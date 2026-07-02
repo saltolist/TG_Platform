@@ -31,9 +31,11 @@ from app.services.telegram.net import (
     require_api_credentials,
     with_timeout,
 )
+from app.services.telegram.comments_flow import handle_live_discussion_message
 from app.services.telegram.post_sync import (
     delete_telegram_post,
     set_sync_error,
+    touch_telegram_profile,
     update_telegram_post,
     upsert_telegram_post,
 )
@@ -259,6 +261,19 @@ async def _load_listener_credentials(
         return telegram, api_id, api_hash, session_string, parsed, min_id
 
 
+async def _load_last_telegram_message_id(
+    session_factory: async_sessionmaker[AsyncSession], user_id: UUID
+) -> int:
+    async with session_factory() as session:
+        profile = await session.get(Profile, user_id)
+        if profile is None:
+            return 0
+        try:
+            return int((profile.telegram or {}).get("lastTelegramMessageId") or 0)
+        except (TypeError, ValueError):
+            return 0
+
+
 async def _catch_up(
     client: Any,
     entity: Any,
@@ -290,6 +305,31 @@ async def _catch_up(
         for post_data in posts:
             await upsert_telegram_post(session, user_id, post_data)
         await session.commit()
+
+
+async def _periodic_catch_up_loop(
+    client: Any,
+    entity: Any,
+    user_id: UUID,
+    settings: Settings,
+    session_factory: async_sessionmaker[AsyncSession],
+    stop_event: asyncio.Event,
+) -> None:
+    """Poll for channel posts missed by Telethon events (e.g. during RPC gaps)."""
+    interval = max(15.0, settings.telegram_live_sync_catch_up_seconds)
+    while not stop_event.is_set():
+        try:
+            await asyncio.wait_for(stop_event.wait(), timeout=interval)
+            return
+        except asyncio.TimeoutError:
+            pass
+        if stop_event.is_set():
+            return
+        try:
+            min_id = await _load_last_telegram_message_id(session_factory, user_id)
+            await _catch_up(client, entity, user_id, settings, min_id, session_factory)
+        except Exception:
+            logger.exception("Periodic live-sync catch-up failed for user %s", user_id)
 
 
 async def _periodic_reconcile_loop(
@@ -399,6 +439,7 @@ async def _run_user_listener(user_id: UUID, stop_event: asyncio.Event) -> None:
                 )
 
                 periodic_reconcile_task: asyncio.Task[None] | None = None
+                periodic_catch_up_task: asyncio.Task[None] | None = None
                 try:
                     await connect_telegram_client(client, settings)
                     entity = await resolve_channel_entity(client, parsed, settings)
@@ -414,6 +455,16 @@ async def _run_user_listener(user_id: UUID, stop_event: asyncio.Event) -> None:
 
                     periodic_reconcile_task = asyncio.create_task(
                         _periodic_reconcile_loop(
+                            client,
+                            entity,
+                            user_id,
+                            settings,
+                            session_factory,
+                            stop_event,
+                        )
+                    )
+                    periodic_catch_up_task = asyncio.create_task(
+                        _periodic_catch_up_loop(
                             client,
                             entity,
                             user_id,
@@ -477,6 +528,43 @@ async def _run_user_listener(user_id: UUID, stop_event: asyncio.Event) -> None:
                             logger.exception("Live-sync MessageDeleted failed for user %s", user_id)
                             await set_sync_error(user_id, str(exc), session_factory)
 
+                    discussion_entity = None
+                    discussion_chat_id = _telegram.get("discussionChatId")
+                    if discussion_chat_id and _telegram.get("commentsEnabled"):
+                        try:
+                            from app.services.telegram.comments_flow import _discussion_peer_id
+
+                            discussion_peer = _discussion_peer_id(discussion_chat_id)
+                            discussion_entity = await with_timeout(
+                                client.get_entity(discussion_peer), settings
+                            )
+                        except Exception:
+                            logger.debug(
+                                "Discussion group entity unavailable for user %s",
+                                user_id,
+                                exc_info=True,
+                            )
+
+                    if discussion_entity is not None:
+
+                        @client.on(events.NewMessage(chats=discussion_entity))
+                        async def on_discussion_message(
+                            event: events.NewMessage.Event,
+                        ) -> None:
+                            try:
+                                await handle_live_discussion_message(
+                                    client,
+                                    event.message,
+                                    user_id,
+                                    session_factory,
+                                )
+                            except Exception as exc:  # noqa: BLE001
+                                logger.exception(
+                                    "Live-sync discussion NewMessage failed for user %s",
+                                    user_id,
+                                )
+                                await set_sync_error(user_id, str(exc), session_factory)
+
                     async with session_factory() as session:
                         profile = await session.get(Profile, user_id)
                         if profile is not None:
@@ -522,6 +610,12 @@ async def _run_user_listener(user_id: UUID, stop_event: asyncio.Event) -> None:
                         periodic_reconcile_task.cancel()
                         try:
                             await periodic_reconcile_task
+                        except asyncio.CancelledError:
+                            pass
+                    if periodic_catch_up_task is not None:
+                        periodic_catch_up_task.cancel()
+                        try:
+                            await periodic_catch_up_task
                         except asyncio.CancelledError:
                             pass
                     listener_registry.unregister_client(user_id, client)

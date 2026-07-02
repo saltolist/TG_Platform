@@ -258,6 +258,15 @@ async def connect_channel(
         if not await _user_can_post(client, entity, settings):
             raise TelegramAuthError("У вас нет прав администратора в этом канале", 403)
 
+        discussion_chat_id: int | None = None
+        try:
+            full = await with_timeout(client(GetFullChannelRequest(entity)), settings)
+            linked = getattr(getattr(full, "full_chat", None), "linked_chat_id", None)
+            if linked is not None:
+                discussion_chat_id = int(linked)
+        except (TypeError, ValueError, errors.RPCError):
+            discussion_chat_id = None
+
         result = copy.deepcopy(profile)
         result["channel"] = parsed.display
         result["channelTitle"] = await _resolve_channel_title(client, entity, settings)
@@ -265,6 +274,8 @@ async def connect_channel(
         result["channelStatus"] = "connected"
         result["authStatus"] = "connected"
         result["authStep"] = "connected"
+        result["discussionChatId"] = str(discussion_chat_id) if discussion_chat_id else ""
+        result["commentsEnabled"] = bool(discussion_chat_id)
         result["lastSync"] = datetime.now(timezone.utc).isoformat()
         sync_mode = str(profile.get("syncMode") or "history-and-live")
         if sync_mode == "publish-only":

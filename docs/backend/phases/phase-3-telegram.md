@@ -221,7 +221,7 @@ HTTP-ответ connect возвращается мгновенно с `importSt
 импорта может запустить вторую параллельную задачу (нет блокировки на уровне
 процесса); на фронте кнопка дизейблится при `importStatus === "importing"`.
 
-**Явно вне рамок:** комментарии к постам; UI-кнопка ручной сверки (API есть — см. 3.5b);
+**Явно вне рамок:** UI-кнопка ручной сверки (API есть — см. 3.5b);
 персистентная очередь задач для импорта (используется `asyncio.create_task`).
 
 ---
@@ -525,6 +525,41 @@ GET /api/v1/analytics/top-posts/?period=30d
 **Ограничение v1:** исторические тренды строятся по **текущим** снимкам метрик постов,
 сгруппированным по дате публикации (нет отдельного time-series store). Heatmap — seed.
 
+### Шаг 5b — Синхронизация комментариев ✅
+
+Комментарии к посту канала — сообщения в **привязанной группе обсуждений** Telegram.
+Двусторонняя синхронизация: платформа → TG при добавлении/ответе; TG → платформа
+через reconcile и live-sync обсуждений.
+
+**Профиль (`TelegramProfileConfig`):**
+- `discussionChatId` — peer id linked discussion group (из `GetFullChannelRequest` при connect).
+- `commentsEnabled: boolean` — `true`, если группа обсуждений привязана.
+
+**Пост (`post.data`):**
+- `telegramDiscussionMessageId` — id корневого сообщения треда (кэш для `reply_to`).
+- Комментарий: опциональный `telegramMessageId` для идемпотентности.
+
+**Backend:**
+- `backend/app/services/telegram/comments_flow.py` — discussion root, fetch, merge, push.
+- `PATCH /api/v1/posts/:id/` — push новых комментариев без `telegramMessageId` после commit;
+  при ошибке — `commentSyncError` (DB не откатывается).
+- `POST /api/v1/posts/:id/sync-comments/` — форсированный pull при открытии вкладки комментариев.
+- `reconcile_channel_window` — подтягивает комментарии для связанных постов.
+- `live_sync_worker` — `NewMessage` на discussion group entity.
+
+**Без discussion group:** `commentsEnabled=false` — добавление комментариев к
+опубликованному TG-посту блокируется (composer disabled + `commentSyncError` на PATCH).
+
+**Frontend:**
+- `commentsEnabled` в профиле; блокировка `CommentComposer` без обсуждений.
+- `useSyncPostComments` — вызов `sync-comments` при `postMode === "comments"`.
+- Toast при `commentSyncError`.
+
+**Тесты:** `backend/tests/test_telegram_comments_sync.py`.
+
+**Ограничения v1:** нет edit/delete комментариев в TG; только посты с `telegramMessageId`;
+медиа в комментариях — `send_file` при локальном `/media/` пути.
+
 ### Шаг 6 — Бот для уведомлений (опционально)
 
 1. Telegram Bot API: токен, `botStatus`, `botUsername`.
@@ -547,6 +582,7 @@ POST /api/v1/posts/:id/schedule/           ✅ реализован — Celery +
 PATCH /api/v1/posts/:id/                   ✅ + edit_message в TG при правке текста (шаг 4c)
 GET  /api/v1/analytics/overview/            ✅ реализован (шаг 5)
 GET  /api/v1/analytics/top-posts/           ✅ реализован (шаг 5)
+POST /api/v1/posts/:id/sync-comments/       ✅ реализован (шаг 5b)
 ```
 
 ---
@@ -557,6 +593,7 @@ GET  /api/v1/analytics/top-posts/           ✅ реализован (шаг 5)
 - История импортируется; пост публикуется и планируется; правка текста на
   платформе отражается в канале. ✅ (шаг 4)
 - Метрики канала синхронизируются и отображаются в аналитике. ✅ (шаг 5)
+- Комментарии синхронизируются с группой обсуждений Telegram. ✅ (шаг 5b)
 - Telegram-секреты (`apiHash`, `botApiToken`) зашифрованы в БД; на фронт — preview. ✅
 
 > CSP и продакшен-гигиена (`BYOK_ENCRYPTION_KEY`, KMS, ротация) — см.

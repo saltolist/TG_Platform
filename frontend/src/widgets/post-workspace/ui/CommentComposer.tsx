@@ -19,9 +19,10 @@ type Props = {
   replyTo: PostComment | null;
   onCancelReply: () => void;
   onSubmit: (text: string, media: PostMedia[]) => void;
+  disabled?: boolean;
 };
 
-export default function CommentComposer({ replyTo, onCancelReply, onSubmit }: Props) {
+export default function CommentComposer({ replyTo, onCancelReply, onSubmit, disabled = false }: Props) {
   const [draft, setDraft] = useState("");
   const [pendingMedia, setPendingMedia] = useState<PostMedia[]>([]);
   const taRef = useRef<HTMLTextAreaElement>(null);
@@ -39,6 +40,7 @@ export default function CommentComposer({ replyTo, onCancelReply, onSubmit }: Pr
   }
 
   function submit() {
+    if (disabled) return;
     const text = draft.trim();
     if (!text && pendingMedia.length === 0) return;
     onSubmit(text, pendingMedia);
@@ -47,7 +49,10 @@ export default function CommentComposer({ replyTo, onCancelReply, onSubmit }: Pr
   }
 
   return (
-    <div className="input-wrap post-comments-input-wrap" onMouseDown={onComposerShellMouseDown}>
+    <div
+      className={`input-wrap post-comments-input-wrap${disabled ? " post-comments-input-wrap--disabled" : ""}`}
+      onMouseDown={onComposerShellMouseDown}
+    >
       <div className="composer-backdrop" aria-hidden="true" />
       <div className={`input-box${replyTo ? " input-box--replying" : ""}`}>
         {replyTo ? (
@@ -71,9 +76,14 @@ export default function CommentComposer({ replyTo, onCancelReply, onSubmit }: Pr
         ) : null}
         <textarea
           ref={taRef}
-          placeholder="Написать комментарий..."
+          placeholder={
+            disabled
+              ? "Комментарии недоступны — включите обсуждения в Telegram"
+              : "Написать комментарий..."
+          }
           rows={1}
           value={draft}
+          disabled={disabled}
           onChange={(e) => setDraft(e.target.value)}
           onKeyDown={(e) => {
             if (e.key === "Enter" && !e.shiftKey) {
@@ -106,7 +116,13 @@ export default function CommentComposer({ replyTo, onCancelReply, onSubmit }: Pr
               }}
             />
           </div>
-          <button className="send-btn" onClick={submit} type="button" aria-label="Отправить комментарий">
+          <button
+            className="send-btn"
+            onClick={submit}
+            type="button"
+            disabled={disabled}
+            aria-label="Отправить комментарий"
+          >
             ↑
           </button>
         </div>
