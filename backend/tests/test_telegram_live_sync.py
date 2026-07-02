@@ -73,11 +73,12 @@ def _fake_message(
 class LiveSyncFakeClient:
     _latest: LiveSyncFakeClient | None = None
     catchup_messages: list[Any] = []
+    known_messages_seed: dict[int, Any] = {}
 
     def __init__(self, *args: Any, **kwargs: Any) -> None:
         self.handlers: list[tuple[Any, Any]] = []
         self._disconnect = asyncio.Event()
-        self.known_messages: dict[int, Any] = {}
+        self.known_messages = dict(LiveSyncFakeClient.known_messages_seed)
         self.catchup_messages = list(LiveSyncFakeClient.catchup_messages)
         LiveSyncFakeClient._latest = self
 
@@ -149,6 +150,7 @@ class LiveSyncFakeClient:
 def _patch_live_sync_environment(monkeypatch: pytest.MonkeyPatch, tmp_path):
     LiveSyncFakeClient._latest = None
     LiveSyncFakeClient.catchup_messages = []
+    LiveSyncFakeClient.known_messages_seed = {}
     monkeypatch.setattr(mtproto_client, "StringSession", FakeStringSession)
     monkeypatch.setattr(mtproto_client, "TelegramClient", LiveSyncFakeClient)
     monkeypatch.setattr(import_flow_module, "async_session_factory", TestSessionLocal)
@@ -335,6 +337,9 @@ async def test_live_sync_message_edited_via_handler(
         await upsert_telegram_post(session, user_id, original)
         await session.commit()
 
+    LiveSyncFakeClient.known_messages_seed = {
+        35: _fake_message(35, text="Before edit"),
+    }
     listener_registry.start_user_listener(user_id)
     await asyncio.sleep(0.1)
     fake = LiveSyncFakeClient._latest

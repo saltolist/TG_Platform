@@ -6,7 +6,7 @@ from datetime import datetime, timezone
 from typing import Any
 from uuid import UUID
 
-from sqlalchemy import select
+from sqlalchemy import Integer, cast, select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm.attributes import flag_modified
 
@@ -19,6 +19,25 @@ def _parse_message_id(value: str | int | None) -> int:
         return int(value or 0)
     except (TypeError, ValueError):
         return 0
+
+
+async def load_linked_posts_for_reconcile(
+    session: AsyncSession, user_id: UUID, limit: int
+) -> list[Post]:
+    """Published/linked posts with a Telegram message id (excludes soft-deleted)."""
+    msg_id_expr = Post.data["telegramMessageId"].astext
+    result = await session.execute(
+        select(Post)
+        .where(
+            Post.user_id == user_id,
+            msg_id_expr != "",
+            msg_id_expr.isnot(None),
+            Post.data["status"].astext != "deleted",
+        )
+        .order_by(cast(msg_id_expr, Integer).desc())
+        .limit(limit)
+    )
+    return list(result.scalars())
 
 
 async def _find_telegram_post(
@@ -176,6 +195,9 @@ async def update_telegram_post(
     existing = await _find_telegram_post(session, user_id, msg_id)
     if existing is None:
         await upsert_telegram_post(session, user_id, post_data)
+        return
+
+    if existing.data.get("status") == "deleted":
         return
 
     if _content_unchanged(existing.data, post_data):

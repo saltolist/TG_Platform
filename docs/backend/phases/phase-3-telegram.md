@@ -221,8 +221,8 @@ HTTP-ответ connect возвращается мгновенно с `importSt
 импорта может запустить вторую параллельную задачу (нет блокировки на уровне
 процесса); на фронте кнопка дизейблится при `importStatus === "importing"`.
 
-**Явно вне рамок:** комментарии к постам; ручная ресинхронизация; персистентная
-очередь задач для импорта (используется `asyncio.create_task`).
+**Явно вне рамок:** комментарии к постам; UI-кнопка ручной сверки (API есть — см. 3.5b);
+персистентная очередь задач для импорта (используется `asyncio.create_task`).
 
 ---
 
@@ -273,6 +273,44 @@ HTTP-ответ connect возвращается мгновенно с `importSt
 3. **Перезапуск Colima** — иногда сбрасывает drift VM: `colima stop && colima start`.
 
 **Явно вне рамок:** SSE/WebSocket push; синхронизация метрик (Шаг 5).
+
+---
+
+### Шаг 3.5b — Оконная сверка канала (window reconcile) ✅
+
+**Задача:** подстраховать live-sync — сверять окно последних связанных постов с
+каналом без полного скана истории (~1–3 RPC).
+
+**Реализация:** `backend/app/services/telegram/reconcile_flow.py`
+- `reconcile_channel_window()` — загрузка linked posts из БД, batch
+  `get_messages(ids)`, diff → `update_telegram_post` / `delete_telegram_post`;
+  опционально короткий `iter_messages(limit=N)` для постов только в канале.
+- `map_message_for_reconcile()` в `message_mapping.py` — лёгкий payload без
+  скачивания media.
+- Redis-throttle `tg:reconcile:{user_id}` (in-memory fallback); `force=True`
+  обходит throttle.
+
+**Триггеры:**
+
+| Событие | `force` |
+|---------|---------|
+| Старт слушателя (после `_catch_up`) | да |
+| После publish / delete | да |
+| После edit-sync | нет (throttle) |
+| Периодический таймер в listener | нет |
+| `POST /telegram/channel/reconcile/` | да |
+
+**Эндпоинт:** `POST /api/v1/telegram/channel/reconcile/` →
+`{ reconciled: true, stats: { checked, updated, deleted, imported, skippedThrottle } }`.
+
+**Guards:** `update_telegram_post` не воскрешает `status: deleted`; существующие
+edit-guards (`_content_unchanged`, `_platformTextEditAt`) сохраняются.
+
+**Настройки:** `telegram_reconcile_enabled`, `telegram_reconcile_window` (100),
+`telegram_reconcile_throttle_seconds` (45), `telegram_reconcile_periodic_seconds`
+(900), `telegram_reconcile_new_scan_limit` (30).
+
+**Тесты:** `backend/tests/test_telegram_reconcile.py`.
 
 ---
 

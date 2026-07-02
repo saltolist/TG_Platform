@@ -107,6 +107,40 @@ async def map_group_to_post(
     return post
 
 
+def map_message_for_reconcile(message: Any) -> dict[str, Any] | None:
+    """Lightweight TG message → post payload for window reconcile (no media download)."""
+    text = str(getattr(message, "message", None) or "").strip()
+    if not text and getattr(message, "media", None) is None:
+        return None
+
+    date = getattr(message, "date", None)
+    if date and date.tzinfo is None:
+        date = date.replace(tzinfo=timezone.utc)
+    iso_date = (
+        date.astimezone(timezone.utc).isoformat()
+        if date
+        else datetime.now(timezone.utc).isoformat()
+    )
+
+    views = getattr(message, "views", None)
+    post: dict[str, Any] = {
+        "status": "published",
+        "date": iso_date,
+        "text": text,
+        "metrics": {
+            "views": format_views(views),
+            "reposts": 0,
+            "reactions": [],
+        },
+        "source": "telegram",
+        "telegramMessageId": str(getattr(message, "id", "")),
+    }
+    telegram_edit = _telegram_edit_timestamp_iso(message)
+    if telegram_edit:
+        post["_telegramEditDate"] = telegram_edit
+    return post
+
+
 async def _flush_message_group(
     client: Any,
     group: list[Any],

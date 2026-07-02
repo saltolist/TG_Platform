@@ -97,6 +97,13 @@ class Settings(BaseSettings):
     telegram_live_sync_reconnect_seconds: float = 15.0
     telegram_album_debounce_seconds: float = 2.0
 
+    # Window reconcile — drift correction between channel and platform DB
+    telegram_reconcile_enabled: bool = True
+    telegram_reconcile_window: int = 100
+    telegram_reconcile_throttle_seconds: float = 45.0
+    telegram_reconcile_periodic_seconds: float = 900.0
+    telegram_reconcile_new_scan_limit: int = 30
+
     # Publish / schedule (Phase 3, Step 4) — Celery + Redis for deferred publish only;
     # immediate publish (4a) and edit-sync (4c) run synchronously in the API request.
     redis_url: str = "redis://redis:6379/0"
@@ -147,6 +154,7 @@ class Settings(BaseSettings):
         "rag_query_rewrite_on_miss",
         "cookie_secure",
         "telegram_live_sync_enabled",
+        "telegram_reconcile_enabled",
         "telegram_clock_sync_enabled",
         mode="before",
     )

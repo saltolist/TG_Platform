@@ -32,6 +32,7 @@ from app.services.telegram.net import (
 )
 from app.services.telegram.message_mapping import map_group_to_post
 from app.services.telegram.post_sync import finalize_published_from_telegram, mark_post_published
+from app.services.telegram.reconcile_flow import maybe_reconcile_after_rpc
 from app.services.telegram.session_guard import exclusive_telegram_access
 from app.services.telegram.sync_pending import telegram_sync_pending
 
@@ -169,6 +170,9 @@ async def publish_post(
                     client, entity, telegram_message_id, sent
                 )
                 telegram_payload = await map_group_to_post(client, messages, user_id, settings)
+                await maybe_reconcile_after_rpc(
+                    client, entity, user_id, settings, force=True
+                )
             finally:
                 await disconnect_safely(client)
 

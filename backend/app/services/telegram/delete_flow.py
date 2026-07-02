@@ -23,6 +23,7 @@ from app.services.telegram.net import (
     require_api_credentials,
     with_timeout,
 )
+from app.services.telegram.reconcile_flow import maybe_reconcile_after_rpc
 from app.services.telegram.session_guard import exclusive_telegram_access
 
 
@@ -63,6 +64,9 @@ async def delete_message_in_telegram(
             await connect_telegram_client(client, settings)
             entity = await resolve_channel_entity(client, parsed, settings)
             await with_timeout(client.delete_messages(entity, [msg_id]), settings)
+            await maybe_reconcile_after_rpc(
+                client, entity, user_id, settings, force=True
+            )
         except TelegramAuthError:
             raise
         except Exception as exc:  # noqa: BLE001 — surface as a strict delete failure

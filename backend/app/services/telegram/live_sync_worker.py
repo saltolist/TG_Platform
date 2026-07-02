@@ -37,6 +37,7 @@ from app.services.telegram.post_sync import (
     update_telegram_post,
     upsert_telegram_post,
 )
+from app.services.telegram.reconcile_flow import reconcile_channel_window
 from app.services.telegram.session_guard import telegram_session_lock
 
 logger = logging.getLogger(__name__)
@@ -284,6 +285,37 @@ async def _catch_up(
         await session.commit()
 
 
+async def _periodic_reconcile_loop(
+    client: Any,
+    entity: Any,
+    user_id: UUID,
+    settings: Settings,
+    session_factory: async_sessionmaker[AsyncSession],
+    stop_event: asyncio.Event,
+) -> None:
+    while not stop_event.is_set():
+        try:
+            await asyncio.wait_for(
+                stop_event.wait(), timeout=settings.telegram_reconcile_periodic_seconds
+            )
+            return
+        except asyncio.TimeoutError:
+            pass
+        if stop_event.is_set():
+            return
+        try:
+            await reconcile_channel_window(
+                client,
+                entity,
+                user_id,
+                settings,
+                session_factory,
+                force=False,
+            )
+        except Exception:
+            logger.exception("Periodic channel reconcile failed for user %s", user_id)
+
+
 async def _refresh_channel_message(client: Any, entity: Any, message: Any) -> Any:
     """Fetch the full channel message — edit events often carry a partial payload."""
     msg_id = getattr(message, "id", None)
@@ -359,10 +391,30 @@ async def _run_user_listener(user_id: UUID, stop_event: asyncio.Event) -> None:
                     ),
                 )
 
+                periodic_reconcile_task: asyncio.Task[None] | None = None
                 try:
                     await connect_telegram_client(client, settings)
                     entity = await resolve_channel_entity(client, parsed, settings)
                     await _catch_up(client, entity, user_id, settings, min_id, session_factory)
+                    await reconcile_channel_window(
+                        client,
+                        entity,
+                        user_id,
+                        settings,
+                        session_factory,
+                        force=True,
+                    )
+
+                    periodic_reconcile_task = asyncio.create_task(
+                        _periodic_reconcile_loop(
+                            client,
+                            entity,
+                            user_id,
+                            settings,
+                            session_factory,
+                            stop_event,
+                        )
+                    )
 
                     async def _handle_message_edit(message: Any) -> None:
                         message = await _refresh_channel_message(client, entity, message)
@@ -459,6 +511,12 @@ async def _run_user_listener(user_id: UUID, stop_event: asyncio.Event) -> None:
                     logger.exception("Live-sync listener error for user %s", user_id)
                     await set_sync_error(user_id, str(exc), session_factory)
                 finally:
+                    if periodic_reconcile_task is not None:
+                        periodic_reconcile_task.cancel()
+                        try:
+                            await periodic_reconcile_task
+                        except asyncio.CancelledError:
+                            pass
                     listener_registry.unregister_client(user_id, client)
                     await disconnect_safely(client)
         except asyncio.CancelledError:
