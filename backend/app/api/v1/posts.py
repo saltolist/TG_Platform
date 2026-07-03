@@ -18,7 +18,10 @@ from app.services.ai.rag_worker import enqueue_note_job
 from app.services.profile_defaults import empty_channel_profile, empty_telegram_profile
 from app.services.telegram.comments_flow import (
     comments_enabled,
+    dedupe_platform_comments,
+    delete_discussion_comments_in_telegram,
     normalize_post_comments,
+    removed_comment_telegram_message_ids,
     require_comments_enabled,
     sync_post_comments_pull,
     sync_post_comments_push,
@@ -178,6 +181,41 @@ async def update_post(
         profile = Profile(user_id=user.id, summary_catalog=updated_catalog)
         session.add(profile)
 
+    previous_comments = list(post.data.get("comments") or [])
+    comment_delete_error: str | None = None
+    if isinstance(patch.get("comments"), list):
+        removed_tg_ids = removed_comment_telegram_message_ids(
+            previous_comments,
+            list(merged.get("comments") or []),
+        )
+        if (
+            removed_tg_ids
+            and profile is not None
+            and merged.get("status") == "published"
+            and (previous_telegram_message_id or merged.get("telegramMessageId"))
+        ):
+            if not comments_enabled(telegram):
+                comment_delete_error = (
+                    "В канале не включены обсуждения — нельзя удалить комментарий в Telegram"
+                )
+                merged["comments"] = previous_comments
+            else:
+                discussion_chat_id = telegram.get("discussionChatId")
+                if not discussion_chat_id:
+                    comment_delete_error = "В канале не включены обсуждения"
+                    merged["comments"] = previous_comments
+                else:
+                    async with telegram_sync_pending(user.id, post_id):
+                        delete_error = await delete_discussion_comments_in_telegram(
+                            profile,
+                            discussion_chat_id,
+                            removed_tg_ids,
+                            user.id,
+                        )
+                    if delete_error:
+                        comment_delete_error = delete_error
+                        merged["comments"] = previous_comments
+
     post.data = merged
     # Enqueue RAG indexing for any notes present in the patch
     effective_post_id = str(merged.get("id") or post_id)
@@ -191,6 +229,8 @@ async def update_post(
     await session.commit()
 
     response = dict(merged)
+    if comment_delete_error:
+        response["commentSyncError"] = comment_delete_error
 
     # Step 4c: propagate a text edit of an already-published/imported post to Telegram.
     # Best-effort — the DB write above already succeeded regardless of this outcome.
@@ -230,16 +270,25 @@ async def update_post(
                     "В канале не включены обсуждения — включите их в настройках Telegram"
                 )
             else:
+                await session.refresh(post)
+                latest = dict(post.data)
                 async with telegram_sync_pending(user.id, post_id):
                     comment_result = await sync_post_comments_push(
-                        profile, merged, user.id
+                        profile, latest, user.id
                     )
                 if comment_result.error:
                     response["commentSyncError"] = comment_result.error
                 elif comment_result.comments is not None:
                     post = await get_owned_post(session, user.id, post_id)
+                    await session.refresh(post)
                     updated = dict(post.data)
-                    updated["comments"] = normalize_post_comments(comment_result.comments)
+                    updated["comments"] = normalize_post_comments(
+                        dedupe_platform_comments(
+                            comment_result.comments
+                            if comment_result.comments
+                            else list(updated.get("comments") or [])
+                        )
+                    )
                     if comment_result.telegram_discussion_message_id:
                         updated["telegramDiscussionMessageId"] = (
                             comment_result.telegram_discussion_message_id

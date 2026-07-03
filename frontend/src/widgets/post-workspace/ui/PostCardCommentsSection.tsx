@@ -14,6 +14,8 @@ type Props = {
   search?: string;
   onOpenComments?: () => void;
   onReply?: (comment: PostComment) => void;
+  onDelete?: (comment: PostComment) => void | Promise<void>;
+  deletingCommentIds?: ReadonlySet<string>;
   emptyHint?: string;
   postTelegramLinked?: boolean;
 };
@@ -23,6 +25,8 @@ export default function PostCardCommentsSection({
   search = "",
   onOpenComments,
   onReply,
+  onDelete,
+  deletingCommentIds,
   emptyHint = "Пока нет комментариев — напишите первый",
   postTelegramLinked = false,
 }: Props) {
@@ -53,7 +57,9 @@ export default function PostCardCommentsSection({
               comment={c}
               parent={c.replyToId ? findPostComment(comments, c.replyToId) : undefined}
               telegramSyncing={isPostCommentTelegramPending(c, postTelegramLinked)}
+              isDeleting={deletingCommentIds?.has(c.id) ?? false}
               onReply={onReply ? () => onReply(c) : undefined}
+              onDelete={onDelete ? () => onDelete(c) : undefined}
             />
           ))}
         </div>

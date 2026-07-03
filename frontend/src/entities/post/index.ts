@@ -16,7 +16,7 @@ export {
   useRenameLocalChat,
   useDeleteLocalChat,
 } from "./model/useLocalChatMutations";
-export { useAddPostComment } from "./model/usePostCommentMutations";
+export { useAddPostComment, useDeletePostComment } from "./model/usePostCommentMutations";
 export {
   useAddPostNote,
   useUpdatePostNote,

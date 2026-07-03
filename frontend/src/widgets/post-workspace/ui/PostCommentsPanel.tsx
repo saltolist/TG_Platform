@@ -4,7 +4,7 @@ import { useRef, useState } from "react";
 
 import { useTelegramProfile } from "@/entities/channel";
 import { postSupportsComments } from "@/entities/post/lib/postSupportsComments";
-import { useAddPostComment } from "@/entities/post/model/usePostCommentMutations";
+import { useAddPostComment, useDeletePostComment } from "@/entities/post";
 import { PostMediaBlock } from "@/entities/post";
 import { getApiErrorMessage } from "@/shared/api/getApiErrorMessage";
 import { randomId } from "@/shared/lib/randomId";
@@ -35,6 +35,7 @@ export default function PostCommentsPanel({
   phoneFormat = false,
 }: Props) {
   const { addComment: savePostComment, isPending: isSavingComment } = useAddPostComment();
+  const { deleteComment, deletingCommentIds } = useDeletePostComment();
   const { data: telegramProfile } = useTelegramProfile();
   const channelCommentsEnabled = telegramProfile?.commentsEnabled !== false;
   const showComments = postSupportsComments(post, channelCommentsEnabled);
@@ -65,6 +66,17 @@ export default function PostCommentsPanel({
         variant: "error",
       });
       throw error;
+    }
+  }
+
+  async function handleDeleteComment(comment: PostComment) {
+    try {
+      await deleteComment(post.id, comment.id);
+    } catch (error) {
+      showToast({
+        message: getApiErrorMessage(error, "Не удалось удалить комментарий"),
+        variant: "error",
+      });
     }
   }
 
@@ -111,7 +123,9 @@ export default function PostCommentsPanel({
                     comments={comments}
                     search={search}
                     postTelegramLinked={canSyncComments}
+                    deletingCommentIds={deletingCommentIds}
                     onReply={(c) => setReplyTo(c)}
+                    onDelete={handleDeleteComment}
                   />
                 </div>
               </div>

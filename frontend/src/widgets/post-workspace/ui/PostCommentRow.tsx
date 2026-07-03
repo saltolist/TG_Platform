@@ -6,30 +6,43 @@ import { formatStoredDate, isVideoNoteKind } from "@/shared/lib/helpers";
 import { avatarHue, avatarInitials } from "@/shared/lib/postComments";
 import type { PostComment } from "@/shared/types";
 
+import { PostCommentActions } from "./PostCommentActions";
+
 type Props = {
   comment: PostComment;
   parent?: PostComment;
   onReply?: () => void;
+  onDelete?: () => void;
+  isDeleting?: boolean;
   telegramSyncing?: boolean;
 };
 
-export default function PostCommentRow({ comment, parent, onReply, telegramSyncing = false }: Props) {
+export default function PostCommentRow({
+  comment,
+  parent,
+  onReply,
+  onDelete,
+  isDeleting = false,
+  telegramSyncing = false,
+}: Props) {
   const hue = avatarHue(comment.author);
   const videoNoteMedia =
     comment.media?.length === 1 && comment.media[0] != null && isVideoNoteKind(comment.media[0]);
+  const showSyncLabel = telegramSyncing || isDeleting;
+  const showActions = Boolean(onReply || onDelete) && !isDeleting && !showSyncLabel;
 
   return (
     <article className={`post-comment${parent ? " post-comment--reply" : ""}`}>
       <div
         className="post-comment-avatar"
-        style={{ background: telegramSyncing ? "var(--surface2)" : `hsl(${hue} 42% 38%)` }}
+        style={{ background: showSyncLabel ? "var(--surface2)" : `hsl(${hue} 42% 38%)` }}
         aria-hidden
       >
-        {telegramSyncing ? "↻" : avatarInitials(comment.author)}
+        {showSyncLabel ? "↻" : avatarInitials(comment.author)}
       </div>
       <div className="post-comment-main">
         <div className="post-comment-head">
-          {telegramSyncing ? (
+          {showSyncLabel ? (
             <PostTelegramSyncLabel className="post-comment-sync-label" />
           ) : (
             <span className="post-comment-author">{comment.author}</span>
@@ -48,16 +61,12 @@ export default function PostCommentRow({ comment, parent, onReply, telegramSynci
               <div className="post-comment-media post-comment-media--video-note">
                 <PostMediaBlock media={comment.media} />
               </div>
-              {onReply ? (
-                <div className="post-comment-video-note-actions">
-                  <button
-                    className="post-comment-reply-btn post-comment-reply-btn--video-note"
-                    onClick={onReply}
-                    type="button"
-                  >
-                    Ответить
-                  </button>
-                </div>
+              {showActions ? (
+                <PostCommentActions
+                  className="post-comment-actions--video-note"
+                  onReply={onReply}
+                  onDelete={onDelete}
+                />
               ) : null}
             </div>
           ) : (
@@ -67,10 +76,8 @@ export default function PostCommentRow({ comment, parent, onReply, telegramSynci
           )
         ) : null}
         {comment.text ? <p className="post-comment-text">{comment.text}</p> : null}
-        {onReply && !videoNoteMedia ? (
-          <button className="post-comment-reply-btn" onClick={onReply} type="button">
-            Ответить
-          </button>
+        {showActions && !videoNoteMedia ? (
+          <PostCommentActions onReply={onReply} onDelete={onDelete} />
         ) : null}
       </div>
     </article>

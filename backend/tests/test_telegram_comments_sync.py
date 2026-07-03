@@ -7,6 +7,8 @@ from datetime import datetime, timezone
 from types import SimpleNamespace
 from typing import Any
 
+from unittest.mock import AsyncMock
+
 import pytest
 from httpx import AsyncClient
 from sqlalchemy import select
@@ -17,12 +19,14 @@ from app.db.models import Post, Profile
 from app.services.telegram import mtproto_client
 from app.services.telegram.comments_flow import (
     DiscussionCommentBuffer,
+    dedupe_platform_comments,
     get_discussion_root_message_id,
     handle_live_discussion_messages,
     merge_comments,
     map_telegram_messages_to_comments,
     normalize_post_comments,
     refresh_channel_comments_settings,
+    removed_comment_telegram_message_ids,
 )
 from app.services.telegram.reconcile_flow import reconcile_channel_window
 from tests.conftest import TestSessionLocal, sample_post, writer_auth_headers
@@ -271,6 +275,125 @@ async def test_merge_comments_keeps_pending_platform_comments() -> None:
     updated = next(item for item in merged if item.get("telegramMessageId") == "100")
     assert updated["text"] == "Updated"
     assert any(item.get("telegramMessageId") == "101" for item in merged)
+
+
+def test_merge_comments_links_pending_platform_comment_to_telegram() -> None:
+    existing = [
+        {
+            "id": "local-1",
+            "author": "Вы",
+            "text": "Hello TG",
+            "date": "2026-07-02T12:00:00Z",
+        }
+    ]
+    from_tg = [
+        {
+            "id": "tg-7000",
+            "author": "Пользователь",
+            "text": "Hello TG",
+            "date": "2026-07-02T12:00:01Z",
+            "telegramMessageId": "7000",
+        }
+    ]
+    merged = merge_comments(existing, from_tg)
+    assert len(merged) == 1
+    assert merged[0]["id"] == "local-1"
+    assert merged[0]["author"] == "Вы"
+    assert merged[0]["telegramMessageId"] == "7000"
+
+
+def test_dedupe_platform_comments_collapses_live_sync_race() -> None:
+    comments = [
+        {
+            "id": "local-1",
+            "author": "Вы",
+            "text": "Hello TG",
+            "date": "2026-07-02T12:00:00Z",
+        },
+        {
+            "id": "tg-7000",
+            "author": "Пользователь",
+            "text": "Hello TG",
+            "date": "2026-07-02T12:00:01Z",
+            "telegramMessageId": "7000",
+        },
+    ]
+    deduped = dedupe_platform_comments(comments)
+    assert len(deduped) == 1
+    assert deduped[0]["id"] == "local-1"
+    assert deduped[0]["author"] == "Вы"
+    assert deduped[0]["telegramMessageId"] == "7000"
+
+
+@pytest.mark.asyncio
+async def test_sync_new_comments_skips_push_when_live_sync_already_added_twin(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from app.services.telegram.comments_flow import sync_new_comments_to_telegram
+
+    sent: list[dict[str, Any]] = []
+
+    async def fake_send(*_args: Any, **_kwargs: Any) -> str:
+        sent.append({})
+        return "9999"
+
+    monkeypatch.setattr(
+        "app.services.telegram.comments_flow._send_comment_message",
+        fake_send,
+    )
+    monkeypatch.setattr(
+        "app.services.telegram.comments_flow.get_discussion_root_message_id",
+        lambda *_args, **_kwargs: DISCUSSION_ROOT_ID,
+    )
+    monkeypatch.setattr(
+        "app.services.telegram.comments_flow.with_timeout",
+        lambda awaitable, _settings: awaitable,
+    )
+
+    client = SimpleNamespace(
+        get_entity=AsyncMock(return_value=SimpleNamespace()),
+    )
+    post_data = {
+        "telegramDiscussionMessageId": str(DISCUSSION_ROOT_ID),
+        "comments": [
+            {
+                "id": "local-1",
+                "author": "Вы",
+                "text": "Hello TG",
+                "date": "2026-07-02T12:00:00Z",
+            },
+            {
+                "id": "tg-7000",
+                "author": "Пользователь",
+                "text": "Hello TG",
+                "date": "2026-07-02T12:00:01Z",
+                "telegramMessageId": "7000",
+            },
+        ],
+    }
+    pending = post_data["comments"][0]
+    result = await sync_new_comments_to_telegram(
+        client,
+        SimpleNamespace(),
+        "-100123",
+        42,
+        post_data,
+        [pending],
+        uuid.uuid4(),
+        get_settings(),
+    )
+    assert sent == []
+    assert len(result.comments or []) == 1
+    assert result.comments[0]["telegramMessageId"] == "7000"
+
+
+def test_removed_comment_telegram_message_ids() -> None:
+    previous = [
+        {"id": "local-1", "author": "Вы", "text": "Hi", "telegramMessageId": "101"},
+        {"id": "local-2", "author": "Вы", "text": "Pending"},
+    ]
+    current = [{"id": "local-2", "author": "Вы", "text": "Pending"}]
+    assert removed_comment_telegram_message_ids(previous, current) == ["101"]
 
 
 def test_merge_comments_updates_media() -> None:

@@ -394,6 +394,162 @@ def normalize_post_comments(comments: Any) -> list[dict[str, Any]]:
     return normalized
 
 
+def _comment_text_key(text: Any) -> str:
+    return str(text or "").strip()
+
+
+def _comment_media_signature(media: Any) -> tuple[tuple[str, str, str], ...]:
+    if not isinstance(media, list):
+        return ()
+    signature: list[tuple[str, str, str]] = []
+    for item in media:
+        if not isinstance(item, Mapping):
+            continue
+        signature.append(
+            (
+                str(item.get("kind") or ""),
+                str(item.get("type") or ""),
+                str(item.get("name") or ""),
+            )
+        )
+    return tuple(signature)
+
+
+def _comment_reply_key(comment: Mapping[str, Any]) -> str | None:
+    reply = comment.get("replyToId")
+    if reply is None:
+        return None
+    return str(reply)
+
+
+def _parse_comment_date(value: Any) -> datetime | None:
+    if not isinstance(value, str) or not value.strip():
+        return None
+    try:
+        return datetime.fromisoformat(value.replace("Z", "+00:00"))
+    except ValueError:
+        return None
+
+
+def _comment_dates_close(
+    left: Mapping[str, Any],
+    right: Mapping[str, Any],
+    *,
+    max_delta_seconds: int = 600,
+) -> bool:
+    left_date = _parse_comment_date(left.get("date"))
+    right_date = _parse_comment_date(right.get("date"))
+    if left_date is None or right_date is None:
+        return True
+    return abs((left_date - right_date).total_seconds()) <= max_delta_seconds
+
+
+def comments_probable_same(
+    platform: Mapping[str, Any],
+    telegram: Mapping[str, Any],
+) -> bool:
+    """True when a TG row is likely the same comment as a pending platform row."""
+    if platform.get("telegramMessageId"):
+        return False
+    if not telegram.get("telegramMessageId"):
+        return False
+    if _comment_reply_key(platform) != _comment_reply_key(telegram):
+        return False
+    if _comment_text_key(platform.get("text")) != _comment_text_key(telegram.get("text")):
+        return False
+    if _comment_media_signature(platform.get("media")) != _comment_media_signature(
+        telegram.get("media")
+    ):
+        return False
+    if not _comment_text_key(platform.get("text")) and not _comment_media_signature(
+        platform.get("media")
+    ):
+        return False
+    return _comment_dates_close(platform, telegram)
+
+
+def _link_pending_to_telegram(
+    pending: Mapping[str, Any],
+    incoming: Mapping[str, Any],
+) -> dict[str, Any]:
+    merged = dict(pending)
+    tg_id = str(incoming.get("telegramMessageId") or "")
+    if tg_id:
+        merged["telegramMessageId"] = tg_id
+    for field in ("text", "date"):
+        if incoming.get(field) is not None:
+            merged[field] = incoming.get(field)
+    if incoming.get("media") is not None:
+        merged["media"] = incoming.get("media")
+    reply = incoming.get("replyToId", merged.get("replyToId"))
+    if reply is not None:
+        merged["replyToId"] = reply
+    else:
+        merged.pop("replyToId", None)
+    return merged
+
+
+def _find_synced_telegram_twin(
+    pending: Mapping[str, Any],
+    comments: list[dict[str, Any]],
+) -> dict[str, Any] | None:
+    for item in comments:
+        if not item.get("telegramMessageId"):
+            continue
+        if comments_probable_same(pending, item):
+            return item
+    return None
+
+
+def _pair_pending_with_telegram(
+    existing: list[dict[str, Any]],
+    from_telegram: list[dict[str, Any]],
+) -> dict[str, dict[str, Any]]:
+    used_tg: set[str] = set()
+    pairs: dict[str, dict[str, Any]] = {}
+    for item in existing:
+        if item.get("telegramMessageId"):
+            continue
+        platform_id = str(item.get("id") or "")
+        if not platform_id:
+            continue
+        for incoming in from_telegram:
+            tg_id = str(incoming.get("telegramMessageId") or "")
+            if not tg_id or tg_id in used_tg:
+                continue
+            if comments_probable_same(item, incoming):
+                pairs[platform_id] = dict(incoming)
+                used_tg.add(tg_id)
+                break
+    return pairs
+
+
+def dedupe_platform_comments(comments: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    """Collapse pending + TG twins that already sit in the same list."""
+    pending = [dict(item) for item in comments if not item.get("telegramMessageId")]
+    with_tg = [dict(item) for item in comments if item.get("telegramMessageId")]
+    by_tg = {str(item["telegramMessageId"]): item for item in with_tg}
+
+    merged: list[dict[str, Any]] = []
+    consumed_tg: set[str] = set()
+
+    for item in pending:
+        twin = _find_synced_telegram_twin(item, with_tg)
+        if twin is None:
+            merged.append(item)
+            continue
+        tg_id = str(twin.get("telegramMessageId") or "")
+        merged.append(_link_pending_to_telegram(item, twin))
+        consumed_tg.add(tg_id)
+
+    for tg_id, item in by_tg.items():
+        if tg_id not in consumed_tg:
+            merged.append(item)
+
+    merged.sort(key=lambda row: row.get("date") or "")
+    return merged
+
+
 def merge_comments(
     existing: list[dict[str, Any]],
     from_telegram: list[dict[str, Any]],
@@ -405,11 +561,22 @@ def merge_comments(
         if tg_id:
             by_tg_id[tg_id] = dict(item)
 
+    pending_pairs = _pair_pending_with_telegram(existing, from_telegram)
+
     merged: list[dict[str, Any]] = []
     seen_tg: set[str] = set()
 
     for item in existing:
         copy = dict(item)
+        platform_id = str(copy.get("id") or "")
+        if platform_id and platform_id in pending_pairs:
+            incoming = pending_pairs[platform_id]
+            merged.append(_link_pending_to_telegram(copy, incoming))
+            tg_id = str(incoming.get("telegramMessageId") or "")
+            if tg_id:
+                seen_tg.add(tg_id)
+            continue
+
         tg_id = str(copy.get("telegramMessageId") or "")
         if tg_id and tg_id in by_tg_id:
             incoming = by_tg_id[tg_id]
@@ -439,8 +606,7 @@ def merge_comments(
         if tg_id and tg_id not in seen_tg:
             merged.append(dict(item))
 
-    merged.sort(key=lambda row: row.get("date") or "")
-    return merged
+    return dedupe_platform_comments(merged)
 
 
 async def map_telegram_messages_to_comments(
@@ -586,6 +752,74 @@ async def _send_comment_message(
     return _extract_sent_message_id(sent)
 
 
+def removed_comment_telegram_message_ids(
+    previous: list[dict[str, Any]],
+    current: list[dict[str, Any]],
+) -> list[str]:
+    """Telegram message ids for comments removed from the platform list."""
+    current_ids = {
+        str(item.get("id"))
+        for item in current
+        if isinstance(item, Mapping) and item.get("id")
+    }
+    removed: list[str] = []
+    for item in previous:
+        if not isinstance(item, Mapping):
+            continue
+        comment_id = str(item.get("id") or "")
+        if not comment_id or comment_id in current_ids:
+            continue
+        tg_id = item.get("telegramMessageId")
+        if tg_id:
+            removed.append(str(tg_id))
+    return removed
+
+
+async def delete_discussion_comments_in_telegram(
+    profile: Profile,
+    discussion_chat_id: int | str,
+    telegram_message_ids: list[str],
+    user_id: UUID,
+    settings: Settings | None = None,
+) -> str | None:
+    """Delete discussion comments in Telegram. Returns an error message or None."""
+    from app.services.telegram.message_mapping import is_message_gone_error
+
+    settings = settings or get_settings()
+    msg_ids: list[int] = []
+    for raw in telegram_message_ids:
+        try:
+            msg_ids.append(int(raw))
+        except (TypeError, ValueError):
+            continue
+    if not msg_ids:
+        return None
+
+    try:
+        async with _with_telegram_client(profile, user_id, settings) as (
+            client,
+            _channel_entity,
+            _telegram,
+        ):
+            discussion_peer = _discussion_peer_id(discussion_chat_id)
+            discussion_entity = await with_timeout(client.get_entity(discussion_peer), settings)
+            try:
+                await with_timeout(client.delete_messages(discussion_entity, msg_ids), settings)
+            except TelegramAuthError as exc:
+                if is_message_gone_error(exc):
+                    return None
+                return exc.detail
+            except Exception as exc:  # noqa: BLE001
+                if is_message_gone_error(exc):
+                    return None
+                return str(exc) or "Не удалось удалить комментарий в Telegram"
+    except TelegramAuthError as exc:
+        return exc.detail
+    except Exception as exc:  # noqa: BLE001
+        return str(exc) or "Не удалось удалить комментарий в Telegram"
+    return None
+
+
 def _find_pending_platform_comments(
     comments: list[dict[str, Any]],
 ) -> list[dict[str, Any]]:
@@ -638,6 +872,13 @@ async def sync_new_comments_to_telegram(
 
     for comment in new_comments:
         comment_id = str(comment.get("id") or "")
+        twin = _find_synced_telegram_twin(comment, comments)
+        if twin is not None:
+            target = by_id.get(comment_id)
+            if target is not None:
+                target["telegramMessageId"] = str(twin.get("telegramMessageId") or "")
+            continue
+
         reply_to = root_id_int
         parent_id = comment.get("replyToId")
         if parent_id:
@@ -671,7 +912,7 @@ async def sync_new_comments_to_telegram(
         target["telegramMessageId"] = tg_msg_id
 
     return CommentSyncResult(
-        comments=comments,
+        comments=dedupe_platform_comments(comments),
         telegram_discussion_message_id=str(root_id_int),
     )
 
@@ -1049,6 +1290,8 @@ __all__ = [
     "apply_comments_thread_probe",
     "apply_optimistic_comments_thread",
     "comments_enabled",
+    "comments_probable_same",
+    "delete_discussion_comments_in_telegram",
     "fetch_comments_from_telegram",
     "get_discussion_root_message_id",
     "handle_live_discussion_message",
@@ -1063,7 +1306,7 @@ __all__ = [
     "pull_comments_from_telegram",
     "refresh_channel_comments_settings",
     "reconcile_post_comments",
-    "require_comments_enabled",
+    "removed_comment_telegram_message_ids",
     "resolve_discussion_chat_id",
     "sync_new_comments_to_telegram",
     "sync_post_comments_pull",
