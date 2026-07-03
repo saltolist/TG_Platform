@@ -12,6 +12,7 @@ import { queryKeys } from "@/shared/api/queryKeys";
 import type { TelegramProfileConfig } from "@/shared/types";
 import { mergeTelegramSyncFields } from "@/shared/lib/profile/mergeTelegramSyncFields";
 import { normalizeTelegramProfileConfig } from "@/shared/lib/profile/normalizeProfileConfig";
+import { detectTelegramRevisionAdvance } from "@/shared/lib/profile/telegramRevisionPoll";
 
 const POLL_INTERVAL_MS = 1_000;
 
@@ -61,38 +62,38 @@ export function TelegramSyncCoordinator() {
         return;
       }
 
+      const syncRevision = telegram.syncRevision ?? 0;
+      const commentsRevision = telegram.commentsRevision ?? 0;
+      const metricsRevision = telegram.metricsRevision ?? 0;
+      const lastSync = telegram.lastSync ?? "—";
+      const previousLastSync = lastSyncRef.current;
+
+      const baselines = {
+        syncRevision:
+          syncRevisionRef.current ??
+          cachedTelegramRevision(queryClient, accountId, "syncRevision") ??
+          0,
+        commentsRevision:
+          commentsRevisionRef.current ??
+          cachedTelegramRevision(queryClient, accountId, "commentsRevision") ??
+          0,
+        metricsRevision:
+          metricsRevisionRef.current ??
+          cachedTelegramRevision(queryClient, accountId, "metricsRevision") ??
+          0,
+      };
+
+      const {
+        syncRevisionAdvanced,
+        commentsRevisionAdvanced,
+        metricsRevisionAdvanced,
+        lastSyncAdvanced,
+      } = detectTelegramRevisionAdvance(telegram, baselines, previousLastSync);
+
       queryClient.setQueryData(queryKeys.profile.telegram(accountId), telegram);
 
       const current = useProfileDraftStore.getState().telegramProfileConfig;
       useProfileDraftStore.getState().updateTelegramConfig(mergeTelegramSyncFields(current, telegram));
-
-      const syncRevision = telegram.syncRevision ?? 0;
-      const previousSyncRevision = syncRevisionRef.current;
-      const baselineSyncRevision =
-        previousSyncRevision ?? cachedTelegramRevision(queryClient, accountId, "syncRevision");
-      const lastSync = telegram.lastSync ?? "—";
-      const previousLastSync = lastSyncRef.current;
-
-      const syncRevisionAdvanced =
-        baselineSyncRevision !== null && syncRevision > baselineSyncRevision;
-      const lastSyncAdvanced =
-        previousLastSync !== null &&
-        lastSync !== "—" &&
-        previousLastSync !== "—" &&
-        lastSync !== previousLastSync;
-
-      const commentsRevision = telegram.commentsRevision ?? 0;
-      const metricsRevision = telegram.metricsRevision ?? 0;
-      const previousCommentsRevision = commentsRevisionRef.current;
-      const previousMetricsRevision = metricsRevisionRef.current;
-      const baselineCommentsRevision =
-        previousCommentsRevision ??
-        cachedTelegramRevision(queryClient, accountId, "commentsRevision");
-      const baselineMetricsRevision =
-        previousMetricsRevision ?? cachedTelegramRevision(queryClient, accountId, "metricsRevision");
-
-      const metricsRevisionAdvanced =
-        baselineMetricsRevision !== null && metricsRevision > baselineMetricsRevision;
 
       if (syncRevisionAdvanced || lastSyncAdvanced || metricsRevisionAdvanced) {
         await queryClient.refetchQueries({ queryKey: queryKeys.posts.list(accountId) });
@@ -100,9 +101,7 @@ export function TelegramSyncCoordinator() {
       syncRevisionRef.current = syncRevision;
       lastSyncRef.current = lastSync;
 
-      const shouldRefreshOpenPost =
-        (baselineCommentsRevision !== null && commentsRevision > baselineCommentsRevision) ||
-        (baselineMetricsRevision !== null && metricsRevision > baselineMetricsRevision);
+      const shouldRefreshOpenPost = commentsRevisionAdvanced || metricsRevisionAdvanced;
 
       if (shouldRefreshOpenPost) {
         const postId = useNavigationStore.getState().currentPostId;
