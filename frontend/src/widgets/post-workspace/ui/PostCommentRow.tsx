@@ -2,7 +2,7 @@
 
 import { PostMediaBlock } from "@/entities/post";
 import { PostTelegramSyncLabel } from "@/entities/post/ui/PostTelegramSyncLabel";
-import { formatStoredDate, isCompactMediaKind } from "@/shared/lib/helpers";
+import { formatStoredDate, isVideoNoteKind } from "@/shared/lib/helpers";
 import { avatarHue, avatarInitials } from "@/shared/lib/postComments";
 import type { PostComment } from "@/shared/types";
 
@@ -15,8 +15,8 @@ type Props = {
 
 export default function PostCommentRow({ comment, parent, onReply, telegramSyncing = false }: Props) {
   const hue = avatarHue(comment.author);
-  const compactMedia =
-    comment.media?.length === 1 && comment.media[0] != null && isCompactMediaKind(comment.media[0]);
+  const videoNoteMedia =
+    comment.media?.length === 1 && comment.media[0] != null && isVideoNoteKind(comment.media[0]);
 
   return (
     <article className={`post-comment${parent ? " post-comment--reply" : ""}`}>
@@ -43,15 +43,15 @@ export default function PostCommentRow({ comment, parent, onReply, telegramSynci
           </div>
         ) : null}
         {comment.media && comment.media.length > 0 ? (
-          compactMedia ? (
-            <div className="post-comment-compact-media">
-              <div className="post-comment-media post-comment-media--compact">
+          videoNoteMedia ? (
+            <div className="post-comment-video-note">
+              <div className="post-comment-media post-comment-media--video-note">
                 <PostMediaBlock media={comment.media} />
               </div>
               {onReply ? (
-                <div className="post-comment-compact-media-actions">
+                <div className="post-comment-video-note-actions">
                   <button
-                    className="post-comment-reply-btn post-comment-reply-btn--compact-media"
+                    className="post-comment-reply-btn post-comment-reply-btn--video-note"
                     onClick={onReply}
                     type="button"
                   >
@@ -67,7 +67,7 @@ export default function PostCommentRow({ comment, parent, onReply, telegramSynci
           )
         ) : null}
         {comment.text ? <p className="post-comment-text">{comment.text}</p> : null}
-        {onReply && !compactMedia ? (
+        {onReply && !videoNoteMedia ? (
           <button className="post-comment-reply-btn" onClick={onReply} type="button">
             Ответить
           </button>
