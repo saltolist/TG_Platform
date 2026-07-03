@@ -49,6 +49,7 @@ export default function PostChatView({ post, data, ui, actions }: Props) {
                 isEditing={isEditing}
                 isSaving={isSavingPost}
                 text={post.text}
+                textHtml={post.textHtml}
                 media={mediaItems}
                 onStartEdit={startEdit}
                 onCancel={cancelEdit}

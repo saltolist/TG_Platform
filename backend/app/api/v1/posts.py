@@ -153,6 +153,7 @@ async def update_post(
         and merged.get("text") != previous_text
     ):
         merged["_platformTextEditAt"] = datetime.now(timezone.utc).isoformat()
+        merged.pop("textHtml", None)
 
     # Step 4b: cancelling a scheduled post (status leaves "scheduled") revokes its Celery task.
     if (

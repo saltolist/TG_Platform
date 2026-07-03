@@ -9,6 +9,7 @@ import { ensureVisibleInScrollParent } from "@/shared/lib/scrollIntoParent";
 import { NoteIconAttach } from "@/shared/ui/icons/note-header-icons";
 import { PostReactionPills, PostViewsReposts } from "@/widgets/feed";
 import type { PostComment, PostMedia, PostMetrics } from "@/shared/types";
+import { TelegramFormattedText } from "@/shared/ui/TelegramFormattedText";
 
 import PostCardToolbar from "./PostCardToolbar";
 import PostCommentsRow from "./PostCommentsRow";
@@ -18,6 +19,7 @@ type Props = {
   isEditing: boolean;
   isSaving?: boolean;
   text: string;
+  textHtml?: string;
   media: PostMedia[];
   isTextOnlyNoMedia?: boolean;
   onStartEdit: () => void;
@@ -36,6 +38,7 @@ export default function PostMessageCard({
   isEditing,
   isSaving = false,
   text,
+  textHtml,
   media,
   onStartEdit,
   onCancel,
@@ -168,8 +171,8 @@ export default function PostMessageCard({
               readOnly={editorLocked}
               aria-busy={editorLocked}
             />
-          ) : text ? (
-            <div className="post-card-text">{text}</div>
+          ) : text || textHtml ? (
+            <TelegramFormattedText text={text} textHtml={textHtml} className="post-card-text" />
           ) : media.length === 0 ? (
             <div className="post-card-text empty">Пост пустой — начни писать...</div>
           ) : null}

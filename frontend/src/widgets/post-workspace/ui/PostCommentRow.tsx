@@ -5,6 +5,7 @@ import { PostTelegramSyncLabel } from "@/entities/post/ui/PostTelegramSyncLabel"
 import { formatStoredDate, isStickerKind, isVideoNoteKind } from "@/shared/lib/helpers";
 import { avatarHue, avatarInitials } from "@/shared/lib/postComments";
 import type { PostComment } from "@/shared/types";
+import { TelegramFormattedText } from "@/shared/ui/TelegramFormattedText";
 
 import { PostCommentActions } from "./PostCommentActions";
 
@@ -79,7 +80,13 @@ export default function PostCommentRow({
             </div>
           )
         ) : null}
-        {comment.text ? <p className="post-comment-text">{comment.text}</p> : null}
+        {(comment.text || comment.textHtml) ? (
+          <TelegramFormattedText
+            text={comment.text}
+            textHtml={comment.textHtml}
+            className="post-comment-text"
+          />
+        ) : null}
         {showActions && !compactMedia ? (
           <PostCommentActions onReply={onReply} onDelete={onDelete} />
         ) : null}

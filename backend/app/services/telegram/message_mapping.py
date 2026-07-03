@@ -10,6 +10,7 @@ from telethon.tl.types import MessageMediaDocument, MessageMediaPhoto
 
 from app.core.config import Settings
 from app.services.telegram.media_storage import save_message_media
+from app.services.telegram.text_formatting import apply_message_text_fields, extract_plain_text
 
 # Safety cap on raw messages fetched from Telegram (albums count as one post).
 RAW_MESSAGE_SCAN_FACTOR = 10
@@ -116,10 +117,14 @@ async def map_group_to_post(
 ) -> dict[str, Any] | None:
     primary = messages[0]
     text = ""
+    text_html: str | None = None
     for msg in messages:
-        candidate = str(getattr(msg, "message", None) or "").strip()
+        candidate = extract_plain_text(msg)
         if candidate:
             text = candidate
+            payload: dict[str, Any] = {}
+            apply_message_text_fields(payload, msg)
+            text_html = payload.get("textHtml")
             break
 
     media_items: list[dict[str, str]] = []
@@ -153,6 +158,8 @@ async def map_group_to_post(
     }
     if media_items:
         post["media"] = media_items
+    if text_html:
+        post["textHtml"] = text_html
     telegram_edit = _telegram_edit_timestamp_iso(primary)
     if telegram_edit:
         post["_telegramEditDate"] = telegram_edit
@@ -163,7 +170,7 @@ async def map_group_to_post(
 
 def map_message_for_reconcile(message: Any) -> dict[str, Any] | None:
     """Lightweight TG message → post payload for window reconcile (no media download)."""
-    text = str(getattr(message, "message", None) or "").strip()
+    text = extract_plain_text(message)
     if not text and getattr(message, "media", None) is None:
         return None
 
@@ -184,6 +191,7 @@ def map_message_for_reconcile(message: Any) -> dict[str, Any] | None:
         "source": "telegram",
         "telegramMessageId": str(getattr(message, "id", "")),
     }
+    apply_message_text_fields(post, message)
     telegram_edit = _telegram_edit_timestamp_iso(message)
     if telegram_edit:
         post["_telegramEditDate"] = telegram_edit

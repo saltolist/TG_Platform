@@ -153,6 +153,7 @@ export const postCommentSchema = z.object({
   id: z.string(),
   author: z.string(),
   text: z.string(),
+  textHtml: z.string().optional(),
   date: z.string(),
   replyToId: z
     .string()
@@ -173,6 +174,7 @@ export const postSchema = z.object({
   rubric: z.string().nullable(),
   metrics: postMetricsSchema.optional(),
   text: z.string().default(""),
+  textHtml: z.string().optional(),
   media: z.array(postMediaSchema).optional(),
   notes: z
     .array(localNoteSchema)

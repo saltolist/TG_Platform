@@ -33,6 +33,7 @@ from app.services.telegram.net import (
 )
 from app.services.telegram.session_guard import exclusive_telegram_access
 from app.services.telegram.media_storage import save_message_media
+from app.services.telegram.text_formatting import apply_message_text_fields, extract_plain_text
 
 logger = logging.getLogger(__name__)
 
@@ -479,6 +480,12 @@ def _link_pending_to_telegram(
     for field in ("text", "date"):
         if incoming.get(field) is not None:
             merged[field] = incoming.get(field)
+    if "textHtml" in incoming:
+        incoming_html = incoming.get("textHtml")
+        if incoming_html:
+            merged["textHtml"] = incoming_html
+        else:
+            merged.pop("textHtml", None)
     if incoming.get("media") is not None:
         merged["media"] = incoming.get("media")
     reply = incoming.get("replyToId", merged.get("replyToId"))
@@ -644,7 +651,7 @@ async def map_telegram_messages_to_comments(
             parent_platform_id = platform_id_by_tg.get(str(reply_to))
             if parent_platform_id:
                 reply_to_id = parent_platform_id
-        text = str(getattr(message, "message", None) or "").strip()
+        text = extract_plain_text(message)
         if not text and getattr(message, "media", None) is None:
             continue
         platform_id = platform_id_by_tg.get(str(msg_id)) or _comment_platform_id(msg_id)
@@ -657,6 +664,7 @@ async def map_telegram_messages_to_comments(
             "date": _message_date_iso(message),
             "telegramMessageId": str(msg_id),
         }
+        apply_message_text_fields(payload, message)
         if reply_to_id is not None:
             payload["replyToId"] = reply_to_id
         if media_item is not None:

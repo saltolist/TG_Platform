@@ -6,6 +6,7 @@ import { useTelegramProfile } from "@/entities/channel";
 import { postSupportsComments } from "@/entities/post/lib/postSupportsComments";
 import { useAddPostComment, useDeletePostComment } from "@/entities/post";
 import { PostMediaBlock } from "@/entities/post";
+import { TelegramFormattedText } from "@/shared/ui/TelegramFormattedText";
 import { getApiErrorMessage } from "@/shared/api/getApiErrorMessage";
 import { randomId } from "@/shared/lib/randomId";
 import { showToast } from "@/shared/ui/toast";
@@ -107,8 +108,12 @@ export default function PostCommentsPanel({
                       <PostMediaBlock media={media} />
                     </div>
                   ) : null}
-                  {post.text ? (
-                    <div className="post-card-text">{post.text}</div>
+                  {post.text || post.textHtml ? (
+                    <TelegramFormattedText
+                      text={post.text}
+                      textHtml={post.textHtml}
+                      className="post-card-text"
+                    />
                   ) : media.length === 0 ? (
                     <div className="post-card-text empty">Пост пустой</div>
                   ) : null}

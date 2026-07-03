@@ -7,6 +7,7 @@ import { postSupportsComments } from "@/entities/post/lib/postSupportsComments";
 import { PostMediaBlock, PostStatus, usePostTelegramSyncing } from "@/entities/post";
 import PostCommentsRow from "@/widgets/post-workspace/ui/PostCommentsRow";
 import { PostReactionPills, PostViewsReposts } from "./PostEngagement";
+import { TelegramFormattedText } from "@/shared/ui/TelegramFormattedText";
 
 export default function PostCard({
   post,
@@ -72,8 +73,12 @@ export default function PostCard({
             <PostMediaBlock media={mediaItems} />
           </div>
         ) : null}
-        {post.text ? (
-          <div className="post-card-text">{post.text}</div>
+        {post.text || post.textHtml ? (
+          <TelegramFormattedText
+            text={post.text}
+            textHtml={post.textHtml}
+            className="post-card-text"
+          />
         ) : mediaItems.length === 0 ? (
           <div className="post-card-text empty">Пост пустой — нажми чтобы начать писать</div>
         ) : null}
