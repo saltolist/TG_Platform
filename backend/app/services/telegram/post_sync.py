@@ -180,6 +180,8 @@ def _content_unchanged(existing: dict[str, Any], incoming: dict[str, Any]) -> bo
     incoming_text = str(incoming.get("text") or "")
     if existing_text != incoming_text:
         return False
+    if str(existing.get("textHtml") or "") != str(incoming.get("textHtml") or ""):
+        return False
     incoming_media = incoming.get("media")
     if incoming_media and incoming_media != existing.get("media"):
         return False

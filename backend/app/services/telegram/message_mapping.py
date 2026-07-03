@@ -9,7 +9,7 @@ from uuid import UUID
 from telethon.tl.types import MessageMediaDocument, MessageMediaPhoto
 
 from app.core.config import Settings
-from app.services.telegram.media_storage import save_message_media
+from app.services.telegram.media_storage import resolve_group_media, save_message_media
 from app.services.telegram.text_formatting import apply_message_text_fields, extract_plain_text
 
 # Safety cap on raw messages fetched from Telegram (albums count as one post).
@@ -113,7 +113,13 @@ def _telegram_edit_timestamp_iso(message: Any) -> str | None:
 
 
 async def map_group_to_post(
-    client: Any, messages: list[Any], user_id: UUID, settings: Settings
+    client: Any,
+    messages: list[Any],
+    user_id: UUID,
+    settings: Settings,
+    *,
+    fetch_media: bool = True,
+    existing_media: list[dict[str, Any]] | None = None,
 ) -> dict[str, Any] | None:
     primary = messages[0]
     text = ""
@@ -127,11 +133,17 @@ async def map_group_to_post(
             text_html = payload.get("textHtml")
             break
 
-    media_items: list[dict[str, str]] = []
-    for msg in messages:
-        item = await save_message_media(client, msg, user_id, settings)
-        if item:
-            media_items.append(item)
+    media_items: list[dict[str, Any]] = []
+    if fetch_media:
+        if existing_media is not None:
+            media_items = await resolve_group_media(
+                client, messages, user_id, settings, existing_media
+            )
+        else:
+            for msg in messages:
+                item = await save_message_media(client, msg, user_id, settings)
+                if item:
+                    media_items.append(item)
 
     date = getattr(primary, "date", None)
     if date and date.tzinfo is None:

@@ -8,6 +8,11 @@ from typing import Any
 from uuid import UUID
 
 from app.core.config import Settings
+from app.services.telegram.media_fingerprint import (
+    index_existing_media,
+    media_fingerprint,
+    media_item_unchanged,
+)
 from app.services.telegram.media_kinds import (
     classify_telegram_media,
     normalize_tgs_to_lottie_json,
@@ -77,4 +82,45 @@ async def save_message_media(
 
     display_name = stored_name
     url = f"/media/{user_id}/{stored_filename}"
-    return {"name": display_name, "url": url, "type": stored_type, "kind": kind}
+    item: dict[str, str] = {"name": display_name, "url": url, "type": stored_type, "kind": kind}
+    msg_id = getattr(message, "id", None)
+    if msg_id is not None:
+        item["telegramMessageId"] = str(msg_id)
+    fp = media_fingerprint(message)
+    if fp:
+        item["mediaKey"] = fp
+    return item
+
+
+async def resolve_group_media(
+    client: Any,
+    messages: list[Any],
+    user_id: UUID,
+    settings: Settings,
+    existing_media: list[dict[str, Any]] | None,
+) -> list[dict[str, Any]]:
+    """Download only media whose Telegram file id changed (or is new)."""
+    existing_by_msg = index_existing_media(existing_media)
+    result: list[dict[str, Any]] = []
+
+    for message in messages:
+        fp = media_fingerprint(message)
+        if fp is None:
+            continue
+        msg_id = str(getattr(message, "id", "") or "")
+        if not msg_id:
+            continue
+
+        existing = existing_by_msg.get(msg_id)
+        if existing and media_item_unchanged(existing, fp, user_id, settings):
+            enriched = dict(existing)
+            enriched["telegramMessageId"] = msg_id
+            enriched["mediaKey"] = fp
+            result.append(enriched)
+            continue
+
+        item = await save_message_media(client, message, user_id, settings)
+        if item:
+            result.append(item)
+
+    return result

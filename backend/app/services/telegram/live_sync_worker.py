@@ -28,6 +28,7 @@ from app.services.telegram.message_mapping import (
     map_message_for_reconcile,
     message_is_importable,
 )
+from app.services.telegram.text_formatting import message_entities
 from app.services.telegram.mtproto_client import build_client
 from app.services.telegram.net import (
     TelegramAuthError,
@@ -55,6 +56,7 @@ from app.services.telegram.metrics_flow import (
     poll_recent_post_metrics,
 )
 from app.services.telegram.post_sync import (
+    _find_telegram_post,
     delete_telegram_post,
     set_sync_error,
     touch_telegram_profile,
@@ -574,7 +576,26 @@ async def _persist_group(
         return
     if not any(message_is_importable(m) for m in messages):
         return
-    post_data = await map_group_to_post(client, messages, user_id, settings)
+
+    existing_media: list[dict[str, Any]] | None = None
+    if update:
+        msg_id = str(getattr(messages[0], "id", "") or "")
+        if msg_id:
+            async with session_factory() as session:
+                existing = await _find_telegram_post(session, user_id, msg_id)
+                if existing is not None:
+                    raw = existing.data.get("media")
+                    if isinstance(raw, list):
+                        existing_media = [item for item in raw if isinstance(item, dict)]
+
+    post_data = await map_group_to_post(
+        client,
+        messages,
+        user_id,
+        settings,
+        fetch_media=True,
+        existing_media=existing_media if update else None,
+    )
     if post_data is None:
         return
     refine_clock_from_live_message(client, messages[0], settings)
@@ -652,7 +673,8 @@ async def _run_user_listener(user_id: UUID, stop_event: asyncio.Event) -> None:
                     )
 
                     async def _handle_message_edit(message: Any) -> None:
-                        message = await _refresh_channel_message(client, entity, message)
+                        if not message_entities(message):
+                            message = await _refresh_channel_message(client, entity, message)
                         if not message_is_importable(message):
                             return
                         gid = getattr(message, "grouped_id", None) or None

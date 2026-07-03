@@ -29,6 +29,10 @@ export const postMediaSchema = z.object({
   url: z.string(),
   type: z.string(),
   kind: postMediaKindSchema.optional(),
+  /** Telegram message id for this album item (server-side sync metadata). */
+  telegramMessageId: z.string().optional(),
+  /** Stable Telegram file fingerprint — changes when the attachment is replaced. */
+  mediaKey: z.string().optional(),
 });
 
 export const noteFileSchema = z.object({
