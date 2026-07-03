@@ -323,3 +323,81 @@ async def test_reaction_flush_can_skip_telegram_rpc(writer_user) -> None:
         refreshed = await session.get(Post, post_id)
         assert refreshed is not None
         assert refreshed.data["metrics"]["reactions"] == [{"emoji": "🔥", "count": 2}]
+
+
+@pytest.mark.asyncio
+async def test_live_channel_message_forwards_updates_reposts(writer_user) -> None:
+    user_id = writer_user.id
+    post_id = uuid.uuid4()
+    async with TestSessionLocal() as session:
+        if await session.get(Profile, user_id) is None:
+            session.add(Profile(user_id=user_id, telegram={}))
+        session.add(
+            Post(
+                id=post_id,
+                user_id=user_id,
+                position=0,
+                data={
+                    "id": "fwd",
+                    "status": "published",
+                    "text": "Shared",
+                    "telegramMessageId": "12",
+                    "source": "telegram",
+                    "metrics": {"views": "10", "reposts": 0, "reactions": []},
+                },
+            )
+        )
+        await session.commit()
+
+    from app.services.telegram.metrics_flow import handle_live_channel_message_forwards
+
+    entity = SimpleNamespace(id=12345, broadcast=True)
+    update = SimpleNamespace(channel_id=12345, id=12, forwards=3)
+
+    await handle_live_channel_message_forwards(
+        update, entity, user_id, TestSessionLocal
+    )
+
+    async with TestSessionLocal() as session:
+        refreshed = await session.get(Post, post_id)
+        assert refreshed is not None
+        assert refreshed.data["metrics"]["reposts"] == 3
+
+
+@pytest.mark.asyncio
+async def test_live_channel_message_views_updates_views(writer_user) -> None:
+    user_id = writer_user.id
+    post_id = uuid.uuid4()
+    async with TestSessionLocal() as session:
+        if await session.get(Profile, user_id) is None:
+            session.add(Profile(user_id=user_id, telegram={}))
+        session.add(
+            Post(
+                id=post_id,
+                user_id=user_id,
+                position=0,
+                data={
+                    "id": "vw",
+                    "status": "published",
+                    "text": "Seen",
+                    "telegramMessageId": "13",
+                    "source": "telegram",
+                    "metrics": {"views": "1", "reposts": 0, "reactions": []},
+                },
+            )
+        )
+        await session.commit()
+
+    from app.services.telegram.metrics_flow import handle_live_channel_message_views
+
+    entity = SimpleNamespace(id=99, broadcast=True)
+    update = SimpleNamespace(channel_id=99, id=13, views=420)
+
+    await handle_live_channel_message_views(
+        update, entity, user_id, TestSessionLocal
+    )
+
+    async with TestSessionLocal() as session:
+        refreshed = await session.get(Post, post_id)
+        assert refreshed is not None
+        assert refreshed.data["metrics"]["views"] == "420"

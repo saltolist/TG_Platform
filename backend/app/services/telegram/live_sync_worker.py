@@ -10,7 +10,11 @@ from uuid import UUID
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 from telethon import events
-from telethon.tl.types import UpdateMessageReactions
+from telethon.tl.types import (
+    UpdateChannelMessageForwards,
+    UpdateChannelMessageViews,
+    UpdateMessageReactions,
+)
 
 from app.core.config import Settings, get_settings
 from app.db.models import Profile
@@ -45,6 +49,8 @@ from app.services.telegram.comments_flow import (
 )
 from app.services.telegram.metrics_flow import (
     MetricsThrottleBuffer,
+    handle_live_channel_message_forwards,
+    handle_live_channel_message_views,
     handle_live_message_reactions,
     poll_recent_post_metrics,
 )
@@ -406,28 +412,39 @@ async def _run_channel_maintenance_pass(
 ) -> None:
     """Single background pass: missed posts + window reconcile + metrics (no media download)."""
     min_id = await _load_last_telegram_message_id(session_factory, user_id)
-    await _catch_up(
-        client,
-        entity,
-        user_id,
-        settings,
-        min_id,
-        session_factory,
-        lightweight=True,
-    )
-    await reconcile_channel_window(
-        client,
-        entity,
-        user_id,
-        settings,
-        session_factory,
-        force=True,
-        include_new_scan=False,
-        include_comments=False,
-    )
-    await poll_recent_post_metrics(
-        client, entity, user_id, settings, session_factory
-    )
+    try:
+        await _catch_up(
+            client,
+            entity,
+            user_id,
+            settings,
+            min_id,
+            session_factory,
+            lightweight=True,
+        )
+    except Exception:
+        logger.exception("Maintenance catch-up failed for user %s", user_id)
+    try:
+        await reconcile_channel_window(
+            client,
+            entity,
+            user_id,
+            settings,
+            session_factory,
+            force=True,
+            include_new_scan=False,
+            include_comments=False,
+        )
+    except Exception:
+        logger.exception("Maintenance reconcile failed for user %s", user_id)
+    try:
+        updated = await poll_recent_post_metrics(
+            client, entity, user_id, settings, session_factory
+        )
+        if updated:
+            logger.debug("Maintenance metrics poll updated %s posts for user %s", updated, user_id)
+    except Exception:
+        logger.exception("Maintenance metrics poll failed for user %s", user_id)
 
 
 async def _channel_maintenance_loop(
@@ -688,6 +705,34 @@ async def _run_user_listener(user_id: UUID, stop_event: asyncio.Event) -> None:
                         except Exception as exc:  # noqa: BLE001
                             logger.exception(
                                 "Live-sync UpdateMessageReactions failed for user %s",
+                                user_id,
+                            )
+                            await set_sync_error(user_id, str(exc), session_factory)
+
+                    @client.on(events.Raw(UpdateChannelMessageViews))
+                    async def on_channel_message_views(event: UpdateChannelMessageViews) -> None:
+                        try:
+                            await handle_live_channel_message_views(
+                                event, entity, user_id, session_factory
+                            )
+                        except Exception as exc:  # noqa: BLE001
+                            logger.exception(
+                                "Live-sync UpdateChannelMessageViews failed for user %s",
+                                user_id,
+                            )
+                            await set_sync_error(user_id, str(exc), session_factory)
+
+                    @client.on(events.Raw(UpdateChannelMessageForwards))
+                    async def on_channel_message_forwards(
+                        event: UpdateChannelMessageForwards,
+                    ) -> None:
+                        try:
+                            await handle_live_channel_message_forwards(
+                                event, entity, user_id, session_factory
+                            )
+                        except Exception as exc:  # noqa: BLE001
+                            logger.exception(
+                                "Live-sync UpdateChannelMessageForwards failed for user %s",
                                 user_id,
                             )
                             await set_sync_error(user_id, str(exc), session_factory)

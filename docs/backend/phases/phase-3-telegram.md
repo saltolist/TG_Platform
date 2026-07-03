@@ -281,6 +281,7 @@ HTTP-ответ connect возвращается мгновенно с `importSt
 |------|------|-------------|-------|
 | Live `NewMessage` / правка текста | нет | push + media только для новых постов | сразу |
 | Live `UpdateMessageReactions` | нет* | 0** | буфер 5 с |
+| Live `UpdateChannelMessageViews` / `Forwards` | нет | 0 | push → БД сразу |
 | Maintenance (catch-up + reconcile + metrics) | ingest | 1–3 batch/30 с | фон |
 | Ручная «Сверить канал» | exclusive (listener стоп) | полный окно + комментарии | по кнопке |
 | Publish / edit / import | exclusive | по действию пользователя | по запросу |
@@ -542,6 +543,8 @@ GET /api/v1/analytics/top-posts/?period=30d
 - Используется при импорте, publish, live-sync и **оконной сверке** (шаг 3.5b).
 - **Live-реакции:** `UpdateMessageReactions` в `live_sync_worker` → `metrics_flow.py`
   (один пост за событие, без полного скана канала).
+- **Live-просмотры/репосты:** `UpdateChannelMessageViews` / `UpdateChannelMessageForwards`
+  → запись в БД без `get_messages` (0 RPC).
 - События метрик **коалесцируются**: не чаще `telegram_metrics_min_sync_seconds`
   (по умолчанию 5 с) — один batch `get_messages` на накопившиеся посты.
 - **Metrics-poll:** каждые `telegram_metrics_poll_seconds` (по умолчанию 15 с) batch

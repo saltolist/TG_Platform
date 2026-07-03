@@ -11,7 +11,9 @@ from uuid import UUID
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
 from app.core.config import Settings
+from app.services.telegram.channel_flow import channel_peer_id
 from app.services.telegram.message_mapping import (
+    format_views,
     map_message_for_reconcile,
     telethon_message_fetchable,
 )
@@ -22,6 +24,107 @@ from app.services.telegram.post_sync import (
 )
 
 logger = logging.getLogger(__name__)
+
+
+def channel_update_matches_entity(entity: Any, update_channel_id: int) -> bool:
+    """True when a channel-scoped MTProto update belongs to the connected entity."""
+    if update_channel_id <= 0:
+        return False
+    bare_entity_id = getattr(entity, "id", None)
+    if bare_entity_id is not None:
+        try:
+            bare = int(bare_entity_id)
+            if bare > 0:
+                return bare == int(update_channel_id)
+        except (TypeError, ValueError):
+            pass
+    try:
+        from telethon import utils
+
+        real_id, _ = utils.resolve_id(channel_peer_id(entity))
+        return int(real_id) == int(update_channel_id)
+    except (TypeError, ValueError):
+        return False
+
+
+async def persist_metrics_counter_patch(
+    session_factory: async_sessionmaker[AsyncSession],
+    user_id: UUID,
+    telegram_message_id: str,
+    *,
+    views: int | None = None,
+    reposts: int | None = None,
+) -> bool:
+    """Apply views/reposts from push updates without an extra ``get_messages`` RPC."""
+    if views is None and reposts is None:
+        return False
+    async with session_factory() as session:
+        existing = await _find_telegram_post(session, user_id, telegram_message_id)
+        if existing is None or existing.data.get("status") == "deleted":
+            return False
+        old_metrics = dict(existing.data.get("metrics") or {})
+        merged = dict(old_metrics)
+        if views is not None:
+            merged["views"] = format_views(views)
+        if reposts is not None:
+            merged["reposts"] = int(reposts)
+        if merged == old_metrics:
+            return False
+        preserve_text = str(existing.data.get("text") or "")
+        changed = await persist_metrics_for_message(
+            session,
+            user_id,
+            telegram_message_id,
+            merged,
+            preserve_text=preserve_text,
+        )
+        if changed:
+            await session.commit()
+        return changed
+
+
+async def handle_live_channel_message_views(
+    update: Any,
+    entity: Any,
+    user_id: UUID,
+    session_factory: async_sessionmaker[AsyncSession],
+) -> None:
+    channel_id = int(getattr(update, "channel_id", 0) or 0)
+    msg_id = int(getattr(update, "id", 0) or 0)
+    views = getattr(update, "views", None)
+    if channel_id <= 0 or msg_id <= 0 or views is None:
+        return
+    if not channel_update_matches_entity(entity, channel_id):
+        return
+    if await persist_metrics_counter_patch(
+        session_factory,
+        user_id,
+        str(msg_id),
+        views=int(views),
+    ):
+        logger.debug("Live-sync updated views for tg-%s (user %s)", msg_id, user_id)
+
+
+async def handle_live_channel_message_forwards(
+    update: Any,
+    entity: Any,
+    user_id: UUID,
+    session_factory: async_sessionmaker[AsyncSession],
+) -> None:
+    channel_id = int(getattr(update, "channel_id", 0) or 0)
+    msg_id = int(getattr(update, "id", 0) or 0)
+    forwards = getattr(update, "forwards", None)
+    if channel_id <= 0 or msg_id <= 0 or forwards is None:
+        return
+    if not channel_update_matches_entity(entity, channel_id):
+        return
+    if await persist_metrics_counter_patch(
+        session_factory,
+        user_id,
+        str(msg_id),
+        reposts=int(forwards),
+    ):
+        logger.debug("Live-sync updated reposts for tg-%s (user %s)", msg_id, user_id)
 
 
 def extract_reactions_list(msg_reactions: Any) -> list[dict[str, Any]]:
