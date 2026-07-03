@@ -213,7 +213,7 @@ HTTP-ответ connect возвращается мгновенно с `importSt
 `telegram_import_max_media_mb`, `telegram_import_timeout_seconds`.
 
 **Frontend:** `useTelegramBlock.ts` — поллинг `importStatus`, toast по завершении,
-`refreshPostsAfterChannelImport`; `TelegramChannelSection` — статус импорта,
+`invalidatePostsList`; `TelegramChannelSection` — статус импорта,
 дизейбл «Подключить канал» при `importing`; `TelegramStatusHeader` — шаг 3
 активен при импорте. Seed/overlay/MSW — мгновенный `importStatus: "done"`.
 
@@ -221,15 +221,21 @@ HTTP-ответ connect возвращается мгновенно с `importSt
 импорта может запустить вторую параллельную задачу (нет блокировки на уровне
 процесса); на фронте кнопка дизейблится при `importStatus === "importing"`.
 
-**Явно вне рамок:** UI-кнопка ручной сверки (API есть — см. 3.5b);
-персистентная очередь задач для импорта (используется `asyncio.create_task`).
+**Явно вне рамок:** персистентная очередь задач для импорта (используется `asyncio.create_task`).
 
 ---
 
 ### Шаг 3.5 — Live-sync канала ✅
 
-**Механизм:** event-driven через Telethon — `NewMessage`, `MessageEdited`,
-`MessageDeleted`. Долгоживущий слушатель на пользователя в фоновом воркере
+Синхронизация Telegram → платформа организована в **три слоя**:
+
+| Слой | Когда | Что делает |
+|------|-------|------------|
+| **Bootstrap** | `POST /telegram/channel/connect/` | Импорт истории (до 200 постов), затем `start_user_listener` |
+| **Stream** | Постоянно, пока listener активен | Telethon events: `NewMessage`, `MessageEdited`, `MessageDeleted`, discussion comments |
+| **Drift** | Каждые ~90 с + при старте listener | `_catch_up` + `reconcile_channel_window` в одном `_periodic_drift_correction_loop` |
+
+**Механизм stream:** event-driven через Telethon. Долгоживущий слушатель на пользователя в фоновом воркере
 (`telegram_live_sync_worker` в `lifespan`, по аналогии с `embedding_worker`).
 
 **Запуск:** после успешного импорта истории (Шаг 3) — `listener_registry.start_user_listener(user_id)`.
@@ -244,16 +250,31 @@ HTTP-ответ connect возвращается мгновенно с `importSt
   постов с `data.source = "telegram"`.
 - `backend/app/services/telegram/live_sync_worker.py` — `ListenerRegistry`,
   catch-up через `iter_messages(min_id=lastTelegramMessageId)`, debounce альбомов,
-  reconnect при обрыве.
+  reconnect при обрыве, единый drift loop (catch-up + reconcile).
 - **Профиль:** `syncStatus` (`idle` | `listening` | `error`), `syncError`,
   `lastSync`; internal `lastTelegramMessageId` (не отдаётся клиенту).
 - **`syncMode: "publish-only"`** — слушатель не запускается.
+- Дефолт **`syncMode: "history-and-live"`** — импорт истории + live-sync.
+
+**Revision-контракт (фронт ↔ бэк):**
+
+| Поле | Кто бампит | Кто слушает на фронте |
+|------|-----------|----------------------|
+| `syncRevision` | новые/изменённые/удалённые посты | `TelegramSyncCoordinator` → refetch списка постов |
+| `commentsRevision` | входящие комментарии | coordinator → refetch открытого поста |
+| `metricsRevision` | просмотры/реакции | coordinator → refetch открытого поста |
+
+`touch_telegram_profile` в `reconcile_channel_window` вызывается **только при реальных изменениях**
+(`updated + deleted + imported > 0`), чтобы периодическая сверка без diff не дёргала ленту.
 
 **Настройки:** `telegram_live_sync_enabled`, `telegram_live_sync_registry_refresh_seconds`,
-`telegram_live_sync_reconnect_seconds`, `telegram_album_debounce_seconds`.
+`telegram_live_sync_reconnect_seconds`, `telegram_live_sync_catch_up_seconds` (интервал drift loop),
+`telegram_album_debounce_seconds`.
 
-**Frontend:** `TelegramLiveSyncPoll` — поллинг `GET /profile/telegram` каждые 15 с,
-при изменении `lastSync` — refetch постов; UI «Live-синхронизация» в настройках.
+**Frontend:** `TelegramSyncCoordinator` — поллинг `GET /profile/telegram` каждые **5 с**;
+при росте `syncRevision` — refetch постов; при росте `commentsRevision` / `metricsRevision` —
+refetch открытого поста. `usePollOpenPost` остаётся fallback на странице поста.
+Кнопка **«Сверить канал»** в настройках Telegram → `POST /telegram/channel/reconcile/`.
 
 **Ограничение v1:** только один backend-процесс с `TELEGRAM_LIVE_SYNC_ENABLED=1`
 (дубликат MTProto-сессии на нескольких репликах недопустим).
@@ -297,8 +318,8 @@ HTTP-ответ connect возвращается мгновенно с `importSt
 | Старт слушателя (после `_catch_up`) | да |
 | После publish / delete | да |
 | После edit-sync | нет (throttle) |
-| Периодический таймер в listener | нет |
-| `POST /telegram/channel/reconcile/` | да |
+| Периодический drift loop в listener (~90 с) | нет |
+| `POST /telegram/channel/reconcile/` (кнопка в настройках) | да |
 
 **Эндпоинт:** `POST /api/v1/telegram/channel/reconcile/` →
 `{ reconciled: true, stats: { checked, updated, deleted, imported, skippedThrottle } }`.
@@ -307,8 +328,9 @@ HTTP-ответ connect возвращается мгновенно с `importSt
 edit-guards (`_content_unchanged`, `_platformTextEditAt`) сохраняются.
 
 **Настройки:** `telegram_reconcile_enabled`, `telegram_reconcile_window` (100),
-`telegram_reconcile_throttle_seconds` (45), `telegram_reconcile_periodic_seconds`
-(900), `telegram_reconcile_new_scan_limit` (30).
+`telegram_reconcile_throttle_seconds` (45), `telegram_reconcile_new_scan_limit` (30).
+`telegram_reconcile_periodic_seconds` — deprecated (drift loop использует
+`telegram_live_sync_catch_up_seconds`).
 
 **Тесты:** `backend/tests/test_telegram_reconcile.py`.
 
@@ -581,8 +603,8 @@ GET /api/v1/analytics/top-posts/?period=30d
 - `useSyncPostComments` — вызов `sync-comments` при `postMode === "comments"` (ленивый pull из TG).
 - `usePollOpenPost` — пока открыта страница поста, раз в 5 с `GET /posts/:id` (DB:
   комментарии + метрики/реакции, без Telegram).
-- `TelegramLiveSyncPoll` рефетчит фид только на рост `syncRevision`; `commentsRevision`
-  и `metricsRevision` фид не трогают.
+- `TelegramSyncCoordinator` рефетчит фид на рост `syncRevision`; на рост
+  `commentsRevision` / `metricsRevision` — refetch открытого поста.
 - Toast при `commentSyncError`.
 
 **Тесты:** `backend/tests/test_telegram_comments_sync.py`.

@@ -234,7 +234,8 @@ async def reconcile_channel_window(
                     await upsert_telegram_post(session, user_id, post_data)
                     stats.imported += 1
 
-        await touch_telegram_profile(session, profile)
+        if stats.updated + stats.deleted + stats.imported > 0:
+            await touch_telegram_profile(session, profile)
         await session.commit()
 
     logger.info(

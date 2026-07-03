@@ -20,6 +20,11 @@ from app.db.models import Post, Profile
 from app.db.seed_ids import user_scoped_entity_uuid
 from app.db.session import async_session_factory
 from app.services.telegram.channel_flow import parse_channel_input, resolve_channel_entity
+from app.services.telegram.comments_flow import (
+    apply_optimistic_comments_thread,
+    comments_enabled,
+    refresh_channel_comments_settings,
+)
 from app.services.telegram.message_mapping import collect_posts_from_iter
 from app.services.telegram.mtproto_client import build_client
 from app.services.telegram.net import (
@@ -131,6 +136,9 @@ async def _import_channel_history(user_id: UUID, settings: Settings) -> None:
     try:
         await connect_telegram_client(client, settings)
         entity = await resolve_channel_entity(client, parsed, settings)
+        telegram = await refresh_channel_comments_settings(
+            client, entity, dict(telegram), settings
+        )
         posts_data = await collect_posts_from_iter(
             client,
             entity,
@@ -138,6 +146,11 @@ async def _import_channel_history(user_id: UUID, settings: Settings) -> None:
             settings,
             limit=settings.telegram_import_post_limit,
         )
+        if comments_enabled(telegram):
+            posts_data = [
+                apply_optimistic_comments_thread(post_data, telegram)
+                for post_data in posts_data
+            ]
         await _persist_import_result(user_id, posts_data, import_status="done")
     finally:
         await disconnect_safely(client)

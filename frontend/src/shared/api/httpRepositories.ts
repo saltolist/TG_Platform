@@ -1,6 +1,6 @@
 import { apiV1Path } from "@/shared/config/basePath";
 import { apiRequest, apiStream } from "@/shared/api/httpClient";
-import type { AssistantStreamOptions, RepositoryBundle } from "@/shared/api/repositories";
+import type { AssistantStreamOptions, RepositoryBundle, TelegramReconcileResponse } from "@/shared/api/repositories";
 import {
   normalizeAiProfileConfigFromServer,
   normalizeChannelProfileConfig,
@@ -210,6 +210,10 @@ export function createHttpRepositories(): RepositoryBundle {
           method: "POST",
           body: { channel },
         }).then(normalizeTelegramProfileConfig),
+      reconcileTelegramChannel: () =>
+        apiRequest<TelegramReconcileResponse>(apiV1Path("telegram/channel/reconcile"), {
+          method: "POST",
+        }),
     },
     assistant: {
       streamGlobalChatReply: (text, onChunk, options) =>

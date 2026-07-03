@@ -35,6 +35,9 @@ from app.services.telegram.session_guard import exclusive_telegram_access
 
 logger = logging.getLogger(__name__)
 
+_COMMENT_PROBE_ATTEMPTS = 3
+_COMMENT_PROBE_DELAY_SECONDS = 0.3
+
 
 @dataclass
 class CommentSyncResult:
@@ -93,24 +96,90 @@ async def refresh_channel_comments_settings(
     return apply_discussion_settings(telegram, discussion_chat_id)
 
 
+async def probe_comments_thread_for_post(
+    client: Any,
+    channel_entity: Any,
+    post_data: dict[str, Any],
+    telegram: dict[str, Any],
+    settings: Settings,
+) -> dict[str, Any]:
+    """Probe discussion thread so comments UI can appear for ingested posts."""
+    if not comments_enabled(telegram) or post_data.get("status") != "published":
+        return post_data
+
+    msg_id_raw = post_data.get("telegramMessageId")
+    if not msg_id_raw:
+        return post_data
+    try:
+        channel_msg_id = int(msg_id_raw)
+    except (TypeError, ValueError):
+        return post_data
+
+    root_id = None
+    confirmed_absent = False
+    for attempt in range(_COMMENT_PROBE_ATTEMPTS):
+        root_id, confirmed_absent = await probe_discussion_root(
+            client, channel_entity, channel_msg_id, settings
+        )
+        if root_id is not None or confirmed_absent:
+            break
+        if attempt < _COMMENT_PROBE_ATTEMPTS - 1:
+            await asyncio.sleep(_COMMENT_PROBE_DELAY_SECONDS)
+
+    if root_id is not None:
+        probed, _ = apply_comments_thread_probe(post_data, root_id)
+        return probed
+    if confirmed_absent:
+        probed, _ = apply_comments_thread_probe(
+            post_data, None, confirmed_absent=True
+        )
+        return probed
+
+    # Linked discussion group exists but TG may not expose the thread instantly.
+    optimistic = dict(post_data)
+    optimistic["commentsThreadAvailable"] = True
+    return optimistic
+
+
+def apply_optimistic_comments_thread(
+    post_data: dict[str, Any], telegram: dict[str, Any]
+) -> dict[str, Any]:
+    """Fast path for batch ingest — show comments UI without blocking on TG probe."""
+    if not comments_enabled(telegram) or post_data.get("status") != "published":
+        return post_data
+    if post_data.get("commentsThreadAvailable") or post_data.get("telegramDiscussionMessageId"):
+        return post_data
+    optimistic = dict(post_data)
+    optimistic["commentsThreadAvailable"] = True
+    return optimistic
+
+
 def apply_comments_thread_probe(
-    post_data: dict[str, Any], root_id: int | None
+    post_data: dict[str, Any],
+    root_id: int | None,
+    *,
+    confirmed_absent: bool = False,
 ) -> tuple[dict[str, Any], bool]:
     """Set per-post comment thread availability from a Telegram probe."""
     updated = dict(post_data)
-    if root_id is None:
-        updated["commentsThreadAvailable"] = False
-        updated.pop("telegramDiscussionMessageId", None)
-        changed = post_data.get("commentsThreadAvailable") is not False or bool(
-            post_data.get("telegramDiscussionMessageId")
-        )
+    if root_id is not None:
+        updated["commentsThreadAvailable"] = True
+        updated["telegramDiscussionMessageId"] = str(root_id)
+        changed = post_data.get("commentsThreadAvailable") is not True or post_data.get(
+            "telegramDiscussionMessageId"
+        ) != str(root_id)
         return updated, changed
 
-    updated["commentsThreadAvailable"] = True
-    updated["telegramDiscussionMessageId"] = str(root_id)
-    changed = post_data.get("commentsThreadAvailable") is not True or post_data.get(
-        "telegramDiscussionMessageId"
-    ) != str(root_id)
+    if post_data.get("commentsThreadAvailable") or post_data.get("telegramDiscussionMessageId"):
+        return post_data, False
+    if not confirmed_absent:
+        return post_data, False
+
+    updated["commentsThreadAvailable"] = False
+    updated.pop("telegramDiscussionMessageId", None)
+    changed = post_data.get("commentsThreadAvailable") is not False or bool(
+        post_data.get("telegramDiscussionMessageId")
+    )
     return updated, changed
 
 
@@ -143,6 +212,23 @@ async def get_discussion_root_message_id(
     channel_message_id: int,
     settings: Settings,
 ) -> int | None:
+    root_id, _confirmed_absent = await probe_discussion_root(
+        client, channel_entity, channel_message_id, settings
+    )
+    return root_id
+
+
+async def probe_discussion_root(
+    client: Any,
+    channel_entity: Any,
+    channel_message_id: int,
+    settings: Settings,
+) -> tuple[int | None, bool]:
+    """Return ``(root_id, confirmed_absent)``.
+
+    ``confirmed_absent`` is True only when Telegram responded and the post clearly
+    has no linked discussion thread. Network/timeouts are inconclusive (False).
+    """
     try:
         result = await with_timeout(
             client(
@@ -151,10 +237,10 @@ async def get_discussion_root_message_id(
             settings,
         )
     except Exception:
-        return None
+        return None, False
     messages = list(getattr(result, "messages", None) or [])
     if not messages:
-        return None
+        return None, False
 
     try:
         channel_id = channel_peer_id(channel_entity)
@@ -186,7 +272,7 @@ async def get_discussion_root_message_id(
             break
 
     if not has_discussion_group:
-        return None
+        return None, True
 
     for message in messages:
         if (
@@ -195,14 +281,16 @@ async def get_discussion_root_message_id(
         ):
             msg_id = getattr(message, "id", None)
             if msg_id:
-                return int(msg_id)
+                return int(msg_id), False
 
     # Peers couldn't be resolved to ids (common in unit mocks and some
     # Telethon payloads); the discussion root is returned last, so fall back
     # to it now that we know a discussion group exists.
     root = messages[-1]
     msg_id = getattr(root, "id", None)
-    return int(msg_id) if msg_id else None
+    if msg_id:
+        return int(msg_id), False
+    return None, False
 
 
 def _message_date_iso(message: Any) -> str:
@@ -405,18 +493,18 @@ async def fetch_comments_from_telegram(
     settings: Settings,
     *,
     existing: list[dict[str, Any]] | None = None,
-) -> tuple[int | None, list[dict[str, Any]]]:
-    root_id = await get_discussion_root_message_id(
+) -> tuple[int | None, list[dict[str, Any]], bool]:
+    root_id, confirmed_absent = await probe_discussion_root(
         client, channel_entity, channel_message_id, settings
     )
     if root_id is None:
-        return None, []
+        return None, [], confirmed_absent
 
     discussion_peer = _discussion_peer_id(discussion_chat_id)
     try:
         discussion_entity = await with_timeout(client.get_entity(discussion_peer), settings)
     except Exception:
-        return root_id, []
+        return root_id, [], False
 
     collected: list[Any] = []
     try:
@@ -435,7 +523,7 @@ async def fetch_comments_from_telegram(
         discussion_root_id=root_id,
         existing=existing,
     )
-    return root_id, comments
+    return root_id, comments, False
 
 
 def _local_media_path(url: Any, user_id: UUID, settings: Settings) -> str | None:
@@ -586,7 +674,7 @@ async def pull_comments_from_telegram(
     settings: Settings,
 ) -> CommentSyncResult:
     existing = list(post_data.get("comments") or [])
-    root_id, from_tg = await fetch_comments_from_telegram(
+    root_id, from_tg, confirmed_absent = await fetch_comments_from_telegram(
         client,
         channel_entity,
         discussion_chat_id,
@@ -595,7 +683,9 @@ async def pull_comments_from_telegram(
         existing=existing,
     )
     if root_id is None:
-        return CommentSyncResult(comments=existing, comments_thread_available=False)
+        if confirmed_absent:
+            return CommentSyncResult(comments=existing, comments_thread_available=False)
+        return CommentSyncResult(comments=existing)
     merged = merge_comments(existing, from_tg)
     return CommentSyncResult(
         comments=merged,
@@ -880,7 +970,7 @@ async def reconcile_post_comments(
         return post_data, False
 
     existing = list(post_data.get("comments") or [])
-    root_id, from_tg = await fetch_comments_from_telegram(
+    root_id, from_tg, confirmed_absent = await fetch_comments_from_telegram(
         client,
         channel_entity,
         discussion_chat_id,
@@ -888,7 +978,9 @@ async def reconcile_post_comments(
         settings,
         existing=existing,
     )
-    probed, probe_changed = apply_comments_thread_probe(post_data, root_id)
+    probed, probe_changed = apply_comments_thread_probe(
+        post_data, root_id, confirmed_absent=confirmed_absent
+    )
     if root_id is None:
         return probed, probe_changed
 
@@ -920,6 +1012,7 @@ __all__ = [
     "CommentSyncResult",
     "DiscussionCommentBuffer",
     "apply_comments_thread_probe",
+    "apply_optimistic_comments_thread",
     "comments_enabled",
     "fetch_comments_from_telegram",
     "get_discussion_root_message_id",
@@ -930,6 +1023,8 @@ __all__ = [
     "merge_comments",
     "normalize_post_comments",
     "post_has_discussion_thread",
+    "probe_discussion_root",
+    "probe_comments_thread_for_post",
     "pull_comments_from_telegram",
     "refresh_channel_comments_settings",
     "reconcile_post_comments",

@@ -7,6 +7,9 @@ type Props = {
   syncing: boolean;
   importing: boolean;
   liveSyncing: boolean;
+  reconciling: boolean;
+  reconcileDisabled: boolean;
+  onReconcile: () => void;
   onReset: () => void;
 };
 
@@ -17,6 +20,9 @@ export default function TelegramStatusHeader({
   syncing,
   importing,
   liveSyncing,
+  reconciling,
+  reconcileDisabled,
+  onReconcile,
   onReset,
 }: Props) {
   const syncBusy = syncing || importing;
@@ -31,9 +37,19 @@ export default function TelegramStatusHeader({
             {status.text}
           </div>
         </div>
-        <button className="btn btn-ghost btn-sm" onClick={onReset} type="button">
-          Сбросить настройки
-        </button>
+        <div className="telegram-status-actions">
+          <button
+            className="btn btn-ghost btn-sm"
+            disabled={reconcileDisabled}
+            onClick={onReconcile}
+            type="button"
+          >
+            {reconciling ? "Сверяем…" : "Сверить канал"}
+          </button>
+          <button className="btn btn-ghost btn-sm" onClick={onReset} type="button">
+            Сбросить настройки
+          </button>
+        </div>
       </div>
 
       <div className="telegram-steps">

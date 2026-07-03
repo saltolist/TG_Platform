@@ -15,7 +15,7 @@ from telethon import events
 from telethon.tl.types import MessageMediaPhoto
 
 from app.core.config import get_settings
-from app.db.models import Post, Profile
+from app.db.models import Post, Profile, User
 from app.services.telegram import import_flow as import_flow_module
 from app.services.telegram import live_sync_worker as live_sync_module
 from app.services.telegram import message_mapping as mapping_module
@@ -25,6 +25,7 @@ from app.services.telegram.live_sync_worker import (
     listener_registry,
     should_listen,
     telegram_live_sync_worker,
+    _periodic_drift_correction_loop,
 )
 from app.services.telegram.message_mapping import map_group_to_post
 from app.services.telegram.post_sync import (
@@ -386,6 +387,48 @@ async def test_update_preserves_media_when_edit_payload_omits_it(
         assert post.data.get("media") == with_media.get("media")
 
 
+DISCUSSION_CHAT_ID = "123456789"
+
+
+@pytest.mark.asyncio
+async def test_live_sync_new_message_sets_optimistic_comments_thread(
+    client: AsyncClient, writer_auth_headers, writer_user
+) -> None:
+    await _seed_connected_profile(
+        client,
+        writer_auth_headers,
+        sync_mode="history-and-live",
+        last_message_id="10",
+    )
+    async with TestSessionLocal() as session:
+        profile = await session.get(Profile, writer_user.id)
+        assert profile is not None
+        telegram = dict(profile.telegram or {})
+        telegram["commentsEnabled"] = True
+        telegram["discussionChatId"] = DISCUSSION_CHAT_ID
+        profile.telegram = telegram
+        await session.commit()
+
+    user_id = writer_user.id
+    listener_registry.start_user_listener(user_id)
+    await asyncio.sleep(0.1)
+    fake = LiveSyncFakeClient._latest
+    assert fake is not None
+    await fake.emit_new(_fake_message(41, text="With comments"))
+    await asyncio.sleep(0.15)
+    async with TestSessionLocal() as session:
+        result = await session.execute(
+            select(Post).where(
+                Post.user_id == user_id,
+                Post.data["telegramMessageId"].astext == "41",
+            )
+        )
+        post = result.scalar_one_or_none()
+        assert post is not None
+        assert post.data.get("commentsThreadAvailable") is True
+    listener_registry.stop_user_listener(user_id)
+
+
 @pytest.mark.asyncio
 async def test_live_sync_new_message_via_handler(
     client: AsyncClient, writer_auth_headers, writer_user
@@ -517,3 +560,51 @@ async def test_worker_exits_when_disabled(monkeypatch: pytest.MonkeyPatch) -> No
     stop = asyncio.Event()
     stop.set()
     await telegram_live_sync_worker(TestSessionLocal, stop)
+
+
+@pytest.mark.asyncio
+async def test_periodic_drift_correction_runs_catch_up_and_reconcile(
+    monkeypatch: pytest.MonkeyPatch, writer_user: User
+) -> None:
+    calls: list[str] = []
+
+    async def fake_catch_up(*_args: Any, **_kwargs: Any) -> None:
+        calls.append("catch_up")
+
+    async def fake_reconcile(*_args: Any, **_kwargs: Any) -> None:
+        calls.append("reconcile")
+
+    async def fake_load_last_id(*_args: Any, **_kwargs: Any) -> int:
+        return 10
+
+    wait_calls = 0
+
+    async def fake_wait_for(awaitable: Any, timeout: float | None = None) -> Any:
+        nonlocal wait_calls
+        wait_calls += 1
+        if wait_calls == 1:
+            raise asyncio.TimeoutError
+        return await awaitable
+
+    monkeypatch.setattr(live_sync_module, "_catch_up", fake_catch_up)
+    monkeypatch.setattr(live_sync_module, "reconcile_channel_window", fake_reconcile)
+    monkeypatch.setattr(live_sync_module, "_load_last_telegram_message_id", fake_load_last_id)
+    monkeypatch.setattr(live_sync_module.asyncio, "wait_for", fake_wait_for)
+
+    stop = asyncio.Event()
+    settings = get_settings()
+    task = asyncio.create_task(
+        _periodic_drift_correction_loop(
+            None,
+            None,
+            writer_user.id,
+            settings,
+            TestSessionLocal,
+            stop,
+        )
+    )
+    await asyncio.sleep(0.05)
+    stop.set()
+    await task
+    assert "catch_up" in calls
+    assert "reconcile" in calls

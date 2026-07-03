@@ -96,7 +96,7 @@ class Settings(BaseSettings):
     telegram_live_sync_enabled: bool = True
     telegram_live_sync_registry_refresh_seconds: float = 30.0
     telegram_live_sync_reconnect_seconds: float = 15.0
-    telegram_live_sync_catch_up_seconds: float = 90.0
+    telegram_live_sync_catch_up_seconds: float = 20.0
     telegram_album_debounce_seconds: float = 2.0
     # Debounce window for high-volume discussion-group comments: buffer inbound
     # comments per thread and persist them in one batch (one commit + one
@@ -107,6 +107,8 @@ class Settings(BaseSettings):
     telegram_reconcile_enabled: bool = True
     telegram_reconcile_window: int = 100
     telegram_reconcile_throttle_seconds: float = 45.0
+    # Deprecated: periodic reconcile is merged into the live-sync drift loop
+    # (``telegram_live_sync_catch_up_seconds``). Kept for env compatibility.
     telegram_reconcile_periodic_seconds: float = 900.0
     telegram_reconcile_new_scan_limit: int = 30
 

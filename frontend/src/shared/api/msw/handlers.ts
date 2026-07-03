@@ -386,6 +386,21 @@ export const handlers = [
     return HttpResponse.json(store.telegramProfile);
   }),
 
+  http.post(apiV1MswPath("telegram/channel/reconcile"), ({ request }) => {
+    const store = requireStore(request);
+    if (!store) return unauthorized();
+    return HttpResponse.json({
+      reconciled: true,
+      stats: {
+        checked: 0,
+        updated: 0,
+        deleted: 0,
+        imported: 0,
+        skippedThrottle: false,
+      },
+    });
+  }),
+
   http.post(apiV1MswPath("ai/reply"), async ({ request }) => {
     const store = requireStore(request);
     if (!store) return unauthorized();

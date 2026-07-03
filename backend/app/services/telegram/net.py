@@ -14,8 +14,10 @@ from typing import Any, TypeVar
 from app.core.config import Settings
 from app.core.crypto import decrypt_byok, is_encrypted
 from app.services.telegram.clock_sync import (
-    apply_time_offset_to_client,
+    apply_preferred_time_offset,
     measure_http_time_offset_seconds,
+    reinforce_clock_after_telegram_rpc,
+    refresh_telethon_clock,
 )
 
 logger = logging.getLogger(__name__)
@@ -60,22 +62,23 @@ async def with_timeout(coro: Any, settings: Settings) -> _T:
 
 
 async def connect_telegram_client(client: Any, settings: Settings) -> None:
-    """Connect Telethon and pre-seed MTProto ``time_offset`` when Docker clock drifts."""
+    """Connect Telethon and align MTProto ``time_offset`` before updates are processed."""
+    if settings.telegram_clock_sync_enabled:
+        offset = await measure_http_time_offset_seconds()
+        if offset is not None:
+            apply_preferred_time_offset(client, offset)
+
     await with_timeout(client.connect(), settings)
+
     if not settings.telegram_clock_sync_enabled:
         return
 
-    offset = await measure_http_time_offset_seconds()
-    if offset is None:
-        return
+    try:
+        await with_timeout(client.get_me(), settings)
+    except Exception:
+        logger.debug("get_me after connect failed during clock sync", exc_info=True)
 
-    previous = apply_time_offset_to_client(client, offset)
-    if abs(offset) >= 25 and previous != offset:
-        logger.warning(
-            "Applied HTTP Telethon time offset %ds (was %s) after connect",
-            offset,
-            previous,
-        )
+    await reinforce_clock_after_telegram_rpc(client, settings)
 
 
 async def disconnect_safely(client: Any) -> None:

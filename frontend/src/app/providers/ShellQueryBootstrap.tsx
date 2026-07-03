@@ -4,7 +4,7 @@ import { useGlobalChats } from "@/entities/chat";
 import { useAiProfile, useChannelProfile, useTelegramProfile } from "@/entities/channel";
 import { useGlobalNotes } from "@/entities/note";
 import { usePosts } from "@/entities/post";
-import { TelegramLiveSyncPoll } from "@/app/providers/TelegramLiveSyncPoll";
+import { TelegramSyncCoordinator } from "@/app/providers/TelegramSyncCoordinator";
 
 /**
  * Keeps core list + profile queries subscribed at shell level (outside Sidebar Suspense)
@@ -19,7 +19,7 @@ export function ShellQueryBootstrap() {
   useTelegramProfile();
   return (
     <>
-      <TelegramLiveSyncPoll />
+      <TelegramSyncCoordinator />
     </>
   );
 }

@@ -20,6 +20,7 @@ from app.services.telegram.channel_flow import (
 from app.services.telegram.message_mapping import (
     collect_posts_from_iter,
     map_group_to_post,
+    map_message_for_reconcile,
     message_is_importable,
 )
 from app.services.telegram.mtproto_client import build_client
@@ -28,10 +29,16 @@ from app.services.telegram.net import (
     connect_telegram_client,
     decrypt_field,
     disconnect_safely,
+    refresh_telethon_clock,
     require_api_credentials,
     with_timeout,
 )
-from app.services.telegram.comments_flow import DiscussionCommentBuffer
+from app.services.telegram.clock_sync import reinforce_clock_after_telegram_rpc
+from app.services.telegram.comments_flow import (
+    DiscussionCommentBuffer,
+    apply_optimistic_comments_thread,
+    comments_enabled,
+)
 from app.services.telegram.post_sync import (
     delete_telegram_post,
     set_sync_error,
@@ -43,6 +50,18 @@ from app.services.telegram.reconcile_flow import reconcile_channel_window
 from app.services.telegram.session_guard import telegram_session_lock
 
 logger = logging.getLogger(__name__)
+
+_ingest_locks: dict[UUID, asyncio.Lock] = {}
+_ingest_locks_guard = asyncio.Lock()
+
+
+async def _ingest_lock_for(user_id: UUID) -> asyncio.Lock:
+    async with _ingest_locks_guard:
+        lock = _ingest_locks.get(user_id)
+        if lock is None:
+            lock = asyncio.Lock()
+            _ingest_locks[user_id] = lock
+        return lock
 
 
 def should_listen(telegram: dict[str, Any]) -> bool:
@@ -276,6 +295,26 @@ async def _load_last_telegram_message_id(
             return 0
 
 
+async def _collect_catch_up_posts_lightweight(
+    client: Any,
+    entity: Any,
+    *,
+    min_id: int,
+    limit: int,
+) -> list[dict[str, Any]]:
+    """Fast catch-up for drift correction — no media downloads."""
+    posts: list[dict[str, Any]] = []
+    async for message in client.iter_messages(entity, min_id=min_id, limit=max(limit * 5, limit)):
+        if not message_is_importable(message):
+            continue
+        mapped = map_message_for_reconcile(message)
+        if mapped is not None:
+            posts.append(mapped)
+        if len(posts) >= limit:
+            break
+    return posts
+
+
 async def _catch_up(
     client: Any,
     entity: Any,
@@ -283,33 +322,84 @@ async def _catch_up(
     settings: Settings,
     min_id: int,
     session_factory: async_sessionmaker[AsyncSession],
+    *,
+    lightweight: bool = False,
 ) -> None:
+    scan_limit = settings.telegram_reconcile_new_scan_limit
     if min_id <= 0:
-        posts = await collect_posts_from_iter(
-            client,
-            entity,
-            user_id,
-            settings,
-            limit=settings.telegram_reconcile_new_scan_limit,
-        )
+        if lightweight:
+            posts = await _collect_catch_up_posts_lightweight(
+                client, entity, min_id=0, limit=scan_limit
+            )
+        else:
+            posts = await collect_posts_from_iter(
+                client,
+                entity,
+                user_id,
+                settings,
+                limit=scan_limit,
+            )
     else:
-        posts = await collect_posts_from_iter(
-            client,
-            entity,
-            user_id,
-            settings,
-            limit=settings.telegram_import_post_limit,
-            min_id=min_id,
-        )
+        if lightweight:
+            posts = await _collect_catch_up_posts_lightweight(
+                client, entity, min_id=min_id, limit=scan_limit
+            )
+        else:
+            posts = await collect_posts_from_iter(
+                client,
+                entity,
+                user_id,
+                settings,
+                limit=scan_limit,
+                min_id=min_id,
+            )
     if not posts:
         return
     async with session_factory() as session:
-        for post_data in posts:
+        profile = await session.get(Profile, user_id)
+        telegram = dict(profile.telegram or {}) if profile else {}
+    probed_posts: list[dict[str, Any]] = []
+    for post_data in posts:
+        if comments_enabled(telegram):
+            post_data = apply_optimistic_comments_thread(post_data, telegram)
+        probed_posts.append(post_data)
+    async with session_factory() as session:
+        for post_data in probed_posts:
             await upsert_telegram_post(session, user_id, post_data)
         await session.commit()
 
 
-async def _periodic_catch_up_loop(
+async def _run_drift_correction(
+    client: Any,
+    entity: Any,
+    user_id: UUID,
+    settings: Settings,
+    session_factory: async_sessionmaker[AsyncSession],
+) -> None:
+    """Serialized catch-up + reconcile — one in-flight pass per user."""
+    lock = await _ingest_lock_for(user_id)
+    async with lock:
+        min_id = await _load_last_telegram_message_id(session_factory, user_id)
+        await _catch_up(
+            client,
+            entity,
+            user_id,
+            settings,
+            min_id,
+            session_factory,
+            lightweight=True,
+        )
+        await reconcile_channel_window(
+            client,
+            entity,
+            user_id,
+            settings,
+            session_factory,
+            force=True,
+        )
+
+
+async def _periodic_drift_correction_loop(
     client: Any,
     entity: Any,
     user_id: UUID,
@@ -317,9 +407,21 @@ async def _periodic_catch_up_loop(
     session_factory: async_sessionmaker[AsyncSession],
     stop_event: asyncio.Event,
 ) -> None:
-    """Poll for channel posts missed by Telethon events (e.g. during RPC gaps)."""
+    """Catch up missed channel posts, then reconcile the linked window (safety-net)."""
     interval = max(15.0, settings.telegram_live_sync_catch_up_seconds)
+    # Let live event handlers run before the first heavy drift pass.
+    try:
+        await asyncio.wait_for(stop_event.wait(), timeout=8.0)
+        return
+    except asyncio.TimeoutError:
+        pass
     while not stop_event.is_set():
+        try:
+            await _run_drift_correction(
+                client, entity, user_id, settings, session_factory
+            )
+        except Exception:
+            logger.exception("Periodic live-sync drift correction failed for user %s", user_id)
         try:
             await asyncio.wait_for(stop_event.wait(), timeout=interval)
             return
@@ -327,42 +429,26 @@ async def _periodic_catch_up_loop(
             pass
         if stop_event.is_set():
             return
-        try:
-            min_id = await _load_last_telegram_message_id(session_factory, user_id)
-            await _catch_up(client, entity, user_id, settings, min_id, session_factory)
-        except Exception:
-            logger.exception("Periodic live-sync catch-up failed for user %s", user_id)
 
 
-async def _periodic_reconcile_loop(
+async def _periodic_clock_refresh_loop(
     client: Any,
-    entity: Any,
-    user_id: UUID,
     settings: Settings,
-    session_factory: async_sessionmaker[AsyncSession],
     stop_event: asyncio.Event,
 ) -> None:
+    """Keep Telethon time_offset aligned — Docker VM clocks drift during long sessions."""
     while not stop_event.is_set():
         try:
-            await asyncio.wait_for(
-                stop_event.wait(), timeout=settings.telegram_reconcile_periodic_seconds
-            )
+            await asyncio.wait_for(stop_event.wait(), timeout=60.0)
             return
         except asyncio.TimeoutError:
             pass
         if stop_event.is_set():
             return
         try:
-            await reconcile_channel_window(
-                client,
-                entity,
-                user_id,
-                settings,
-                session_factory,
-                force=False,
-            )
+            await refresh_telethon_clock(client, settings)
         except Exception:
-            logger.exception("Periodic channel reconcile failed for user %s", user_id)
+            logger.debug("Periodic Telethon clock refresh failed", exc_info=True)
 
 
 async def _refresh_channel_message(client: Any, entity: Any, message: Any) -> Any:
@@ -382,10 +468,12 @@ async def _refresh_channel_message(client: Any, entity: Any, message: Any) -> An
 
 async def _persist_group(
     client: Any,
+    entity: Any,
     messages: list[Any],
     user_id: UUID,
     settings: Settings,
     session_factory: async_sessionmaker[AsyncSession],
+    telegram: dict[str, Any],
     *,
     update: bool = False,
 ) -> None:
@@ -396,6 +484,8 @@ async def _persist_group(
     post_data = await map_group_to_post(client, messages, user_id, settings)
     if post_data is None:
         return
+    if not update and comments_enabled(telegram):
+        post_data = apply_optimistic_comments_thread(post_data, telegram)
     async with session_factory() as session:
         if update:
             await update_telegram_post(session, user_id, post_data)
@@ -428,17 +518,6 @@ async def _run_user_listener(user_id: UUID, stop_event: asyncio.Event) -> None:
 
                 client = build_client(api_id, api_hash, session_string)
                 listener_registry.register_client(user_id, client)
-                album_buffer = AlbumBuffer(
-                    settings.telegram_album_debounce_seconds,
-                    lambda msgs: _persist_group(
-                        client,
-                        [m for m in msgs if message_is_importable(m)],
-                        user_id,
-                        settings,
-                        session_factory,
-                        update=False,
-                    ),
-                )
                 comment_buffer = DiscussionCommentBuffer(
                     client,
                     user_id,
@@ -449,40 +528,24 @@ async def _run_user_listener(user_id: UUID, stop_event: asyncio.Event) -> None:
                     ),
                 )
 
-                periodic_reconcile_task: asyncio.Task[None] | None = None
-                periodic_catch_up_task: asyncio.Task[None] | None = None
+                periodic_drift_task: asyncio.Task[None] | None = None
+                clock_refresh_task: asyncio.Task[None] | None = None
                 try:
                     await connect_telegram_client(client, settings)
                     entity = await resolve_channel_entity(client, parsed, settings)
-                    await _catch_up(client, entity, user_id, settings, min_id, session_factory)
-                    await reconcile_channel_window(
-                        client,
-                        entity,
-                        user_id,
-                        settings,
-                        session_factory,
-                        force=True,
-                    )
-
-                    periodic_reconcile_task = asyncio.create_task(
-                        _periodic_reconcile_loop(
+                    await reinforce_clock_after_telegram_rpc(client, settings)
+                    album_buffer = AlbumBuffer(
+                        settings.telegram_album_debounce_seconds,
+                        lambda msgs: _persist_group(
                             client,
                             entity,
+                            [m for m in msgs if message_is_importable(m)],
                             user_id,
                             settings,
                             session_factory,
-                            stop_event,
-                        )
-                    )
-                    periodic_catch_up_task = asyncio.create_task(
-                        _periodic_catch_up_loop(
-                            client,
-                            entity,
-                            user_id,
-                            settings,
-                            session_factory,
-                            stop_event,
-                        )
+                            _telegram,
+                            update=False,
+                        ),
                     )
 
                     async def _handle_message_edit(message: Any) -> None:
@@ -497,10 +560,12 @@ async def _run_user_listener(user_id: UUID, stop_event: asyncio.Event) -> None:
                                 messages = list(siblings)
                         await _persist_group(
                             client,
+                            entity,
                             messages,
                             user_id,
                             settings,
                             session_factory,
+                            _telegram,
                             update=True,
                         )
 
@@ -577,10 +642,28 @@ async def _run_user_listener(user_id: UUID, stop_event: asyncio.Event) -> None:
                             from app.services.telegram.post_sync import touch_telegram_profile
 
                             await touch_telegram_profile(
-                                session, profile, sync_status="listening", sync_error=""
+                                session,
+                                profile,
+                                sync_status="listening",
+                                sync_error="",
+                                status_only=True,
                             )
                             await session.commit()
                     logger.info("Live-sync listening for user %s", user_id)
+
+                    periodic_drift_task = asyncio.create_task(
+                        _periodic_drift_correction_loop(
+                            client,
+                            entity,
+                            user_id,
+                            settings,
+                            session_factory,
+                            stop_event,
+                        )
+                    )
+                    clock_refresh_task = asyncio.create_task(
+                        _periodic_clock_refresh_loop(client, settings, stop_event)
+                    )
 
                     disconnect_task = asyncio.create_task(client.run_until_disconnected())
                     stop_wait = asyncio.create_task(stop_event.wait())
@@ -614,16 +697,16 @@ async def _run_user_listener(user_id: UUID, stop_event: asyncio.Event) -> None:
                     logger.exception("Live-sync listener error for user %s", user_id)
                     await set_sync_error(user_id, str(exc), session_factory)
                 finally:
-                    if periodic_reconcile_task is not None:
-                        periodic_reconcile_task.cancel()
+                    if clock_refresh_task is not None:
+                        clock_refresh_task.cancel()
                         try:
-                            await periodic_reconcile_task
+                            await clock_refresh_task
                         except asyncio.CancelledError:
                             pass
-                    if periodic_catch_up_task is not None:
-                        periodic_catch_up_task.cancel()
+                    if periodic_drift_task is not None:
+                        periodic_drift_task.cancel()
                         try:
-                            await periodic_catch_up_task
+                            await periodic_drift_task
                         except asyncio.CancelledError:
                             pass
                     listener_registry.unregister_client(user_id, client)

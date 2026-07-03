@@ -1332,6 +1332,11 @@
   gap: 12px;
   margin-bottom: 16px;
 }
+.telegram-status-actions {
+  display: flex;
+  gap: 8px;
+  flex-shrink: 0;
+}
 .telegram-status {
   display: inline-flex;
   align-items: center;
@@ -2596,6 +2601,11 @@ html[data-profile-header-trash-compact][data-profile-ai-tier="compact"] .profile
   .telegram-status-row {
     align-items: flex-start;
     justify-content: flex-start;
+  }
+
+  .telegram-status-actions {
+    flex-direction: column;
+    align-items: flex-start;
   }
 
   .telegram-status-row .btn {

@@ -274,6 +274,34 @@ async def test_reconcile_force_bypasses_throttle(writer_user: User) -> None:
 
 
 @pytest.mark.asyncio
+async def test_reconcile_noop_does_not_bump_sync_revision(
+    client: AsyncClient, writer_user: User, writer_auth_headers: dict[str, str]
+) -> None:
+    await _seed_profile(client, writer_auth_headers)
+    async with TestSessionLocal() as session:
+        profile = await session.get(Profile, writer_user.id)
+        assert profile is not None
+        base_revision = int(profile.telegram.get("syncRevision") or 0)
+    stats = await reconcile_channel_window(
+        ReconcileFakeClient(None, 1, "hash"),
+        SimpleNamespace(id=555),
+        writer_user.id,
+        get_settings(),
+        TestSessionLocal,
+        force=True,
+        include_new_scan=False,
+    )
+    assert stats.checked == 0
+    assert stats.updated == 0
+    assert stats.deleted == 0
+    assert stats.imported == 0
+    async with TestSessionLocal() as session:
+        profile = await session.get(Profile, writer_user.id)
+        assert profile is not None
+        assert int(profile.telegram.get("syncRevision") or 0) == base_revision
+
+
+@pytest.mark.asyncio
 async def test_reconcile_api_endpoint(
     client: AsyncClient, writer_user: User, writer_auth_headers: dict[str, str]
 ) -> None:

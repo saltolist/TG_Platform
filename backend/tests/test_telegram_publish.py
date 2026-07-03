@@ -20,6 +20,7 @@ from app.core.config import get_settings
 from app.db import session as db_session_module
 from app.db.models import Post, Profile
 from app.services.telegram import mtproto_client
+from app.services.telegram import comments_flow as comments_flow_module
 from app.services.telegram import publish_flow as publish_flow_module
 from tests.conftest import TestSessionLocal, sample_post
 
@@ -387,7 +388,7 @@ async def test_publish_optimistically_enables_comments_when_probe_is_slow(
         return None
 
     monkeypatch.setattr(
-        publish_flow_module,
+        comments_flow_module,
         "get_discussion_root_message_id",
         no_root,
     )

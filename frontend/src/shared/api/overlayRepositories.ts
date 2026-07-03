@@ -333,6 +333,19 @@ function overlayProfile(inner: ProfileRepository): ProfileRepository {
       });
       return next;
     },
+    reconcileTelegramChannel: async () => {
+      if (!shouldPersistLocally()) return inner.reconcileTelegramChannel();
+      return {
+        reconciled: true as const,
+        stats: {
+          checked: 0,
+          updated: 0,
+          deleted: 0,
+          imported: 0,
+          skippedThrottle: false,
+        },
+      };
+    },
   };
 }
 

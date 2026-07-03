@@ -47,6 +47,19 @@ export interface NotesRepository {
   remove(noteId: string): Promise<void>;
 }
 
+export type TelegramReconcileStats = {
+  checked: number;
+  updated: number;
+  deleted: number;
+  imported: number;
+  skippedThrottle: boolean;
+};
+
+export type TelegramReconcileResponse = {
+  reconciled: true;
+  stats: TelegramReconcileStats;
+};
+
 export interface ProfileRepository {
   getChannel(): Promise<ChannelProfileConfig>;
   updateChannel(config: ChannelProfileConfig): Promise<ChannelProfileConfig>;
@@ -69,6 +82,8 @@ export interface ProfileRepository {
   resetTelegramAuth(): Promise<TelegramProfileConfig>;
   /** Verify the channel exists and the account can post in it (Telethon), then mark it connected. */
   connectTelegramChannel(channel: string): Promise<TelegramProfileConfig>;
+  /** Compare the linked post window with the live Telegram channel (manual drift correction). */
+  reconcileTelegramChannel(): Promise<TelegramReconcileResponse>;
 }
 
 import type { ChatContextMeta } from "@/shared/api/schemas/chatContextMeta";

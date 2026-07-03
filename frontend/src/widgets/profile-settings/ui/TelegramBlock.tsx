@@ -21,6 +21,9 @@ export default function TelegramBlock({ active = true }: { active?: boolean }) {
         syncing={tg.syncing}
         importing={tg.importing}
         liveSyncing={tg.liveSyncing}
+        reconciling={tg.reconciling}
+        reconcileDisabled={tg.reconcileDisabled}
+        onReconcile={tg.reconcileChannel}
         onReset={tg.reset}
       />
 

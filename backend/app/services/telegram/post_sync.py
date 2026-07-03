@@ -75,12 +75,19 @@ async def touch_telegram_profile(
     sync_error: str = "",
     comment_only: bool = False,
     metrics_only: bool = False,
+    status_only: bool = False,
 ) -> None:
     telegram = dict(profile.telegram or {})
     if last_message_id is not None:
         seen = _parse_message_id(last_message_id)
         stored = _parse_message_id(telegram.get("lastTelegramMessageId"))
         telegram["lastTelegramMessageId"] = str(max(seen, stored))
+    if status_only:
+        telegram["syncStatus"] = sync_status
+        telegram["syncError"] = sync_error[:500] if sync_error else ""
+        profile.telegram = telegram
+        flag_modified(profile, "telegram")
+        return
     telegram["lastSync"] = datetime.now(timezone.utc).isoformat()
     if comment_only:
         # Comment-only updates bump a separate revision so the frontend does not
@@ -96,6 +103,7 @@ async def touch_telegram_profile(
     telegram["syncStatus"] = sync_status
     telegram["syncError"] = sync_error[:500] if sync_error else ""
     profile.telegram = telegram
+    flag_modified(profile, "telegram")
 
 
 async def mark_post_deleted(post: Post) -> None:

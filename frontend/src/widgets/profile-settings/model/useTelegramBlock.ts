@@ -7,7 +7,13 @@ import { useRepositories } from "@/app/providers/RepositoryProvider";
 import { getApiErrorMessage } from "@/shared/api/getApiErrorMessage";
 import { DEMO_CHANNEL_TITLE } from "@/shared/lib/auth/constants";
 import { isDemoChannelHandle } from "@/shared/lib/channel/isDemoChannelHandle";
-import { refreshPostsAfterChannelImport } from "@/widgets/profile-settings/lib/syncProfileDraftAfterChannelImport";
+import { invalidatePostsList } from "@/widgets/profile-settings/lib/invalidatePostsList";
+import { mergeTelegramSyncFields } from "@/shared/lib/profile/mergeTelegramSyncFields";
+import { normalizeTelegramProfileConfig } from "@/shared/lib/profile/normalizeProfileConfig";
+import { queryKeys } from "@/shared/api/queryKeys";
+import { getQueryAccountIdFromAuth } from "@/shared/lib/auth/queryAccountScope";
+import type { TelegramReconcileStats } from "@/shared/api/repositories";
+import { useProfileDraftStore } from "@/app/model/store/profile-draft-store";
 import { isTelegramPhoneComplete } from "@/shared/lib/format-telegram-phone";
 import {
   getTelegramStatusLabel,
@@ -31,6 +37,16 @@ import { reportMutationError, showToast } from "@/shared/ui/toast";
 const RESEND_COOLDOWN_SECONDS = 60;
 const IMPORT_POLL_INTERVAL_MS = 3000;
 
+function formatReconcileToast(stats: TelegramReconcileStats): string {
+  const changed = stats.updated + stats.deleted + stats.imported;
+  if (changed === 0) return "Сверка завершена: изменений нет";
+  const parts: string[] = [];
+  if (stats.updated > 0) parts.push(`обновлено ${stats.updated}`);
+  if (stats.deleted > 0) parts.push(`удалено ${stats.deleted}`);
+  if (stats.imported > 0) parts.push(`импортировано ${stats.imported}`);
+  return `Сверка завершена: ${parts.join(", ")}`;
+}
+
 export function useTelegramBlock() {
   const cfg = useDomainSelector(selectTelegramProfileConfig);
   const telegramSettingsSavedSnapshot = useDomainSelector(selectTelegramSettingsSavedSnapshot);
@@ -49,6 +65,7 @@ export function useTelegramBlock() {
   const [verifyingCode, setVerifyingCode] = useState(false);
   const [verifyingPassword, setVerifyingPassword] = useState(false);
   const [resettingAuth, setResettingAuth] = useState(false);
+  const [reconciling, setReconciling] = useState(false);
   const [connectingChannel, setConnectingChannel] = useState(false);
   const [resendCooldownSec, setResendCooldownSec] = useState(0);
   const [credentialsFlashNonce, setCredentialsFlashNonce] = useState(0);
@@ -132,7 +149,7 @@ export function useTelegramBlock() {
               message: `Импортировано ${latest.importedPosts} постов`,
               variant: "info",
             });
-            await refreshPostsAfterChannelImport(queryClient);
+            await invalidatePostsList(queryClient);
           } else if (latest.importStatus === "error") {
             showToast({
               message: latest.importError || "Не удалось импортировать историю постов",
@@ -157,6 +174,8 @@ export function useTelegramBlock() {
   const status = getTelegramStatusLabel(cfg, syncing, importing);
   const isConnected = cfg.authStatus === "connected" && cfg.channelStatus === "connected";
   const isAuthorized = cfg.authStatus === "authorized" || cfg.authStatus === "connected";
+  const reconcileDisabled =
+    !isConnected || importing || reconciling || cfg.syncMode === "publish-only";
   const codeHidden = cfg.authStatus !== "code-sent";
   const awaitingPassword = cfg.authStatus === "code-sent" && cfg.authStep === "password";
   const savedSnapshot = parseTelegramSnapshot(telegramSettingsSavedSnapshot);
@@ -353,7 +372,7 @@ export function useTelegramBlock() {
       update(saved);
       applyPatch({ telegramSettingsSavedSnapshot: telegramConfigSnapshot(saved) });
       if (saved.channelStatus === "connected" && isDemoChannelHandle(saved.channel)) {
-        await refreshPostsAfterChannelImport(queryClient);
+        await invalidatePostsList(queryClient);
       }
     } catch {
       update(cfg);
@@ -494,6 +513,26 @@ export function useTelegramBlock() {
     if (!apiChangedFromSaved) return;
     update({ apiId: savedSnapshot.apiId, apiHash: savedSnapshot.apiHash });
   };
+
+  const reconcileChannel = async () => {
+    if (reconcileDisabled) return;
+    setReconciling(true);
+    try {
+      const result = await profile.reconcileTelegramChannel();
+      const accountId = getQueryAccountIdFromAuth();
+      const latest = normalizeTelegramProfileConfig(await profile.getTelegram());
+      queryClient.setQueryData(queryKeys.profile.telegram(accountId), latest);
+      const currentCfg = useProfileDraftStore.getState().telegramProfileConfig;
+      dispatch(domainActions.updateTelegramConfig(mergeTelegramSyncFields(currentCfg, latest)));
+      await invalidatePostsList(queryClient);
+      showToast({ message: formatReconcileToast(result.stats), variant: "info" });
+    } catch (error) {
+      reportMutationError(error, "Не удалось сверить канал с Telegram");
+    } finally {
+      setReconciling(false);
+    }
+  };
+
   return {
     cfg,
     update,
@@ -515,6 +554,8 @@ export function useTelegramBlock() {
     verifyingCode,
     verifyingPassword,
     resettingAuth,
+    reconciling,
+    reconcileDisabled,
     connectingChannel,
     resendCooldownSec,
     apiChangedFromSaved,
@@ -533,6 +574,7 @@ export function useTelegramBlock() {
     connectChannel,
     connectBot,
     reset,
+    reconcileChannel,
     saveApiCredentials,
     cancelApiCredentials,
   };

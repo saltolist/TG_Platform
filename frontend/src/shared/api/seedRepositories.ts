@@ -241,6 +241,18 @@ export function createSeedRepositories(): RepositoryBundle {
         };
         return telegramProfile;
       },
+      async reconcileTelegramChannel() {
+        return {
+          reconciled: true as const,
+          stats: {
+            checked: 0,
+            updated: 0,
+            deleted: 0,
+            imported: 0,
+            skippedThrottle: false,
+          },
+        };
+      },
     },
     assistant: {
       async streamGlobalChatReply(text, onChunk, options) {
