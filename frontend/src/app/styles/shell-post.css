@@ -934,7 +934,8 @@
   cursor: pointer;
 }
 .post-comment-delete-btn:hover:not(:disabled) { text-decoration: underline; }
-.post-comment-video-note {
+.post-comment-video-note,
+.post-comment-compact {
   display: flex;
   flex-direction: column;
   align-items: flex-start;
@@ -943,11 +944,13 @@
   width: fit-content;
   max-width: 100%;
 }
-.post-comment-video-note .post-comment-media {
+.post-comment-video-note .post-comment-media,
+.post-comment-compact .post-comment-media {
   margin-top: 0;
   flex: 0 0 auto;
 }
-.post-comment-actions--video-note {
+.post-comment-actions--video-note,
+.post-comment-compact .post-comment-actions {
   align-self: flex-start;
   margin-top: 8px;
 }
@@ -955,8 +958,25 @@
   margin-top: 4px;
   max-width: 100%;
 }
+/* Comment media uses tg-media--comment on PostMediaBlock; reinforce left alignment here */
+.post-comment-media .tg-media.tg-media--comment {
+  display: block;
+  width: fit-content;
+  max-width: 100%;
+  margin-inline: 0;
+  background: transparent;
+}
+.post-comment-media .tg-media.tg-media--comment .tg-media-item {
+  display: block;
+  width: auto;
+  max-width: 100%;
+  aspect-ratio: auto;
+  max-height: none;
+  align-self: auto;
+}
 /* Video note in comments only — isolate from feed/post tg-media flex rules */
 .post-comment-media--video-note .tg-media,
+.post-comment-media--video-note .tg-media:has(.tg-media-compact-slot),
 .post-comment-media--video-note .tg-media:has(.tg-media-video-note-hit) {
   display: block;
   width: fit-content;
@@ -966,6 +986,7 @@
 }
 .post-comment-media--video-note .tg-media-item,
 .post-comment-media--video-note .tg-media-item--compact,
+.post-comment-media--video-note .tg-media-item:has(.tg-media-compact-slot),
 .post-comment-media--video-note .tg-media-item:has(.tg-media-video-note-hit) {
   display: block;
   width: auto;
@@ -974,6 +995,14 @@
   aspect-ratio: auto;
   overflow: hidden;
   background: transparent;
+}
+.post-comment-media--video-note .tg-media-compact-slot {
+  width: 200px;
+  height: 200px;
+  min-width: 200px;
+  min-height: 200px;
+  max-width: 200px;
+  max-height: 200px;
 }
 .post-comment-media--video-note .tg-media-video-note-hit {
   width: 200px;

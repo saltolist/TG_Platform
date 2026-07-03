@@ -302,6 +302,41 @@ def test_merge_comments_links_pending_platform_comment_to_telegram() -> None:
     assert merged[0]["telegramMessageId"] == "7000"
 
 
+def test_full_pull_prunes_synced_comment_missing_in_telegram() -> None:
+    existing = [
+        {
+            "id": "tg-7000",
+            "author": "Пользователь",
+            "text": "Deleted in TG",
+            "date": "2026-07-02T12:00:00Z",
+            "telegramMessageId": "7000",
+        },
+        {
+            "id": "local-1",
+            "author": "Вы",
+            "text": "Still pending",
+            "date": "2026-07-02T12:01:00Z",
+        },
+    ]
+    from_tg = [
+        {
+            "id": "tg-7001",
+            "author": "Alice",
+            "text": "Still in TG",
+            "date": "2026-07-02T12:02:00Z",
+            "telegramMessageId": "7001",
+        }
+    ]
+
+    partial = merge_comments(existing, from_tg)
+    assert any(item.get("telegramMessageId") == "7000" for item in partial)
+
+    full = merge_comments(existing, from_tg, prune_missing_synced=True)
+    assert not any(item.get("telegramMessageId") == "7000" for item in full)
+    assert any(item["id"] == "local-1" for item in full)
+    assert any(item.get("telegramMessageId") == "7001" for item in full)
+
+
 def test_dedupe_platform_comments_collapses_live_sync_race() -> None:
     comments = [
         {
@@ -585,6 +620,11 @@ async def test_sync_comments_endpoint_pulls_from_telegram(
     assert any(item.get("telegramMessageId") == "8100" for item in body.get("comments") or [])
     assert body.get("telegramDiscussionMessageId") == str(DISCUSSION_ROOT_ID)
     assert body.get("commentsThreadAvailable") is True
+
+    list_resp = await client.get("/api/v1/posts/", headers=writer_auth_headers)
+    assert list_resp.status_code == 200
+    listed = next(item for item in list_resp.json() if item["id"] == post["id"])
+    assert listed.get("telegramSyncPending") is not True
 
 
 @pytest.mark.asyncio

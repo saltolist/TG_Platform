@@ -16,9 +16,11 @@ import { VideoStickerMedia } from "./media/VideoStickerMedia";
 type Props = {
   media: PostMedia[];
   onRemove?: (index: number) => void;
+  /** Comment thread layout: left-aligned compact media, no feed-style centering. */
+  variant?: "default" | "comment";
 };
 
-export default function PostMediaBlock({ media, onRemove }: Props) {
+export default function PostMediaBlock({ media, onRemove, variant = "default" }: Props) {
   if (!media || media.length === 0) return null;
 
   const n = media.length;
@@ -28,7 +30,7 @@ export default function PostMediaBlock({ media, onRemove }: Props) {
 
   return (
     <div
-      className={`tg-media ${layout}${editable ? " tg-media-editable" : ""}${n === 1 ? " single" : ""}${compactSingle ? " tg-media--compact" : ""}`}
+      className={`tg-media ${layout}${editable ? " tg-media-editable" : ""}${n === 1 ? " single" : ""}${compactSingle ? " tg-media--compact" : ""}${variant === "comment" ? " tg-media--comment" : ""}`}
       data-count={n}
     >
       {media.map((m, i) => (

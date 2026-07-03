@@ -31,53 +31,51 @@
 .tg-media.single .tg-media-item { max-height: 460px; }
 
 .tg-media--compact {
-  display: inline-flex;
-  width: auto;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  width: 100%;
   max-width: 100%;
   background: transparent;
   overflow: visible;
+  gap: 0;
 }
 
-.tg-media--compact .tg-media-item--compact {
+.tg-media--compact .tg-media-item--compact,
+.tg-media.tg-media--compact.cols-1.single .tg-media-item--compact,
+.tg-media.cols-1 .tg-media-item:has(.tg-media-compact-slot),
+.tg-media.single .tg-media-item:has(.tg-media-compact-slot),
+.tg-media-item:has(.tg-media-compact-slot) {
   aspect-ratio: auto;
   max-height: none;
+  height: auto;
+  min-height: 0;
   background: transparent;
   overflow: visible;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: auto;
+  max-width: 100%;
+  align-self: center;
 }
 
 /* Center compact Telegram media (video notes, stickers) in post/feed cards */
-.tg-media:has(.tg-media-video-note-hit),
-.tg-media:has(.tg-media-sticker),
-.tg-media:has(.tg-media-animated-sticker),
-.tg-media:has(.tg-media-video-sticker) {
+.tg-media:has(.tg-media-compact-slot) {
   display: flex;
   flex-direction: column;
   align-items: center;
-  justify-content: center;
+  justify-content: flex-start;
   width: 100%;
   background: transparent;
   overflow: visible;
-}
-
-.tg-media-item:has(.tg-media-video-note-hit),
-.tg-media-item:has(.tg-media-sticker),
-.tg-media-item:has(.tg-media-animated-sticker),
-.tg-media-item:has(.tg-media-video-sticker) {
-  aspect-ratio: auto;
-  max-height: none;
-  background: transparent;
-  overflow: visible;
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  justify-content: center;
-  width: 100%;
 }
 
 .tg-media-video-note-hit {
   display: block;
-  width: 240px;
-  height: 240px;
+  width: 100%;
+  height: 100%;
   max-width: 100%;
   padding: 0;
   border: none;
@@ -86,6 +84,7 @@
   position: relative;
   cursor: pointer;
   background: #000;
+  aspect-ratio: 1 / 1;
 }
 
 .tg-media-video-note {
@@ -117,23 +116,53 @@
   border-color: transparent transparent transparent #fff;
 }
 
-.tg-media-sticker,
-.tg-media-animated-sticker,
-.tg-media-video-sticker {
-  display: block;
+.tg-media-compact-slot {
+  display: flex;
+  align-items: center;
+  justify-content: center;
   width: auto;
   height: auto;
-  max-width: 240px;
+  max-width: min(240px, 100%);
+  flex-shrink: 0;
+}
+
+.tg-media-compact-slot--loading {
+  width: min(240px, 100%);
+  height: min(240px, 100%);
+  border-radius: 8px;
+  background: var(--bg4);
+}
+
+.tg-media-compact-slot:not(.tg-media-compact-slot--video-note):not(.tg-media-compact-slot--loading) {
+  max-width: min(240px, 100%);
   max-height: 240px;
+}
+
+.tg-media-compact-slot--video-note {
+  width: 240px;
+  height: 240px;
+  max-width: 100%;
+  border-radius: 50%;
+  overflow: hidden;
+}
+
+.tg-media-sticker,
+.tg-media-video-sticker {
+  display: block;
+  max-width: 100%;
+  max-height: 100%;
+  width: auto;
+  height: auto;
   object-fit: contain;
   background: transparent;
 }
 
-.tg-media-sticker--loading {
-  width: 240px;
-  height: 240px;
-  border-radius: 8px;
-  background: var(--bg4);
+.tg-media-animated-sticker {
+  display: block;
+  width: 100%;
+  height: 100%;
+  max-width: 100%;
+  max-height: 100%;
 }
 
 .tg-media-img,
@@ -187,3 +216,44 @@
 }
 .tg-media-editable .tg-media-remove { display: inline-flex; }
 .tg-media-remove:hover { background: rgba(0,0,0,.75); }
+
+/* Comment thread: left-aligned media (overrides feed/post compact centering) */
+.tg-media.tg-media--comment,
+.tg-media.tg-media--comment.tg-media--compact,
+.tg-media.tg-media--comment.cols-1.single,
+.tg-media.tg-media--comment:has(.tg-media-compact-slot) {
+  display: block;
+  width: fit-content;
+  max-width: 100%;
+  background: transparent;
+  overflow: visible;
+  gap: 0;
+}
+
+.tg-media.tg-media--comment .tg-media-item,
+.tg-media.tg-media--comment .tg-media-item--compact,
+.tg-media.tg-media--comment.cols-1 .tg-media-item,
+.tg-media.tg-media--comment.cols-1.single .tg-media-item,
+.tg-media.tg-media--comment .tg-media-item:has(.tg-media-compact-slot) {
+  display: block;
+  width: auto;
+  max-width: 100%;
+  max-height: none;
+  min-height: 0;
+  aspect-ratio: auto;
+  align-self: auto;
+  background: transparent;
+  overflow: visible;
+}
+
+.tg-media.tg-media--comment .tg-media-compact-slot {
+  margin: 0;
+}
+
+.tg-media.tg-media--comment .tg-media-img {
+  width: auto;
+  max-width: 100%;
+  height: auto;
+  max-height: 280px;
+  object-fit: contain;
+}

@@ -26,3 +26,20 @@ def test_normalize_post_for_api_preserves_existing_values() -> None:
     }
     normalized = normalize_post_for_api(payload, db_id="db-fallback")
     assert normalized == payload
+
+
+def test_normalize_post_for_api_infers_sticker_kind_for_imported_webp() -> None:
+    normalized = normalize_post_for_api(
+        {
+            "id": "1",
+            "status": "published",
+            "media": [
+                {
+                    "name": "42.webp",
+                    "url": "/media/user/42.webp",
+                    "type": "image/webp",
+                }
+            ],
+        }
+    )
+    assert normalized["media"][0]["kind"] == "sticker"

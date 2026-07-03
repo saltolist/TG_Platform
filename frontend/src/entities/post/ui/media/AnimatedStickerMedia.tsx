@@ -33,15 +33,18 @@ export function AnimatedStickerMedia({ media }: Props) {
   }, [src]);
 
   if (!animationData) {
-    return <div className="tg-media-sticker tg-media-sticker--loading" aria-hidden />;
+    return <div className="tg-media-compact-slot tg-media-compact-slot--loading" aria-hidden />;
   }
 
   return (
-    <Lottie
-      className="tg-media-animated-sticker"
-      animationData={animationData}
-      loop
-      autoplay
-    />
+    <div className="tg-media-compact-slot">
+      <Lottie
+        className="tg-media-animated-sticker"
+        animationData={animationData}
+        loop
+        autoplay
+        style={{ width: "100%", height: "100%" }}
+      />
+    </div>
   );
 }

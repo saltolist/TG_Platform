@@ -10,6 +10,10 @@ type Props = {
 export function StickerMedia({ media }: Props) {
   const src = resolveMediaUrl(media.url);
   if (!src) return null;
-  // eslint-disable-next-line @next/next/no-img-element
-  return <img className="tg-media-sticker" src={src} alt={media.name || "Стикер"} loading="lazy" />;
+  return (
+    <div className="tg-media-compact-slot">
+      {/* eslint-disable-next-line @next/next/no-img-element */}
+      <img className="tg-media-sticker" src={src} alt={media.name || "Стикер"} loading="lazy" />
+    </div>
+  );
 }

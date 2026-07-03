@@ -2,7 +2,7 @@
 
 import { PostMediaBlock } from "@/entities/post";
 import { PostTelegramSyncLabel } from "@/entities/post/ui/PostTelegramSyncLabel";
-import { formatStoredDate, isVideoNoteKind } from "@/shared/lib/helpers";
+import { formatStoredDate, isStickerKind, isVideoNoteKind } from "@/shared/lib/helpers";
 import { avatarHue, avatarInitials } from "@/shared/lib/postComments";
 import type { PostComment } from "@/shared/types";
 
@@ -26,8 +26,10 @@ export default function PostCommentRow({
   telegramSyncing = false,
 }: Props) {
   const hue = avatarHue(comment.author);
-  const videoNoteMedia =
-    comment.media?.length === 1 && comment.media[0] != null && isVideoNoteKind(comment.media[0]);
+  const singleMedia = comment.media?.length === 1 ? comment.media[0] : null;
+  const videoNoteMedia = singleMedia != null && isVideoNoteKind(singleMedia);
+  const stickerMedia = singleMedia != null && isStickerKind(singleMedia);
+  const compactMedia = videoNoteMedia || stickerMedia;
   const showSyncLabel = telegramSyncing || isDeleting;
   const showActions = Boolean(onReply || onDelete) && !isDeleting && !showSyncLabel;
 
@@ -56,14 +58,16 @@ export default function PostCommentRow({
           </div>
         ) : null}
         {comment.media && comment.media.length > 0 ? (
-          videoNoteMedia ? (
-            <div className="post-comment-video-note">
-              <div className="post-comment-media post-comment-media--video-note">
-                <PostMediaBlock media={comment.media} />
+          compactMedia ? (
+            <div className="post-comment-compact">
+              <div
+                className={`post-comment-media${videoNoteMedia ? " post-comment-media--video-note" : ""}`}
+              >
+                <PostMediaBlock media={comment.media} variant="comment" />
               </div>
               {showActions ? (
                 <PostCommentActions
-                  className="post-comment-actions--video-note"
+                  className={videoNoteMedia ? "post-comment-actions--video-note" : undefined}
                   onReply={onReply}
                   onDelete={onDelete}
                 />
@@ -71,12 +75,12 @@ export default function PostCommentRow({
             </div>
           ) : (
             <div className="post-comment-media">
-              <PostMediaBlock media={comment.media} />
+              <PostMediaBlock media={comment.media} variant="comment" />
             </div>
           )
         ) : null}
         {comment.text ? <p className="post-comment-text">{comment.text}</p> : null}
-        {showActions && !videoNoteMedia ? (
+        {showActions && !compactMedia ? (
           <PostCommentActions onReply={onReply} onDelete={onDelete} />
         ) : null}
       </div>

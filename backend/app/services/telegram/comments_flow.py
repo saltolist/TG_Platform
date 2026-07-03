@@ -553,8 +553,14 @@ def dedupe_platform_comments(comments: list[dict[str, Any]]) -> list[dict[str, A
 def merge_comments(
     existing: list[dict[str, Any]],
     from_telegram: list[dict[str, Any]],
+    *,
+    prune_missing_synced: bool = False,
 ) -> list[dict[str, Any]]:
-    """Merge TG comments with platform state; keep pending platform-only comments."""
+    """Merge TG comments with platform state.
+
+    ``prune_missing_synced`` is only safe after a full Telegram pull. Live-sync
+    passes partial batches, so missing ids there must not be treated as deletes.
+    """
     by_tg_id: dict[str, dict[str, Any]] = {}
     for item in from_telegram:
         tg_id = str(item.get("telegramMessageId") or "")
@@ -598,7 +604,7 @@ def merge_comments(
             seen_tg.add(tg_id)
         elif not tg_id:
             merged.append(copy)
-        else:
+        elif not prune_missing_synced:
             merged.append(copy)
 
     for item in from_telegram:
@@ -668,18 +674,18 @@ async def fetch_comments_from_telegram(
     settings: Settings,
     *,
     existing: list[dict[str, Any]] | None = None,
-) -> tuple[int | None, list[dict[str, Any]], bool]:
+) -> tuple[int | None, list[dict[str, Any]], bool, bool]:
     root_id, confirmed_absent = await probe_discussion_root(
         client, channel_entity, channel_message_id, settings
     )
     if root_id is None:
-        return None, [], confirmed_absent
+        return None, [], confirmed_absent, False
 
     discussion_peer = _discussion_peer_id(discussion_chat_id)
     try:
         discussion_entity = await with_timeout(client.get_entity(discussion_peer), settings)
     except Exception:
-        return root_id, [], False
+        return root_id, [], False, False
 
     collected: list[Any] = []
     try:
@@ -690,7 +696,7 @@ async def fetch_comments_from_telegram(
                 continue
             collected.append(message)
     except Exception:
-        collected = []
+        return root_id, [], False, False
 
     comments = await map_telegram_messages_to_comments(
         client,
@@ -700,7 +706,7 @@ async def fetch_comments_from_telegram(
         settings=settings,
         existing=existing,
     )
-    return root_id, comments, False
+    return root_id, comments, False, True
 
 
 def _local_media_path(url: Any, user_id: UUID, settings: Settings) -> str | None:
@@ -927,7 +933,12 @@ async def pull_comments_from_telegram(
     settings: Settings,
 ) -> CommentSyncResult:
     existing = list(post_data.get("comments") or [])
-    root_id, from_tg, confirmed_absent = await fetch_comments_from_telegram(
+    (
+        root_id,
+        from_tg,
+        confirmed_absent,
+        comments_complete,
+    ) = await fetch_comments_from_telegram(
         client,
         channel_entity,
         discussion_chat_id,
@@ -940,7 +951,7 @@ async def pull_comments_from_telegram(
         if confirmed_absent:
             return CommentSyncResult(comments=existing, comments_thread_available=False)
         return CommentSyncResult(comments=existing)
-    merged = merge_comments(existing, from_tg)
+    merged = merge_comments(existing, from_tg, prune_missing_synced=comments_complete)
     return CommentSyncResult(
         comments=merged,
         telegram_discussion_message_id=str(root_id),
@@ -1241,7 +1252,12 @@ async def reconcile_post_comments(
         return post_data, False
 
     existing = list(post_data.get("comments") or [])
-    root_id, from_tg, confirmed_absent = await fetch_comments_from_telegram(
+    (
+        root_id,
+        from_tg,
+        confirmed_absent,
+        comments_complete,
+    ) = await fetch_comments_from_telegram(
         client,
         channel_entity,
         discussion_chat_id,
@@ -1256,7 +1272,9 @@ async def reconcile_post_comments(
     if root_id is None:
         return probed, probe_changed
 
-    merged_comments = merge_comments(existing, from_tg)
+    merged_comments = merge_comments(
+        existing, from_tg, prune_missing_synced=comments_complete
+    )
     updated = dict(probed)
     updated["comments"] = merged_comments
     changed = probe_changed or merged_comments != existing

@@ -1,8 +1,8 @@
 """Track in-flight platform→Telegram operations in Redis (survives page reload).
 
-While publish / edit-sync / delete-sync runs, the post id is stored under a short
-TTL so ``GET /posts/`` can expose ``telegramSyncPending: true`` until the RPC
-finishes or the TTL expires.
+While publish / post edit-sync / post delete-sync runs, the post id is stored under
+a short TTL so ``GET /posts/`` can expose ``telegramSyncPending: true`` until the
+RPC finishes or the TTL expires. Comment push/pull/delete does not use this flag.
 """
 
 from __future__ import annotations

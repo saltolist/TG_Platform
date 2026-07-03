@@ -57,24 +57,26 @@ export function VideoNoteMedia({ media }: Props) {
   }
 
   return (
-    <button
-      type="button"
-      className="tg-media-video-note-hit"
-      onClick={toggle}
-      aria-label={playing ? "Пауза" : "Воспроизвести"}
-    >
-      <video
-        ref={videoRef}
-        className="tg-media-video-note"
-        src={src}
-        playsInline
-        preload="metadata"
-        onLoadedMetadata={onLoadedMetadata}
-        onEnded={() => setPlaying(false)}
-        onPause={() => setPlaying(false)}
-        onPlay={() => setPlaying(true)}
-      />
-      {!playing ? <span className="tg-media-video-note-play" aria-hidden /> : null}
-    </button>
+    <div className="tg-media-compact-slot tg-media-compact-slot--video-note">
+      <button
+        type="button"
+        className="tg-media-video-note-hit"
+        onClick={toggle}
+        aria-label={playing ? "Пауза" : "Воспроизвести"}
+      >
+        <video
+          ref={videoRef}
+          className="tg-media-video-note"
+          src={src}
+          playsInline
+          preload="metadata"
+          onLoadedMetadata={onLoadedMetadata}
+          onEnded={() => setPlaying(false)}
+          onPause={() => setPlaying(false)}
+          onPlay={() => setPlaying(true)}
+        />
+        {!playing ? <span className="tg-media-video-note-play" aria-hidden /> : null}
+      </button>
+    </div>
   );
 }

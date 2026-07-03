@@ -11,14 +11,16 @@ export function VideoStickerMedia({ media }: Props) {
   const src = resolveMediaUrl(media.url);
   if (!src) return null;
   return (
-    <video
-      className="tg-media-video-sticker"
-      src={src}
-      autoPlay
-      loop
-      muted
-      playsInline
-      preload="metadata"
-    />
+    <div className="tg-media-compact-slot">
+      <video
+        className="tg-media-video-sticker"
+        src={src}
+        autoPlay
+        loop
+        muted
+        playsInline
+        preload="metadata"
+      />
+    </div>
   );
 }

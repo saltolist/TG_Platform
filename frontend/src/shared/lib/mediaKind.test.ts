@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import {
+  inferPostMediaKind,
   isCompactMediaKind,
   isImageMedia,
   isVideoMedia,
@@ -28,6 +29,27 @@ describe("mediaKind helpers", () => {
     };
     expect(mediaKind(media)).toBe("animated_sticker");
     expect(isImageMedia(media)).toBe(false);
+  });
+
+  it("infers static sticker from imported webp path when kind is missing", () => {
+    const media: PostMedia = {
+      name: "42.webp",
+      url: "/media/user-id/42.webp",
+      type: "image/webp",
+    };
+    expect(inferPostMediaKind(media)).toBe("sticker");
+    expect(mediaKind(media)).toBe("sticker");
+    expect(isImageMedia(media)).toBe(false);
+    expect(isCompactMediaKind(media)).toBe(true);
+  });
+
+  it("infers animated sticker from imported lottie json path", () => {
+    const media: PostMedia = {
+      name: "42.json",
+      url: "/media/user-id/42.json",
+      type: "application/json",
+    };
+    expect(mediaKind(media)).toBe("animated_sticker");
   });
 
   it("falls back to image/video without kind", () => {

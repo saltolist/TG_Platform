@@ -205,13 +205,12 @@ async def update_post(
                     comment_delete_error = "В канале не включены обсуждения"
                     merged["comments"] = previous_comments
                 else:
-                    async with telegram_sync_pending(user.id, post_id):
-                        delete_error = await delete_discussion_comments_in_telegram(
-                            profile,
-                            discussion_chat_id,
-                            removed_tg_ids,
-                            user.id,
-                        )
+                    delete_error = await delete_discussion_comments_in_telegram(
+                        profile,
+                        discussion_chat_id,
+                        removed_tg_ids,
+                        user.id,
+                    )
                     if delete_error:
                         comment_delete_error = delete_error
                         merged["comments"] = previous_comments
@@ -272,10 +271,9 @@ async def update_post(
             else:
                 await session.refresh(post)
                 latest = dict(post.data)
-                async with telegram_sync_pending(user.id, post_id):
-                    comment_result = await sync_post_comments_push(
-                        profile, latest, user.id
-                    )
+                comment_result = await sync_post_comments_push(
+                    profile, latest, user.id
+                )
                 if comment_result.error:
                     response["commentSyncError"] = comment_result.error
                 elif comment_result.comments is not None:
@@ -320,8 +318,7 @@ async def sync_post_comments_endpoint(
     except TelegramAuthError as exc:
         raise HTTPException(status_code=exc.status_code, detail=exc.detail) from exc
 
-    async with telegram_sync_pending(user.id, post_id):
-        result = await sync_post_comments_pull(profile, post.data, user.id)
+    result = await sync_post_comments_pull(profile, post.data, user.id)
 
     response = dict(post.data)
     if result.comments is not None:

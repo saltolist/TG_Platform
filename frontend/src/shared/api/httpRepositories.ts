@@ -80,9 +80,11 @@ export function createHttpRepositories(): RepositoryBundle {
           postSchema.parse(data),
         ),
       update: (id, patch) =>
-        apiRequest<unknown>(apiV1Path(`posts/${id}`), { method: "PATCH", body: patch }).then(
-          (data) => postSchema.parse(data),
-        ),
+        apiRequest<unknown>(apiV1Path(`posts/${id}`), {
+          method: "PATCH",
+          body: patch,
+          signal: AbortSignal.timeout(120_000),
+        }).then((data) => postSchema.parse(data)),
       reorder: (posts) =>
         apiRequest<unknown>(apiV1Path("posts/reorder"), {
           method: "PUT",
@@ -106,9 +108,10 @@ export function createHttpRepositories(): RepositoryBundle {
           body: { scheduledAt },
         }).then((data) => postSchema.parse(data)),
       syncComments: (id) =>
-        apiRequest<unknown>(apiV1Path(`posts/${id}/sync-comments`), { method: "POST" }).then(
-          (data) => postSchema.parse(data),
-        ),
+        apiRequest<unknown>(apiV1Path(`posts/${id}/sync-comments`), {
+          method: "POST",
+          signal: AbortSignal.timeout(120_000),
+        }).then((data) => postSchema.parse(data)),
     },
     chats: {
       listGlobal: () =>

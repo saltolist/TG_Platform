@@ -217,14 +217,42 @@ const POST_MEDIA_KINDS = new Set<PostMediaKind>([
   "document",
 ]);
 
-export function mediaKind(m: PostMedia): PostMediaKind {
+const TELEGRAM_IMPORTED_WEBP = /^\/media\/[^/]+\/\d+\.webp$/i;
+const TELEGRAM_IMPORTED_JSON = /^\/media\/[^/]+\/\d+\.json$/i;
+
+function mediaPathname(url: string): string {
+  if (!url) return "";
+  if (url.startsWith("/media/")) return url;
+  try {
+    return new URL(url, "http://local").pathname;
+  } catch {
+    return url;
+  }
+}
+
+/** Infer Telegram sticker kinds when legacy payloads omit ``kind``. */
+export function inferPostMediaKind(m: PostMedia): PostMediaKind | null {
   const explicit = m.kind;
   if (explicit && POST_MEDIA_KINDS.has(explicit)) {
     return explicit;
   }
-  if (m.type === "application/x-tgsticker" || m.type === "application/json") {
+  const type = (m.type || "").toLowerCase();
+  const path = mediaPathname(m.url);
+  if (type === "application/x-tgsticker" || type === "application/x-tgs") {
     return "animated_sticker";
   }
+  if (TELEGRAM_IMPORTED_JSON.test(path)) {
+    return "animated_sticker";
+  }
+  if (type === "image/webp" && TELEGRAM_IMPORTED_WEBP.test(path)) {
+    return "sticker";
+  }
+  return null;
+}
+
+export function mediaKind(m: PostMedia): PostMediaKind {
+  const inferred = inferPostMediaKind(m);
+  if (inferred) return inferred;
   if (isImageMedia(m)) return "image";
   if (isVideoMedia(m)) return "video";
   return "document";
@@ -235,7 +263,7 @@ export function isVideoNoteKind(m: PostMedia): boolean {
 }
 
 export function isStickerKind(m: PostMedia): boolean {
-  const kind = mediaKind(m);
+  const kind = inferPostMediaKind(m) ?? m.kind;
   return kind === "sticker" || kind === "animated_sticker" || kind === "video_sticker";
 }
 
@@ -248,6 +276,8 @@ export function isCompactMediaKind(m: PostMedia): boolean {
 }
 
 export function isImageMedia(m: PostMedia): boolean {
+  const inferred = inferPostMediaKind(m);
+  if (inferred) return inferred === "image";
   if (m.kind === "sticker" || m.kind === "animated_sticker" || m.kind === "video_sticker") {
     return false;
   }
