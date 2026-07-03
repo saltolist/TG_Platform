@@ -209,6 +209,19 @@
 }
 .tg-media-video { object-fit: contain; }
 
+.tg-media-video-wrap {
+  width: 100%;
+  height: 100%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.tg-media-video-wrap .tg-media-video {
+  width: 100%;
+  height: 100%;
+}
+
 .tg-media-doc {
   display: flex; align-items: center; gap: 10px;
   width: 100%; height: 100%;

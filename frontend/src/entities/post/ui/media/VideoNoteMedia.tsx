@@ -151,15 +151,21 @@ export function VideoNoteMedia({ media, stopNavigation = false }: Props) {
 
   if (layout === "rect") {
     return (
-      <video
-        ref={videoRef}
-        className="tg-media-video"
-        src={src}
-        controls
-        preload="metadata"
-        playsInline
-        onLoadedMetadata={onLoadedMetadata}
-      />
+      <div
+        className="tg-media-video-wrap"
+        onClick={stopNavigation ? isolateFromCard : undefined}
+        onPointerDown={stopNavigation ? isolateFromCard : undefined}
+      >
+        <video
+          ref={videoRef}
+          className="tg-media-video"
+          src={src}
+          controls
+          preload="metadata"
+          playsInline
+          onLoadedMetadata={onLoadedMetadata}
+        />
+      </div>
     );
   }
 
