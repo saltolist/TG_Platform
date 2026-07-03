@@ -8,7 +8,7 @@ import { useRepositories } from "@/app/providers/RepositoryProvider";
 import { useAuthenticatedQueryEnabled } from "@/app/providers/useAuthenticatedQueryEnabled";
 import { useQueryAccountScope } from "@/app/providers/useQueryAccountScope";
 
-const POLL_INTERVAL_MS = 5_000;
+const POLL_INTERVAL_MS = 2_000;
 
 /**
  * While a post page (or its comments tab) is open, periodically refetch that

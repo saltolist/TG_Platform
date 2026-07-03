@@ -25,7 +25,7 @@ from app.services.telegram.live_sync_worker import (
     listener_registry,
     should_listen,
     telegram_live_sync_worker,
-    _periodic_drift_correction_loop,
+    _channel_maintenance_loop,
 )
 from app.services.telegram.message_mapping import map_group_to_post
 from app.services.telegram.post_sync import (
@@ -563,7 +563,7 @@ async def test_worker_exits_when_disabled(monkeypatch: pytest.MonkeyPatch) -> No
 
 
 @pytest.mark.asyncio
-async def test_periodic_drift_correction_runs_catch_up_and_reconcile(
+async def test_channel_maintenance_runs_catch_up_reconcile_and_metrics(
     monkeypatch: pytest.MonkeyPatch, writer_user: User
 ) -> None:
     calls: list[str] = []
@@ -573,6 +573,10 @@ async def test_periodic_drift_correction_runs_catch_up_and_reconcile(
 
     async def fake_reconcile(*_args: Any, **_kwargs: Any) -> None:
         calls.append("reconcile")
+
+    async def fake_metrics(*_args: Any, **_kwargs: Any) -> int:
+        calls.append("metrics")
+        return 0
 
     async def fake_load_last_id(*_args: Any, **_kwargs: Any) -> int:
         return 10
@@ -588,13 +592,14 @@ async def test_periodic_drift_correction_runs_catch_up_and_reconcile(
 
     monkeypatch.setattr(live_sync_module, "_catch_up", fake_catch_up)
     monkeypatch.setattr(live_sync_module, "reconcile_channel_window", fake_reconcile)
+    monkeypatch.setattr(live_sync_module, "poll_recent_post_metrics", fake_metrics)
     monkeypatch.setattr(live_sync_module, "_load_last_telegram_message_id", fake_load_last_id)
     monkeypatch.setattr(live_sync_module.asyncio, "wait_for", fake_wait_for)
 
     stop = asyncio.Event()
     settings = get_settings()
     task = asyncio.create_task(
-        _periodic_drift_correction_loop(
+        _channel_maintenance_loop(
             None,
             None,
             writer_user.id,
@@ -608,3 +613,4 @@ async def test_periodic_drift_correction_runs_catch_up_and_reconcile(
     await task
     assert "catch_up" in calls
     assert "reconcile" in calls
+    assert "metrics" in calls

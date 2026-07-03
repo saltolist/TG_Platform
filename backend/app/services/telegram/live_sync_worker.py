@@ -10,6 +10,7 @@ from uuid import UUID
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 from telethon import events
+from telethon.tl.types import UpdateMessageReactions
 
 from app.core.config import Settings, get_settings
 from app.db.models import Profile
@@ -42,6 +43,11 @@ from app.services.telegram.comments_flow import (
     apply_optimistic_comments_thread,
     comments_enabled,
 )
+from app.services.telegram.metrics_flow import (
+    MetricsThrottleBuffer,
+    handle_live_message_reactions,
+    poll_recent_post_metrics,
+)
 from app.services.telegram.post_sync import (
     delete_telegram_post,
     set_sync_error,
@@ -51,20 +57,12 @@ from app.services.telegram.post_sync import (
 )
 from app.services.telegram.reconcile_flow import reconcile_channel_window
 from app.services.telegram.session_guard import telegram_session_lock
+from app.services.telegram.sync_coordination import (
+    run_channel_ingest,
+    run_channel_ingest_if_idle,
+)
 
 logger = logging.getLogger(__name__)
-
-_ingest_locks: dict[UUID, asyncio.Lock] = {}
-_ingest_locks_guard = asyncio.Lock()
-
-
-async def _ingest_lock_for(user_id: UUID) -> asyncio.Lock:
-    async with _ingest_locks_guard:
-        lock = _ingest_locks.get(user_id)
-        if lock is None:
-            lock = asyncio.Lock()
-            _ingest_locks[user_id] = lock
-        return lock
 
 
 def should_listen(telegram: dict[str, Any]) -> bool:
@@ -380,8 +378,9 @@ async def _startup_catch_up(
     min_id: int,
     session_factory: async_sessionmaker[AsyncSession],
 ) -> None:
-    """One-shot lightweight catch-up right after handlers register."""
-    try:
+    """One-shot lightweight catch-up — skipped when maintenance already runs."""
+
+    async def _pass() -> None:
         await _catch_up(
             client,
             entity,
@@ -391,41 +390,47 @@ async def _startup_catch_up(
             session_factory,
             lightweight=True,
         )
+
+    try:
+        await run_channel_ingest_if_idle(user_id, _pass, label="startup-catch-up")
     except Exception:
         logger.debug("Startup live-sync catch-up failed for user %s", user_id, exc_info=True)
 
 
-async def _run_drift_correction(
+async def _run_channel_maintenance_pass(
     client: Any,
     entity: Any,
     user_id: UUID,
     settings: Settings,
     session_factory: async_sessionmaker[AsyncSession],
 ) -> None:
-    """Serialized catch-up + reconcile — one in-flight pass per user."""
-    lock = await _ingest_lock_for(user_id)
-    async with lock:
-        min_id = await _load_last_telegram_message_id(session_factory, user_id)
-        await _catch_up(
-            client,
-            entity,
-            user_id,
-            settings,
-            min_id,
-            session_factory,
-            lightweight=True,
-        )
-        await reconcile_channel_window(
-            client,
-            entity,
-            user_id,
-            settings,
-            session_factory,
-            force=True,
-        )
+    """Single background pass: missed posts + window reconcile + metrics (no media download)."""
+    min_id = await _load_last_telegram_message_id(session_factory, user_id)
+    await _catch_up(
+        client,
+        entity,
+        user_id,
+        settings,
+        min_id,
+        session_factory,
+        lightweight=True,
+    )
+    await reconcile_channel_window(
+        client,
+        entity,
+        user_id,
+        settings,
+        session_factory,
+        force=True,
+        include_new_scan=False,
+        include_comments=False,
+    )
+    await poll_recent_post_metrics(
+        client, entity, user_id, settings, session_factory
+    )
 
 
-async def _periodic_drift_correction_loop(
+async def _channel_maintenance_loop(
     client: Any,
     entity: Any,
     user_id: UUID,
@@ -433,9 +438,8 @@ async def _periodic_drift_correction_loop(
     session_factory: async_sessionmaker[AsyncSession],
     stop_event: asyncio.Event,
 ) -> None:
-    """Catch up missed channel posts, then reconcile the linked window (safety-net)."""
-    interval = max(15.0, settings.telegram_live_sync_catch_up_seconds)
-    # Let live event handlers run before the first heavy drift pass.
+    """Periodic unified maintenance — one ingest lock, minimal MTProto RPC."""
+    interval = max(20.0, settings.telegram_channel_maintenance_seconds)
     try:
         await asyncio.wait_for(stop_event.wait(), timeout=8.0)
         return
@@ -443,11 +447,15 @@ async def _periodic_drift_correction_loop(
         pass
     while not stop_event.is_set():
         try:
-            await _run_drift_correction(
-                client, entity, user_id, settings, session_factory
-            )
+
+            async def _pass() -> None:
+                await _run_channel_maintenance_pass(
+                    client, entity, user_id, settings, session_factory
+                )
+
+            await run_channel_ingest(user_id, _pass)
         except Exception:
-            logger.exception("Periodic live-sync drift correction failed for user %s", user_id)
+            logger.exception("Channel maintenance failed for user %s", user_id)
         try:
             await asyncio.wait_for(stop_event.wait(), timeout=interval)
             return
@@ -455,26 +463,6 @@ async def _periodic_drift_correction_loop(
             pass
         if stop_event.is_set():
             return
-
-
-async def _periodic_clock_refresh_loop(
-    client: Any,
-    settings: Settings,
-    stop_event: asyncio.Event,
-) -> None:
-    """Keep Telethon time_offset aligned — Docker VM clocks drift during long sessions."""
-    while not stop_event.is_set():
-        try:
-            await asyncio.wait_for(stop_event.wait(), timeout=25.0)
-            return
-        except asyncio.TimeoutError:
-            pass
-        if stop_event.is_set():
-            return
-        try:
-            await refresh_telethon_clock(client, settings)
-        except Exception:
-            logger.debug("Periodic Telethon clock refresh failed", exc_info=True)
 
 
 async def _fast_catch_up_loop(
@@ -485,8 +473,11 @@ async def _fast_catch_up_loop(
     session_factory: async_sessionmaker[AsyncSession],
     stop_event: asyncio.Event,
 ) -> None:
-    """Poll for channel posts newer than the cursor when live events are dropped."""
-    interval = max(5.0, settings.telegram_live_sync_fast_poll_seconds)
+    """Optional extra poll when ``telegram_live_sync_fast_poll_seconds`` > 0 (Docker clock skew)."""
+    interval = settings.telegram_live_sync_fast_poll_seconds
+    if interval <= 0:
+        return
+    interval = max(15.0, interval)
     while not stop_event.is_set():
         try:
             await asyncio.wait_for(stop_event.wait(), timeout=interval)
@@ -495,10 +486,11 @@ async def _fast_catch_up_loop(
             pass
         if stop_event.is_set():
             return
-        try:
+
+        async def _pass() -> None:
             min_id = await _load_last_telegram_message_id(session_factory, user_id)
             if min_id <= 0:
-                continue
+                return
             await _catch_up(
                 client,
                 entity,
@@ -508,8 +500,31 @@ async def _fast_catch_up_loop(
                 session_factory,
                 lightweight=True,
             )
+
+        try:
+            await run_channel_ingest_if_idle(user_id, _pass, label="fast-poll")
         except Exception:
             logger.debug("Fast live-sync poll failed for user %s", user_id, exc_info=True)
+
+
+async def _periodic_clock_refresh_loop(
+    client: Any,
+    settings: Settings,
+    stop_event: asyncio.Event,
+) -> None:
+    """Keep Telethon time_offset aligned — Docker VM clocks drift during long sessions."""
+    while not stop_event.is_set():
+        try:
+            await asyncio.wait_for(stop_event.wait(), timeout=60.0)
+            return
+        except asyncio.TimeoutError:
+            pass
+        if stop_event.is_set():
+            return
+        try:
+            await refresh_telethon_clock(client, settings)
+        except Exception:
+            logger.debug("Periodic Telethon clock refresh failed", exc_info=True)
 
 
 async def _refresh_channel_message(client: Any, entity: Any, message: Any) -> Any:
@@ -597,6 +612,13 @@ async def _run_user_listener(user_id: UUID, stop_event: asyncio.Event) -> None:
                     await connect_telegram_client(client, settings)
                     entity = await resolve_channel_entity(client, parsed, settings)
                     await reinforce_clock_after_telegram_rpc(client, settings)
+                    metrics_buffer = MetricsThrottleBuffer(
+                        client,
+                        entity,
+                        user_id,
+                        session_factory,
+                        min_interval_seconds=settings.telegram_metrics_min_sync_seconds,
+                    )
                     album_buffer = AlbumBuffer(
                         settings.telegram_album_debounce_seconds,
                         lambda msgs: _persist_group(
@@ -650,9 +672,24 @@ async def _run_user_listener(user_id: UUID, stop_event: asyncio.Event) -> None:
                     @client.on(events.MessageEdited(chats=entity))
                     async def on_message_edited(event: events.MessageEdited.Event) -> None:
                         try:
+                            if getattr(event.message, "edit_hide", False):
+                                msg_id = int(getattr(event.message, "id", 0) or 0)
+                                await metrics_buffer.mark_dirty(msg_id)
+                                return
                             await _handle_message_edit(event.message)
                         except Exception as exc:  # noqa: BLE001
                             logger.exception("Live-sync MessageEdited failed for user %s", user_id)
+                            await set_sync_error(user_id, str(exc), session_factory)
+
+                    @client.on(events.Raw(UpdateMessageReactions))
+                    async def on_message_reactions(event: UpdateMessageReactions) -> None:
+                        try:
+                            await handle_live_message_reactions(event, metrics_buffer)
+                        except Exception as exc:  # noqa: BLE001
+                            logger.exception(
+                                "Live-sync UpdateMessageReactions failed for user %s",
+                                user_id,
+                            )
                             await set_sync_error(user_id, str(exc), session_factory)
 
                     @client.on(events.MessageDeleted(chats=entity))
@@ -669,7 +706,11 @@ async def _run_user_listener(user_id: UUID, stop_event: asyncio.Event) -> None:
 
                     discussion_entity = None
                     discussion_chat_id = _telegram.get("discussionChatId")
-                    if discussion_chat_id and _telegram.get("commentsEnabled"):
+                    if (
+                        settings.telegram_live_comments_enabled
+                        and discussion_chat_id
+                        and _telegram.get("commentsEnabled")
+                    ):
                         try:
                             from app.services.telegram.comments_flow import _discussion_peer_id
 
@@ -726,7 +767,7 @@ async def _run_user_listener(user_id: UUID, stop_event: asyncio.Event) -> None:
                     )
 
                     periodic_drift_task = asyncio.create_task(
-                        _periodic_drift_correction_loop(
+                        _channel_maintenance_loop(
                             client,
                             entity,
                             user_id,
@@ -738,16 +779,17 @@ async def _run_user_listener(user_id: UUID, stop_event: asyncio.Event) -> None:
                     clock_refresh_task = asyncio.create_task(
                         _periodic_clock_refresh_loop(client, settings, stop_event)
                     )
-                    fast_poll_task = asyncio.create_task(
-                        _fast_catch_up_loop(
-                            client,
-                            entity,
-                            user_id,
-                            settings,
-                            session_factory,
-                            stop_event,
+                    if settings.telegram_live_sync_fast_poll_seconds > 0:
+                        fast_poll_task = asyncio.create_task(
+                            _fast_catch_up_loop(
+                                client,
+                                entity,
+                                user_id,
+                                settings,
+                                session_factory,
+                                stop_event,
+                            )
                         )
-                    )
 
                     disconnect_task = asyncio.create_task(client.run_until_disconnected())
                     stop_wait = asyncio.create_task(stop_event.wait())
@@ -764,10 +806,12 @@ async def _run_user_listener(user_id: UUID, stop_event: asyncio.Event) -> None:
                     if stop_event.is_set():
                         await album_buffer.flush_all()
                         await comment_buffer.flush()
+                        await metrics_buffer.flush()
                         return
                 except asyncio.CancelledError:
                     await album_buffer.flush_all()
                     await comment_buffer.flush()
+                    await metrics_buffer.flush()
                     raise
                 except TelegramAuthError as exc:
                     if exc.status_code == 504:

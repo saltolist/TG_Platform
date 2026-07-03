@@ -490,6 +490,7 @@ async def test_reconcile_marks_post_without_discussion_thread(
         TestSessionLocal,
         force=True,
         include_new_scan=False,
+        include_comments=True,
     )
 
     async with TestSessionLocal() as session:
@@ -557,6 +558,7 @@ async def test_reconcile_refreshes_comments_settings(
         TestSessionLocal,
         force=True,
         include_new_scan=False,
+        include_comments=True,
     )
 
     async with TestSessionLocal() as session:
@@ -621,6 +623,7 @@ async def test_reconcile_pulls_comments(
         TestSessionLocal,
         force=True,
         include_new_scan=False,
+        include_comments=True,
     )
     assert stats.updated >= 1
 

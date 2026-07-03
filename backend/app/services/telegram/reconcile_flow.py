@@ -140,6 +140,7 @@ async def reconcile_channel_window(
     window: int | None = None,
     force: bool = False,
     include_new_scan: bool = True,
+    include_comments: bool | None = None,
 ) -> ReconcileStats:
     stats = ReconcileStats()
     if not settings.telegram_reconcile_enabled:
@@ -151,6 +152,11 @@ async def reconcile_channel_window(
         return stats
 
     window_size = window if window is not None else settings.telegram_reconcile_window
+    pull_comments = (
+        settings.telegram_reconcile_include_comments
+        if include_comments is None
+        else include_comments
+    )
 
     async with session_factory() as session:
         linked_posts = await load_linked_posts_for_reconcile(session, user_id, window_size)
@@ -199,7 +205,7 @@ async def reconcile_channel_window(
                 stats.updated += 1
 
             telegram = profile.telegram or {}
-            if comments_enabled(telegram) and telegram.get("discussionChatId"):
+            if pull_comments and comments_enabled(telegram) and telegram.get("discussionChatId"):
                 updated_data, comments_changed = await reconcile_post_comments(
                     client,
                     entity,
@@ -320,6 +326,7 @@ async def run_manual_reconcile(profile: Profile, user_id: UUID) -> ReconcileStat
                 settings,
                 async_session_factory,
                 force=True,
+                include_comments=True,
             )
         finally:
             await disconnect_safely(client)

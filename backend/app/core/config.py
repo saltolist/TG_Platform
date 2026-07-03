@@ -96,14 +96,24 @@ class Settings(BaseSettings):
     telegram_live_sync_enabled: bool = True
     telegram_live_sync_registry_refresh_seconds: float = 30.0
     telegram_live_sync_reconnect_seconds: float = 15.0
-    telegram_live_sync_catch_up_seconds: float = 20.0
-    # Lightweight channel poll when Telethon drops live packets (Docker clock skew).
-    telegram_live_sync_fast_poll_seconds: float = 10.0
+    # Unified background pass: catch-up + reconcile + metrics (one lock, minimal RPC).
+    telegram_channel_maintenance_seconds: float = 30.0
+    # Deprecated: merged into ``telegram_channel_maintenance_seconds``.
+    telegram_live_sync_catch_up_seconds: float = 30.0
+    # 0 = disabled — fast poll merged into channel maintenance.
+    telegram_live_sync_fast_poll_seconds: float = 0.0
     telegram_album_debounce_seconds: float = 2.0
     # Debounce window for high-volume discussion-group comments: buffer inbound
     # comments per thread and persist them in one batch (one commit + one
     # syncRevision bump) instead of per message.
     telegram_comment_debounce_seconds: float = 1.5
+    # Live discussion-group comment ingest (disable for lazy pull-only comments).
+    telegram_live_comments_enabled: bool = True
+    # Periodic metrics poll for recent linked posts (views/reactions/reposts).
+    telegram_metrics_poll_seconds: float = 30.0
+    telegram_metrics_poll_window: int = 20
+    # Live metrics events coalesced — at most one TG batch per interval per listener.
+    telegram_metrics_min_sync_seconds: float = 5.0
 
     # Window reconcile — drift correction between channel and platform DB
     telegram_reconcile_enabled: bool = True
@@ -113,6 +123,8 @@ class Settings(BaseSettings):
     # (``telegram_live_sync_catch_up_seconds``). Kept for env compatibility.
     telegram_reconcile_periodic_seconds: float = 900.0
     telegram_reconcile_new_scan_limit: int = 30
+    # Background reconcile skips comment pulls — use sync-comments / manual reconcile.
+    telegram_reconcile_include_comments: bool = False
 
     # Publish / schedule (Phase 3, Step 4) — Celery + Redis for deferred publish only;
     # immediate publish (4a) and edit-sync (4c) run synchronously in the API request.
@@ -166,6 +178,8 @@ class Settings(BaseSettings):
         "telegram_live_sync_enabled",
         "telegram_reconcile_enabled",
         "telegram_clock_sync_enabled",
+        "telegram_live_comments_enabled",
+        "telegram_reconcile_include_comments",
         mode="before",
     )
     @classmethod

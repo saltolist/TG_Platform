@@ -250,7 +250,9 @@ HTTP-ответ connect возвращается мгновенно с `importSt
   постов с `data.source = "telegram"`.
 - `backend/app/services/telegram/live_sync_worker.py` — `ListenerRegistry`,
   catch-up через `iter_messages(min_id=lastTelegramMessageId)`, debounce альбомов,
-  reconnect при обрыве, единый drift loop (catch-up + reconcile).
+  reconnect при обрыве, **единый maintenance loop** (catch-up + reconcile + metrics).
+- `backend/app/services/telegram/sync_coordination.py` — `ingest_lock` на пользователя:
+  в фоне одновременно только **один** тяжёлый проход; live-события идут вне lock.
 - **Профиль:** `syncStatus` (`idle` | `listening` | `error`), `syncError`,
   `lastSync`; internal `lastTelegramMessageId` (не отдаётся клиенту).
 - **`syncMode: "publish-only"`** — слушатель не запускается.
@@ -268,10 +270,25 @@ HTTP-ответ connect возвращается мгновенно с `importSt
 (`updated + deleted + imported > 0`), чтобы периодическая сверка без diff не дёргала ленту.
 
 **Настройки:** `telegram_live_sync_enabled`, `telegram_live_sync_registry_refresh_seconds`,
-`telegram_live_sync_reconnect_seconds`, `telegram_live_sync_catch_up_seconds` (интервал drift loop),
-`telegram_album_debounce_seconds`.
+`telegram_live_sync_reconnect_seconds`, `telegram_channel_maintenance_seconds`
+(единый фоновый проход, по умолчанию 30 с), `telegram_album_debounce_seconds`,
+`telegram_metrics_min_sync_seconds` (live-реакции, по умолчанию 5 с),
+`telegram_live_sync_fast_poll_seconds` (0 = выкл, опционально для Docker).
 
-**Frontend:** `TelegramSyncCoordinator` — поллинг `GET /profile/telegram` каждые **5 с**;
+**Архитектура синхронизации (минимум RPC, без гонок):**
+
+| Путь | Lock | MTProto RPC | Когда |
+|------|------|-------------|-------|
+| Live `NewMessage` / правка текста | нет | push + media только для новых постов | сразу |
+| Live `UpdateMessageReactions` | нет* | 0** | буфер 5 с |
+| Maintenance (catch-up + reconcile + metrics) | ingest | 1–3 batch/30 с | фон |
+| Ручная «Сверить канал» | exclusive (listener стоп) | полный окно + комментарии | по кнопке |
+| Publish / edit / import | exclusive | по действию пользователя | по запросу |
+
+\* flush реакций откладывается, если maintenance держит ingest lock.  
+\** реакции из события пишутся в БД без `get_messages`, если в push есть snapshot.
+
+**Frontend:** `TelegramSyncCoordinator` — поллинг `GET /profile/telegram` каждые **1 с**;
 при росте `syncRevision` — refetch постов; при росте `commentsRevision` / `metricsRevision` —
 refetch открытого поста. `usePollOpenPost` остаётся fallback на странице поста.
 Кнопка **«Сверить канал»** в настройках Telegram → `POST /telegram/channel/reconcile/`.
@@ -318,7 +335,7 @@ refetch открытого поста. `usePollOpenPost` остаётся fallba
 | Старт слушателя (после `_catch_up`) | да |
 | После publish / delete | да |
 | После edit-sync | нет (throttle) |
-| Периодический drift loop в listener (~90 с) | нет |
+| Периодический maintenance loop (~30 с) | да (без media-scan, без comments) |
 | `POST /telegram/channel/reconcile/` (кнопка в настройках) | да |
 
 **Эндпоинт:** `POST /api/v1/telegram/channel/reconcile/` →
@@ -523,12 +540,19 @@ GET /api/v1/analytics/top-posts/?period=30d
 - `message_mapping.extract_metrics_from_message()` — `views`, `forwards` → `reposts`,
   `reactions.results` → `PostReaction[]` (`emoji`, `count`).
 - Используется при импорте, publish, live-sync и **оконной сверке** (шаг 3.5b).
+- **Live-реакции:** `UpdateMessageReactions` в `live_sync_worker` → `metrics_flow.py`
+  (один пост за событие, без полного скана канала).
+- События метрик **коалесцируются**: не чаще `telegram_metrics_min_sync_seconds`
+  (по умолчанию 5 с) — один batch `get_messages` на накопившиеся посты.
+- **Metrics-poll:** каждые `telegram_metrics_poll_seconds` (по умолчанию 15 с) batch
+  `get_messages` для последних `telegram_metrics_poll_window` (20) связанных постов —
+  fallback при дропе live-событий (Docker clock skew).
 
 **Обновление в БД:**
 - `post_sync._content_unchanged` учитывает изменение `metrics` — reconcile может
   обновлять просмотры/реакции/репосты без правки текста.
-- Периодическое обновление — через существующий `reconcile_channel_window`
-  (`telegram_reconcile_periodic_seconds`, по умолчанию 15 мин).
+- Периодическое обновление метрик — metrics-poll + лёгкий reconcile (без comment probe
+  в фоне: `telegram_reconcile_include_comments=false` по умолчанию).
 
 **Агрегация для UI:**
 - `backend/app/services/analytics/channel_metrics.py` — `build_overview`,
@@ -569,9 +593,13 @@ GET /api/v1/analytics/top-posts/?period=30d
   при ошибке — `commentSyncError` (DB не откатывается).
 - `POST /api/v1/posts/:id/sync-comments/` — форсированный pull при открытии вкладки комментариев.
 - `GET /api/v1/posts/:id/` — один пост из DB (для polling открытой страницы, без TG).
-- `reconcile_channel_window` — подтягивает комментарии для связанных постов.
-- `live_sync_worker` — `NewMessage` на discussion group entity, входящие сообщения
-  кладутся в `DiscussionCommentBuffer`.
+- `reconcile_channel_window` — подтягивает комментарии при `include_comments=true`
+  (ручная «Сверить канал»); фоновый drift по умолчанию **без** comment probe
+  (`telegram_reconcile_include_comments=false`).
+- `live_sync_worker` — `NewMessage` на discussion group entity (если
+  `telegram_live_comments_enabled=true`), входящие сообщения кладутся в
+  `DiscussionCommentBuffer`. При `false` — комментарии только lazy (`sync-comments`,
+  открытие вкладки).
 
 **Высокая нагрузка (десятки комментариев/сек):**
 - `DiscussionCommentBuffer` (`comments_flow.py`) дебаунсит входящие сообщения обсуждения
@@ -582,12 +610,12 @@ GET /api/v1/analytics/top-posts/?period=30d
 - Комментарии бампят отдельный `commentsRevision` (а не `syncRevision`) через
   `touch_telegram_profile(comment_only=True)`, поэтому фронт **не рефетчит весь фид**
   на каждый чужой комментарий.
-- Просмотры/репосты/реакции из live `MessageEdited` бампят `metricsRevision`
-  (`touch_telegram_profile(metrics_only=True)`) — фид не обновляется в реалтайме;
-  метрики подтягиваются при открытии поста (`usePollOpenPost`), reconcile и перезагрузке.
-- Комментарии обновляются **лениво**: при заходе на пост / открытии вкладки /
-  reconcile / перезагрузке страницы (`usePollOpenPost` — DB poll раз в 5 с на
-  открытой странице поста, без запросов в Telegram).
+- Просмотры/репосты/реакции: live `UpdateMessageReactions` / `MessageEdited` бампят
+  `metricsRevision` (`touch_telegram_profile(metrics_only=True)`); фоновый
+  metrics-poll и `usePollOpenPost` (2 с) подтягивают UI.
+- Комментарии обновляются **лениво** (или live при `telegram_live_comments_enabled`):
+  при заходе на пост / открытии вкладки / ручной сверке / перезагрузке страницы
+  (`usePollOpenPost` — DB poll на открытой странице поста, без запросов в Telegram).
 - После **публикации** поста с включёнными обсуждениями сразу проставляются
   `commentsThreadAvailable` / `telegramDiscussionMessageId` (probe с ретраями;
   если TG ещё не отдал тред — оптимистично `commentsThreadAvailable=true`).
@@ -601,7 +629,7 @@ GET /api/v1/analytics/top-posts/?period=30d
   а не для всех опубликованных постов сразу.
 - блокировка `CommentComposer` без обсуждений.
 - `useSyncPostComments` — вызов `sync-comments` при `postMode === "comments"` (ленивый pull из TG).
-- `usePollOpenPost` — пока открыта страница поста, раз в 5 с `GET /posts/:id` (DB:
+- `usePollOpenPost` — пока открыта страница поста, раз в 2 с `GET /posts/:id` (DB:
   комментарии + метрики/реакции, без Telegram).
 - `TelegramSyncCoordinator` рефетчит фид на рост `syncRevision`; на рост
   `commentsRevision` / `metricsRevision` — refetch открытого поста.
