@@ -26,9 +26,20 @@ from app.services.telegram.publish_flow import publish_post
 
 logger = logging.getLogger(__name__)
 
+_worker_loop: asyncio.AbstractEventLoop | None = None
+
 
 def _run_async(coro: Any) -> Any:
-    return asyncio.run(coro)
+    """Run async code on one event loop per Celery worker process.
+
+    Repeated ``asyncio.run()`` calls create fresh loops while SQLAlchemy/asyncpg
+    connections stay bound to the first loop, which breaks error handlers.
+    """
+    global _worker_loop
+    if _worker_loop is None or _worker_loop.is_closed():
+        _worker_loop = asyncio.new_event_loop()
+        asyncio.set_event_loop(_worker_loop)
+    return _worker_loop.run_until_complete(coro)
 
 
 async def _record_publish_error(post_id: UUID, user_id: UUID, error: str) -> None:

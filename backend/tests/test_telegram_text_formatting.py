@@ -13,7 +13,12 @@ from app.services.telegram.text_formatting import (
 
 pytest.importorskip("telethon")
 
-from telethon.tl.types import MessageEntityBold, MessageEntityItalic, MessageEntityStrike
+from telethon.tl.types import (
+    MessageEntityBold,
+    MessageEntityItalic,
+    MessageEntitySpoiler,
+    MessageEntityStrike,
+)
 
 
 def test_message_to_text_html_bold_and_strike() -> None:
@@ -28,6 +33,30 @@ def test_message_to_text_html_bold_and_strike() -> None:
     assert html is not None
     assert "<strong>bold</strong>" in html
     assert "<s>strike</s>" in html
+
+
+def test_message_to_text_html_spoiler() -> None:
+    message = SimpleNamespace(
+        message="visible hidden text",
+        entities=[MessageEntitySpoiler(offset=8, length=6)],
+    )
+    html = message_to_text_html(message)
+    assert html is not None
+    assert '<span class="tg-spoiler">hidden</span>' in html
+
+
+def test_message_to_text_html_bold_and_spoiler() -> None:
+    message = SimpleNamespace(
+        message="bold hidden",
+        entities=[
+            MessageEntityBold(offset=0, length=4),
+            MessageEntitySpoiler(offset=5, length=6),
+        ],
+    )
+    html = message_to_text_html(message)
+    assert html is not None
+    assert "<strong>bold</strong>" in html
+    assert '<span class="tg-spoiler">hidden</span>' in html
 
 
 def test_message_to_text_html_plain_without_entities() -> None:

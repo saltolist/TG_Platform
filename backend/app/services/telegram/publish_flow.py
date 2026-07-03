@@ -179,7 +179,9 @@ async def publish_post(
     merged_data: dict[str, Any] = {}
 
     async with telegram_sync_pending(user_id, post_id):
-        async with exclusive_telegram_access(user_id):
+        async with exclusive_telegram_access(
+            user_id, listener_stop_timeout=settings.telegram_short_rpc_listener_stop_seconds
+        ):
             client = build_client(api_id, api_hash, session_string)
             try:
                 await connect_telegram_client(client, settings)

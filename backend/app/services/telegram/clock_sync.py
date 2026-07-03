@@ -47,37 +47,50 @@ def _parse_http_date(header_value: str) -> float | None:
     return parsed.timestamp()
 
 
-async def measure_http_time_offset_seconds() -> int | None:
+async def measure_http_time_offset_seconds(
+    *, max_attempts: int = 3, retry_delay_seconds: float = 0.35
+) -> int | None:
     """Return seconds to add to ``time.time()`` to approximate real UTC.
 
     Positive offset means the container clock is behind (common in Docker Desktop
     / Colima). ``None`` when every probe failed (offline / blocked egress).
     Takes several samples — Docker HTTP time can read ``0`` on a cold start;
-    non-zero samples are preferred over ``0``.
+    non-zero samples are preferred over ``0``. Retries when all samples look
+    like noise (|offset| < ``_CLOCK_SYNC_APPLY_MIN_SECONDS``).
     """
-    samples: list[int] = []
-    timeout = httpx.Timeout(5.0, connect=5.0)
-    async with httpx.AsyncClient(timeout=timeout, follow_redirects=True) as client:
-        for url in _HTTP_TIME_PROBE_URLS:
-            for attempt in range(3):
-                try:
-                    response = await client.head(url)
-                    date_header = response.headers.get("date") or response.headers.get("Date")
-                    if not date_header:
+    best: int | None = None
+    for attempt in range(max(1, max_attempts)):
+        samples: list[int] = []
+        timeout = httpx.Timeout(5.0, connect=5.0)
+        async with httpx.AsyncClient(timeout=timeout, follow_redirects=True) as client:
+            for url in _HTTP_TIME_PROBE_URLS:
+                for probe in range(3):
+                    try:
+                        response = await client.head(url)
+                        date_header = response.headers.get("date") or response.headers.get("Date")
+                        if not date_header:
+                            continue
+                        server_ts = _parse_http_date(date_header)
+                        if server_ts is None:
+                            continue
+                        samples.append(int(server_ts - time.time()))
+                    except httpx.HTTPError:
                         continue
-                    server_ts = _parse_http_date(date_header)
-                    if server_ts is None:
-                        continue
-                    samples.append(int(server_ts - time.time()))
-                except httpx.HTTPError:
-                    continue
-                if attempt < 2:
-                    await asyncio.sleep(0.1)
-    if not samples:
-        return None
-    significant = [s for s in samples if abs(s) >= _CLOCK_SYNC_APPLY_MIN_SECONDS]
-    pool = significant if significant else samples
-    return max(pool, key=abs)
+                    if probe < 2:
+                        await asyncio.sleep(0.1)
+        if samples:
+            significant = [s for s in samples if abs(s) >= _CLOCK_SYNC_APPLY_MIN_SECONDS]
+            pool = significant if significant else samples
+            candidate = max(pool, key=abs)
+            if best is None or abs(candidate) > abs(best):
+                best = candidate
+        if (
+            best is not None
+            and abs(best) >= _CLOCK_SYNC_APPLY_MIN_SECONDS
+        ) or attempt + 1 >= max_attempts:
+            break
+        await asyncio.sleep(retry_delay_seconds)
+    return best
 
 
 def apply_time_offset_to_client(client: Any, offset_seconds: int) -> int | None:

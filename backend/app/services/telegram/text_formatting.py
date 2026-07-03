@@ -8,6 +8,24 @@ from typing import Any
 
 logger = logging.getLogger(__name__)
 
+_SPOILER_HTML = ('<span class="tg-spoiler">', '</span>')
+_spoiler_formatter_registered = False
+
+
+def _ensure_telegram_html_formatters() -> None:
+    """Register HTML formatters that Telethon does not ship by default."""
+    global _spoiler_formatter_registered
+    if _spoiler_formatter_registered:
+        return
+    try:
+        from telethon.extensions import html as tg_html
+        from telethon.tl.types import MessageEntitySpoiler
+    except ImportError:
+        return
+    if MessageEntitySpoiler not in tg_html.ENTITY_TO_FORMATTER:
+        tg_html.ENTITY_TO_FORMATTER[MessageEntitySpoiler] = _SPOILER_HTML
+    _spoiler_formatter_registered = True
+
 
 def extract_plain_text(message: Any) -> str:
     return str(getattr(message, "message", None) or "").strip()
@@ -32,6 +50,7 @@ def message_to_text_html(message: Any) -> str | None:
     try:
         from telethon.extensions import html as tg_html
 
+        _ensure_telegram_html_formatters()
         parsed = tg_html.unparse(text, entities).strip()
     except Exception:
         logger.debug("Failed to unparse Telegram entities", exc_info=True)
