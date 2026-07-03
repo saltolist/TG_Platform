@@ -159,6 +159,14 @@
   background: var(--bg4);
 }
 
+.tg-media-compact-slot--video-note.tg-media-compact-slot--loading {
+  border-radius: 50%;
+}
+
+.tg-media-video-note--pending {
+  opacity: 0;
+}
+
 .tg-media-compact-slot:not(.tg-media-compact-slot--video-note):not(.tg-media-compact-slot--loading) {
   max-width: min(240px, 100%);
   max-height: 240px;

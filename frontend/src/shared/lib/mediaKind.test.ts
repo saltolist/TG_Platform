@@ -60,4 +60,23 @@ describe("mediaKind helpers", () => {
       mediaKind({ name: "b.mp4", url: "/media/u/b.mp4", type: "video/mp4" }),
     ).toBe("video");
   });
+
+  it("treats legacy mp4 without kind as compact (round video note slot)", () => {
+    const media: PostMedia = {
+      name: "42.mp4",
+      url: "/media/user-id/42.mp4",
+      type: "video/mp4",
+    };
+    expect(isCompactMediaKind(media)).toBe(true);
+  });
+
+  it("does not treat explicit widescreen video as compact", () => {
+    const media: PostMedia = {
+      name: "clip.mp4",
+      url: "/media/u/clip.mp4",
+      type: "video/mp4",
+      kind: "video",
+    };
+    expect(isCompactMediaKind(media)).toBe(false);
+  });
 });

@@ -2,7 +2,7 @@
 
 import { useEffect, useRef, useState, type PointerEvent, type SyntheticEvent } from "react";
 import { mediaKind, resolveMediaUrl } from "@/shared/lib/helpers";
-import type { PostMedia } from "@/shared/types";
+import type { PostMedia, PostMediaKind } from "@/shared/types";
 
 type Props = {
   media: PostMedia;
@@ -10,9 +10,17 @@ type Props = {
   stopNavigation?: boolean;
 };
 
+type Layout = "circle" | "rect" | "resolving";
+
 const PROGRESS_RADIUS = 47;
 const PROGRESS_CIRCUMFERENCE = 2 * Math.PI * PROGRESS_RADIUS;
 const SCRUB_RING_INNER = 0.72;
+
+function initialLayout(kind: PostMediaKind): Layout {
+  if (kind === "video_note") return "circle";
+  if (kind === "video") return "rect";
+  return "resolving";
+}
 
 function isSquareVideo(video: HTMLVideoElement): boolean {
   const { videoWidth, videoHeight } = video;
@@ -46,7 +54,7 @@ export function VideoNoteMedia({ media, stopNavigation = false }: Props) {
   const [playing, setPlaying] = useState(false);
   const [progress, setProgress] = useState(0);
   const kind = mediaKind(media);
-  const [circleMode, setCircleMode] = useState(kind === "video_note");
+  const [layout, setLayout] = useState<Layout>(() => initialLayout(kind));
   const src = resolveMediaUrl(media.url);
 
   useEffect(() => {
@@ -74,10 +82,8 @@ export function VideoNoteMedia({ media, stopNavigation = false }: Props) {
   };
 
   const onLoadedMetadata = (event: SyntheticEvent<HTMLVideoElement>) => {
-    if (kind === "video_note") {
-      setCircleMode(true);
-    } else {
-      setCircleMode(isSquareVideo(event.currentTarget));
+    if (layout === "resolving") {
+      setLayout(isSquareVideo(event.currentTarget) ? "circle" : "rect");
     }
     syncProgress();
   };
@@ -141,8 +147,9 @@ export function VideoNoteMedia({ media, stopNavigation = false }: Props) {
   };
 
   const showProgress = playing || progress > 0.001;
+  const pending = layout === "resolving";
 
-  if (!circleMode) {
+  if (layout === "rect") {
     return (
       <video
         ref={videoRef}
@@ -157,20 +164,35 @@ export function VideoNoteMedia({ media, stopNavigation = false }: Props) {
   }
 
   return (
-    <div className="tg-media-compact-slot tg-media-compact-slot--video-note">
+    <div
+      className={[
+        "tg-media-compact-slot",
+        "tg-media-compact-slot--video-note",
+        pending ? "tg-media-compact-slot--loading" : "",
+      ]
+        .filter(Boolean)
+        .join(" ")}
+    >
       <button
         type="button"
         className="tg-media-video-note-hit"
-        onPointerDown={onPointerDown}
-        onPointerMove={onPointerMove}
-        onPointerUp={onPointerUp}
-        onPointerCancel={onPointerUp}
+        onPointerDown={pending ? undefined : onPointerDown}
+        onPointerMove={pending ? undefined : onPointerMove}
+        onPointerUp={pending ? undefined : onPointerUp}
+        onPointerCancel={pending ? undefined : onPointerUp}
         onClick={(event) => isolateFromCard(event)}
         aria-label={playing ? "Пауза" : "Воспроизвести"}
+        aria-busy={pending}
+        disabled={pending}
       >
         <video
           ref={videoRef}
-          className="tg-media-video-note"
+          className={[
+            "tg-media-video-note",
+            pending ? "tg-media-video-note--pending" : "",
+          ]
+            .filter(Boolean)
+            .join(" ")}
           src={src}
           playsInline
           preload="metadata"
@@ -183,7 +205,7 @@ export function VideoNoteMedia({ media, stopNavigation = false }: Props) {
           onPause={() => setPlaying(false)}
           onPlay={() => setPlaying(true)}
         />
-        {showProgress ? (
+        {showProgress && !pending ? (
           <svg className="tg-media-video-note-progress" viewBox="0 0 100 100" aria-hidden>
             <circle className="tg-media-video-note-progress-track" cx="50" cy="50" r={PROGRESS_RADIUS} />
             <circle
@@ -196,7 +218,9 @@ export function VideoNoteMedia({ media, stopNavigation = false }: Props) {
             />
           </svg>
         ) : null}
-        {!playing ? <span className="tg-media-video-note-play" aria-hidden /> : null}
+        {!playing && !pending ? (
+          <span className="tg-media-video-note-play" aria-hidden />
+        ) : null}
       </button>
     </div>
   );

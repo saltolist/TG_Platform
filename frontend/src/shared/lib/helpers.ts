@@ -272,7 +272,10 @@ export function isAnimatedStickerKind(m: PostMedia): boolean {
 }
 
 export function isCompactMediaKind(m: PostMedia): boolean {
-  return isStickerKind(m) || isVideoNoteKind(m);
+  if (isStickerKind(m) || isVideoNoteKind(m)) return true;
+  // Legacy Telegram round videos imported before ``kind`` was persisted.
+  if (isVideoMedia(m) && m.kind == null) return true;
+  return false;
 }
 
 export function isImageMedia(m: PostMedia): boolean {

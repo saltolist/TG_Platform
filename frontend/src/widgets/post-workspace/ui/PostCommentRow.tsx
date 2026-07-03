@@ -2,7 +2,7 @@
 
 import { PostMediaBlock } from "@/entities/post";
 import { PostTelegramSyncLabel } from "@/entities/post/ui/PostTelegramSyncLabel";
-import { formatStoredDate, isStickerKind, isVideoNoteKind } from "@/shared/lib/helpers";
+import { formatStoredDate, isStickerKind, isVideoMedia, isVideoNoteKind } from "@/shared/lib/helpers";
 import { avatarHue, avatarInitials } from "@/shared/lib/postComments";
 import type { PostComment } from "@/shared/types";
 import { TelegramFormattedText } from "@/shared/ui/TelegramFormattedText";
@@ -28,7 +28,10 @@ export default function PostCommentRow({
 }: Props) {
   const hue = avatarHue(comment.author);
   const singleMedia = comment.media?.length === 1 ? comment.media[0] : null;
-  const videoNoteMedia = singleMedia != null && isVideoNoteKind(singleMedia);
+  const videoNoteMedia =
+    singleMedia != null &&
+    !isStickerKind(singleMedia) &&
+    (isVideoNoteKind(singleMedia) || (isVideoMedia(singleMedia) && singleMedia.kind == null));
   const stickerMedia = singleMedia != null && isStickerKind(singleMedia);
   const compactMedia = videoNoteMedia || stickerMedia;
   const showSyncLabel = telegramSyncing || isDeleting;
