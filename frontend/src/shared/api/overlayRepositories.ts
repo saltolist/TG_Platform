@@ -55,11 +55,22 @@ function overlayPosts(inner: PostsRepository): PostsRepository {
       if (!current) throw new Error(`Post ${id} not found`);
       let updated = { ...current, ...patch };
       if (current.status === "deleted" && patch.status === "draft") {
-        const { deletedAt, metrics, date, ...rest } = updated;
+        const {
+          deletedAt: _deletedAt,
+          metrics: _metrics,
+          date: _date,
+          telegramMessageId: _telegramMessageId,
+          comments: _comments,
+          commentsThreadAvailable: _commentsThreadAvailable,
+          telegramDiscussionMessageId: _telegramDiscussionMessageId,
+          commentSyncError: _commentSyncError,
+          ...rest
+        } = updated;
         updated = {
           ...rest,
           status: "draft",
           created: patch.created ?? new Date().toISOString(),
+          comments: [],
         };
       }
       mutateOverlay((overlay) => {
@@ -90,9 +101,28 @@ function overlayPosts(inner: PostsRepository): PostsRepository {
         });
         return;
       }
-      await overlayPosts(inner).update(id, {
-        status: "deleted",
-        deletedAt: new Date().toISOString(),
+      const list = await overlayPosts(inner).list();
+      const current = list.find((post) => post.id === id);
+      if (!current) throw new Error(`Post ${id} not found`);
+      const {
+        deletedAt: _deletedAt,
+        metrics: _metrics,
+        date: _date,
+        telegramMessageId: _telegramMessageId,
+        comments: _comments,
+        commentsThreadAvailable: _commentsThreadAvailable,
+        telegramDiscussionMessageId: _telegramDiscussionMessageId,
+        commentSyncError: _commentSyncError,
+        ...rest
+      } = current;
+      mutateOverlay((overlay) => {
+        overlay.posts.upserts[id] = {
+          ...rest,
+          status: "deleted",
+          deletedAt: new Date().toISOString(),
+          comments: [],
+          metrics: undefined,
+        };
       });
     },
     // Demo/seed accounts never had a real Telegram channel to publish to, so

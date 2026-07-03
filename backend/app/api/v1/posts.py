@@ -20,6 +20,7 @@ from app.services.telegram.comments_flow import (
     comments_enabled,
     dedupe_platform_comments,
     delete_discussion_comments_in_telegram,
+    merge_patch_comments,
     normalize_post_comments,
     removed_comment_telegram_message_ids,
     require_comments_enabled,
@@ -111,7 +112,12 @@ async def update_post(
     previous_task_id = post.data.get("_celeryTaskId")
 
     merged = {**post.data, **patch}
-    if isinstance(merged.get("comments"), list):
+    if isinstance(patch.get("comments"), list):
+        merged["comments"] = merge_patch_comments(
+            list(post.data.get("comments") or []),
+            patch["comments"],
+        )
+    elif isinstance(merged.get("comments"), list):
         merged["comments"] = normalize_post_comments(merged["comments"])
     if isinstance(patch.get("chats"), list) and isinstance(post.data.get("chats"), list):
         existing_by_id = {

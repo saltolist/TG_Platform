@@ -96,8 +96,8 @@ class Settings(BaseSettings):
     telegram_live_sync_enabled: bool = True
     telegram_live_sync_registry_refresh_seconds: float = 30.0
     telegram_live_sync_reconnect_seconds: float = 15.0
-    # Unified background pass: catch-up + reconcile + metrics (one lock, minimal RPC).
-    telegram_channel_maintenance_seconds: float = 30.0
+    # Unified background pass: catch-up + metrics (no window reconcile — live-sync handles drift).
+    telegram_channel_maintenance_seconds: float = 300.0
     # Deprecated: merged into ``telegram_channel_maintenance_seconds``.
     telegram_live_sync_catch_up_seconds: float = 30.0
     # 0 = disabled — fast poll merged into channel maintenance.

@@ -284,7 +284,10 @@ async def maybe_reconcile_after_rpc(
 
 async def run_manual_reconcile(profile: Profile, user_id: UUID) -> ReconcileStats:
     """Connect, reconcile the channel window, disconnect — for the manual API."""
-    from app.services.telegram.channel_flow import parse_channel_input, resolve_channel_entity
+    from app.services.telegram.channel_flow import (
+        parse_channel_input,
+        resolve_channel_entity_for_profile,
+    )
     from app.services.telegram.mtproto_client import build_client
     from app.services.telegram.net import (
         TelegramAuthError,
@@ -310,8 +313,11 @@ async def run_manual_reconcile(profile: Profile, user_id: UUID) -> ReconcileStat
 
     api_id, api_hash = require_api_credentials(telegram, settings)
     session_string = decrypt_field(str(telegram.get("sessionString") or ""), settings)
-    parsed = parse_channel_input(str(telegram.get("channel") or ""))
-    if not parsed or not session_string:
+    if not session_string:
+        raise TelegramAuthError("Не удалось подготовить сверку с каналом", 400)
+    if not str(telegram.get("channelId") or "").strip() and not parse_channel_input(
+        str(telegram.get("channel") or "")
+    ):
         raise TelegramAuthError("Не удалось подготовить сверку с каналом", 400)
 
     stats = ReconcileStats()
@@ -319,7 +325,7 @@ async def run_manual_reconcile(profile: Profile, user_id: UUID) -> ReconcileStat
         client = build_client(api_id, api_hash, session_string)
         try:
             await connect_telegram_client(client, settings)
-            entity = await resolve_channel_entity(client, parsed, settings)
+            entity = await resolve_channel_entity_for_profile(client, telegram, settings)
             stats = await reconcile_channel_window(
                 client,
                 entity,

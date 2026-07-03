@@ -21,6 +21,7 @@ from app.services.telegram.channel_flow import (
     channel_peer_id,
     parse_channel_input,
     resolve_channel_entity,
+    resolve_channel_entity_for_profile,
 )
 from app.services.telegram.mtproto_client import build_client
 from app.services.telegram.net import (
@@ -393,6 +394,40 @@ def normalize_post_comments(comments: Any) -> list[dict[str, Any]]:
             row.pop("replyToId", None)
         normalized.append(row)
     return normalized
+
+
+def merge_patch_comments(
+    previous: list[dict[str, Any]],
+    incoming: list[dict[str, Any]],
+) -> list[dict[str, Any]]:
+    """Apply a client comments PATCH without dropping Telegram sync metadata.
+
+    Retry flows may re-send a stale comments array that omits ``telegramMessageId``
+    for rows already posted to the discussion group — preserve those ids from
+    *previous* server state so we do not push duplicates to Telegram.
+    """
+    prev_by_id: dict[str, dict[str, Any]] = {}
+    for item in previous:
+        if not isinstance(item, Mapping):
+            continue
+        comment_id = str(item.get("id") or "")
+        if comment_id:
+            prev_by_id[comment_id] = dict(item)
+
+    merged: list[dict[str, Any]] = []
+    for item in incoming:
+        if not isinstance(item, Mapping):
+            continue
+        row = dict(item)
+        comment_id = str(row.get("id") or "")
+        prev = prev_by_id.get(comment_id)
+        if prev is not None:
+            if not row.get("telegramMessageId") and prev.get("telegramMessageId"):
+                row["telegramMessageId"] = prev["telegramMessageId"]
+            if not row.get("textHtml") and prev.get("textHtml"):
+                row["textHtml"] = prev.get("textHtml")
+        merged.append(row)
+    return normalize_post_comments(merged)
 
 
 def _comment_text_key(text: Any) -> str:
@@ -973,8 +1008,7 @@ async def _with_telegram_client(profile: Profile, user_id: UUID, settings: Setti
     require_comments_enabled(telegram)
     api_id, api_hash = require_api_credentials(telegram, settings)
     session_string = decrypt_field(str(telegram.get("sessionString") or ""), settings)
-    parsed = parse_channel_input(str(telegram.get("channel") or ""))
-    if not parsed or not session_string:
+    if not session_string:
         raise TelegramAuthError("Не удалось подготовить синхронизацию комментариев", 400)
 
     async with exclusive_telegram_access(
@@ -983,7 +1017,9 @@ async def _with_telegram_client(profile: Profile, user_id: UUID, settings: Setti
         client = build_client(api_id, api_hash, session_string)
         try:
             await connect_telegram_client(client, settings)
-            channel_entity = await resolve_channel_entity(client, parsed, settings)
+            channel_entity = await resolve_channel_entity_for_profile(
+                client, telegram, settings
+            )
             yield client, channel_entity, telegram
         finally:
             await disconnect_safely(client)
@@ -1325,6 +1361,7 @@ __all__ = [
     "map_single_discussion_message",
     "map_telegram_messages_to_comments",
     "merge_comments",
+    "merge_patch_comments",
     "normalize_post_comments",
     "post_has_discussion_thread",
     "probe_discussion_root",

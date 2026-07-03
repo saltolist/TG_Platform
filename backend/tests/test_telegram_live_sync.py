@@ -563,16 +563,13 @@ async def test_worker_exits_when_disabled(monkeypatch: pytest.MonkeyPatch) -> No
 
 
 @pytest.mark.asyncio
-async def test_channel_maintenance_runs_catch_up_reconcile_and_metrics(
+async def test_channel_maintenance_runs_catch_up_and_metrics(
     monkeypatch: pytest.MonkeyPatch, writer_user: User
 ) -> None:
     calls: list[str] = []
 
     async def fake_catch_up(*_args: Any, **_kwargs: Any) -> None:
         calls.append("catch_up")
-
-    async def fake_reconcile(*_args: Any, **_kwargs: Any) -> None:
-        calls.append("reconcile")
 
     async def fake_metrics(*_args: Any, **_kwargs: Any) -> int:
         calls.append("metrics")
@@ -591,7 +588,6 @@ async def test_channel_maintenance_runs_catch_up_reconcile_and_metrics(
         return await awaitable
 
     monkeypatch.setattr(live_sync_module, "_catch_up", fake_catch_up)
-    monkeypatch.setattr(live_sync_module, "reconcile_channel_window", fake_reconcile)
     monkeypatch.setattr(live_sync_module, "poll_recent_post_metrics", fake_metrics)
     monkeypatch.setattr(live_sync_module, "_load_last_telegram_message_id", fake_load_last_id)
     monkeypatch.setattr(live_sync_module.asyncio, "wait_for", fake_wait_for)
@@ -612,5 +608,5 @@ async def test_channel_maintenance_runs_catch_up_reconcile_and_metrics(
     stop.set()
     await task
     assert "catch_up" in calls
-    assert "reconcile" in calls
+    assert "reconcile" not in calls
     assert "metrics" in calls

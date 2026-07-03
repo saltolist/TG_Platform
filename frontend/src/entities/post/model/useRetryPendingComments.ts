@@ -1,9 +1,13 @@
 "use client";
 
 import { useEffect, useRef } from "react";
+import { useQueryClient } from "@tanstack/react-query";
 
-import { useUpdatePost } from "@/entities/post/model/usePosts";
+import { enqueueSerialPostPatch } from "@/entities/post/lib/enqueueSerialPostPatch";
+import { applyPostUpdate, useUpdatePost } from "@/entities/post/model/usePosts";
 import { isPostCommentTelegramPending } from "@/entities/post/lib/isPostCommentTelegramPending";
+import { useRepositories } from "@/app/providers/RepositoryProvider";
+import { useQueryAccountScope } from "@/app/providers/useQueryAccountScope";
 import type { Post } from "@/shared/types";
 
 /**
@@ -12,7 +16,10 @@ import type { Post } from "@/shared/types";
  * and there are comments without a ``telegramMessageId``.
  */
 export function useRetryPendingComments(post: Post | null | undefined, enabled: boolean) {
+  const { posts } = useRepositories();
   const updatePost = useUpdatePost();
+  const queryClient = useQueryClient();
+  const accountId = useQueryAccountScope();
   const retriedKeyRef = useRef<string | null>(null);
 
   useEffect(() => {
@@ -22,16 +29,39 @@ export function useRetryPendingComments(post: Post | null | undefined, enabled: 
     }
     if (!post?.id || !post.telegramMessageId) return;
 
-    const comments = post.comments ?? [];
-    const pending = comments.filter((c) => isPostCommentTelegramPending(c, true));
+    const pending = (post.comments ?? []).filter((c) => isPostCommentTelegramPending(c, true));
     if (pending.length === 0) return;
 
     const retryKey = `${post.id}:${pending.map((c) => c.id).join(",")}`;
     if (retriedKeyRef.current === retryKey || updatePost.isPending) return;
     retriedKeyRef.current = retryKey;
 
-    void updatePost.mutateAsync({ id: post.id, patch: { comments } }).catch(() => {
-      // Errors surface via commentSyncError in useUpdatePost's onSuccess toast.
+    void enqueueSerialPostPatch(post.id, async () => {
+      let latest = post;
+      try {
+        latest = await posts.get(post.id);
+        applyPostUpdate(queryClient, accountId, latest);
+      } catch {
+        return;
+      }
+
+      const comments = latest.comments ?? [];
+      const stillPending = comments.filter((c) => isPostCommentTelegramPending(c, true));
+      if (stillPending.length === 0) return;
+
+      await updatePost.mutateAsync({ id: post.id, patch: { comments } }).catch(() => {
+        // Errors surface via commentSyncError in useUpdatePost's onSuccess toast.
+      });
     });
-  }, [enabled, post?.id, post?.telegramMessageId, post?.comments, updatePost]);
+  }, [
+    accountId,
+    enabled,
+    post,
+    post?.id,
+    post?.telegramMessageId,
+    post?.comments,
+    posts,
+    queryClient,
+    updatePost,
+  ]);
 }

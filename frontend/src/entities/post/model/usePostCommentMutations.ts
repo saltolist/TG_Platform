@@ -3,6 +3,7 @@
 import { useCallback, useState } from "react";
 import { useQueryClient } from "@tanstack/react-query";
 
+import { enqueueSerialPostPatch } from "@/entities/post/lib/enqueueSerialPostPatch";
 import { getCachedPost, setCachedPost } from "@/entities/post/lib/getCachedPost";
 import type { PostComment } from "@/shared/types";
 
@@ -14,17 +15,19 @@ export function useAddPostComment() {
 
   const addComment = useCallback(
     async (postId: string, comment: PostComment) => {
-      const post = getCachedPost(queryClient, postId);
-      if (!post) return;
-      const previousComments = post.comments ?? [];
-      const comments = [...previousComments, comment];
-      setCachedPost(queryClient, { ...post, comments });
-      try {
-        await updatePost.mutateAsync({ id: postId, patch: { comments } });
-      } catch (error) {
-        setCachedPost(queryClient, { ...post, comments: previousComments });
-        throw error;
-      }
+      await enqueueSerialPostPatch(postId, async () => {
+        const post = getCachedPost(queryClient, postId);
+        if (!post) return;
+        const previousComments = post.comments ?? [];
+        const comments = [...previousComments, comment];
+        setCachedPost(queryClient, { ...post, comments });
+        try {
+          await updatePost.mutateAsync({ id: postId, patch: { comments } });
+        } catch (error) {
+          setCachedPost(queryClient, { ...post, comments: previousComments });
+          throw error;
+        }
+      });
     },
     [queryClient, updatePost],
   );
@@ -41,24 +44,28 @@ export function useDeletePostComment() {
 
   const deleteComment = useCallback(
     async (postId: string, commentId: string) => {
-      const post = getCachedPost(queryClient, postId);
-      if (!post) return;
-      const previousComments = post.comments ?? [];
-      const comments = previousComments.filter((item) => item.id !== commentId);
-      if (comments.length === previousComments.length) return;
+      await enqueueSerialPostPatch(postId, async () => {
+        const post = getCachedPost(queryClient, postId);
+        if (!post) return;
+        const previousComments = post.comments ?? [];
+        const comments = previousComments.filter((item) => item.id !== commentId);
+        if (comments.length === previousComments.length) return;
 
-      setDeletingCommentIds((prev) => new Set(prev).add(commentId));
-      try {
-        await updatePost.mutateAsync({ id: postId, patch: { comments } });
-      } catch (error) {
-        throw error;
-      } finally {
-        setDeletingCommentIds((prev) => {
-          const next = new Set(prev);
-          next.delete(commentId);
-          return next;
-        });
-      }
+        setDeletingCommentIds((prev) => new Set(prev).add(commentId));
+        setCachedPost(queryClient, { ...post, comments });
+        try {
+          await updatePost.mutateAsync({ id: postId, patch: { comments } });
+        } catch (error) {
+          setCachedPost(queryClient, { ...post, comments: previousComments });
+          throw error;
+        } finally {
+          setDeletingCommentIds((prev) => {
+            const next = new Set(prev);
+            next.delete(commentId);
+            return next;
+          });
+        }
+      });
     },
     [queryClient, updatePost],
   );

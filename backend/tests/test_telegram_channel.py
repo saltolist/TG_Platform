@@ -361,8 +361,54 @@ async def test_connect_rejects_empty_channel(
 
 @pytest.mark.asyncio
 async def test_seed_account_cannot_connect_channel(
-    client: AsyncClient, presentation_user
+    client: AsyncClient,
+    presentation_user,
 ) -> None:
     headers = guest_auth_headers()
     resp = await _connect(client, headers)
     assert resp.status_code == 403
+
+
+@pytest.mark.asyncio
+async def test_resolve_channel_entity_for_profile_prefers_channel_id() -> None:
+    from unittest.mock import AsyncMock
+
+    from app.core.config import get_settings
+    from app.services.telegram.channel_flow import resolve_channel_entity_for_profile
+
+    entity = _build_channel_entity()
+    get_entity = AsyncMock(return_value=entity)
+    client = SimpleNamespace(
+        iter_dialogs=AsyncMock(),
+        get_entity=get_entity,
+    )
+    telegram = {
+        "channel": "https://t.me/+SecretInviteToken",
+        "channelId": "-100555",
+    }
+
+    resolved = await resolve_channel_entity_for_profile(client, telegram, get_settings())
+    assert resolved is entity
+    get_entity.assert_awaited_once_with(-100555)
+    client.iter_dialogs.assert_not_called()
+
+
+@pytest.mark.asyncio
+async def test_resolve_channel_entity_for_profile_flood_wait_message() -> None:
+    from unittest.mock import AsyncMock
+
+    from app.core.config import get_settings
+    from app.services.telegram.channel_flow import resolve_channel_entity_for_profile
+    from app.services.telegram.net import TelegramAuthError
+
+    flood = errors.FloodWaitError(0)
+    flood.seconds = 262
+    client = SimpleNamespace(get_entity=AsyncMock(side_effect=flood))
+    telegram = {"channel": "https://t.me/+SecretInviteToken"}
+
+    with pytest.raises(TelegramAuthError) as exc_info:
+        await resolve_channel_entity_for_profile(client, telegram, get_settings())
+
+    assert exc_info.value.status_code == 429
+    assert "262" not in exc_info.value.detail
+    assert "мин" in exc_info.value.detail

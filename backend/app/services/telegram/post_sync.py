@@ -113,8 +113,21 @@ async def mark_post_deleted(post: Post) -> None:
         return
     data["status"] = "deleted"
     data["deletedAt"] = datetime.now(timezone.utc).isoformat()
+    clear_post_engagement_data(data)
     post.data = data
     flag_modified(post, "data")
+
+
+def clear_post_engagement_data(data: dict[str, Any]) -> None:
+    """Drop comments, reactions/views and Telegram discussion linkage for this post."""
+    data["comments"] = []
+    data.pop("metrics", None)
+    for key in (
+        "commentSyncError",
+        "telegramDiscussionMessageId",
+        "commentsThreadAvailable",
+    ):
+        data.pop(key, None)
 
 
 def restore_deleted_post_to_draft(merged: dict[str, Any]) -> dict[str, Any]:
@@ -132,6 +145,7 @@ def restore_deleted_post_to_draft(merged: dict[str, Any]) -> dict[str, Any]:
         "publishError",
     ):
         data.pop(key, None)
+    clear_post_engagement_data(data)
     return data
 
 

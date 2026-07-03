@@ -22,7 +22,7 @@ from sqlalchemy.orm.attributes import flag_modified
 from app.core.config import Settings, get_settings
 from app.db.models import Post, Profile
 from app.db.session import async_session_factory
-from app.services.telegram.channel_flow import parse_channel_input, resolve_channel_entity
+from app.services.telegram.channel_flow import parse_channel_input, resolve_channel_entity_for_profile
 from app.services.telegram.comments_flow import probe_comments_thread_for_post
 from app.services.telegram.mtproto_client import build_client
 from app.services.telegram.net import (
@@ -35,7 +35,6 @@ from app.services.telegram.net import (
 )
 from app.services.telegram.message_mapping import map_group_to_post, telethon_message_fetchable
 from app.services.telegram.post_sync import finalize_published_from_telegram, mark_post_published
-from app.services.telegram.reconcile_flow import maybe_reconcile_after_rpc
 from app.services.telegram.session_guard import exclusive_telegram_access
 from app.services.telegram.sync_pending import telegram_sync_pending
 
@@ -154,8 +153,11 @@ async def publish_post(
 
         api_id, api_hash = require_api_credentials(telegram, settings)
         session_string = decrypt_field(str(telegram.get("sessionString") or ""), settings)
-        parsed = parse_channel_input(str(telegram.get("channel") or ""))
-        if not parsed or not session_string:
+        if not session_string:
+            raise TelegramAuthError("Не удалось подготовить публикацию", 400)
+        if not str(telegram.get("channelId") or "").strip() and not parse_channel_input(
+            str(telegram.get("channel") or "")
+        ):
             raise TelegramAuthError("Не удалось подготовить публикацию", 400)
 
         text = str(data.get("text") or "")
@@ -181,7 +183,7 @@ async def publish_post(
             client = build_client(api_id, api_hash, session_string)
             try:
                 await connect_telegram_client(client, settings)
-                entity = await resolve_channel_entity(client, parsed, settings)
+                entity = await resolve_channel_entity_for_profile(client, telegram, settings)
                 sent = await with_timeout(_send(client, entity, text, file_paths), settings)
                 telegram_message_id = _extract_message_id(sent)
                 if not telegram_message_id:
@@ -214,15 +216,6 @@ async def publish_post(
                 if probed_data != merged_data:
                     await _persist_post_data(user_id, post_id, probed_data)
                     merged_data = probed_data
-
-                await maybe_reconcile_after_rpc(
-                    client,
-                    entity,
-                    user_id,
-                    settings,
-                    force=True,
-                    include_new_scan=False,
-                )
 
                 fresh = await _load_post_data(user_id, post_id)
                 if fresh:

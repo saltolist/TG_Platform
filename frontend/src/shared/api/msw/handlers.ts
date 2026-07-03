@@ -66,12 +66,16 @@ export const handlers = [
     if (idx < 0) return notFound(`Post ${id} not found`);
     let updated = { ...store.posts[idx], ...patch };
     if (store.posts[idx].status === "deleted" && patch.status === "draft") {
-      const { deletedAt, metrics, date, ...rest } = updated;
+      const { deletedAt, metrics, date, telegramMessageId, ...rest } = updated;
       updated = {
         ...rest,
         status: "draft",
         created: patch.created ?? new Date().toISOString(),
+        comments: [],
       };
+      delete updated.commentsThreadAvailable;
+      delete updated.telegramDiscussionMessageId;
+      delete updated.commentSyncError;
     }
     store.posts[idx] = updated;
     return HttpResponse.json(store.posts[idx]);
@@ -113,6 +117,11 @@ export const handlers = [
     }
     post.status = "deleted";
     post.deletedAt = new Date().toISOString();
+    post.comments = [];
+    delete post.metrics;
+    delete post.commentsThreadAvailable;
+    delete post.telegramDiscussionMessageId;
+    delete post.commentSyncError;
     return new HttpResponse(null, { status: 204 });
   }),
 

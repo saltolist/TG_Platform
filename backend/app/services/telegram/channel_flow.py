@@ -121,7 +121,14 @@ async def _resolve_from_dialogs(client: Any, target_peer_id: int, settings: Sett
 
 async def _resolve_entity(client: Any, parsed: _ParsedChannelInput, settings: Settings) -> Any:
     if parsed.kind == "numeric":
-        return await _resolve_from_dialogs(client, int(parsed.resolve_key), settings)
+        target = int(parsed.resolve_key)
+        normalized = _normalize_peer_id(target) if target > 0 else target
+        try:
+            return await with_timeout(client.get_entity(normalized), settings)
+        except errors.FloodWaitError:
+            raise
+        except Exception:
+            return await _resolve_from_dialogs(client, target, settings)
 
     try:
         return await with_timeout(client.get_entity(parsed.resolve_key), settings)
@@ -141,8 +148,57 @@ async def _resolve_entity(client: Any, parsed: _ParsedChannelInput, settings: Se
             "Вы не состоите в этом канале — сначала вступите по invite-ссылке в Telegram",
             403,
         ) from None
+    except errors.FloodWaitError as exc:
+        raise TelegramAuthError(_flood_wait_message(exc), 429) from exc
     except errors.RPCError as exc:
         raise TelegramAuthError(str(exc), 400) from exc
+
+
+def _flood_wait_message(exc: Any) -> str:
+    seconds = int(getattr(exc, "seconds", 0) or 0)
+    if seconds <= 0:
+        import re
+
+        match = re.search(r"(\d+)\s*seconds?", str(exc), flags=re.IGNORECASE)
+        if match:
+            seconds = int(match.group(1))
+    if seconds >= 120:
+        minutes = max(1, round(seconds / 60))
+        return (
+            f"Telegram временно ограничил запросы — подождите около {minutes} мин "
+            "и повторите"
+        )
+    if seconds > 0:
+        return f"Telegram временно ограничил запросы — подождите {seconds} с и повторите"
+    return "Telegram временно ограничил запросы — попробуйте позже"
+
+
+async def resolve_channel_entity_for_profile(
+    client: Any,
+    telegram: dict[str, Any],
+    settings: Settings,
+) -> Any:
+    """Resolve the connected channel without re-checking invite links when possible.
+
+    Short-lived RPC clients (comment push/pull, edit, delete) must not call
+    ``CheckChatInviteRequest`` on every request — prefer ``@username`` or stored
+    ``channelId`` over invite links saved in ``channel``.
+    """
+    channel = str(telegram.get("channel") or "").strip()
+    parsed_channel = _parse_channel_input(channel)
+
+    if parsed_channel is not None and parsed_channel.kind != "invite":
+        return await _resolve_entity(client, parsed_channel, settings)
+
+    channel_id = str(telegram.get("channelId") or "").strip()
+    if channel_id and _NUMERIC_RE.match(channel_id):
+        parsed = _ParsedChannelInput("numeric", channel_id, channel_id)
+        return await _resolve_entity(client, parsed, settings)
+
+    if parsed_channel is not None:
+        return await _resolve_entity(client, parsed_channel, settings)
+
+    raise TelegramAuthError("Не удалось определить канал", 400)
 
 
 async def _user_can_post(client: Any, entity: Any, settings: Settings) -> bool:
@@ -224,7 +280,6 @@ async def _resolve_channel_title(client: Any, entity: Any, settings: Settings) -
     return "Telegram канал"
 
 
-# Public aliases for import_flow and tests.
 parse_channel_input = _parse_channel_input
 resolve_channel_entity = _resolve_entity
 

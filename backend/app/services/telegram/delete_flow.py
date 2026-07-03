@@ -12,7 +12,7 @@ from uuid import UUID
 
 from app.core.config import Settings, get_settings
 from app.db.models import Profile
-from app.services.telegram.channel_flow import parse_channel_input, resolve_channel_entity
+from app.services.telegram.channel_flow import parse_channel_input, resolve_channel_entity_for_profile
 from app.services.telegram.message_mapping import is_message_gone_error, telethon_fetch_has_messages
 from app.services.telegram.mtproto_client import build_client
 from app.services.telegram.net import (
@@ -23,7 +23,6 @@ from app.services.telegram.net import (
     require_api_credentials,
     with_timeout,
 )
-from app.services.telegram.reconcile_flow import maybe_reconcile_after_rpc
 from app.services.telegram.session_guard import exclusive_telegram_access
 
 
@@ -48,8 +47,11 @@ async def delete_message_in_telegram(
 
     api_id, api_hash = require_api_credentials(telegram, settings)
     session_string = decrypt_field(str(telegram.get("sessionString") or ""), settings)
-    parsed = parse_channel_input(str(telegram.get("channel") or ""))
-    if not parsed or not session_string:
+    if not session_string:
+        raise TelegramAuthError("Не удалось подготовить удаление в Telegram", 400)
+    if not str(telegram.get("channelId") or "").strip() and not parse_channel_input(
+        str(telegram.get("channel") or "")
+    ):
         raise TelegramAuthError("Не удалось подготовить удаление в Telegram", 400)
 
     try:
@@ -63,7 +65,7 @@ async def delete_message_in_telegram(
         client = build_client(api_id, api_hash, session_string)
         try:
             await connect_telegram_client(client, settings)
-            entity = await resolve_channel_entity(client, parsed, settings)
+            entity = await resolve_channel_entity_for_profile(client, telegram, settings)
 
             try:
                 fetched = await with_timeout(
@@ -86,15 +88,6 @@ async def delete_message_in_telegram(
                 raise TelegramAuthError(
                     str(exc) or "Не удалось удалить сообщение в Telegram", 502
                 ) from exc
-
-            await maybe_reconcile_after_rpc(
-                client,
-                entity,
-                user_id,
-                settings,
-                force=True,
-                include_new_scan=False,
-            )
         except TelegramAuthError:
             raise
         except Exception as exc:  # noqa: BLE001

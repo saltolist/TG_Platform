@@ -23,6 +23,7 @@ from app.services.telegram.comments_flow import (
     get_discussion_root_message_id,
     handle_live_discussion_messages,
     merge_comments,
+    merge_patch_comments,
     map_telegram_messages_to_comments,
     normalize_post_comments,
     refresh_channel_comments_settings,
@@ -562,6 +563,72 @@ async def test_patch_new_comment_pushes_to_telegram(
     assert "commentSyncError" not in retry_body
     # The already-synced comment must not be re-sent.
     assert len(SCENARIO.sent) == 2
+
+
+def test_merge_patch_comments_preserves_telegram_message_id() -> None:
+    previous = [
+        {
+            "id": "local-1",
+            "author": "Вы",
+            "text": "Hello TG",
+            "date": "2026-07-02T12:00:00Z",
+            "telegramMessageId": "7000",
+        }
+    ]
+    stale_patch = [
+        {
+            "id": "local-1",
+            "author": "Вы",
+            "text": "Hello TG",
+            "date": "2026-07-02T12:00:00Z",
+        }
+    ]
+    merged = merge_patch_comments(previous, stale_patch)
+    assert merged[0]["telegramMessageId"] == "7000"
+
+
+@pytest.mark.asyncio
+async def test_patch_stale_comment_retry_does_not_repush_to_telegram(
+    client: AsyncClient, writer_auth_headers: dict[str, str]
+) -> None:
+    await _seed_connected_profile(client, writer_auth_headers)
+    post = await _create_published_post(client, writer_auth_headers)
+
+    first = await client.patch(
+        f"/api/v1/posts/{post['id']}/",
+        headers=writer_auth_headers,
+        json={
+            "comments": [
+                {
+                    "id": "local-1",
+                    "author": "Вы",
+                    "text": "Hello TG",
+                    "date": "2026-07-02T12:00:00Z",
+                }
+            ]
+        },
+    )
+    assert first.status_code == 200
+    assert first.json()["comments"][0]["telegramMessageId"] == "7000"
+    assert len(SCENARIO.sent) == 1
+
+    stale = await client.patch(
+        f"/api/v1/posts/{post['id']}/",
+        headers=writer_auth_headers,
+        json={
+            "comments": [
+                {
+                    "id": "local-1",
+                    "author": "Вы",
+                    "text": "Hello TG",
+                    "date": "2026-07-02T12:00:00Z",
+                }
+            ]
+        },
+    )
+    assert stale.status_code == 200
+    assert stale.json()["comments"][0]["telegramMessageId"] == "7000"
+    assert len(SCENARIO.sent) == 1
 
 
 @pytest.mark.asyncio
