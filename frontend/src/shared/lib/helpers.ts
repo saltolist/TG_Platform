@@ -1,4 +1,4 @@
-import type { ChatMessage, Post, PostMedia } from "@/shared/types";
+import type { ChatMessage, Post, PostMedia, PostMediaKind } from "@/shared/types";
 import { API_BASE_URL } from "@/shared/config/dataSource";
 
 export function truncate(value: string | undefined | null, max: number): string {
@@ -207,7 +207,50 @@ export function resolveMediaUrl(url: string): string {
   }
 }
 
+const POST_MEDIA_KINDS = new Set<PostMediaKind>([
+  "image",
+  "video",
+  "video_note",
+  "sticker",
+  "animated_sticker",
+  "video_sticker",
+  "document",
+]);
+
+export function mediaKind(m: PostMedia): PostMediaKind {
+  const explicit = m.kind;
+  if (explicit && POST_MEDIA_KINDS.has(explicit)) {
+    return explicit;
+  }
+  if (m.type === "application/x-tgsticker" || m.type === "application/json") {
+    return "animated_sticker";
+  }
+  if (isImageMedia(m)) return "image";
+  if (isVideoMedia(m)) return "video";
+  return "document";
+}
+
+export function isVideoNoteKind(m: PostMedia): boolean {
+  return mediaKind(m) === "video_note";
+}
+
+export function isStickerKind(m: PostMedia): boolean {
+  const kind = mediaKind(m);
+  return kind === "sticker" || kind === "animated_sticker" || kind === "video_sticker";
+}
+
+export function isAnimatedStickerKind(m: PostMedia): boolean {
+  return mediaKind(m) === "animated_sticker";
+}
+
+export function isCompactMediaKind(m: PostMedia): boolean {
+  return isStickerKind(m) || isVideoNoteKind(m);
+}
+
 export function isImageMedia(m: PostMedia): boolean {
+  if (m.kind === "sticker" || m.kind === "animated_sticker" || m.kind === "video_sticker") {
+    return false;
+  }
   const url = resolveMediaUrl(m.url);
   return (
     m.type.startsWith("image/") ||
@@ -218,6 +261,9 @@ export function isImageMedia(m: PostMedia): boolean {
 }
 
 export function isVideoMedia(m: PostMedia): boolean {
+  if (m.kind === "video_note" || m.kind === "video_sticker") {
+    return false;
+  }
   const url = resolveMediaUrl(m.url);
   return (
     m.type.startsWith("video/") ||

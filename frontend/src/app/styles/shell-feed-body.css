@@ -322,6 +322,42 @@
   gap: 0;
   background: transparent;
 }
+.post-card-media:has(.tg-media-video-note-hit),
+.post-card-media:has(.tg-media-sticker),
+.post-card-media:has(.tg-media-animated-sticker),
+.post-card-media:has(.tg-media-video-sticker),
+.post-msg-media:has(.tg-media-video-note-hit),
+.post-msg-media:has(.tg-media-sticker),
+.post-msg-media:has(.tg-media-animated-sticker),
+.post-msg-media:has(.tg-media-video-sticker),
+.post-msg-media-edit:has(.tg-media-video-note-hit),
+.post-msg-media-edit:has(.tg-media-sticker),
+.post-msg-media-edit:has(.tg-media-animated-sticker),
+.post-msg-media-edit:has(.tg-media-video-sticker) {
+  margin-left: 0;
+  margin-right: 0;
+  margin-top: 4px;
+  width: 100%;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  overflow: visible;
+  border-radius: 0;
+  margin-bottom: 4px;
+}
+
+/* Media-only posts: compact media (кружок, стикер) без текста */
+.post-card-body:has(> .post-card-media .tg-media-video-note-hit):not(:has(> .post-card-text)),
+.post-card-body:has(> .post-card-media .tg-media-sticker):not(:has(> .post-card-text)),
+.post-card-body:has(> .post-card-media .tg-media-animated-sticker):not(:has(> .post-card-text)),
+.post-card-body:has(> .post-card-media .tg-media-video-sticker):not(:has(> .post-card-text)),
+.post-card-body:has(> .post-msg-media .tg-media-video-note-hit):not(:has(> .post-card-text)),
+.post-card-body:has(> .post-msg-media .tg-media-sticker):not(:has(> .post-card-text)),
+.post-card-body:has(> .post-msg-media .tg-media-animated-sticker):not(:has(> .post-card-text)),
+.post-card-body:has(> .post-msg-media .tg-media-video-sticker):not(:has(> .post-card-text)) {
+  padding-top: 0;
+}
 .post-meta {
   display: flex;
   align-items: center;
@@ -635,6 +671,24 @@
     width: calc(100% + 20px);
     margin-top: -1px;
     margin-bottom: 10px;
+  }
+.post-card-media:has(.tg-media-video-note-hit),
+  .post-card-media:has(.tg-media-sticker),
+  .post-card-media:has(.tg-media-animated-sticker),
+  .post-card-media:has(.tg-media-video-sticker),
+  .post-msg-media:has(.tg-media-video-note-hit),
+  .post-msg-media:has(.tg-media-sticker),
+  .post-msg-media:has(.tg-media-animated-sticker),
+  .post-msg-media:has(.tg-media-video-sticker),
+  .post-msg-media-edit:has(.tg-media-video-note-hit),
+  .post-msg-media-edit:has(.tg-media-sticker),
+  .post-msg-media-edit:has(.tg-media-animated-sticker),
+  .post-msg-media-edit:has(.tg-media-video-sticker) {
+    margin-left: 0;
+    margin-right: 0;
+    width: 100%;
+    margin-top: 4px;
+    margin-bottom: 4px;
   }
 .post-card.post-card--draft-dnd .post-card-media {
     margin-top: 1px;

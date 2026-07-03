@@ -97,9 +97,9 @@ export default function PostCommentsPanel({
                   ) : null}
                   {post.text ? (
                     <div className="post-card-text">{post.text}</div>
-                  ) : (
+                  ) : media.length === 0 ? (
                     <div className="post-card-text empty">Пост пустой</div>
-                  )}
+                  ) : null}
                   {metrics ? <PostReactionPills reactions={metrics.reactions} /> : null}
                   <div className="post-card-footer">
                     <div className="post-meta">{badge}</div>

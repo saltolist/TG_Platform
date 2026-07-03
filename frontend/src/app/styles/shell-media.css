@@ -30,6 +30,112 @@
 .tg-media.layout-3 .span-2 { aspect-ratio: 2 / 1; }
 .tg-media.single .tg-media-item { max-height: 460px; }
 
+.tg-media--compact {
+  display: inline-flex;
+  width: auto;
+  max-width: 100%;
+  background: transparent;
+  overflow: visible;
+}
+
+.tg-media--compact .tg-media-item--compact {
+  aspect-ratio: auto;
+  max-height: none;
+  background: transparent;
+  overflow: visible;
+}
+
+/* Center compact Telegram media (video notes, stickers) in post/feed cards */
+.tg-media:has(.tg-media-video-note-hit),
+.tg-media:has(.tg-media-sticker),
+.tg-media:has(.tg-media-animated-sticker),
+.tg-media:has(.tg-media-video-sticker) {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  width: 100%;
+  background: transparent;
+  overflow: visible;
+}
+
+.tg-media-item:has(.tg-media-video-note-hit),
+.tg-media-item:has(.tg-media-sticker),
+.tg-media-item:has(.tg-media-animated-sticker),
+.tg-media-item:has(.tg-media-video-sticker) {
+  aspect-ratio: auto;
+  max-height: none;
+  background: transparent;
+  overflow: visible;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  width: 100%;
+}
+
+.tg-media-video-note-hit {
+  display: block;
+  width: 240px;
+  height: 240px;
+  max-width: 100%;
+  padding: 0;
+  border: none;
+  border-radius: 50%;
+  overflow: hidden;
+  position: relative;
+  cursor: pointer;
+  background: #000;
+}
+
+.tg-media-video-note {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  object-position: center center;
+  display: block;
+}
+
+.tg-media-video-note-play {
+  position: absolute;
+  inset: 0;
+  margin: auto;
+  width: 56px;
+  height: 56px;
+  border-radius: 50%;
+  background: rgba(0, 0, 0, 0.45);
+}
+
+.tg-media-video-note-play::after {
+  content: "";
+  position: absolute;
+  top: 50%;
+  left: 54%;
+  transform: translate(-50%, -50%);
+  border-style: solid;
+  border-width: 10px 0 10px 16px;
+  border-color: transparent transparent transparent #fff;
+}
+
+.tg-media-sticker,
+.tg-media-animated-sticker,
+.tg-media-video-sticker {
+  display: block;
+  width: auto;
+  height: auto;
+  max-width: 240px;
+  max-height: 240px;
+  object-fit: contain;
+  background: transparent;
+}
+
+.tg-media-sticker--loading {
+  width: 240px;
+  height: 240px;
+  border-radius: 8px;
+  background: var(--bg4);
+}
+
 .tg-media-img,
 .tg-media-video {
   width: 100%;

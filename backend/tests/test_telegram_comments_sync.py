@@ -11,6 +11,7 @@ import pytest
 from httpx import AsyncClient
 from sqlalchemy import select
 
+from app.core.config import get_settings
 from app.db import session as db_session_module
 from app.db.models import Post, Profile
 from app.services.telegram import mtproto_client
@@ -272,6 +273,72 @@ async def test_merge_comments_keeps_pending_platform_comments() -> None:
     assert any(item.get("telegramMessageId") == "101" for item in merged)
 
 
+def test_merge_comments_updates_media() -> None:
+    existing = [
+        {
+            "id": "tg-100",
+            "author": "Alice",
+            "text": "",
+            "date": "2026-01-01T01:00:00Z",
+            "telegramMessageId": "100",
+        }
+    ]
+    from_tg = [
+        {
+            "id": "tg-100",
+            "author": "Alice",
+            "text": "",
+            "date": "2026-01-01T02:00:00Z",
+            "telegramMessageId": "100",
+            "media": [
+                {
+                    "name": "sticker.webp",
+                    "url": "/media/u/100.webp",
+                    "type": "image/webp",
+                    "kind": "sticker",
+                }
+            ],
+        }
+    ]
+    merged = merge_comments(existing, from_tg)
+    updated = next(item for item in merged if item.get("telegramMessageId") == "100")
+    assert updated["media"][0]["kind"] == "sticker"
+
+
+@pytest.mark.asyncio
+async def test_map_telegram_messages_to_comments_with_media(monkeypatch: pytest.MonkeyPatch) -> None:
+    user_id = uuid.uuid4()
+
+    async def fake_save(_client: Any, message: Any, _user_id: uuid.UUID, _settings: Any) -> dict[str, str]:
+        return {
+            "name": "party.tgs",
+            "url": f"/media/{_user_id}/{message.id}.json",
+            "type": "application/json",
+            "kind": "animated_sticker",
+        }
+
+    monkeypatch.setattr(
+        "app.services.telegram.comments_flow.save_message_media",
+        fake_save,
+    )
+    sticker_message = _discussion_message(
+        150,
+        text="",
+        reply_to=DISCUSSION_ROOT_ID,
+        author="StickerUser",
+    )
+    sticker_message.media = SimpleNamespace()
+    comments = await map_telegram_messages_to_comments(
+        SimpleNamespace(),
+        [sticker_message],
+        discussion_root_id=DISCUSSION_ROOT_ID,
+        user_id=user_id,
+        settings=get_settings(),
+    )
+    assert len(comments) == 1
+    assert comments[0]["media"][0]["kind"] == "animated_sticker"
+
+
 @pytest.mark.asyncio
 async def test_map_telegram_messages_to_comments_reply_chain() -> None:
     parent = _discussion_message(100, text="Parent", reply_to=DISCUSSION_ROOT_ID, author="Alice")
@@ -281,6 +348,8 @@ async def test_map_telegram_messages_to_comments_reply_chain() -> None:
         SimpleNamespace(),
         [parent, child],
         discussion_root_id=DISCUSSION_ROOT_ID,
+        user_id=uuid.uuid4(),
+        settings=get_settings(),
     )
     assert len(comments) == 2
     by_id = {item["telegramMessageId"]: item for item in comments}
@@ -702,6 +771,7 @@ async def test_discussion_comment_buffer_flushes_batch(
         tg_client,
         user_id,
         TestSessionLocal,
+        settings=get_settings(),
         debounce_seconds=0.0,
     )
     for msg_id in (9201, 9202):

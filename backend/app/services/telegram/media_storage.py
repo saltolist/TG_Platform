@@ -8,6 +8,10 @@ from typing import Any
 from uuid import UUID
 
 from app.core.config import Settings
+from app.services.telegram.media_kinds import (
+    classify_telegram_media,
+    normalize_tgs_to_lottie_json,
+)
 
 
 def _guess_extension(mime_type: str, fallback_name: str = "") -> str:
@@ -36,6 +40,10 @@ async def save_message_media(
     if size is not None and size > max_bytes:
         return None
 
+    kind = classify_telegram_media(message)
+    if kind is None:
+        return None
+
     mime_type = getattr(file_obj, "mime_type", None) or "application/octet-stream"
     original_name = getattr(file_obj, "name", None) or ""
     ext = _guess_extension(mime_type, original_name)
@@ -49,7 +57,24 @@ async def save_message_media(
     if not downloaded and not dest.is_file():
         return None
 
-    display_name = original_name or filename
-    # Relative path in DB; frontend resolves via NEXT_PUBLIC_API_BASE_URL at render time.
-    url = f"/media/{user_id}/{filename}"
-    return {"name": display_name, "url": url, "type": mime_type}
+    stored_type = mime_type
+    stored_name = original_name or filename
+    stored_filename = filename
+
+    if kind == "animated_sticker":
+        try:
+            lottie_bytes = normalize_tgs_to_lottie_json(dest.read_bytes())
+        except ValueError:
+            return None
+        stored_filename = f"{message.id}.json"
+        stored_dest = user_dir / stored_filename
+        stored_dest.write_bytes(lottie_bytes)
+        if stored_dest != dest and dest.is_file():
+            dest.unlink(missing_ok=True)
+        stored_type = "application/json"
+        if not stored_name.lower().endswith(".json"):
+            stored_name = f"{Path(stored_name).stem or message.id}.json"
+
+    display_name = stored_name
+    url = f"/media/{user_id}/{stored_filename}"
+    return {"name": display_name, "url": url, "type": stored_type, "kind": kind}

@@ -210,6 +210,7 @@ async def reconcile_channel_window(
                     client,
                     entity,
                     telegram["discussionChatId"],
+                    user_id,
                     dict(post.data),
                     settings,
                 )

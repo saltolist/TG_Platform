@@ -1,7 +1,17 @@
 "use client";
 
-import { isImageMedia, isVideoMedia, resolveMediaUrl } from "@/shared/lib/helpers";
+import {
+  isCompactMediaKind,
+  isImageMedia,
+  isVideoMedia,
+  mediaKind,
+  resolveMediaUrl,
+} from "@/shared/lib/helpers";
 import type { PostMedia } from "@/shared/types";
+import { AnimatedStickerMedia } from "./media/AnimatedStickerMedia";
+import { StickerMedia } from "./media/StickerMedia";
+import { VideoNoteMedia } from "./media/VideoNoteMedia";
+import { VideoStickerMedia } from "./media/VideoStickerMedia";
 
 type Props = {
   media: PostMedia[];
@@ -12,16 +22,20 @@ export default function PostMediaBlock({ media, onRemove }: Props) {
   if (!media || media.length === 0) return null;
 
   const n = media.length;
+  const compactSingle = n === 1 && isCompactMediaKind(media[0]);
   const layout = layoutClass(n);
   const editable = !!onRemove;
 
   return (
     <div
-      className={`tg-media ${layout}${editable ? " tg-media-editable" : ""}${n === 1 ? " single" : ""}`}
+      className={`tg-media ${layout}${editable ? " tg-media-editable" : ""}${n === 1 ? " single" : ""}${compactSingle ? " tg-media--compact" : ""}`}
       data-count={n}
     >
       {media.map((m, i) => (
-        <div key={`${m.name}-${i}`} className={`tg-media-item${slotClass(n, i)}`}>
+        <div
+          key={`${m.name}-${i}`}
+          className={`tg-media-item${slotClass(n, i)}${isCompactMediaKind(m) ? " tg-media-item--compact" : ""}`}
+        >
           <MediaInner media={m} />
           {onRemove ? (
             <button
@@ -54,21 +68,24 @@ export default function PostMediaBlock({ media, onRemove }: Props) {
 }
 
 function MediaInner({ media }: { media: PostMedia }) {
+  const kind = mediaKind(media);
+  if (kind === "animated_sticker") {
+    return <AnimatedStickerMedia media={media} />;
+  }
+  if (kind === "video_sticker") {
+    return <VideoStickerMedia media={media} />;
+  }
+  if (kind === "sticker") {
+    return <StickerMedia media={media} />;
+  }
+  if (kind === "video_note" || isVideoMedia(media)) {
+    return <VideoNoteMedia media={media} />;
+  }
+
   const src = resolveMediaUrl(media.url);
   if (isImageMedia(media) && src) {
     // eslint-disable-next-line @next/next/no-img-element
     return <img className="tg-media-img" src={src} alt={media.name} loading="lazy" />;
-  }
-  if (isVideoMedia(media) && src) {
-    return (
-      <video
-        className="tg-media-video"
-        src={src}
-        controls
-        preload="metadata"
-        playsInline
-      />
-    );
   }
   return (
     <div className="tg-media-doc">

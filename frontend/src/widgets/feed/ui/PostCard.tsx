@@ -74,9 +74,9 @@ export default function PostCard({
         ) : null}
         {post.text ? (
           <div className="post-card-text">{post.text}</div>
-        ) : (
+        ) : mediaItems.length === 0 ? (
           <div className="post-card-text empty">Пост пустой — нажми чтобы начать писать</div>
-        )}
+        ) : null}
         {post.status === "published" && post.metrics && !isTelegramSyncing ? (
           <PostReactionPills reactions={post.metrics.reactions} />
         ) : null}

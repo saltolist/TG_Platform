@@ -838,6 +838,7 @@
   flex-direction: column;
   gap: 14px;
   margin-top: 14px;
+  padding-bottom: 8px;
 }
 .post-comment {
   display: flex;
@@ -856,13 +857,21 @@
   font-size: 12px;
   font-weight: 700;
   color: #fff;
+  margin-top: 1px;
 }
-.post-comment-main { flex: 1; min-width: 0; }
+.post-comment-main {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  align-items: stretch;
+}
 .post-comment-head {
   display: flex;
   align-items: baseline;
   gap: 8px;
-  margin-bottom: 4px;
+  margin-bottom: 8px;
+  flex-shrink: 0;
 }
 .post-comment-author { font-size: 13px; font-weight: 600; color: var(--text); }
 .post-comment-sync-label {
@@ -908,14 +917,84 @@
   cursor: pointer;
 }
 .post-comment-reply-btn:hover { text-decoration: underline; }
+.post-comment-compact-media {
+  display: flex;
+  flex-direction: column;
+  align-items: stretch;
+  gap: 8px;
+  margin-top: 0;
+  margin-bottom: 4px;
+  width: 100%;
+}
+.post-comment-compact-media .post-comment-media {
+  margin-top: 0;
+}
+.post-comment-compact-media-actions {
+  display: flex;
+  justify-content: flex-end;
+  width: 100%;
+}
+.post-comment-reply-btn--compact-media {
+  margin-top: 0;
+  flex-shrink: 0;
+}
 .post-comment-media {
   margin-top: 4px;
   max-width: 100%;
 }
+/* Comment media: isolate from feed/post compact tg-media flex rules */
+.post-comment-media--compact .tg-media,
+.post-comment-media--compact .tg-media:has(.tg-media-video-note-hit),
+.post-comment-media--compact .tg-media:has(.tg-media-sticker),
+.post-comment-media--compact .tg-media:has(.tg-media-animated-sticker),
+.post-comment-media--compact .tg-media:has(.tg-media-video-sticker) {
+  display: block;
+  width: fit-content;
+  max-width: 100%;
+  overflow: hidden;
+  background: transparent;
+}
+.post-comment-media--compact .tg-media-item,
+.post-comment-media--compact .tg-media-item--compact,
+.post-comment-media--compact .tg-media-item:has(.tg-media-video-note-hit),
+.post-comment-media--compact .tg-media-item:has(.tg-media-sticker),
+.post-comment-media--compact .tg-media-item:has(.tg-media-animated-sticker),
+.post-comment-media--compact .tg-media-item:has(.tg-media-video-sticker) {
+  display: block;
+  width: auto;
+  height: auto;
+  max-height: none;
+  aspect-ratio: auto;
+  overflow: hidden;
+  background: transparent;
+}
+.post-comment-media .tg-media-video-note-hit {
+  width: 200px;
+  height: 200px;
+  min-width: 200px;
+  min-height: 200px;
+  max-width: 200px;
+  max-height: 200px;
+  aspect-ratio: 1 / 1;
+  flex-shrink: 0;
+}
+.post-comment-media .tg-media-sticker,
+.post-comment-media .tg-media-animated-sticker,
+.post-comment-media .tg-media-video-sticker {
+  width: 200px;
+  height: 200px;
+  max-width: 200px;
+  max-height: 200px;
+  object-fit: contain;
+}
+.post-comment-media .tg-media-sticker--loading {
+  width: 200px;
+  height: 200px;
+}
 .post-comment-media + .post-comment-text {
   margin-top: 8px;
 }
-.post-comment-media .tg-media.single .tg-media-item {
+.post-comment-media .tg-media.single .tg-media-item:not(.tg-media-item--compact) {
   max-height: 280px;
 }
 .post-comments-input-wrap {

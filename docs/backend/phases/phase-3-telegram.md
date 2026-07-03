@@ -201,6 +201,10 @@ HTTP-ответ connect возвращается мгновенно с `importSt
 - `backend/app/services/telegram/media_storage.py` — скачивание фото/документов
   через Telethon на диск (`media_storage_root`), лимит `telegram_import_max_media_mb`
   (20 МБ); раздача через статический mount `/media`.
+- `backend/app/services/telegram/media_kinds.py` — классификация Telegram-медиа
+  в `PostMedia.kind` (`image`, `video`, `video_note`, `sticker`, `animated_sticker`,
+  `video_sticker`, `document`). TGS (`application/x-tgsticker`) при импорте
+  распаковывается в Lottie JSON (`.json`, `type: application/json`).
 - **Идемпотентность:** импортированные посты помечаются `data.source = "telegram"`
   (внутренний маркер, не часть `postSchema` на фронте). Повторный импорт удаляет
   только посты с этим маркером; черновики пользователя не трогаются.
@@ -641,7 +645,14 @@ GET /api/v1/analytics/top-posts/?period=30d
 **Тесты:** `backend/tests/test_telegram_comments_sync.py`.
 
 **Ограничения v1:** нет edit/delete комментариев в TG; только посты с `telegramMessageId`;
-медиа в комментариях — `send_file` при локальном `/media/` пути.
+медиа в исходящих комментариях — `send_file` при локальном `/media/` пути;
+входящие комментарии с медиа импортируются через `save_message_media` (кружки,
+стикеры, TGS). Уже импортированные посты/комментарии без `kind` не обновляются
+автоматически — только новый трафик или повторный импорт истории.
+
+**Frontend:** `PostMediaBlock` — ветки по `kind` (круглый video note, статичный
+стикер, Lottie для `animated_sticker`, loop-video для `video_sticker`); лента и
+комментарии используют один компонент.
 
 ### Шаг 6 — Бот для уведомлений (опционально)
 

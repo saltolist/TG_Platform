@@ -14,10 +14,21 @@ export const postMetricsSchema = z.object({
   reactions: z.array(postReactionSchema),
 });
 
+export const postMediaKindSchema = z.enum([
+  "image",
+  "video",
+  "video_note",
+  "sticker",
+  "animated_sticker",
+  "video_sticker",
+  "document",
+]);
+
 export const postMediaSchema = z.object({
   name: z.string(),
   url: z.string(),
   type: z.string(),
+  kind: postMediaKindSchema.optional(),
 });
 
 export const noteFileSchema = z.object({
@@ -161,10 +172,16 @@ export const postSchema = z.object({
   deletedAt: z.string().optional(),
   rubric: z.string().nullable(),
   metrics: postMetricsSchema.optional(),
-  text: z.string(),
+  text: z.string().default(""),
   media: z.array(postMediaSchema).optional(),
-  notes: z.array(localNoteSchema),
-  chats: z.array(localChatSchema),
+  notes: z
+    .array(localNoteSchema)
+    .nullish()
+    .transform((value) => value ?? []),
+  chats: z
+    .array(localChatSchema)
+    .nullish()
+    .transform((value) => value ?? []),
   comments: z.array(postCommentSchema).optional(),
   telegramMessageId: z.string().optional(),
   telegramDiscussionMessageId: z.string().optional(),
@@ -183,6 +200,7 @@ export const postsListSchema = z.array(postSchema);
 export type PostStatus = z.infer<typeof postStatusSchema>;
 export type PostReaction = z.infer<typeof postReactionSchema>;
 export type PostMetrics = z.infer<typeof postMetricsSchema>;
+export type PostMediaKind = z.infer<typeof postMediaKindSchema>;
 export type PostMedia = z.infer<typeof postMediaSchema>;
 export type NoteFile = z.infer<typeof noteFileSchema>;
 export type LocalNote = z.infer<typeof localNoteSchema>;

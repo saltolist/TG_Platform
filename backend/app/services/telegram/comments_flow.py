@@ -32,6 +32,7 @@ from app.services.telegram.net import (
     with_timeout,
 )
 from app.services.telegram.session_guard import exclusive_telegram_access
+from app.services.telegram.media_storage import save_message_media
 
 logger = logging.getLogger(__name__)
 
@@ -420,6 +421,8 @@ def merge_comments(
                     "date": incoming.get("date", copy.get("date")),
                 }
             )
+            if incoming.get("media") is not None:
+                copy["media"] = incoming.get("media")
             if reply_to_id is not None:
                 copy["replyToId"] = reply_to_id
             else:
@@ -445,6 +448,8 @@ async def map_telegram_messages_to_comments(
     messages: list[Any],
     *,
     discussion_root_id: int,
+    user_id: UUID,
+    settings: Settings,
     existing: list[dict[str, Any]] | None = None,
     sender_cache: dict[int, str] | None = None,
 ) -> list[dict[str, Any]]:
@@ -472,16 +477,19 @@ async def map_telegram_messages_to_comments(
             continue
         platform_id = platform_id_by_tg.get(str(msg_id)) or _comment_platform_id(msg_id)
         platform_id_by_tg[str(msg_id)] = platform_id
-        comments.append(
-            {
-                "id": platform_id,
-                "author": await _sender_display_name(client, message, cache=sender_cache),
-                "text": text,
-                "date": _message_date_iso(message),
-                "telegramMessageId": str(msg_id),
-                **({"replyToId": reply_to_id} if reply_to_id else {}),
-            }
-        )
+        media_item = await save_message_media(client, message, user_id, settings)
+        payload: dict[str, Any] = {
+            "id": platform_id,
+            "author": await _sender_display_name(client, message, cache=sender_cache),
+            "text": text,
+            "date": _message_date_iso(message),
+            "telegramMessageId": str(msg_id),
+        }
+        if reply_to_id is not None:
+            payload["replyToId"] = reply_to_id
+        if media_item is not None:
+            payload["media"] = [media_item]
+        comments.append(payload)
     return comments
 
 
@@ -490,6 +498,7 @@ async def fetch_comments_from_telegram(
     channel_entity: Any,
     discussion_chat_id: int | str,
     channel_message_id: int,
+    user_id: UUID,
     settings: Settings,
     *,
     existing: list[dict[str, Any]] | None = None,
@@ -521,6 +530,8 @@ async def fetch_comments_from_telegram(
         client,
         collected,
         discussion_root_id=root_id,
+        user_id=user_id,
+        settings=settings,
         existing=existing,
     )
     return root_id, comments, False
@@ -670,6 +681,7 @@ async def pull_comments_from_telegram(
     channel_entity: Any,
     discussion_chat_id: int | str,
     channel_message_id: int,
+    user_id: UUID,
     post_data: dict[str, Any],
     settings: Settings,
 ) -> CommentSyncResult:
@@ -679,6 +691,7 @@ async def pull_comments_from_telegram(
         channel_entity,
         discussion_chat_id,
         channel_message_id,
+        user_id,
         settings,
         existing=existing,
     )
@@ -746,6 +759,7 @@ async def sync_post_comments_pull(
                 channel_entity,
                 discussion_chat_id,
                 channel_msg_id,
+                user_id,
                 post_data,
                 settings,
             )
@@ -805,9 +819,12 @@ async def handle_live_discussion_message(
     message: Any,
     user_id: UUID,
     session_factory: Any,
+    settings: Settings | None = None,
 ) -> None:
     """Upsert one discussion-group message into the matching platform post."""
-    await handle_live_discussion_messages(client, [message], user_id, session_factory)
+    await handle_live_discussion_messages(
+        client, [message], user_id, session_factory, settings=settings
+    )
 
 
 async def handle_live_discussion_messages(
@@ -815,6 +832,8 @@ async def handle_live_discussion_messages(
     messages: list[Any],
     user_id: UUID,
     session_factory: Any,
+    *,
+    settings: Settings | None = None,
 ) -> None:
     """Upsert a batch of discussion messages, grouped per post.
 
@@ -826,6 +845,8 @@ async def handle_live_discussion_messages(
         apply_discussion_comments,
         find_post_for_discussion_reply,
     )
+
+    settings = settings or get_settings()
 
     if not messages:
         return
@@ -866,6 +887,8 @@ async def handle_live_discussion_messages(
                 client,
                 thread_messages,
                 discussion_root_id=root_id,
+                user_id=user_id,
+                settings=settings,
                 existing=list(post.data.get("comments") or []),
                 sender_cache=sender_cache,
             )
@@ -898,12 +921,14 @@ class DiscussionCommentBuffer:
         user_id: UUID,
         session_factory: Any,
         *,
+        settings: Settings,
         debounce_seconds: float,
         on_error: Any | None = None,
     ) -> None:
         self._client = client
         self._user_id = user_id
         self._session_factory = session_factory
+        self._settings = settings
         self._debounce_seconds = max(0.0, debounce_seconds)
         self._on_error = on_error
         self._pending: list[Any] = []
@@ -934,7 +959,11 @@ class DiscussionCommentBuffer:
             return
         try:
             await handle_live_discussion_messages(
-                self._client, batch, self._user_id, self._session_factory
+                self._client,
+                batch,
+                self._user_id,
+                self._session_factory,
+                settings=self._settings,
             )
         except Exception as exc:  # noqa: BLE001
             logger.exception(
@@ -957,6 +986,7 @@ async def reconcile_post_comments(
     client: Any,
     channel_entity: Any,
     discussion_chat_id: int | str,
+    user_id: UUID,
     post_data: dict[str, Any],
     settings: Settings,
 ) -> tuple[dict[str, Any], bool]:
@@ -975,6 +1005,7 @@ async def reconcile_post_comments(
         channel_entity,
         discussion_chat_id,
         channel_msg_id,
+        user_id,
         settings,
         existing=existing,
     )
@@ -996,6 +1027,8 @@ async def map_single_discussion_message(
     message: Any,
     *,
     discussion_root_id: int,
+    user_id: UUID,
+    settings: Settings,
     existing: list[dict[str, Any]] | None = None,
 ) -> dict[str, Any] | None:
     """Map one live-sync discussion message to a platform comment dict."""
@@ -1003,6 +1036,8 @@ async def map_single_discussion_message(
         client,
         [message],
         discussion_root_id=discussion_root_id,
+        user_id=user_id,
+        settings=settings,
         existing=existing,
     )
     return comments[0] if comments else None

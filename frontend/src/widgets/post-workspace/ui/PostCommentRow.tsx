@@ -2,7 +2,7 @@
 
 import { PostMediaBlock } from "@/entities/post";
 import { PostTelegramSyncLabel } from "@/entities/post/ui/PostTelegramSyncLabel";
-import { formatStoredDate } from "@/shared/lib/helpers";
+import { formatStoredDate, isCompactMediaKind } from "@/shared/lib/helpers";
 import { avatarHue, avatarInitials } from "@/shared/lib/postComments";
 import type { PostComment } from "@/shared/types";
 
@@ -15,6 +15,9 @@ type Props = {
 
 export default function PostCommentRow({ comment, parent, onReply, telegramSyncing = false }: Props) {
   const hue = avatarHue(comment.author);
+  const compactMedia =
+    comment.media?.length === 1 && comment.media[0] != null && isCompactMediaKind(comment.media[0]);
+
   return (
     <article className={`post-comment${parent ? " post-comment--reply" : ""}`}>
       <div
@@ -40,12 +43,31 @@ export default function PostCommentRow({ comment, parent, onReply, telegramSynci
           </div>
         ) : null}
         {comment.media && comment.media.length > 0 ? (
-          <div className="post-comment-media">
-            <PostMediaBlock media={comment.media} />
-          </div>
+          compactMedia ? (
+            <div className="post-comment-compact-media">
+              <div className="post-comment-media post-comment-media--compact">
+                <PostMediaBlock media={comment.media} />
+              </div>
+              {onReply ? (
+                <div className="post-comment-compact-media-actions">
+                  <button
+                    className="post-comment-reply-btn post-comment-reply-btn--compact-media"
+                    onClick={onReply}
+                    type="button"
+                  >
+                    Ответить
+                  </button>
+                </div>
+              ) : null}
+            </div>
+          ) : (
+            <div className="post-comment-media">
+              <PostMediaBlock media={comment.media} />
+            </div>
+          )
         ) : null}
         {comment.text ? <p className="post-comment-text">{comment.text}</p> : null}
-        {onReply ? (
+        {onReply && !compactMedia ? (
           <button className="post-comment-reply-btn" onClick={onReply} type="button">
             Ответить
           </button>

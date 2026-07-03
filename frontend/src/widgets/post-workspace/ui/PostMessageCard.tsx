@@ -153,7 +153,7 @@ export default function PostMessageCard({
               className={[
                 "post-card-text",
                 "post-msg-textarea",
-                !draft.trim() ? "empty" : "",
+                !draft.trim() && mediaDraft.length === 0 ? "empty" : "",
                 editorLocked ? "post-msg-textarea--locked" : "",
               ]
                 .filter(Boolean)
@@ -170,9 +170,9 @@ export default function PostMessageCard({
             />
           ) : text ? (
             <div className="post-card-text">{text}</div>
-          ) : (
+          ) : media.length === 0 ? (
             <div className="post-card-text empty">Пост пустой — начни писать...</div>
-          )}
+          ) : null}
           {metrics ? <PostReactionPills reactions={metrics.reactions} /> : null}
           <div className="post-card-footer">
             <div className="post-meta">{badge}</div>

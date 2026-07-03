@@ -616,6 +616,7 @@ async def _run_user_listener(user_id: UUID, stop_event: asyncio.Event) -> None:
                     client,
                     user_id,
                     session_factory,
+                    settings=settings,
                     debounce_seconds=settings.telegram_comment_debounce_seconds,
                     on_error=lambda detail: set_sync_error(
                         user_id, detail, session_factory

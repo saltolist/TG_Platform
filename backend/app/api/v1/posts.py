@@ -29,6 +29,7 @@ from app.services.telegram.net import TelegramAuthError
 from app.services.telegram.post_sync import mark_post_deleted, restore_deleted_post_to_draft
 from app.services.telegram.publish_flow import parse_scheduled_at
 from app.services.telegram.publish_flow import publish_post as run_telegram_publish
+from app.services.posts_payload import normalize_post_for_api
 from app.services.telegram.sync_pending import enrich_posts_for_user, telegram_sync_pending
 from app.tasks.publish import publish_scheduled_post
 
@@ -41,7 +42,11 @@ async def list_posts(user: CurrentUser, session: DbSession) -> list[dict[str, An
         select(Post).where(Post.user_id == user.id).order_by(Post.position, Post.created_at)
     )
     return await enrich_posts_for_user(
-        user.id, [post.data for post in result.scalars().all()]
+        user.id,
+        [
+            normalize_post_for_api(post.data, db_id=str(post.id))
+            for post in result.scalars().all()
+        ],
     )
 
 
@@ -49,7 +54,10 @@ async def list_posts(user: CurrentUser, session: DbSession) -> list[dict[str, An
 async def get_post(post_id: str, user: CurrentUser, session: DbSession) -> dict[str, Any]:
     """Return one post from DB (no Telegram round-trip). Used by open-post polling."""
     post = await get_owned_post(session, user.id, post_id)
-    enriched = await enrich_posts_for_user(user.id, [post.data])
+    enriched = await enrich_posts_for_user(
+        user.id,
+        [normalize_post_for_api(post.data, db_id=str(post.id))],
+    )
     return enriched[0]
 
 

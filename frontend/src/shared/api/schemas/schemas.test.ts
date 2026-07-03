@@ -73,9 +73,22 @@ describe("postSchema", () => {
     expect(() => postSchema.parse({ ...validPost, status: "archived" })).toThrow();
   });
 
-  it("rejects missing text", () => {
+  it("defaults missing text to empty string", () => {
     const { text: _, ...rest } = validPost;
-    expect(() => postSchema.parse(rest)).toThrow();
+    expect(postSchema.parse(rest).text).toBe("");
+  });
+
+  it("accepts legacy posts with null notes and chats", () => {
+    expect(
+      postSchema.parse({
+        id: "legacy-1",
+        status: "deleted",
+        rubric: null,
+        text: "",
+        notes: null,
+        chats: null,
+      }),
+    ).toMatchObject({ notes: [], chats: [] });
   });
 });
 
