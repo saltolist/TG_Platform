@@ -6,6 +6,8 @@ import type { PostMedia } from "@/shared/types";
 
 type Props = {
   media: PostMedia;
+  /** In feed cards: play/pause without opening the post workspace. */
+  stopNavigation?: boolean;
 };
 
 const PROGRESS_RADIUS = 47;
@@ -38,7 +40,7 @@ function pointerDistanceNorm(clientX: number, clientY: number, rect: DOMRect): n
   return Math.sqrt(dx * dx + dy * dy) / radius;
 }
 
-export function VideoNoteMedia({ media }: Props) {
+export function VideoNoteMedia({ media, stopNavigation = false }: Props) {
   const videoRef = useRef<HTMLVideoElement>(null);
   const scrubbingRef = useRef(false);
   const [playing, setPlaying] = useState(false);
@@ -100,7 +102,12 @@ export function VideoNoteMedia({ media }: Props) {
     setProgress(clamped);
   };
 
+  const isolateFromCard = (event: { stopPropagation: () => void }) => {
+    if (stopNavigation) event.stopPropagation();
+  };
+
   const onPointerDown = (event: PointerEvent<HTMLButtonElement>) => {
+    isolateFromCard(event);
     scrubbingRef.current = false;
     const rect = event.currentTarget.getBoundingClientRect();
     if (pointerDistanceNorm(event.clientX, event.clientY, rect) < SCRUB_RING_INNER) {
@@ -113,6 +120,7 @@ export function VideoNoteMedia({ media }: Props) {
 
   const onPointerMove = (event: PointerEvent<HTMLButtonElement>) => {
     if (!scrubbingRef.current) return;
+    isolateFromCard(event);
     const rect = event.currentTarget.getBoundingClientRect();
     seekToFraction(fractionFromPointer(event.clientX, event.clientY, rect));
   };
@@ -125,9 +133,11 @@ export function VideoNoteMedia({ media }: Props) {
       } catch {
         // Pointer was already released.
       }
+      isolateFromCard(event);
       return;
     }
     toggle();
+    isolateFromCard(event);
   };
 
   const showProgress = playing || progress > 0.001;
@@ -155,6 +165,7 @@ export function VideoNoteMedia({ media }: Props) {
         onPointerMove={onPointerMove}
         onPointerUp={onPointerUp}
         onPointerCancel={onPointerUp}
+        onClick={(event) => isolateFromCard(event)}
         aria-label={playing ? "Пауза" : "Воспроизвести"}
       >
         <video

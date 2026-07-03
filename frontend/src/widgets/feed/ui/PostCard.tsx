@@ -70,7 +70,7 @@ export default function PostCard({
       <div className="post-card-body">
         {mediaItems.length > 0 ? (
           <div className="post-card-media">
-            <PostMediaBlock media={mediaItems} />
+            <PostMediaBlock media={mediaItems} variant="feed" />
           </div>
         ) : null}
         {post.text || post.textHtml ? (

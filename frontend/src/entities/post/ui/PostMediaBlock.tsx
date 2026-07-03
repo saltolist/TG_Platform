@@ -17,7 +17,7 @@ type Props = {
   media: PostMedia[];
   onRemove?: (index: number) => void;
   /** Comment thread layout: left-aligned compact media, no feed-style centering. */
-  variant?: "default" | "comment";
+  variant?: "default" | "comment" | "feed";
 };
 
 export default function PostMediaBlock({ media, onRemove, variant = "default" }: Props) {
@@ -38,7 +38,7 @@ export default function PostMediaBlock({ media, onRemove, variant = "default" }:
           key={`${m.name}-${i}`}
           className={`tg-media-item${slotClass(n, i)}${isCompactMediaKind(m) ? " tg-media-item--compact" : ""}`}
         >
-          <MediaInner media={m} />
+          <MediaInner media={m} variant={variant} />
           {onRemove ? (
             <button
               type="button"
@@ -69,7 +69,7 @@ export default function PostMediaBlock({ media, onRemove, variant = "default" }:
   );
 }
 
-function MediaInner({ media }: { media: PostMedia }) {
+function MediaInner({ media, variant }: { media: PostMedia; variant: Props["variant"] }) {
   const kind = mediaKind(media);
   if (kind === "animated_sticker") {
     return <AnimatedStickerMedia media={media} />;
@@ -81,7 +81,7 @@ function MediaInner({ media }: { media: PostMedia }) {
     return <StickerMedia media={media} />;
   }
   if (kind === "video_note" || isVideoMedia(media)) {
-    return <VideoNoteMedia media={media} />;
+    return <VideoNoteMedia media={media} stopNavigation={variant === "feed"} />;
   }
 
   const src = resolveMediaUrl(media.url);
