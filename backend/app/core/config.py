@@ -97,6 +97,8 @@ class Settings(BaseSettings):
     telegram_live_sync_registry_refresh_seconds: float = 30.0
     telegram_live_sync_reconnect_seconds: float = 15.0
     telegram_live_sync_catch_up_seconds: float = 20.0
+    # Lightweight channel poll when Telethon drops live packets (Docker clock skew).
+    telegram_live_sync_fast_poll_seconds: float = 10.0
     telegram_album_debounce_seconds: float = 2.0
     # Debounce window for high-volume discussion-group comments: buffer inbound
     # comments per thread and persist them in one batch (one commit + one

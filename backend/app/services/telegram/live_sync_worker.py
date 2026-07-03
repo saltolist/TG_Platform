@@ -33,7 +33,10 @@ from app.services.telegram.net import (
     require_api_credentials,
     with_timeout,
 )
-from app.services.telegram.clock_sync import reinforce_clock_after_telegram_rpc
+from app.services.telegram.clock_sync import (
+    refine_clock_from_live_message,
+    reinforce_clock_after_telegram_rpc,
+)
 from app.services.telegram.comments_flow import (
     DiscussionCommentBuffer,
     apply_optimistic_comments_thread,
@@ -369,6 +372,29 @@ async def _catch_up(
         await session.commit()
 
 
+async def _startup_catch_up(
+    client: Any,
+    entity: Any,
+    user_id: UUID,
+    settings: Settings,
+    min_id: int,
+    session_factory: async_sessionmaker[AsyncSession],
+) -> None:
+    """One-shot lightweight catch-up right after handlers register."""
+    try:
+        await _catch_up(
+            client,
+            entity,
+            user_id,
+            settings,
+            min_id,
+            session_factory,
+            lightweight=True,
+        )
+    except Exception:
+        logger.debug("Startup live-sync catch-up failed for user %s", user_id, exc_info=True)
+
+
 async def _run_drift_correction(
     client: Any,
     entity: Any,
@@ -439,7 +465,7 @@ async def _periodic_clock_refresh_loop(
     """Keep Telethon time_offset aligned — Docker VM clocks drift during long sessions."""
     while not stop_event.is_set():
         try:
-            await asyncio.wait_for(stop_event.wait(), timeout=60.0)
+            await asyncio.wait_for(stop_event.wait(), timeout=25.0)
             return
         except asyncio.TimeoutError:
             pass
@@ -449,6 +475,41 @@ async def _periodic_clock_refresh_loop(
             await refresh_telethon_clock(client, settings)
         except Exception:
             logger.debug("Periodic Telethon clock refresh failed", exc_info=True)
+
+
+async def _fast_catch_up_loop(
+    client: Any,
+    entity: Any,
+    user_id: UUID,
+    settings: Settings,
+    session_factory: async_sessionmaker[AsyncSession],
+    stop_event: asyncio.Event,
+) -> None:
+    """Poll for channel posts newer than the cursor when live events are dropped."""
+    interval = max(5.0, settings.telegram_live_sync_fast_poll_seconds)
+    while not stop_event.is_set():
+        try:
+            await asyncio.wait_for(stop_event.wait(), timeout=interval)
+            return
+        except asyncio.TimeoutError:
+            pass
+        if stop_event.is_set():
+            return
+        try:
+            min_id = await _load_last_telegram_message_id(session_factory, user_id)
+            if min_id <= 0:
+                continue
+            await _catch_up(
+                client,
+                entity,
+                user_id,
+                settings,
+                min_id,
+                session_factory,
+                lightweight=True,
+            )
+        except Exception:
+            logger.debug("Fast live-sync poll failed for user %s", user_id, exc_info=True)
 
 
 async def _refresh_channel_message(client: Any, entity: Any, message: Any) -> Any:
@@ -484,6 +545,7 @@ async def _persist_group(
     post_data = await map_group_to_post(client, messages, user_id, settings)
     if post_data is None:
         return
+    refine_clock_from_live_message(client, messages[0], settings)
     if not update and comments_enabled(telegram):
         post_data = apply_optimistic_comments_thread(post_data, telegram)
     async with session_factory() as session:
@@ -530,6 +592,7 @@ async def _run_user_listener(user_id: UUID, stop_event: asyncio.Event) -> None:
 
                 periodic_drift_task: asyncio.Task[None] | None = None
                 clock_refresh_task: asyncio.Task[None] | None = None
+                fast_poll_task: asyncio.Task[None] | None = None
                 try:
                     await connect_telegram_client(client, settings)
                     entity = await resolve_channel_entity(client, parsed, settings)
@@ -651,6 +714,17 @@ async def _run_user_listener(user_id: UUID, stop_event: asyncio.Event) -> None:
                             await session.commit()
                     logger.info("Live-sync listening for user %s", user_id)
 
+                    asyncio.create_task(
+                        _startup_catch_up(
+                            client,
+                            entity,
+                            user_id,
+                            settings,
+                            min_id,
+                            session_factory,
+                        )
+                    )
+
                     periodic_drift_task = asyncio.create_task(
                         _periodic_drift_correction_loop(
                             client,
@@ -663,6 +737,16 @@ async def _run_user_listener(user_id: UUID, stop_event: asyncio.Event) -> None:
                     )
                     clock_refresh_task = asyncio.create_task(
                         _periodic_clock_refresh_loop(client, settings, stop_event)
+                    )
+                    fast_poll_task = asyncio.create_task(
+                        _fast_catch_up_loop(
+                            client,
+                            entity,
+                            user_id,
+                            settings,
+                            session_factory,
+                            stop_event,
+                        )
                     )
 
                     disconnect_task = asyncio.create_task(client.run_until_disconnected())
@@ -701,6 +785,12 @@ async def _run_user_listener(user_id: UUID, stop_event: asyncio.Event) -> None:
                         clock_refresh_task.cancel()
                         try:
                             await clock_refresh_task
+                        except asyncio.CancelledError:
+                            pass
+                    if fast_poll_task is not None:
+                        fast_poll_task.cancel()
+                        try:
+                            await fast_poll_task
                         except asyncio.CancelledError:
                             pass
                     if periodic_drift_task is not None:

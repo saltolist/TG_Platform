@@ -25,6 +25,8 @@ logger = logging.getLogger(__name__)
 _TELEGRAM_SKEW_WARN_SECONDS = 25
 # Do not overwrite Telethon's server-learned offset with noise below this threshold.
 _CLOCK_SYNC_APPLY_MIN_SECONDS = 10
+# Fresh live messages — offset from ``message.date`` must be within this window.
+_LIVE_MESSAGE_MAX_SKEW_SECONDS = 90
 # MTProto offsets beyond ±2 minutes are almost certainly corrupt (e.g. channel msg id ≠ remote id).
 _MAX_REASONABLE_OFFSET_SECONDS = 120
 
@@ -50,13 +52,14 @@ async def measure_http_time_offset_seconds() -> int | None:
 
     Positive offset means the container clock is behind (common in Docker Desktop
     / Colima). ``None`` when every probe failed (offline / blocked egress).
-    Takes several samples — Docker HTTP time can read ``0`` on a cold start.
+    Takes several samples — Docker HTTP time can read ``0`` on a cold start;
+    non-zero samples are preferred over ``0``.
     """
-    best: int | None = None
+    samples: list[int] = []
     timeout = httpx.Timeout(5.0, connect=5.0)
     async with httpx.AsyncClient(timeout=timeout, follow_redirects=True) as client:
         for url in _HTTP_TIME_PROBE_URLS:
-            for _ in range(2):
+            for attempt in range(3):
                 try:
                     response = await client.head(url)
                     date_header = response.headers.get("date") or response.headers.get("Date")
@@ -65,12 +68,16 @@ async def measure_http_time_offset_seconds() -> int | None:
                     server_ts = _parse_http_date(date_header)
                     if server_ts is None:
                         continue
-                    offset = int(server_ts - time.time())
-                    if best is None or abs(offset) > abs(best):
-                        best = offset
+                    samples.append(int(server_ts - time.time()))
                 except httpx.HTTPError:
                     continue
-    return best
+                if attempt < 2:
+                    await asyncio.sleep(0.1)
+    if not samples:
+        return None
+    significant = [s for s in samples if abs(s) >= _CLOCK_SYNC_APPLY_MIN_SECONDS]
+    pool = significant if significant else samples
+    return max(pool, key=abs)
 
 
 def apply_time_offset_to_client(client: Any, offset_seconds: int) -> int | None:
@@ -105,11 +112,13 @@ def offset_from_message_date(message: Any) -> int | None:
 
 def apply_preferred_time_offset(client: Any, http_offset: int) -> int | None:
     """Apply HTTP offset only when it is a stronger correction than Telethon already has."""
-    if not _plausible_offset_seconds(http_offset) or abs(http_offset) < _CLOCK_SYNC_APPLY_MIN_SECONDS:
-        return None
     sender = getattr(client, "_sender", None)
     state = getattr(sender, "_state", None) if sender is not None else None
     current = int(getattr(state, "time_offset", 0) or 0) if state is not None else 0
+    if not _plausible_offset_seconds(http_offset) or abs(http_offset) < _CLOCK_SYNC_APPLY_MIN_SECONDS:
+        if _plausible_offset_seconds(current) and abs(current) >= _CLOCK_SYNC_APPLY_MIN_SECONDS:
+            return current
+        return None
     if not _plausible_offset_seconds(current):
         return apply_time_offset_to_client(client, http_offset)
     if abs(http_offset) <= abs(current):
@@ -153,6 +162,15 @@ async def reinforce_clock_after_telegram_rpc(client: Any, settings: Settings) ->
     chosen = choose_clock_offset(http_offset, tg_offset)
     if chosen is None:
         return None
+    if (
+        http_offset is None or abs(http_offset) < _CLOCK_SYNC_APPLY_MIN_SECONDS
+    ) and abs(tg_offset) >= _TELEGRAM_SKEW_WARN_SECONDS:
+        logger.warning(
+            "HTTP clock probe inconclusive (http=%s); relying on Telethon offset %ds — "
+            "live events may drop if the VM clock drifts further",
+            http_offset,
+            tg_offset,
+        )
     previous = read_telethon_time_offset(client)
     apply_time_offset_to_client(client, chosen)
     applied = read_telethon_time_offset(client)
@@ -162,6 +180,42 @@ async def reinforce_clock_after_telegram_rpc(client: Any, settings: Settings) ->
             applied,
             chosen,
             http_offset,
+            tg_offset,
+            previous,
+        )
+    return applied
+
+
+def refine_clock_from_live_message(client: Any, message: Any, settings: Settings) -> int | None:
+    """Update Telethon offset from a just-received channel message's ``date``.
+
+    Unlike historical posts, live events carry a server timestamp close to now,
+    so ``message.date`` reflects current clock skew (safe after successful ingest).
+    """
+    if not settings.telegram_clock_sync_enabled:
+        return None
+    live_offset = offset_from_message_date(message)
+    if live_offset is None or not _plausible_offset_seconds(live_offset):
+        return None
+    if abs(live_offset) > _LIVE_MESSAGE_MAX_SKEW_SECONDS:
+        return None
+    tg_offset = read_telethon_time_offset(client)
+    chosen = choose_clock_offset(live_offset, tg_offset)
+    if chosen is None and abs(live_offset) >= _CLOCK_SYNC_APPLY_MIN_SECONDS:
+        chosen = live_offset
+    if chosen is None:
+        return None
+    previous = read_telethon_time_offset(client)
+    if chosen == previous:
+        return previous
+    apply_time_offset_to_client(client, chosen)
+    applied = read_telethon_time_offset(client)
+    if abs(chosen - previous) >= 3:
+        logger.info(
+            "Refined Telethon clock from live message: applied=%ds chosen=%s live=%s telethon=%s (was %s)",
+            applied,
+            chosen,
+            live_offset,
             tg_offset,
             previous,
         )
