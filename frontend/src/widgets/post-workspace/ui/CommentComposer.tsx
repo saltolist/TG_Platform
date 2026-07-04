@@ -44,13 +44,15 @@ export default function CommentComposer({ replyTo, onCancelReply, onSubmit, disa
     if (disabled || isSubmitting) return;
     const text = draft.trim();
     if (!text && pendingMedia.length === 0) return;
+    const media = [...pendingMedia];
+    setDraft("");
+    setPendingMedia([]);
     setIsSubmitting(true);
     try {
-      await onSubmit(text, pendingMedia);
-      setDraft("");
-      setPendingMedia([]);
+      await onSubmit(text, media);
     } catch {
-      // The parent shows the toast; keep the draft so the user can retry.
+      setDraft(text);
+      setPendingMedia(media);
     } finally {
       setIsSubmitting(false);
     }

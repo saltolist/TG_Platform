@@ -18,14 +18,13 @@ from app.services.ai.rag_worker import enqueue_note_job
 from app.services.profile_defaults import empty_channel_profile, empty_telegram_profile
 from app.services.telegram.comments_flow import (
     comments_enabled,
-    dedupe_platform_comments,
-    delete_discussion_comments_in_telegram,
     merge_patch_comments,
     normalize_post_comments,
     removed_comment_telegram_message_ids,
     require_comments_enabled,
+    schedule_discussion_comments_delete,
+    schedule_post_comments_push,
     sync_post_comments_pull,
-    sync_post_comments_push,
 )
 from app.services.telegram.delete_flow import delete_message_in_telegram
 from app.services.telegram.edit_flow import sync_edit_to_telegram
@@ -190,6 +189,7 @@ async def update_post(
 
     previous_comments = list(post.data.get("comments") or [])
     comment_delete_error: str | None = None
+    scheduled_delete_tg_ids: list[str] = []
     if isinstance(patch.get("comments"), list):
         removed_tg_ids = removed_comment_telegram_message_ids(
             previous_comments,
@@ -212,15 +212,7 @@ async def update_post(
                     comment_delete_error = "В канале не включены обсуждения"
                     merged["comments"] = previous_comments
                 else:
-                    delete_error = await delete_discussion_comments_in_telegram(
-                        profile,
-                        discussion_chat_id,
-                        removed_tg_ids,
-                        user.id,
-                    )
-                    if delete_error:
-                        comment_delete_error = delete_error
-                        merged["comments"] = previous_comments
+                    scheduled_delete_tg_ids = removed_tg_ids
 
     post.data = merged
     # Enqueue RAG indexing for any notes present in the patch
@@ -276,32 +268,10 @@ async def update_post(
                     "В канале не включены обсуждения — включите их в настройках Telegram"
                 )
             else:
-                await session.refresh(post)
-                latest = dict(post.data)
-                comment_result = await sync_post_comments_push(
-                    profile, latest, user.id
-                )
-                if comment_result.error:
-                    response["commentSyncError"] = comment_result.error
-                elif comment_result.comments is not None:
-                    post = await get_owned_post(session, user.id, post_id)
-                    await session.refresh(post)
-                    updated = dict(post.data)
-                    updated["comments"] = normalize_post_comments(
-                        dedupe_platform_comments(
-                            comment_result.comments
-                            if comment_result.comments
-                            else list(updated.get("comments") or [])
-                        )
-                    )
-                    if comment_result.telegram_discussion_message_id:
-                        updated["telegramDiscussionMessageId"] = (
-                            comment_result.telegram_discussion_message_id
-                        )
-                        updated["commentsThreadAvailable"] = True
-                    post.data = updated
-                    await session.commit()
-                    response = dict(updated)
+                schedule_post_comments_push(user.id, post_id)
+
+    if scheduled_delete_tg_ids:
+        schedule_discussion_comments_delete(user.id, post_id, scheduled_delete_tg_ids)
 
     return response
 

@@ -34,21 +34,29 @@ export default function PostCommentRow({
     (isVideoNoteKind(singleMedia) || (isVideoMedia(singleMedia) && singleMedia.kind == null));
   const stickerMedia = singleMedia != null && isStickerKind(singleMedia);
   const compactMedia = videoNoteMedia || stickerMedia;
-  const showSyncLabel = telegramSyncing || isDeleting;
-  const showActions = Boolean(onReply || onDelete) && !isDeleting && !showSyncLabel;
+  const showPendingTelegram = isDeleting || telegramSyncing;
+  const showActions = Boolean(onReply || onDelete) && !showPendingTelegram;
 
   return (
-    <article className={`post-comment${parent ? " post-comment--reply" : ""}`}>
+    <article
+      className={[
+        "post-comment",
+        parent ? "post-comment--reply" : "",
+        isDeleting ? "post-comment--pending" : "",
+      ]
+        .filter(Boolean)
+        .join(" ")}
+    >
       <div
         className="post-comment-avatar"
-        style={{ background: showSyncLabel ? "var(--surface2)" : `hsl(${hue} 42% 38%)` }}
+        style={{ background: `hsl(${hue} 42% 38%)` }}
         aria-hidden
       >
-        {showSyncLabel ? "↻" : avatarInitials(comment.author)}
+        {avatarInitials(comment.author)}
       </div>
       <div className="post-comment-main">
         <div className="post-comment-head">
-          {showSyncLabel ? (
+          {showPendingTelegram ? (
             <PostTelegramSyncLabel className="post-comment-sync-label" />
           ) : (
             <span className="post-comment-author">{comment.author}</span>

@@ -16,7 +16,9 @@ from telethon.tl.functions.channels import GetFullChannelRequest
 from telethon.tl.functions.messages import GetDiscussionMessageRequest
 
 from app.core.config import Settings, get_settings
-from app.db.models import Profile
+from sqlalchemy.orm.attributes import flag_modified
+
+from app.db.models import Post, Profile
 from app.services.telegram.channel_flow import (
     channel_peer_id,
     parse_channel_input,
@@ -34,9 +36,21 @@ from app.services.telegram.net import (
 )
 from app.services.telegram.session_guard import exclusive_telegram_access
 from app.services.telegram.media_storage import save_message_media
+from app.services.telegram.post_sync import touch_telegram_profile
 from app.services.telegram.text_formatting import apply_message_text_fields, extract_plain_text
 
 logger = logging.getLogger(__name__)
+
+PLATFORM_SELF_COMMENT_AUTHOR = "Вы"
+
+
+def _preserve_comment_author(platform_author: Any, telegram_author: Any) -> str:
+    """Keep the platform label for comments authored on-site."""
+    if str(platform_author or "").strip() == PLATFORM_SELF_COMMENT_AUTHOR:
+        return PLATFORM_SELF_COMMENT_AUTHOR
+    if telegram_author:
+        return str(telegram_author)
+    return str(platform_author or "Пользователь")
 
 _COMMENT_PROBE_ATTEMPTS = 3
 _COMMENT_PROBE_DELAY_SECONDS = 0.3
@@ -351,6 +365,9 @@ async def _sender_display_name(
     Under high comment volume many messages share the same author; caching by
     ``sender_id`` collapses N ``get_sender()`` round-trips into one per author.
     """
+    if getattr(message, "out", False):
+        return PLATFORM_SELF_COMMENT_AUTHOR
+
     sender_id = _sender_id(message)
     if cache is not None and sender_id is not None and sender_id in cache:
         return cache[sender_id]
@@ -631,7 +648,7 @@ def merge_comments(
             reply_to_id = incoming.get("replyToId", copy.get("replyToId"))
             copy.update(
                 {
-                    "author": incoming.get("author", copy.get("author")),
+                    "author": _preserve_comment_author(copy.get("author"), incoming.get("author")),
                     "text": incoming.get("text", copy.get("text")),
                     "date": incoming.get("date", copy.get("date")),
                 }
@@ -1110,6 +1127,242 @@ async def sync_post_comments_push(
     return CommentSyncResult(error="Не удалось подключиться к Telegram")
 
 
+_comment_push_tasks: set[asyncio.Task[Any]] = set()
+_comment_push_chains: dict[str, asyncio.Task[Any]] = {}
+
+
+@dataclass
+class _DiscussionOutboundJob:
+    delete_telegram_message_ids: list[str]
+    push_pending: bool
+    delete_attempt: int = 0
+
+
+_discussion_outbound_queues: dict[str, list[_DiscussionOutboundJob]] = {}
+
+
+def _ensure_discussion_outbound_drain(user_id: UUID, post_key: str) -> None:
+    existing = _comment_push_chains.get(post_key)
+    if existing is not None and not existing.done():
+        return
+
+    async def drain_queue() -> None:
+        previous = _comment_push_chains.get(post_key)
+        current = asyncio.current_task()
+        if previous is not None and previous is not current:
+            try:
+                await previous
+            except Exception:
+                pass
+        while True:
+            batch = _discussion_outbound_queues.pop(post_key, [])
+            if not batch:
+                break
+            delete_ids: list[str] = []
+            push_pending = False
+            delete_attempt = 0
+            for outbound in batch:
+                delete_ids.extend(outbound.delete_telegram_message_ids)
+                push_pending = push_pending or outbound.push_pending
+                delete_attempt = max(delete_attempt, outbound.delete_attempt)
+            if delete_ids:
+                unique_delete_ids = list(dict.fromkeys(delete_ids))
+                await _delete_discussion_comments_background(
+                    user_id,
+                    post_key,
+                    unique_delete_ids,
+                    delete_attempt=delete_attempt,
+                )
+            if push_pending:
+                await push_pending_post_comments(user_id, post_key)
+
+    task = asyncio.create_task(drain_queue())
+    _comment_push_chains[post_key] = task
+    _comment_push_tasks.add(task)
+
+    def _cleanup(done: asyncio.Task[Any]) -> None:
+        _comment_push_tasks.discard(done)
+        if _comment_push_chains.get(post_key) is done:
+            _comment_push_chains.pop(post_key, None)
+        if _discussion_outbound_queues.get(post_key):
+            _ensure_discussion_outbound_drain(user_id, post_key)
+
+    task.add_done_callback(_cleanup)
+
+
+def _enqueue_discussion_outbound(
+    user_id: UUID,
+    post_id: str,
+    *,
+    delete_telegram_message_ids: list[str] | None = None,
+    push_pending: bool = False,
+    delete_attempt: int = 0,
+) -> None:
+    """Serialize discussion outbound RPCs per post (one listener pause at a time)."""
+    post_key = str(post_id)
+    job = _DiscussionOutboundJob(
+        delete_telegram_message_ids=list(delete_telegram_message_ids or []),
+        push_pending=push_pending,
+        delete_attempt=delete_attempt,
+    )
+    if not job.delete_telegram_message_ids and not job.push_pending:
+        return
+
+    _discussion_outbound_queues.setdefault(post_key, []).append(job)
+    _ensure_discussion_outbound_drain(user_id, post_key)
+
+
+async def _delete_discussion_comments_background(
+    user_id: UUID,
+    post_id: str,
+    telegram_message_ids: list[str],
+    *,
+    delete_attempt: int = 0,
+) -> None:
+    from app.db.session import async_session_factory
+
+    if not telegram_message_ids:
+        return
+
+    try:
+        async with async_session_factory() as session:
+            profile = await session.get(Profile, user_id)
+            if profile is None:
+                return
+            telegram = profile.telegram or {}
+            discussion_chat_id = telegram.get("discussionChatId")
+            if not discussion_chat_id:
+                return
+            error = await delete_discussion_comments_in_telegram(
+                profile,
+                discussion_chat_id,
+                telegram_message_ids,
+                user_id,
+            )
+            if error:
+                logger.warning(
+                    "Background comment delete failed for post %s: %s",
+                    post_id,
+                    error,
+                )
+                if delete_attempt < 3:
+                    _enqueue_discussion_outbound(
+                        user_id,
+                        post_id,
+                        delete_telegram_message_ids=telegram_message_ids,
+                        delete_attempt=delete_attempt + 1,
+                    )
+                return
+            await touch_telegram_profile(
+                session,
+                profile,
+                comment_only=True,
+                comment_revision_delta=len(telegram_message_ids),
+            )
+            await session.commit()
+    except Exception:
+        logger.exception("Background comment delete crashed for post %s", post_id)
+        if delete_attempt < 3:
+            _enqueue_discussion_outbound(
+                user_id,
+                post_id,
+                delete_telegram_message_ids=telegram_message_ids,
+                delete_attempt=delete_attempt + 1,
+            )
+
+
+async def persist_comment_push_result(
+    session: Any,
+    post: Post,
+    profile: Profile,
+    comment_result: CommentSyncResult,
+) -> dict[str, Any]:
+    if comment_result.error:
+        return {"commentSyncError": comment_result.error}
+    if comment_result.comments is None:
+        return {}
+    updated = dict(post.data)
+    updated["comments"] = normalize_post_comments(
+        dedupe_platform_comments(comment_result.comments)
+    )
+    if comment_result.telegram_discussion_message_id:
+        updated["telegramDiscussionMessageId"] = (
+            comment_result.telegram_discussion_message_id
+        )
+        updated["commentsThreadAvailable"] = True
+    post.data = updated
+    flag_modified(post, "data")
+    await touch_telegram_profile(session, profile, comment_only=True)
+    await session.commit()
+    return dict(updated)
+
+
+async def push_pending_post_comments(user_id: UUID, post_id: str) -> None:
+    from fastapi import HTTPException
+
+    from app.db.resolve import get_owned_post
+    from app.db.session import async_session_factory
+
+    settings = get_settings()
+    try:
+        async with async_session_factory() as session:
+            try:
+                post = await get_owned_post(session, user_id, post_id)
+            except HTTPException:
+                return
+            profile = await session.get(Profile, user_id)
+            if profile is None:
+                return
+            post_data = dict(post.data)
+            if post_data.get("status") != "published":
+                return
+            if not post_data.get("telegramMessageId"):
+                return
+            pending = _find_pending_platform_comments(list(post_data.get("comments") or []))
+            if not pending:
+                return
+
+            comment_result = await sync_post_comments_push(
+                profile, post_data, user_id, settings
+            )
+            if comment_result.error:
+                logger.warning(
+                    "Comment push failed for post %s: %s", post_id, comment_result.error
+                )
+                return
+            await persist_comment_push_result(session, post, profile, comment_result)
+    except Exception:
+        logger.exception("Background comment push crashed for post %s", post_id)
+
+
+def schedule_post_comments_push(user_id: UUID, post_id: str) -> None:
+    """Push platform comments to Telegram without blocking the PATCH response."""
+    _enqueue_discussion_outbound(user_id, post_id, push_pending=True)
+
+
+def schedule_discussion_comments_delete(
+    user_id: UUID,
+    post_id: str,
+    telegram_message_ids: list[str],
+) -> None:
+    """Delete discussion comments in Telegram without blocking the PATCH response."""
+    _enqueue_discussion_outbound(
+        user_id,
+        post_id,
+        delete_telegram_message_ids=telegram_message_ids,
+    )
+
+
+async def drain_scheduled_comment_pushes(timeout: float = 10.0) -> None:
+    """Wait for in-flight background comment pushes (tests)."""
+    pending = [task for task in _comment_push_tasks if not task.done()]
+    if not pending:
+        return
+    _done, still_pending = await asyncio.wait(pending, timeout=timeout)
+    for task in still_pending:
+        task.cancel()
+
+
 async def handle_live_discussion_message(
     client: Any,
     message: Any,
@@ -1354,6 +1607,7 @@ __all__ = [
     "comments_enabled",
     "comments_probable_same",
     "delete_discussion_comments_in_telegram",
+    "drain_scheduled_comment_pushes",
     "fetch_comments_from_telegram",
     "get_discussion_root_message_id",
     "handle_live_discussion_message",
@@ -1371,6 +1625,8 @@ __all__ = [
     "reconcile_post_comments",
     "removed_comment_telegram_message_ids",
     "resolve_discussion_chat_id",
+    "schedule_discussion_comments_delete",
+    "schedule_post_comments_push",
     "sync_new_comments_to_telegram",
     "sync_post_comments_pull",
     "sync_post_comments_push",

@@ -869,6 +869,14 @@
   font-size: 13px;
   font-weight: 500;
 }
+.post-comment-status-label {
+  font-size: 12px;
+  font-weight: 500;
+  color: var(--text3);
+}
+.post-comment--pending {
+  opacity: 0.72;
+}
 .post-comment-date { font-size: 11px; color: var(--text3); }
 .post-comment-quote {
   display: flex;

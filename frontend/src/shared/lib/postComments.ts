@@ -1,5 +1,11 @@
 import type { PostComment } from "@/shared/types";
 
+export const PLATFORM_SELF_COMMENT_AUTHOR = "Вы";
+
+export function isPlatformSelfComment(author: string): boolean {
+  return author.trim() === PLATFORM_SELF_COMMENT_AUTHOR;
+}
+
 export function filterPostComments(comments: PostComment[], query: string): PostComment[] {
   const q = query.trim().toLowerCase();
   if (!q) return comments;

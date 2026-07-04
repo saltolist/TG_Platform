@@ -74,6 +74,7 @@ async def touch_telegram_profile(
     sync_status: str = "listening",
     sync_error: str = "",
     comment_only: bool = False,
+    comment_revision_delta: int = 1,
     metrics_only: bool = False,
     status_only: bool = False,
 ) -> None:
@@ -93,7 +94,9 @@ async def touch_telegram_profile(
         # Comment-only updates bump a separate revision so the frontend does not
         # refetch the whole post list on every inbound discussion comment. Comments
         # are pulled lazily (post open / comments tab / reconcile) instead.
-        telegram["commentsRevision"] = int(telegram.get("commentsRevision") or 0) + 1
+        telegram["commentsRevision"] = int(telegram.get("commentsRevision") or 0) + max(
+            1, comment_revision_delta
+        )
     elif metrics_only:
         # Views/reposts/reactions from live MessageEdited — same lazy model as
         # comments: persist to DB, refresh on open post / reconcile, not feed.

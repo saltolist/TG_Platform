@@ -8,15 +8,23 @@ import { useQueryAccountScope } from "@/app/providers/useQueryAccountScope";
 import { showToast } from "@/shared/ui/toast";
 import type { Post } from "@/shared/types";
 
+import { mergePostCommentsFromServer } from "../lib/mergePostComments";
+
 export function applyPostUpdate(
   queryClient: ReturnType<typeof useQueryClient>,
   accountId: string,
   updatedPost: Post,
 ) {
+  const current =
+    queryClient.getQueryData<Post>(queryKeys.posts.detail(accountId, updatedPost.id)) ??
+    queryClient
+      .getQueryData<Post[]>(queryKeys.posts.list(accountId))
+      ?.find((post) => post.id === updatedPost.id);
+  const mergedComments = mergePostCommentsFromServer(current?.comments, updatedPost.comments);
   const normalized: Post =
     updatedPost.status === "published"
-      ? { ...updatedPost, created: undefined }
-      : updatedPost;
+      ? { ...updatedPost, comments: mergedComments, created: undefined }
+      : { ...updatedPost, comments: mergedComments };
   queryClient.setQueryData(queryKeys.posts.detail(accountId, normalized.id), normalized);
   queryClient.setQueryData<Post[]>(queryKeys.posts.list(accountId), (prev) =>
     prev?.map((p) => (p.id === normalized.id ? normalized : p)),

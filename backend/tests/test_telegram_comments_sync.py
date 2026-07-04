@@ -20,6 +20,7 @@ from app.services.telegram import mtproto_client
 from app.services.telegram.comments_flow import (
     DiscussionCommentBuffer,
     dedupe_platform_comments,
+    drain_scheduled_comment_pushes,
     get_discussion_root_message_id,
     handle_live_discussion_messages,
     merge_comments,
@@ -204,6 +205,15 @@ async def _create_published_post(
     return resp.json()
 
 
+async def _post_after_comment_push(
+    client: AsyncClient, post_id: str, headers: dict[str, str]
+) -> dict[str, Any]:
+    await drain_scheduled_comment_pushes()
+    response = await client.get(f"/api/v1/posts/{post_id}/", headers=headers)
+    assert response.status_code == 200
+    return response.json()
+
+
 def _discussion_message(
     msg_id: int,
     *,
@@ -301,6 +311,30 @@ def test_merge_comments_links_pending_platform_comment_to_telegram() -> None:
     assert merged[0]["id"] == "local-1"
     assert merged[0]["author"] == "Вы"
     assert merged[0]["telegramMessageId"] == "7000"
+
+
+def test_merge_comments_preserves_self_author_for_linked_comment() -> None:
+    existing = [
+        {
+            "id": "local-1",
+            "author": "Вы",
+            "text": "Hello TG",
+            "date": "2026-07-02T12:00:00Z",
+            "telegramMessageId": "7000",
+        }
+    ]
+    from_tg = [
+        {
+            "id": "tg-7000",
+            "author": "Пользователь",
+            "text": "Hello TG",
+            "date": "2026-07-02T12:00:01Z",
+            "telegramMessageId": "7000",
+        }
+    ]
+    merged = merge_comments(existing, from_tg)
+    assert len(merged) == 1
+    assert merged[0]["author"] == "Вы"
 
 
 def test_full_pull_prunes_synced_comment_missing_in_telegram() -> None:
@@ -538,7 +572,7 @@ async def test_patch_new_comment_pushes_to_telegram(
         },
     )
     assert response.status_code == 200
-    body = response.json()
+    body = await _post_after_comment_push(client, post["id"], writer_auth_headers)
     assert body["comments"][0]["telegramMessageId"] == "7000"
     assert "commentSyncError" not in body
     assert SCENARIO.sent[0]["reply_to"] == DISCUSSION_ROOT_ID
@@ -557,7 +591,7 @@ async def test_patch_new_comment_pushes_to_telegram(
         json={"comments": [body["comments"][0], stuck]},
     )
     assert retry_response.status_code == 200
-    retry_body = retry_response.json()
+    retry_body = await _post_after_comment_push(client, post["id"], writer_auth_headers)
     retried = next(c for c in retry_body["comments"] if c["id"] == "stuck-local")
     assert retried["telegramMessageId"] == "7001"
     assert "commentSyncError" not in retry_body
@@ -609,7 +643,7 @@ async def test_patch_stale_comment_retry_does_not_repush_to_telegram(
         },
     )
     assert first.status_code == 200
-    assert first.json()["comments"][0]["telegramMessageId"] == "7000"
+    await drain_scheduled_comment_pushes()
     assert len(SCENARIO.sent) == 1
 
     stale = await client.patch(

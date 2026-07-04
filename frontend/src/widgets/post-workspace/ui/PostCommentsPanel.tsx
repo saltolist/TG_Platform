@@ -1,9 +1,10 @@
 "use client";
 
-import { useRef, useState } from "react";
+import { useMemo, useRef, useState } from "react";
 
 import { useTelegramProfile } from "@/entities/channel";
 import { postSupportsComments } from "@/entities/post/lib/postSupportsComments";
+import { mergeCommentsWithDeleteTombstones } from "@/entities/post/lib/mergePostComments";
 import { useAddPostComment, useDeletePostComment } from "@/entities/post";
 import { PostMediaBlock } from "@/entities/post";
 import { TelegramFormattedText } from "@/shared/ui/TelegramFormattedText";
@@ -35,8 +36,8 @@ export default function PostCommentsPanel({
   media,
   phoneFormat = false,
 }: Props) {
-  const { addComment: savePostComment, isPending: isSavingComment } = useAddPostComment();
-  const { deleteComment, deletingCommentIds } = useDeletePostComment();
+  const { addComment: savePostComment } = useAddPostComment();
+  const { deleteComment, deletingCommentIds, syncingDeleteById } = useDeletePostComment();
   const { data: telegramProfile } = useTelegramProfile();
   const channelCommentsEnabled = telegramProfile?.commentsEnabled !== false;
   const showComments = postSupportsComments(post, channelCommentsEnabled);
@@ -45,6 +46,10 @@ export default function PostCommentsPanel({
   const [replyTo, setReplyTo] = useState<PostComment | null>(null);
   const scrollRef = useRef<HTMLDivElement>(null);
   const comments = post.comments ?? [];
+  const displayComments = useMemo(
+    () => mergeCommentsWithDeleteTombstones(comments, syncingDeleteById),
+    [comments, syncingDeleteById],
+  );
 
   async function addComment(text: string, commentMedia: PostMedia[]) {
     const comment: PostComment = {
@@ -55,9 +60,9 @@ export default function PostCommentsPanel({
       ...(commentMedia.length > 0 ? { media: [...commentMedia] } : {}),
       ...(replyTo ? { replyToId: replyTo.id } : {}),
     };
+    setReplyTo(null);
     try {
       await savePostComment(post.id, comment);
-      setReplyTo(null);
       requestAnimationFrame(() => {
         if (scrollRef.current) scrollRef.current.scrollTop = scrollRef.current.scrollHeight;
       });
@@ -125,7 +130,7 @@ export default function PostCommentsPanel({
                     ) : null}
                   </div>
                   <PostCardCommentsSection
-                    comments={comments}
+                    comments={displayComments}
                     search={search}
                     postTelegramLinked={canSyncComments}
                     deletingCommentIds={deletingCommentIds}
@@ -147,7 +152,7 @@ export default function PostCommentsPanel({
         replyTo={replyTo}
         onCancelReply={() => setReplyTo(null)}
         onSubmit={addComment}
-        disabled={composerDisabled || isSavingComment}
+        disabled={composerDisabled}
       />
     </>
   );
