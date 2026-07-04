@@ -63,6 +63,7 @@ from app.services.telegram.post_sync import (
     update_telegram_post,
     upsert_telegram_post,
 )
+from app.services.telegram.reconcile_flow import reconcile_channel_window
 from app.services.telegram.session_guard import telegram_session_lock
 from app.services.telegram.sync_coordination import (
     run_channel_ingest,
@@ -411,10 +412,7 @@ async def _run_channel_maintenance_pass(
     settings: Settings,
     session_factory: async_sessionmaker[AsyncSession],
 ) -> None:
-    """Single background pass: missed posts + metrics (no media download).
-
-    Window reconcile is manual-only — running it here blocked comment sync and other RPC.
-    """
+    """Single background pass: missed posts, deletion drift, metrics (no media download)."""
     min_id = await _load_last_telegram_message_id(session_factory, user_id)
     try:
         await _catch_up(
@@ -428,6 +426,19 @@ async def _run_channel_maintenance_pass(
         )
     except Exception:
         logger.exception("Maintenance catch-up failed for user %s", user_id)
+    try:
+        await reconcile_channel_window(
+            client,
+            entity,
+            user_id,
+            settings,
+            session_factory,
+            force=True,
+            include_new_scan=False,
+            include_comments=False,
+        )
+    except Exception:
+        logger.exception("Maintenance reconcile failed for user %s", user_id)
     try:
         updated = await poll_recent_post_metrics(
             client, entity, user_id, settings, session_factory
@@ -753,6 +764,13 @@ async def _run_user_listener(user_id: UUID, stop_event: asyncio.Event) -> None:
                     async def on_message_deleted(event: events.MessageDeleted.Event) -> None:
                         try:
                             deleted_ids = getattr(event, "deleted_ids", None) or []
+                            if not deleted_ids:
+                                return
+                            logger.info(
+                                "Live-sync MessageDeleted for user %s: %s",
+                                user_id,
+                                deleted_ids,
+                            )
                             async with session_factory() as session:
                                 for msg_id in deleted_ids:
                                     await delete_telegram_post(session, user_id, str(msg_id))
