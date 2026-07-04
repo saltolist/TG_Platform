@@ -295,7 +295,8 @@
 }
 .post-card-text.empty { color: var(--text3); font-style: italic; }
 .tg-formatted-text {
-  white-space: normal;
+  /* Match plain post text: Telegram keeps line breaks in message text even with entities. */
+  white-space: pre-wrap;
 }
 .tg-formatted-text strong { font-weight: 700; }
 .tg-formatted-text em { font-style: italic; }

@@ -64,6 +64,18 @@ def test_message_to_text_html_plain_without_entities() -> None:
     assert message_to_text_html(message) is None
 
 
+def test_message_to_text_html_preserves_line_breaks() -> None:
+    message = SimpleNamespace(
+        message="first line\nsecond line",
+        entities=[MessageEntityBold(offset=0, length=10)],
+    )
+    html = message_to_text_html(message)
+    assert html is not None
+    assert "<br>" in html
+    assert "first line" in html
+    assert "second line" in html
+
+
 def test_apply_message_text_fields_sets_and_clears_html() -> None:
     message = SimpleNamespace(
         message="hello",

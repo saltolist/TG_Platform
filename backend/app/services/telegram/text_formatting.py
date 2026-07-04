@@ -57,6 +57,8 @@ def message_to_text_html(message: Any) -> str | None:
         return None
     if not parsed:
         return None
+    if "\n" in parsed:
+        parsed = parsed.replace("\n", "<br>")
     if parsed == html_module.escape(text):
         return None
     return parsed
