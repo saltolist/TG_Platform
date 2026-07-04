@@ -129,6 +129,7 @@ def clear_post_engagement_data(data: dict[str, Any]) -> None:
         "commentSyncError",
         "telegramDiscussionMessageId",
         "commentsThreadAvailable",
+        "commentsThreadLiveOptimistic",
     ):
         data.pop(key, None)
 
@@ -184,6 +185,20 @@ async def upsert_telegram_post(
     await touch_telegram_profile(session, profile, last_message_id=msg_id)
 
 
+_COMMENT_THREAD_KEYS = (
+    "commentsThreadAvailable",
+    "commentsThreadLiveOptimistic",
+    "telegramDiscussionMessageId",
+)
+
+
+def _comment_thread_unchanged(existing: dict[str, Any], incoming: dict[str, Any]) -> bool:
+    for key in _COMMENT_THREAD_KEYS:
+        if existing.get(key) != incoming.get(key):
+            return False
+    return True
+
+
 def _content_unchanged(existing: dict[str, Any], incoming: dict[str, Any]) -> bool:
     """True when *incoming* text/media match *existing* — nothing worth persisting.
 
@@ -204,7 +219,7 @@ def _content_unchanged(existing: dict[str, Any], incoming: dict[str, Any]) -> bo
         return False
     if (existing.get("metrics") or {}) != (incoming.get("metrics") or {}):
         return False
-    return True
+    return _comment_thread_unchanged(existing, incoming)
 
 
 def _is_metrics_only_change(existing: dict[str, Any], incoming: dict[str, Any]) -> bool:

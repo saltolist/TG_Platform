@@ -426,6 +426,7 @@ async def test_live_sync_new_message_sets_optimistic_comments_thread(
         post = result.scalar_one_or_none()
         assert post is not None
         assert post.data.get("commentsThreadAvailable") is True
+        assert post.data.get("commentsThreadLiveOptimistic") is True
     listener_registry.stop_user_listener(user_id)
 
 

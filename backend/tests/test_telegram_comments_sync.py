@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import asyncio
 import uuid
 from datetime import datetime, timezone
 from types import SimpleNamespace
@@ -20,6 +21,7 @@ from app.services.telegram import mtproto_client
 from app.services.telegram.comments_flow import (
     DiscussionCommentBuffer,
     apply_comments_thread_probe,
+    apply_initial_comments_thread_flag,
     dedupe_platform_comments,
     drain_scheduled_comment_pushes,
     get_discussion_root_message_id,
@@ -263,6 +265,7 @@ def test_apply_comments_thread_probe_clears_optimistic_true_when_absent() -> Non
     updated, changed = apply_comments_thread_probe(post, None, confirmed_absent=True)
     assert changed is True
     assert updated["commentsThreadAvailable"] is False
+    assert "commentsThreadLiveOptimistic" not in updated
 
 
 def test_apply_comments_thread_probe_keeps_optimistic_true_when_inconclusive() -> None:
@@ -274,6 +277,119 @@ def test_apply_comments_thread_probe_keeps_optimistic_true_when_inconclusive() -
     updated, changed = apply_comments_thread_probe(post, None, confirmed_absent=False)
     assert changed is False
     assert updated is post
+
+
+def test_apply_initial_comments_thread_flag_optimistic_for_enabled_channel() -> None:
+    post = {"status": "published", "telegramMessageId": "501"}
+    telegram = {"commentsEnabled": True, "discussionChatId": "123"}
+    updated = apply_initial_comments_thread_flag(post, telegram)
+    assert updated["commentsThreadAvailable"] is True
+    assert updated["commentsThreadLiveOptimistic"] is True
+
+
+def test_apply_initial_comments_thread_flag_false_when_comments_disabled() -> None:
+    post = {"status": "published", "telegramMessageId": "501"}
+    telegram = {"commentsEnabled": False, "discussionChatId": ""}
+    updated = apply_initial_comments_thread_flag(post, telegram)
+    assert updated["commentsThreadAvailable"] is False
+    assert "commentsThreadLiveOptimistic" not in updated
+
+
+def test_probe_comments_thread_for_post_keeps_live_optimistic_when_absent() -> None:
+    from app.services.telegram.comments_flow import probe_comments_thread_for_post
+
+    post = {
+        "status": "published",
+        "telegramMessageId": "501",
+        "commentsThreadAvailable": True,
+        "commentsThreadLiveOptimistic": True,
+    }
+    telegram = {"commentsEnabled": True, "discussionChatId": "123"}
+
+    async def fake_probe(*_args, **_kwargs):
+        return None, True
+
+    import app.services.telegram.comments_flow as comments_flow
+
+    original = comments_flow.probe_discussion_root
+    comments_flow.probe_discussion_root = fake_probe
+    try:
+        result = asyncio.run(
+            probe_comments_thread_for_post(
+                AsyncMock(),
+                object(),
+                post,
+                telegram,
+                get_settings(),
+            )
+        )
+    finally:
+        comments_flow.probe_discussion_root = original
+
+    assert result is post
+
+
+def test_refresh_post_comments_thread_flag_keeps_live_optimistic_when_absent() -> None:
+    from app.services.telegram.comments_flow import refresh_post_comments_thread_flag
+
+    post = {
+        "status": "published",
+        "telegramMessageId": "501",
+        "commentsThreadLiveOptimistic": True,
+    }
+
+    async def fake_probe(*_args, **_kwargs):
+        return None, True
+
+    import app.services.telegram.comments_flow as comments_flow
+
+    original = comments_flow.probe_discussion_root
+    comments_flow.probe_discussion_root = fake_probe
+    try:
+        updated, changed = asyncio.run(
+            refresh_post_comments_thread_flag(
+                AsyncMock(),
+                object(),
+                post,
+                get_settings(),
+            )
+        )
+    finally:
+        comments_flow.probe_discussion_root = original
+
+    assert changed is False
+    assert updated is post
+
+
+@pytest.mark.asyncio
+async def test_probe_comments_thread_for_post_leaves_inconclusive_unchanged() -> None:
+    from app.services.telegram.comments_flow import probe_comments_thread_for_post
+
+    post = {"status": "published", "telegramMessageId": "501"}
+    telegram = {"commentsEnabled": True, "discussionChatId": "123"}
+    client = AsyncMock()
+    channel_entity = object()
+
+    async def fake_probe(*_args, **_kwargs):
+        return None, False
+
+    import app.services.telegram.comments_flow as comments_flow
+
+    original = comments_flow.probe_discussion_root
+    comments_flow.probe_discussion_root = fake_probe
+    try:
+        result = await probe_comments_thread_for_post(
+            client,
+            channel_entity,
+            post,
+            telegram,
+            get_settings(),
+        )
+    finally:
+        comments_flow.probe_discussion_root = original
+
+    assert result is post
+    assert "commentsThreadAvailable" not in result
 
 
 @pytest.mark.asyncio

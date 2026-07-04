@@ -147,28 +147,46 @@ async def probe_comments_thread_for_post(
         probed, _ = apply_comments_thread_probe(post_data, root_id)
         return probed
     if confirmed_absent:
+        if post_data.get("commentsThreadLiveOptimistic"):
+            return post_data
         probed, _ = apply_comments_thread_probe(
             post_data, None, confirmed_absent=True
         )
         return probed
 
-    # Linked discussion group exists but TG may not expose the thread instantly.
-    optimistic = dict(post_data)
-    optimistic["commentsThreadAvailable"] = True
-    return optimistic
+    return post_data
 
 
 def apply_optimistic_comments_thread(
     post_data: dict[str, Any], telegram: dict[str, Any]
 ) -> dict[str, Any]:
-    """Fast path for batch ingest — show comments UI without blocking on TG probe."""
+    """Fast path for live ingest — show comments UI without blocking on TG probe."""
     if not comments_enabled(telegram) or post_data.get("status") != "published":
         return post_data
     if post_data.get("commentsThreadAvailable") or post_data.get("telegramDiscussionMessageId"):
         return post_data
     optimistic = dict(post_data)
     optimistic["commentsThreadAvailable"] = True
+    optimistic["commentsThreadLiveOptimistic"] = True
     return optimistic
+
+
+def apply_initial_comments_thread_flag(
+    post_data: dict[str, Any], telegram: dict[str, Any]
+) -> dict[str, Any]:
+    """Set per-post comment availability for a newly ingested live post."""
+    if post_data.get("status") != "published":
+        return post_data
+    if comments_enabled(telegram):
+        return apply_optimistic_comments_thread(post_data, telegram)
+    if post_data.get("commentsThreadAvailable") is not None or post_data.get(
+        "telegramDiscussionMessageId"
+    ):
+        return post_data
+    updated = dict(post_data)
+    updated["commentsThreadAvailable"] = False
+    updated.pop("commentsThreadLiveOptimistic", None)
+    return updated
 
 
 def apply_comments_thread_probe(
@@ -179,6 +197,7 @@ def apply_comments_thread_probe(
 ) -> tuple[dict[str, Any], bool]:
     """Set per-post comment thread availability from a Telegram probe."""
     updated = dict(post_data)
+    updated.pop("commentsThreadLiveOptimistic", None)
     if root_id is not None:
         updated["commentsThreadAvailable"] = True
         updated["telegramDiscussionMessageId"] = str(root_id)
@@ -212,6 +231,8 @@ def post_needs_comments_thread_probe(post_data: Mapping[str, Any]) -> bool:
         if discussion_id == telegram_message_id:
             return True
         return False
+    if post_data.get("commentsThreadLiveOptimistic"):
+        return True
     return post_data.get("commentsThreadAvailable") is True
 
 
@@ -232,6 +253,9 @@ async def refresh_post_comments_thread_flag(
     root_id, confirmed_absent = await probe_discussion_root(
         client, channel_entity, channel_msg_id, settings
     )
+    if root_id is None and confirmed_absent:
+        if post_data.get("commentsThreadLiveOptimistic"):
+            return post_data, False
     if root_id is None and not confirmed_absent:
         return post_data, False
     return apply_comments_thread_probe(
@@ -1402,6 +1426,7 @@ async def persist_comment_push_result(
             comment_result.telegram_discussion_message_id
         )
         updated["commentsThreadAvailable"] = True
+        updated.pop("commentsThreadLiveOptimistic", None)
     post.data = updated
     flag_modified(post, "data")
     await touch_telegram_profile(session, profile, comment_only=True)

@@ -3,6 +3,7 @@
 import { useMemo, useRef, useState } from "react";
 
 import { useTelegramProfile } from "@/entities/channel";
+import { channelSupportsComments } from "@/entities/post/lib/channelSupportsComments";
 import { postSupportsComments } from "@/entities/post/lib/postSupportsComments";
 import { mergeCommentsWithDeleteTombstones } from "@/entities/post/lib/mergePostComments";
 import { useAddPostComment, useDeletePostComment } from "@/entities/post";
@@ -39,7 +40,7 @@ export default function PostCommentsPanel({
   const { addComment: savePostComment } = useAddPostComment();
   const { deleteComment, deletingCommentIds, syncingDeleteById } = useDeletePostComment();
   const { data: telegramProfile } = useTelegramProfile();
-  const channelCommentsEnabled = telegramProfile?.commentsEnabled !== false;
+  const channelCommentsEnabled = channelSupportsComments(telegramProfile);
   const showComments = postSupportsComments(post, channelCommentsEnabled);
   const canSyncComments = Boolean(post.telegramMessageId);
   const composerDisabled = canSyncComments && !showComments;

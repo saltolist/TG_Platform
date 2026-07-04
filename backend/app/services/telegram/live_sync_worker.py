@@ -8,6 +8,7 @@ from typing import Any
 from uuid import UUID
 
 from sqlalchemy import select
+from sqlalchemy.orm.attributes import flag_modified
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 from telethon import events
 from telethon.tl.types import (
@@ -45,8 +46,10 @@ from app.services.telegram.clock_sync import (
 )
 from app.services.telegram.comments_flow import (
     DiscussionCommentBuffer,
-    apply_optimistic_comments_thread,
+    apply_comments_thread_probe,
+    apply_initial_comments_thread_flag,
     comments_enabled,
+    probe_discussion_root,
     probe_pending_comments_thread_flags,
 )
 from app.services.telegram.metrics_flow import (
@@ -368,13 +371,15 @@ async def _catch_up(
     async with session_factory() as session:
         profile = await session.get(Profile, user_id)
         telegram = dict(profile.telegram or {}) if profile else {}
-    probed_posts: list[dict[str, Any]] = []
-    for post_data in posts:
-        if comments_enabled(telegram):
-            post_data = apply_optimistic_comments_thread(post_data, telegram)
-        probed_posts.append(post_data)
+    probed_posts: list[dict[str, Any]] = posts
     async with session_factory() as session:
         for post_data in probed_posts:
+            try:
+                msg_id = int(post_data.get("telegramMessageId") or 0)
+            except (TypeError, ValueError):
+                msg_id = 0
+            if min_id > 0 and msg_id > min_id:
+                post_data = apply_initial_comments_thread_flag(post_data, telegram)
             await upsert_telegram_post(session, user_id, post_data)
         await session.commit()
 
@@ -644,6 +649,93 @@ async def _refresh_channel_message(client: Any, entity: Any, message: Any) -> An
     return fetched[0] if isinstance(fetched, (list, tuple)) else fetched
 
 
+async def _probe_new_post_comments(
+    client: Any,
+    entity: Any,
+    user_id: UUID,
+    settings: Settings,
+    session_factory: async_sessionmaker[AsyncSession],
+    telegram: dict[str, Any],
+    telegram_message_id: str,
+) -> None:
+    """Confirm discussion root for a live-ingested post; never clear the live optimistic flag."""
+    try:
+        async with session_factory() as session:
+            post = await _find_telegram_post(session, user_id, telegram_message_id)
+            if post is None:
+                return
+            post_data = dict(post.data)
+        if not comments_enabled(telegram):
+            return
+        try:
+            channel_msg_id = int(telegram_message_id)
+        except (TypeError, ValueError):
+            return
+
+        root_id = None
+        for attempt in range(3):
+            root_id, _confirmed_absent = await probe_discussion_root(
+                client, entity, channel_msg_id, settings
+            )
+            if root_id is not None:
+                break
+            if attempt < 2:
+                await asyncio.sleep(0.3)
+
+        if root_id is None:
+            return
+
+        probed, changed = apply_comments_thread_probe(post_data, root_id)
+        if not changed:
+            return
+        async with session_factory() as session:
+            post = await _find_telegram_post(session, user_id, telegram_message_id)
+            profile = await session.get(Profile, user_id)
+            if post is None or profile is None:
+                return
+            post.data = probed
+            flag_modified(post, "data")
+            await touch_telegram_profile(session, profile)
+            await session.commit()
+    except Exception:
+        logger.debug(
+            "Background comment-thread probe failed for tg-%s user %s",
+            telegram_message_id,
+            user_id,
+            exc_info=True,
+        )
+
+
+async def _enrich_live_post_media(
+    client: Any,
+    messages: list[Any],
+    user_id: UUID,
+    settings: Settings,
+    session_factory: async_sessionmaker[AsyncSession],
+    telegram_message_id: str,
+) -> None:
+    try:
+        post_data = await map_group_to_post(
+            client,
+            messages,
+            user_id,
+            settings,
+            fetch_media=True,
+        )
+        if post_data is None or not post_data.get("media"):
+            return
+        async with session_factory() as session:
+            await update_telegram_post(session, user_id, post_data)
+            await session.commit()
+    except Exception:
+        logger.debug(
+            "Background media enrich failed for tg-%s user %s",
+            telegram_message_id,
+            user_id,
+            exc_info=True,
+        )
+
+
 async def _persist_group(
     client: Any,
     entity: Any,
@@ -671,19 +763,24 @@ async def _persist_group(
                     if isinstance(raw, list):
                         existing_media = [item for item in raw if isinstance(item, dict)]
 
+    needs_media_fetch = any(getattr(message, "media", None) for message in messages)
     post_data = await map_group_to_post(
         client,
         messages,
         user_id,
         settings,
-        fetch_media=True,
+        fetch_media=update,
         existing_media=existing_media if update else None,
     )
     if post_data is None:
         return
     refine_clock_from_live_message(client, messages[0], settings)
-    if not update and comments_enabled(telegram):
-        post_data = apply_optimistic_comments_thread(post_data, telegram)
+    if not update:
+        async with session_factory() as session:
+            profile = await session.get(Profile, user_id)
+            if profile is not None:
+                telegram = dict(profile.telegram or {})
+        post_data = apply_initial_comments_thread_flag(post_data, telegram)
     async with session_factory() as session:
         if update:
             await update_telegram_post(session, user_id, post_data)
@@ -696,6 +793,31 @@ async def _persist_group(
         post_data.get("telegramMessageId"),
         user_id,
     )
+    if not update:
+        msg_id = str(post_data.get("telegramMessageId") or "")
+        if msg_id:
+            asyncio.create_task(
+                _probe_new_post_comments(
+                    client,
+                    entity,
+                    user_id,
+                    settings,
+                    session_factory,
+                    telegram,
+                    msg_id,
+                )
+            )
+            if needs_media_fetch:
+                asyncio.create_task(
+                    _enrich_live_post_media(
+                        client,
+                        messages,
+                        user_id,
+                        settings,
+                        session_factory,
+                        msg_id,
+                    )
+                )
 
 
 async def _run_user_listener(user_id: UUID, stop_event: asyncio.Event) -> None:

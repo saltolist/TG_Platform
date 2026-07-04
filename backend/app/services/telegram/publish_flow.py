@@ -23,7 +23,11 @@ from app.core.config import Settings, get_settings
 from app.db.models import Post, Profile
 from app.db.session import async_session_factory
 from app.services.telegram.channel_flow import parse_channel_input, resolve_channel_entity_for_profile
-from app.services.telegram.comments_flow import probe_comments_thread_for_post
+from app.services.telegram.comments_flow import (
+    apply_initial_comments_thread_flag,
+    comments_enabled,
+    probe_comments_thread_for_post,
+)
 from app.services.telegram.mtproto_client import build_client
 from app.services.telegram.net import (
     TelegramAuthError,
@@ -215,6 +219,10 @@ async def publish_post(
                 probed_data = await probe_comments_thread_for_post(
                     client, entity, merged_data, telegram, settings
                 )
+                if probed_data == merged_data and comments_enabled(telegram):
+                    probed_data = apply_initial_comments_thread_flag(
+                        merged_data, telegram
+                    )
                 if probed_data != merged_data:
                     await _persist_post_data(user_id, post_id, probed_data)
                     merged_data = probed_data

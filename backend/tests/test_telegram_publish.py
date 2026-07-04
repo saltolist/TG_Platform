@@ -402,6 +402,7 @@ async def test_publish_optimistically_enables_comments_when_probe_is_slow(
     assert resp.status_code == 200
     body = resp.json()
     assert body.get("commentsThreadAvailable") is True
+    assert body.get("commentsThreadLiveOptimistic") is True
     assert "telegramDiscussionMessageId" not in body
 
 

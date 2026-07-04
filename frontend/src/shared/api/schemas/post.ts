@@ -193,6 +193,8 @@ export const postSchema = z.object({
   telegramDiscussionMessageId: z.string().optional(),
   /** True when Telegram has a discussion thread for this post (Step 5b). */
   commentsThreadAvailable: z.boolean().optional(),
+  /** Live-ingest only: show comments UI before TG probe confirms the thread. */
+  commentsThreadLiveOptimistic: z.boolean().optional(),
   /** Best-effort Telegram edit-sync failure from the last PATCH (Phase 3 / Step 4c). */
   telegramSyncError: z.string().optional(),
   /** Best-effort Telegram comment-sync failure from the last PATCH or sync-comments (Step 5b). */

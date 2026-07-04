@@ -12,6 +12,7 @@ const publishedPost = {
   notes: [],
   chats: [],
   telegramMessageId: "501",
+  date: new Date().toISOString(),
 } as Post;
 
 describe("postSupportsComments", () => {
@@ -33,10 +34,45 @@ describe("postSupportsComments", () => {
     ).toBe(false);
   });
 
-  it("hides optimistic flag without a confirmed discussion root", () => {
+  it("shows live optimistic flag for a fresh live-synced post", () => {
     expect(
       postSupportsComments(
-        { ...publishedPost, commentsThreadAvailable: true },
+        {
+          ...publishedPost,
+          commentsThreadAvailable: true,
+          commentsThreadLiveOptimistic: true,
+        },
+        true,
+      ),
+    ).toBe(true);
+  });
+
+  it("shows a recent telegram post before per-post flags are persisted", () => {
+    expect(
+      postSupportsComments(
+        { ...publishedPost },
+        true,
+      ),
+    ).toBe(true);
+  });
+
+  it("hides stale optimistic flag on an old post", () => {
+    expect(
+      postSupportsComments(
+        {
+          ...publishedPost,
+          date: "2020-01-01T00:00:00.000Z",
+          commentsThreadAvailable: true,
+        },
+        true,
+      ),
+    ).toBe(false);
+  });
+
+  it("hides unprobed historical posts without a thread flag", () => {
+    expect(
+      postSupportsComments(
+        { ...publishedPost, date: "2020-01-01T00:00:00.000Z" },
         true,
       ),
     ).toBe(false);
@@ -48,6 +84,7 @@ describe("postSupportsComments", () => {
         {
           ...publishedPost,
           commentsThreadAvailable: true,
+          commentsThreadLiveOptimistic: true,
           telegramDiscussionMessageId: "501",
         },
         true,
@@ -60,14 +97,11 @@ describe("postSupportsComments", () => {
       postSupportsComments(
         {
           ...publishedPost,
+          date: "2020-01-01T00:00:00.000Z",
           telegramDiscussionMessageId: "9001",
         },
         true,
       ),
     ).toBe(true);
-  });
-
-  it("hides when not linked to telegram", () => {
-    expect(postSupportsComments(publishedPost, true)).toBe(false);
   });
 });

@@ -1,10 +1,15 @@
 import type { Post } from "@/shared/types";
 
-function hasConfirmedDiscussionRoot(post: Post): boolean {
-  const channelMsgId = post.telegramMessageId;
-  const rootId = post.telegramDiscussionMessageId;
-  if (!channelMsgId || !rootId) return false;
-  return rootId !== channelMsgId;
+/** Fresh live-sync / catch-up posts may appear before per-post flags are persisted. */
+const RECENT_TELEGRAM_POST_MS = 10 * 60 * 1000;
+
+function isRecentTelegramPost(post: Post): boolean {
+  if (post.status !== "published" || !post.telegramMessageId) return false;
+  const raw = post.date;
+  if (!raw) return false;
+  const publishedAt = Date.parse(raw);
+  if (Number.isNaN(publishedAt)) return false;
+  return Date.now() - publishedAt < RECENT_TELEGRAM_POST_MS;
 }
 
 /** Whether this post can show the comments UI (per-post TG discussion thread). */
@@ -15,5 +20,16 @@ export function postSupportsComments(
   if (!channelCommentsEnabled) return false;
   if (post.status !== "published") return false;
   if (post.commentsThreadAvailable === false) return false;
-  return hasConfirmedDiscussionRoot(post);
+
+  const channelMsgId = post.telegramMessageId;
+  const rootId = post.telegramDiscussionMessageId;
+  if (rootId && channelMsgId) {
+    if (rootId === channelMsgId) return false;
+    return true;
+  }
+
+  if (post.commentsThreadLiveOptimistic === true) return true;
+  if (isRecentTelegramPost(post)) return true;
+
+  return false;
 }

@@ -4,6 +4,7 @@ import { Composer } from "@/widgets/composer";
 import { ChatMessage } from "@/widgets/chat-thread";
 import { PostMessageCard, type PostWorkspace } from "@/widgets/post-workspace";
 import { useTelegramProfile } from "@/entities/channel";
+import { channelSupportsComments } from "@/entities/post/lib/channelSupportsComments";
 import { postSupportsComments } from "@/entities/post/lib/postSupportsComments";
 import { PostStatusBadge, usePostTelegramSyncing } from "@/entities/post";
 import { isStreamingChatMessage } from "@/shared/lib/streaming/streamingMessage";
@@ -34,7 +35,7 @@ export default function PostChatView({ post, data, ui, actions }: Props) {
   const { startEdit, cancelEdit, savePost, openComments, sendPost } = actions;
   const isTelegramSyncing = usePostTelegramSyncing(post.id) || isSavingPost;
   const { data: telegramProfile } = useTelegramProfile();
-  const channelCommentsEnabled = telegramProfile?.commentsEnabled !== false;
+  const channelCommentsEnabled = channelSupportsComments(telegramProfile);
   const showComments = postSupportsComments(post, channelCommentsEnabled);
   const firstUserFlat = firstUserFlatIndex(flatMessages);
 
