@@ -78,4 +78,20 @@ describe("mergeCommentsWithDeleteTombstones", () => {
       fourth,
     ]);
   });
+
+  it("keeps every syncing tombstone when multiple deletes share the same stored index", () => {
+    const first = { ...synced, id: "2", text: "first deleted" };
+    const second = { ...synced, id: "3", text: "second deleted" };
+    const tombstones = new Map<string, CommentDeleteTombstone>([
+      ["2", { comment: first, index: 1 }],
+      ["3", { comment: second, index: 1 }],
+    ]);
+    const survivor = { ...synced, id: "4", text: "survivor" };
+    expect(mergeCommentsWithDeleteTombstones([synced, survivor], tombstones)).toEqual([
+      synced,
+      first,
+      second,
+      survivor,
+    ]);
+  });
 });

@@ -7,6 +7,7 @@ import { useTelegramProfile } from "@/entities/channel";
 import { useRepositories } from "@/app/providers/RepositoryProvider";
 import { useQueryAccountScope } from "@/app/providers/useQueryAccountScope";
 import type { CommentDeleteTombstone } from "@/entities/post/lib/mergePostComments";
+import { mergeCommentsWithDeleteTombstones } from "@/entities/post/lib/mergePostComments";
 import { enqueueSerialPostPatch } from "@/entities/post/lib/enqueueSerialPostPatch";
 import { getCachedPost, setCachedPost } from "@/entities/post/lib/getCachedPost";
 import { applyPostUpdate, useUpdatePost } from "@/entities/post/model/usePosts";
@@ -65,6 +66,7 @@ export function useDeletePostComment() {
   const { data: telegramProfile } = useTelegramProfile();
   const commentsRevision = telegramProfile?.commentsRevision ?? 0;
   const prevCommentsRevisionRef = useRef(commentsRevision);
+  const pendingDeleteConfirmationsRef = useRef<string[]>([]);
   const [syncingDeleteById, setSyncingDeleteById] = useState<
     Map<string, CommentDeleteTombstone>
   >(() => new Map());
@@ -76,7 +78,9 @@ export function useDeletePostComment() {
       setSyncingDeleteById((current) => {
         if (current.size === 0) return current;
         const next = new Map(current);
-        for (const commentId of [...next.keys()].slice(0, delta)) {
+        for (let step = 0; step < delta; step += 1) {
+          const commentId = pendingDeleteConfirmationsRef.current.shift();
+          if (!commentId) break;
           next.delete(commentId);
         }
         return next.size === current.size ? current : next;
@@ -95,13 +99,17 @@ export function useDeletePostComment() {
 
       const needsTelegramSync = Boolean(post.telegramMessageId && target.telegramMessageId);
       if (needsTelegramSync) {
-        const deleteIndex = previousComments.findIndex((item) => item.id === commentId);
-        setSyncingDeleteById((prev) =>
-          new Map(prev).set(commentId, {
+        pendingDeleteConfirmationsRef.current.push(commentId);
+        setSyncingDeleteById((prev) => {
+          const displayList = mergeCommentsWithDeleteTombstones(previousComments, prev);
+          const deleteIndex = displayList.findIndex((item) => item.id === commentId);
+          const next = new Map(prev);
+          next.set(commentId, {
             comment: target,
-            index: deleteIndex >= 0 ? deleteIndex : previousComments.length - 1,
-          }),
-        );
+            index: deleteIndex >= 0 ? deleteIndex : displayList.length - 1,
+          });
+          return next;
+        });
       }
 
       await enqueueSerialPostPatch(postId, async () => {
@@ -114,6 +122,9 @@ export function useDeletePostComment() {
         try {
           await updatePost.mutateAsync({ id: postId, patch: { comments } });
         } catch (error) {
+          pendingDeleteConfirmationsRef.current = pendingDeleteConfirmationsRef.current.filter(
+            (id) => id !== commentId,
+          );
           setSyncingDeleteById((prev) => {
             const next = new Map(prev);
             next.delete(commentId);

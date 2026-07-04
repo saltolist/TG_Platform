@@ -60,19 +60,15 @@ export function mergeCommentsWithDeleteTombstones(
   );
   if (tombstones.length === 0) return comments;
 
-  const reserved = new Set(tombstones.map(({ index }) => index));
-  const placements = new Map<number, PostComment>();
-  for (const { comment, index } of tombstones) {
-    placements.set(index, comment);
-  }
+  const sorted = [...tombstones].sort((left, right) => left.index - right.index);
 
-  let slot = 0;
-  for (const comment of comments) {
-    while (reserved.has(slot)) slot += 1;
-    placements.set(slot, comment);
-    slot += 1;
+  const result = [...comments];
+  const nextInsertAtByIndex = new Map<number, number>();
+  for (const { comment, index } of sorted) {
+    const insertAt =
+      nextInsertAtByIndex.get(index) ?? Math.max(0, Math.min(index, result.length));
+    result.splice(insertAt, 0, comment);
+    nextInsertAtByIndex.set(index, insertAt + 1);
   }
-
-  const orderedSlots = [...placements.keys()].sort((a, b) => a - b);
-  return orderedSlots.map((index) => placements.get(index)!);
+  return result;
 }
