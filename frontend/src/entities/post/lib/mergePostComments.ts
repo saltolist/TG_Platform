@@ -4,9 +4,27 @@ import { isPlatformSelfComment, PLATFORM_SELF_COMMENT_AUTHOR } from "@/shared/li
 
 export type CommentDeleteTombstone = {
   comment: PostComment;
-  /** Index in the list at the moment the user triggered delete. */
+  /** Index in the visible list at the moment the user triggered delete. */
   index: number;
 };
+
+/** Drop one confirmed tombstone and shift later rows up to close the gap. */
+export function clearConfirmedDeleteTombstone(
+  tombstones: Map<string, CommentDeleteTombstone>,
+  commentId: string,
+): boolean {
+  const removed = tombstones.get(commentId);
+  if (!removed) return false;
+
+  const clearedIndex = removed.index;
+  tombstones.delete(commentId);
+  for (const [id, tombstone] of tombstones) {
+    if (tombstone.index > clearedIndex) {
+      tombstones.set(id, { ...tombstone, index: tombstone.index - 1 });
+    }
+  }
+  return true;
+}
 
 /** Keep optimistic platform comments when a background poll returns a stale snapshot. */
 export function mergePostCommentsFromServer(

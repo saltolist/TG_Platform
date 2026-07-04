@@ -7,7 +7,10 @@ import { useTelegramProfile } from "@/entities/channel";
 import { useRepositories } from "@/app/providers/RepositoryProvider";
 import { useQueryAccountScope } from "@/app/providers/useQueryAccountScope";
 import type { CommentDeleteTombstone } from "@/entities/post/lib/mergePostComments";
-import { mergeCommentsWithDeleteTombstones } from "@/entities/post/lib/mergePostComments";
+import {
+  clearConfirmedDeleteTombstone,
+  mergeCommentsWithDeleteTombstones,
+} from "@/entities/post/lib/mergePostComments";
 import { enqueueSerialPostPatch } from "@/entities/post/lib/enqueueSerialPostPatch";
 import { getCachedPost, setCachedPost } from "@/entities/post/lib/getCachedPost";
 import { applyPostUpdate, useUpdatePost } from "@/entities/post/model/usePosts";
@@ -81,7 +84,7 @@ export function useDeletePostComment() {
         for (let step = 0; step < delta; step += 1) {
           const commentId = pendingDeleteConfirmationsRef.current.shift();
           if (!commentId) break;
-          next.delete(commentId);
+          clearConfirmedDeleteTombstone(next, commentId);
         }
         return next.size === current.size ? current : next;
       });

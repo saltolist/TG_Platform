@@ -2,7 +2,11 @@ import { describe, expect, it } from "vitest";
 
 import type { PostComment } from "@/shared/types";
 
-import { mergePostCommentsFromServer, mergeCommentsWithDeleteTombstones } from "./mergePostComments";
+import {
+  clearConfirmedDeleteTombstone,
+  mergePostCommentsFromServer,
+  mergeCommentsWithDeleteTombstones,
+} from "./mergePostComments";
 import type { CommentDeleteTombstone } from "./mergePostComments";
 
 const synced = {
@@ -91,6 +95,48 @@ describe("mergeCommentsWithDeleteTombstones", () => {
       synced,
       first,
       second,
+      survivor,
+    ]);
+  });
+
+  it("keeps later tombstones above trailing survivors after an earlier delete is confirmed", () => {
+    const deletedSecond = { ...synced, id: "2", text: "second deleted" };
+    const deletedThird = { ...synced, id: "3", text: "third deleted" };
+    const survivor = { ...synced, id: "5", text: "survivor" };
+    const tombstones = new Map<string, CommentDeleteTombstone>([
+      ["2", { comment: deletedSecond, index: 1 }],
+      ["3", { comment: deletedThird, index: 2 }],
+    ]);
+    expect(mergeCommentsWithDeleteTombstones([synced, survivor], tombstones)).toEqual([
+      synced,
+      deletedSecond,
+      deletedThird,
+      survivor,
+    ]);
+  });
+});
+
+describe("clearConfirmedDeleteTombstone", () => {
+  it("shifts later tombstone indices when an earlier delete is confirmed", () => {
+    const deletedFirst = { ...synced, id: "1b", text: "first deleted" };
+    const deletedSecond = { ...synced, id: "2", text: "second deleted" };
+    const deletedThird = { ...synced, id: "3", text: "third deleted" };
+    const tombstones = new Map<string, CommentDeleteTombstone>([
+      ["1b", { comment: deletedFirst, index: 1 }],
+      ["2", { comment: deletedSecond, index: 2 }],
+      ["3", { comment: deletedThird, index: 3 }],
+    ]);
+
+    expect(clearConfirmedDeleteTombstone(tombstones, "missing")).toBe(false);
+    expect(clearConfirmedDeleteTombstone(tombstones, "1b")).toBe(true);
+    expect(tombstones.get("2")?.index).toBe(1);
+    expect(tombstones.get("3")?.index).toBe(2);
+
+    const survivor = { ...synced, id: "5", text: "survivor" };
+    expect(mergeCommentsWithDeleteTombstones([synced, survivor], tombstones)).toEqual([
+      synced,
+      deletedSecond,
+      deletedThird,
       survivor,
     ]);
   });
