@@ -1,7 +1,7 @@
 "use client";
 
 import { useRouter } from "next/navigation";
-import { useCallback, useEffect, useMemo, type CSSProperties } from "react";
+import { useCallback, useMemo, type CSSProperties } from "react";
 
 import { useNavigationStore } from "@/app/model/store";
 import {
@@ -17,7 +17,10 @@ import {
   ANALYTICS_PERIOD_LABELS,
 } from "@/shared/lib/analyticsPeriod";
 import { getChannelTopPostsTableMetrics } from "@/shared/lib/channelAnalyticsTrend";
-import { loadChannelMetricsFromApi } from "@/shared/lib/channelMetricsDb";
+import {
+  getChannelMetricsRevision,
+  loadChannelMetricsFromApi,
+} from "@/shared/lib/channelMetricsDb";
 import { useMobile760 } from "@/shared/lib/hooks/useMobile760";
 import { shouldPersistLocally } from "@/shared/lib/overlay/isOverlayAccount";
 import { routes } from "@/shared/lib/routes";
@@ -36,10 +39,13 @@ export function useAnalyticsScreen() {
   const overviewQuery = useChannelAnalyticsOverview(period, isChannelConnected);
   const topPostsQuery = useChannelAnalyticsTopPosts(period, isChannelConnected);
 
-  useEffect(() => {
+  // Загружаем данные в channelMetricsDb синхронно во время рендера, чтобы графики
+  // в этом же проходе читали свежие данные (без кадра с seed/пустыми значениями).
+  const metricsRevision = useMemo(() => {
     if (overviewQuery.data) {
       loadChannelMetricsFromApi(overviewQuery.data);
     }
+    return getChannelMetricsRevision();
   }, [overviewQuery.data]);
 
   const periodIndex = analyticsPeriodToIndex(period);
@@ -62,6 +68,8 @@ export function useAnalyticsScreen() {
     }
     return undefined;
   }, [overviewQuery.data?.reactions, useRealAnalytics]);
+
+  const channelHeatmap = useRealAnalytics ? overviewQuery.data?.heatmap : undefined;
 
   const topPostsDesktopGridStyle = useMemo(
     () =>
@@ -116,6 +124,8 @@ export function useAnalyticsScreen() {
       topPostsDesktopGridStyle,
       topPostsTableWrapStyle,
       channelReactions,
+      channelHeatmap,
+      metricsRevision,
       isLoadingAnalytics:
         useRealAnalytics &&
         isChannelConnected &&

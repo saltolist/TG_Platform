@@ -18,5 +18,8 @@ export function mergeTelegramSyncFields(
     metricsRevision: telegram.metricsRevision,
     commentsEnabled: telegram.commentsEnabled,
     discussionChatId: telegram.discussionChatId,
+    subscriberCount: telegram.subscriberCount,
+    subscriberCountAt: telegram.subscriberCountAt,
+    lastAnalyticsSnapshotAt: telegram.lastAnalyticsSnapshotAt,
   };
 }

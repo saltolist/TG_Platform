@@ -15,7 +15,9 @@ export type TelegramRevisionAdvance = {
 
 /** Compare polled telegram profile revisions against baselines captured *before* cache writes. */
 export function detectTelegramRevisionAdvance(
-  telegram: TelegramProfileConfig,
+  telegram: Partial<
+    Pick<TelegramProfileConfig, "syncRevision" | "commentsRevision" | "metricsRevision" | "lastSync">
+  >,
   baselines: TelegramRevisionBaselines,
   previousLastSync: string | null,
 ): TelegramRevisionAdvance {

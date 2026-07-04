@@ -531,7 +531,7 @@ Celery Beat/Flower.
 
 ---
 
-### Шаг 5 — Синхронизация метрик ✅
+### Шаг 5 — Синхронизация метрик и аналитика канала ✅
 
 **Эндпоинты:**
 ```
@@ -554,6 +554,14 @@ GET /api/v1/analytics/top-posts/?period=30d
 - **Metrics-poll:** каждые `telegram_metrics_poll_seconds` (по умолчанию 15 с) batch
   `get_messages` для последних `telegram_metrics_poll_window` (20) связанных постов —
   fallback при дропе live-событий (Docker clock skew).
+- **Подписчики:** при подключении канала и при аналитическом снимке выполняется
+  `GetFullChannelRequest`; `full_chat.participants_count` сохраняется в
+  `profile.telegram.subscriberCount`. Если Telegram скрывает число подписчиков,
+  поле остаётся `null`, а API возвращает `subscribersAvailable=false`.
+- **Снимки аналитики:** `live_sync_worker` запускает `_analytics_snapshot_loop`
+  каждые `telegram_analytics_snapshot_seconds` (по умолчанию 1800 с). Снимок
+  пишет cumulative totals в `channel_metric_snapshots`, округляя `captured_at`
+  к слотам `:00` / `:30`.
 
 **Обновление в БД:**
 - `post_sync._content_unchanged` учитывает изменение `metrics` — reconcile может
@@ -562,21 +570,31 @@ GET /api/v1/analytics/top-posts/?period=30d
   в фоне: `telegram_reconcile_include_comments=false` по умолчанию).
 
 **Агрегация для UI:**
-- `backend/app/services/analytics/channel_metrics.py` — `build_overview`,
-  `build_top_posts` из `post.data.metrics` опубликованных постов.
-- Overview: `startTotals` / `endTotals`, дневные бакеты по дате публикации,
-  разбивка реакций по emoji.
+- `backend/app/services/analytics/channel_metrics.py` — `build_overview_from_history`,
+  `build_top_posts` из `post.data.metrics` опубликованных постов и
+  `channel_metric_snapshots`.
+- Overview v2: `startTotals` / `endTotals`, `subscribersAvailable`,
+  `granularity` (`day` или `30m`), `anchorDate`, `historySource`, разбивка
+  реакций по emoji и реальная heatmap.
+- История до первого снимка строится как backfill по дате публикации поста;
+  после первого снимка используются реальные snapshot-deltas. Период `24h`
+  использует 30-минутные точки при наличии snapshot-истории.
 - Top-posts: ранжирование по `views` за выбранный период.
+- Heatmap: UTC weekday × time slot (`09`, `12`, `15`, `18`, `21`), значение —
+  просмотры опубликованных постов в слоте, нормализованные в уровни `1..5`.
 
 **Frontend:**
 - `useChannelAnalyticsOverview` / `useChannelAnalyticsTopPosts` — реальные аккаунты.
-- Demo/overlay — прежние seed-данные (`channelMetricsDb`, `shouldPersistLocally()`).
-- `ChannelReactionsPanel` — реакции из API; графики — через `loadChannelMetricsFromApi`.
+- Demo/overlay — seed-данные (`channelMetricsDb`, `shouldPersistLocally()`).
+- Real accounts стартуют с empty state: без seed flash, demo reactions и fake heatmap.
+- `ChannelReactionsPanel` — реакции из API или пустое состояние; графики —
+  через `loadChannelMetricsFromApi`; `AnalyticsHeatmap` получает данные из overview.
 
-**Тесты:** `backend/tests/test_telegram_metrics.py`.
+**Тесты:** `backend/tests/test_telegram_metrics.py`,
+`backend/tests/test_channel_analytics.py`, `frontend/src/shared/lib/channelMetricsDb.test.ts`.
 
-**Ограничение v1:** исторические тренды строятся по **текущим** снимкам метрик постов,
-сгруппированным по дате публикации (нет отдельного time-series store). Heatmap — seed.
+**Ограничение:** в первые часы после деплоя 24h-график короткий, пока не накопятся
+30-минутные снимки. Дневные периоды сразу получают backfill по публикациям.
 
 ### Шаг 5b — Синхронизация комментариев ✅
 

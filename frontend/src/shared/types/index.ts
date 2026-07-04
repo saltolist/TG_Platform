@@ -132,6 +132,9 @@ export type TelegramProfileConfig = {
   metricsRevision?: number;
   discussionChatId?: string;
   commentsEnabled?: boolean;
+  subscriberCount?: number | null;
+  subscriberCountAt?: string;
+  lastAnalyticsSnapshotAt?: string;
   botApiToken: string;
   botStatus: TelegramBotStatus;
   botUsername: string;

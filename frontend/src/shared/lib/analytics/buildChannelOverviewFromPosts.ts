@@ -1,6 +1,6 @@
-import type { ChannelMetricsDataset } from "@/shared/data/analytics-seed";
 import { parseViewsMetric } from "@/shared/data/analytics-seed";
-import type { Post, PostReaction } from "@/shared/types";
+import type { ChannelAnalyticsOverview } from "@/shared/api/schemas/channelAnalytics";
+import type { Post } from "@/shared/types";
 
 import { buildAnalyticsTopPostsFromPosts } from "./buildTopPostsFromPosts";
 
@@ -77,7 +77,7 @@ function postsInWindow(published: Post[], period: string): Post[] {
   });
 }
 
-function aggregateReactions(posts: Post[]): PostReaction[] {
+function aggregateReactions(posts: Post[]) {
   const counts = new Map<string, number>();
   for (const post of posts) {
     for (const item of post.metrics?.reactions ?? []) {
@@ -89,10 +89,11 @@ function aggregateReactions(posts: Post[]): PostReaction[] {
     .sort((a, b) => b.count - a.count);
 }
 
+/** Demo/MSW-only client aggregator — real accounts get overview from the API. */
 export function buildChannelOverviewFromPosts(
   posts: Post[],
   period: string,
-): ChannelMetricsDataset & { reactions: PostReaction[] } {
+): ChannelAnalyticsOverview {
   const published = posts.filter((post) => post.status === "published");
   const windowPosts = postsInWindow(published, period);
   const daySpan = periodDaySpan(period, published);

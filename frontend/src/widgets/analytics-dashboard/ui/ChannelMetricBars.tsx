@@ -15,9 +15,14 @@ import { usePageHeaderLe1080, usePageHeaderLe640 } from "@/widgets/page-header";
 
 type ChannelMetricBarsProps = {
   periodIndex: number;
+  /** Ревизия channelMetricsDb — форсирует пересборку при загрузке API-данных. */
+  metricsRevision?: number;
 };
 
-export default function ChannelMetricBars({ periodIndex }: ChannelMetricBarsProps) {
+export default function ChannelMetricBars({
+  periodIndex,
+  metricsRevision = 0,
+}: ChannelMetricBarsProps) {
   const isMobile = useMobile760();
   const isHeaderLe1080 = usePageHeaderLe1080();
   const isHeaderLe640 = usePageHeaderLe640();
@@ -28,7 +33,7 @@ export default function ChannelMetricBars({ periodIndex }: ChannelMetricBarsProp
   });
   const { series } = useMemo(
     () => buildChannelTrendSeries(periodIndex, { maxPoints: chartMaxPoints }),
-    [periodIndex, chartMaxPoints],
+    [periodIndex, chartMaxPoints, metricsRevision],
   );
   const metrics = useMemo(
     () => buildChannelMetricSummaries(series, periodIndex),

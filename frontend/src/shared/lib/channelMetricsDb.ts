@@ -1,6 +1,7 @@
 import { channelMetrics110d, type ChannelMetricsDataset } from "@/shared/data/analytics-seed";
 import { presentationChannelMetrics } from "@/shared/data/presentation-analytics-seed";
-import { DEMO_ACCOUNT_ID, PRESENTATION_ACCOUNT_ID } from "@/shared/lib/auth/constants";
+import { PRESENTATION_ACCOUNT_ID } from "@/shared/lib/auth/constants";
+import { shouldPersistLocally } from "@/shared/lib/overlay/isOverlayAccount";
 import {
   formatTrendChartRangeFromStart,
   formatTrendPointPeriod,
@@ -17,21 +18,35 @@ export type ChannelMetricId =
 
 export type ChannelDayRecord = Record<ChannelMetricId, number>;
 
+export type ChannelDayEntry = ChannelDayRecord & { date?: string };
+
+export type ChannelMetricsGranularity = "day" | "30m";
+
 export type ChannelMetricsDatabase = {
   version: number;
   dayCount: number;
+  granularity: ChannelMetricsGranularity;
+  subscribersAvailable: boolean;
   startTotals: ChannelDayRecord;
   endTotals: ChannelDayRecord;
-  days: ChannelDayRecord[];
+  days: ChannelDayEntry[];
 };
 
-function cloneMetricsDataset(source: ChannelMetricsDataset): ChannelMetricsDatabase {
+type ChannelMetricsSource = ChannelMetricsDataset & {
+  granularity?: ChannelMetricsGranularity;
+  subscribersAvailable?: boolean;
+};
+
+function cloneMetricsDataset(source: ChannelMetricsSource): ChannelMetricsDatabase {
   return {
     version: source.version,
     dayCount: source.dayCount,
+    granularity: source.granularity ?? "day",
+    subscribersAvailable: source.subscribersAvailable ?? true,
     startTotals: { ...source.startTotals },
     endTotals: { ...source.endTotals },
     days: source.days.map((day) => ({
+      date: day.date,
       subscribers: day.subscribers,
       reactions: day.reactions,
       views: day.views,
@@ -42,26 +57,74 @@ function cloneMetricsDataset(source: ChannelMetricsDataset): ChannelMetricsDatab
   };
 }
 
-let activeMetricsAccountId = DEMO_ACCOUNT_ID;
-let db = cloneMetricsDataset(channelMetrics110d);
+function emptyMetricsDataset(): ChannelMetricsDatabase {
+  const zeroTotals = (): ChannelDayRecord => ({
+    subscribers: 0,
+    reactions: 0,
+    views: 0,
+    comments: 0,
+    reposts: 0,
+    er: 0,
+  });
+  return {
+    version: 1,
+    dayCount: 1,
+    granularity: "day",
+    subscribersAvailable: true,
+    startTotals: zeroTotals(),
+    endTotals: zeroTotals(),
+    days: [zeroTotals()],
+  };
+}
+
+/** Real accounts start empty until analytics API data arrives; demo/presentation use seed. */
+function seedForAccount(accountId: string): ChannelMetricsDatabase {
+  if (accountId === PRESENTATION_ACCOUNT_ID) {
+    return cloneMetricsDataset(presentationChannelMetrics);
+  }
+  if (shouldPersistLocally()) {
+    return cloneMetricsDataset(channelMetrics110d);
+  }
+  return emptyMetricsDataset();
+}
+
+let activeMetricsAccountId: string | undefined;
+let db = emptyMetricsDataset();
+let dbRevision = 0;
 
 export function setChannelMetricsAccount(accountId: string) {
   if (accountId === activeMetricsAccountId) return;
   activeMetricsAccountId = accountId;
-  const source =
-    accountId === PRESENTATION_ACCOUNT_ID ? presentationChannelMetrics : channelMetrics110d;
-  db = cloneMetricsDataset(source);
+  db = seedForAccount(accountId);
+  dbRevision += 1;
 }
 
 export function getChannelMetricsDatabase(): ChannelMetricsDatabase {
   return db;
 }
 
-export function loadChannelMetricsFromApi(dataset: ChannelMetricsDataset): void {
-  db = cloneMetricsDataset(dataset);
+/** Bumped whenever the database contents are replaced; use as a memo dependency. */
+export function getChannelMetricsRevision(): number {
+  return dbRevision;
 }
 
-export const CHANNEL_METRICS_DAY_COUNT = db.dayCount;
+export function loadChannelMetricsFromApi(
+  dataset: ChannelMetricsDataset & {
+    granularity?: ChannelMetricsGranularity;
+    subscribersAvailable?: boolean;
+  },
+): void {
+  db = cloneMetricsDataset(dataset);
+  dbRevision += 1;
+}
+
+export function isChannelSubscribersAvailable(): boolean {
+  return db.subscribersAvailable;
+}
+
+export function isChannel30mGranularity(): boolean {
+  return db.granularity === "30m";
+}
 
 const CHANNEL_ALL_TIME_MAX_LABELS = 30;
 
@@ -105,7 +168,18 @@ function getChannelDataAnchorNow() {
   return now;
 }
 
+function parseDayDate(value: string | undefined): Date | null {
+  if (!value) return null;
+  const normalized = value.includes("T") ? value : `${value}T12:00:00`;
+  const parsed = new Date(normalized);
+  return Number.isNaN(parsed.getTime()) ? null : parsed;
+}
+
 function getChannelDayDate(dayIndex: number) {
+  // Реальные даты из API имеют приоритет; синтетика «сегодня минус N» — только
+  // для seed-данных без dates.
+  const apiDate = parseDayDate(db.days[dayIndex]?.date);
+  if (apiDate) return apiDate;
   const day = getChannelDataAnchorNow();
   day.setDate(day.getDate() - (db.dayCount - 1 - dayIndex));
   return day;
@@ -135,6 +209,26 @@ function formatTrendRangePart(date: Date) {
   return `${day} ${month}`;
 }
 
+function formatTimeLabel(date: Date) {
+  const hours = String(date.getUTCHours()).padStart(2, "0");
+  const minutes = String(date.getUTCMinutes()).padStart(2, "0");
+  return `${hours}:${minutes}`;
+}
+
+const SLOT_30M_MS = 30 * 60 * 1000;
+
+function use30mSlots(chartPeriod: number) {
+  return chartPeriod === 0 && db.granularity === "30m" && db.days.length > 1;
+}
+
+function get30mSlotBounds(pointIndex: number, pointCount: number) {
+  const total = db.days.length;
+  const { start, end } = displayIndexToSpan(pointIndex, pointCount, total);
+  const from = parseDayDate(db.days[start]?.date) ?? new Date();
+  const endStart = parseDayDate(db.days[end]?.date) ?? from;
+  return { from, to: new Date(endStart.getTime() + SLOT_30M_MS) };
+}
+
 function resolveChannelPointCount(
   chartPeriod: number,
   windowDays: number,
@@ -154,6 +248,15 @@ export function buildChannelChartLabels(
   options?: { maxPoints?: number },
 ) {
   if (chartPeriod === 0) {
+    if (use30mSlots(chartPeriod)) {
+      const total = db.days.length;
+      const pointCount = Math.min(options?.maxPoints ?? total, total);
+      return Array.from({ length: pointCount }, (_, index) => {
+        const { start } = displayIndexToSpan(index, pointCount, total);
+        const date = parseDayDate(db.days[start]?.date);
+        return date ? formatTimeLabel(date) : "";
+      });
+    }
     return getPeriodChartLabels(0, options);
   }
 
@@ -178,6 +281,9 @@ export function getChannelTrendPointPeriodBounds(
   pointIndex: number,
   pointCount: number,
 ) {
+  if (use30mSlots(chartPeriod)) {
+    return get30mSlotBounds(pointIndex, pointCount);
+  }
   const daySpan = Math.min(chartPeriodToDaySpan(chartPeriod), db.dayCount);
   const sliceStart = db.days.length - daySpan;
 
@@ -197,6 +303,10 @@ export function formatChannelTrendPointPeriod(
   pointIndex: number,
   pointCount: number,
 ) {
+  if (use30mSlots(chartPeriod)) {
+    const { from, to } = get30mSlotBounds(pointIndex, pointCount);
+    return `${formatTimeLabel(from)} — ${formatTimeLabel(to)}`;
+  }
   if (chartPeriod === 0) {
     return formatTrendPointPeriod(0, pointIndex, pointCount);
   }
@@ -209,6 +319,11 @@ export function formatChannelTrendChartRangeFromStart(
   pointIndex: number,
   pointCount: number,
 ) {
+  if (use30mSlots(chartPeriod)) {
+    const start = get30mSlotBounds(0, pointCount);
+    const end = get30mSlotBounds(pointIndex, pointCount);
+    return `${formatTimeLabel(start.from)} — ${formatTimeLabel(end.to)}`;
+  }
   if (chartPeriod === 0) {
     return formatTrendChartRangeFromStart(0, pointIndex, pointCount);
   }
@@ -319,6 +434,17 @@ export function extractChannelMetricSeriesForChart(
   const priorCumulative = priorCumulativeForMetric(metricId, priorDayIndex);
 
   if (chartPeriod === 0 && pointCount > 1) {
+    // Реальные 30-минутные снимки: без синтетического разброса по часам.
+    if (use30mSlots(chartPeriod)) {
+      const raw = db.days.map((day) =>
+        isChannelErMetric(metricId) ? Math.round(day.er * 10) : day[metricId],
+      );
+      const startBaseline = priorCumulativeForMetric(metricId, -1);
+      const values = isChannelErMetric(metricId)
+        ? bucketLast(raw, pointCount)
+        : bucketSum(raw, pointCount);
+      return { values, priorCumulative: startBaseline };
+    }
     const lastDay = windowDays[windowDays.length - 1] ?? db.days[db.days.length - 1];
     if (isChannelErMetric(metricId)) {
       const level = Math.round((lastDay?.er ?? db.endTotals.er) * 10);

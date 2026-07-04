@@ -27,7 +27,7 @@ export function AnalyticsScreen() {
       }
     >
       <div className="analytics-scroll-inner">
-        {isChannelLoading ? (
+        {isChannelLoading || data.isLoadingAnalytics ? (
           <p className="screen-placeholder">Загрузка аналитики…</p>
         ) : !isChannelConnected ? (
           <ConnectChannelEmptyState feature="аналитике канала" icon="📊" />
@@ -38,8 +38,9 @@ export function AnalyticsScreen() {
               periods={data.periods}
               onPeriodChange={actions.setPeriod}
               reactions={data.channelReactions}
+              metricsRevision={data.metricsRevision}
             />
-            <AnalyticsHeatmap />
+            <AnalyticsHeatmap heatmap={data.channelHeatmap} />
             <AnalyticsTopPostsTable
               isMobile={ui.isMobile}
               posts={data.rankedTopPosts}

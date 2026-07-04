@@ -1,5 +1,3 @@
-import type { AiProfileConfig, LlmModel } from "@/shared/types";
-
 export type AnalyticsPeriod = "24h" | "7d" | "30d" | "90d" | "all";
 
 export type ChannelDayMetrics = {
@@ -14,7 +12,7 @@ export type ChannelDayMetrics = {
 };
 
 export type ChannelMetricsDataset = {
-  version: 1;
+  version: number;
   dayCount: number;
   startTotals: {
     subscribers: number;
@@ -157,98 +155,11 @@ function generateChannelMetrics110d(): ChannelMetricsDataset {
 
 export const channelMetrics110d = generateChannelMetrics110d();
 
-const PERIOD_DAYS: Record<Exclude<AnalyticsPeriod, "all">, number> = {
-  "24h": 1,
-  "7d": 7,
-  "30d": 30,
-  "90d": 90,
-};
-
-export function getMetricsForPeriod(period: AnalyticsPeriod): ChannelDayMetrics[] {
-  const { days } = channelMetrics110d;
-  if (period === "all") return days;
-  const count = PERIOD_DAYS[period];
-  return days.slice(Math.max(0, days.length - count));
-}
-
 export function parseViewsMetric(views: string | undefined): number {
   if (!views) return 0;
   const normalized = views.replace(/\s/g, "").replace(",", ".");
   const n = Number(normalized);
   return Number.isFinite(n) ? n : 0;
-}
-
-export function formatMetricNumber(value: number): string {
-  return new Intl.NumberFormat("ru-RU").format(Math.round(value));
-}
-
-export function formatCompactDate(iso: string): string {
-  const date = new Date(`${iso}T12:00:00`);
-  return new Intl.DateTimeFormat("ru-RU", { day: "numeric", month: "short" }).format(date);
-}
-
-export type PlatformModelUsage = {
-  id: string;
-  label: string;
-  role: string;
-  calls: number;
-  tokens: number;
-  cost: number;
-  active: boolean;
-};
-
-function hashString(value: string): number {
-  let hash = 0;
-  for (let i = 0; i < value.length; i += 1) {
-    hash = (hash * 31 + value.charCodeAt(i)) >>> 0;
-  }
-  return hash;
-}
-
-function mapConfigModels(models: LlmModel[], role: string) {
-  return models
-    .filter((model) => model.provider && model.model)
-    .map((model) => ({
-      id: `${role}-${model.id}`,
-      label: `${model.provider} / ${model.model}`,
-      role,
-      active: model.active,
-    }));
-}
-
-export function buildPlatformModelUsage(
-  config: AiProfileConfig,
-  periodMultiplier = 1,
-): PlatformModelUsage[] {
-  const models = [
-    ...mapConfigModels(config.llmModels, "LLM"),
-    ...mapConfigModels(config.webSearchModels, "Web Search"),
-    ...mapConfigModels(config.visionModels, "Компьютерное зрение"),
-    ...mapConfigModels(config.imageGenerationModels, "Генерация изображений"),
-    ...mapConfigModels(config.orchestratorModels, "Оркестратор"),
-    ...mapConfigModels(config.webReasonerModels, "Web Reasoner"),
-    ...mapConfigModels(config.ragReasonerModels, "RAG Reasoner"),
-  ];
-
-  return models
-    .map((model) => {
-      const seed = hashString(`${model.id}:${model.label}:${model.role}`);
-      const baseCalls = 130 + (seed % 760);
-      const activityBoost = model.active ? 1 : 0.36;
-      const calls = Math.round(baseCalls * periodMultiplier * activityBoost);
-      const tokensPerCall = 640 + (seed % 1900);
-
-      return {
-        id: model.id,
-        label: model.label,
-        role: model.role,
-        active: model.active,
-        calls,
-        tokens: Math.round(calls * tokensPerCall),
-        cost: calls * tokensPerCall * (0.0000018 + (seed % 7) * 0.00000022),
-      };
-    })
-    .sort((a, b) => b.tokens - a.tokens);
 }
 
 export const ANALYTICS_PERIOD_OPTIONS: { value: AnalyticsPeriod; label: string }[] = [
@@ -258,11 +169,3 @@ export const ANALYTICS_PERIOD_OPTIONS: { value: AnalyticsPeriod; label: string }
   { value: "90d", label: "90 дн." },
   { value: "all", label: "Всё время" },
 ];
-
-export const PLATFORM_ANALYTICS_PERIOD_OPTIONS = [
-  { value: "7d", label: "7 дней", multiplier: 0.28 },
-  { value: "30d", label: "30 дней", multiplier: 1 },
-  { value: "90d", label: "90 дней", multiplier: 2.6 },
-] as const;
-
-export type PlatformAnalyticsPeriod = (typeof PLATFORM_ANALYTICS_PERIOD_OPTIONS)[number]["value"];

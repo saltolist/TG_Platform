@@ -1025,6 +1025,76 @@ async def test_handle_live_discussion_messages_batches_one_revision(
 
 
 @pytest.mark.asyncio
+async def test_handle_live_discussion_messages_updates_edited_comment(
+    client: AsyncClient, writer_auth_headers: dict[str, str]
+) -> None:
+    post_id, user_id = await _prepare_discussion_post(client, writer_auth_headers)
+
+    tg_client = CommentFakeTelegramClient(None, 1, "hash")
+    await handle_live_discussion_messages(
+        tg_client,
+        [
+            _discussion_message(
+                9301,
+                text="Original comment",
+                reply_to=DISCUSSION_ROOT_ID,
+                author="Alice",
+            )
+        ],
+        user_id,
+        TestSessionLocal,
+    )
+
+    await handle_live_discussion_messages(
+        tg_client,
+        [
+            _discussion_message(
+                9301,
+                text="Edited comment",
+                reply_to=DISCUSSION_ROOT_ID,
+                author="Alice",
+            )
+        ],
+        user_id,
+        TestSessionLocal,
+    )
+
+    async with TestSessionLocal() as session:
+        refreshed = await session.get(Post, post_id)
+        assert refreshed is not None
+        comments = refreshed.data.get("comments") or []
+        assert len(comments) == 1
+        assert comments[0]["telegramMessageId"] == "9301"
+        assert comments[0]["text"] == "Edited comment"
+
+
+def test_merge_comments_updates_text_html() -> None:
+    existing = [
+        {
+            "id": "tg-100",
+            "author": "Alice",
+            "text": "Old text",
+            "textHtml": "<p>Old text</p>",
+            "date": "2026-01-01T01:00:00Z",
+            "telegramMessageId": "100",
+        }
+    ]
+    from_tg = [
+        {
+            "id": "tg-100",
+            "author": "Alice",
+            "text": "New text",
+            "textHtml": "<p><b>New</b> text</p>",
+            "date": "2026-01-01T02:00:00Z",
+            "telegramMessageId": "100",
+        }
+    ]
+    merged = merge_comments(existing, from_tg)
+    assert merged[0]["text"] == "New text"
+    assert merged[0]["textHtml"] == "<p><b>New</b> text</p>"
+
+
+@pytest.mark.asyncio
 async def test_discussion_comment_buffer_flushes_batch(
     client: AsyncClient, writer_auth_headers: dict[str, str]
 ) -> None:

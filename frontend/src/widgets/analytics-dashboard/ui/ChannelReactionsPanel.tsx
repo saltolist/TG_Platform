@@ -1,6 +1,7 @@
 "use client";
 
 import { PostReactionPills } from "@/widgets/feed";
+import { shouldPersistLocally } from "@/shared/lib/overlay/isOverlayAccount";
 import type { PostReaction } from "@/shared/types";
 
 const DEMO_REACTIONS: PostReaction[] = [
@@ -15,10 +16,18 @@ export default function ChannelReactionsPanel({
 }: {
   reactions?: PostReaction[];
 }) {
-  const items = reactions?.length ? reactions : DEMO_REACTIONS;
+  const items = reactions?.length
+    ? reactions
+    : shouldPersistLocally()
+      ? DEMO_REACTIONS
+      : [];
   return (
     <div className="channel-reactions-panel" aria-label="Популярные реакции">
-      <PostReactionPills reactions={items} />
+      {items.length ? (
+        <PostReactionPills reactions={items} />
+      ) : (
+        <p className="channel-reactions-empty">Пока нет реакций на постах</p>
+      )}
     </div>
   );
 }

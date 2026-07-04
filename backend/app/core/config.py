@@ -114,6 +114,9 @@ class Settings(BaseSettings):
     telegram_metrics_poll_window: int = 20
     # Live metrics events coalesced — at most one TG batch per interval per listener.
     telegram_metrics_min_sync_seconds: float = 5.0
+    # Channel analytics snapshots: totals + real subscriber count every 30 minutes.
+    telegram_analytics_snapshot_seconds: float = 1800.0
+    analytics_snapshot_retention_days: int = 120
 
     # Window reconcile — drift correction between channel and platform DB
     telegram_reconcile_enabled: bool = True

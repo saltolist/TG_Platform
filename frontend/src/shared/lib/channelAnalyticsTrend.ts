@@ -5,6 +5,7 @@ import {
   getChannelEndTotals,
   getMetricTypicalPeriodGrowth,
   isChannelErMetric,
+  isChannelSubscribersAvailable,
   type ChannelMetricId,
 } from "@/shared/lib/channelMetricsDb";
 import { formatNumber } from "@/shared/lib/trendChart/math";
@@ -145,7 +146,12 @@ export function buildChannelTrendSeries(
   const labels = buildChannelChartLabels(chartPeriod, { maxPoints: options?.maxPoints });
   const pointCount = labels.length;
 
-  const series: TrendSeriesRow[] = CHANNEL_METRICS.map((metric) => {
+  // Telegram может скрывать число подписчиков — тогда метрику не показываем.
+  const metrics = isChannelSubscribersAvailable()
+    ? CHANNEL_METRICS
+    : CHANNEL_METRICS.filter((metric) => metric.id !== "subscribers");
+
+  const series: TrendSeriesRow[] = metrics.map((metric) => {
     const { values, priorCumulative } = extractChannelMetricSeriesForChart(
       metric.id as ChannelMetricId,
       chartPeriod,

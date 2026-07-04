@@ -22,14 +22,28 @@ const channelDaySchema = z.object({
   er: z.number(),
 });
 
+const channelHeatmapSchema = z.object({
+  hours: z.array(z.string()),
+  rows: z.array(z.object({ day: z.string(), values: z.array(z.number()) })),
+  hasData: z.boolean().optional(),
+});
+
 export const channelAnalyticsOverviewSchema = z.object({
-  version: z.literal(1),
+  version: z.union([z.literal(1), z.literal(2)]),
   dayCount: z.number(),
   startTotals: channelTotalsSchema,
   endTotals: channelTotalsSchema,
   days: z.array(channelDaySchema),
   reactions: z.array(postReactionSchema),
+  // v2 (real history from snapshots)
+  granularity: z.enum(["day", "30m"]).optional(),
+  anchorDate: z.string().optional(),
+  subscribersAvailable: z.boolean().optional(),
+  heatmap: channelHeatmapSchema.optional(),
+  historySource: z.enum(["publish_backfill", "snapshots", "mixed"]).optional(),
 });
+
+export type ChannelAnalyticsHeatmap = z.infer<typeof channelHeatmapSchema>;
 
 export const analyticsTopPostRowSchema = z.object({
   id: z.string(),

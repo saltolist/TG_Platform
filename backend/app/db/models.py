@@ -1,7 +1,18 @@
 import uuid
 from datetime import datetime
 
-from sqlalchemy import Boolean, DateTime, ForeignKey, Integer, Numeric, String, false, func
+from sqlalchemy import (
+    BigInteger,
+    Boolean,
+    DateTime,
+    ForeignKey,
+    Integer,
+    Numeric,
+    String,
+    UniqueConstraint,
+    false,
+    func,
+)
 from sqlalchemy.dialects.postgresql import JSONB, UUID
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column
 
@@ -88,6 +99,28 @@ class Profile(Base):
     ai: Mapped[dict | None] = mapped_column(JSONB, nullable=True)
     telegram: Mapped[dict | None] = mapped_column(JSONB, nullable=True)
     summary_catalog: Mapped[dict | None] = mapped_column(JSONB, nullable=True)
+
+
+class ChannelMetricSnapshot(Base):
+    """Periodic (30-min) totals of channel metrics — source for real analytics history."""
+
+    __tablename__ = "channel_metric_snapshots"
+    __table_args__ = (
+        UniqueConstraint("user_id", "captured_at", name="uq_channel_metric_snapshots_slot"),
+    )
+
+    id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    user_id: Mapped[uuid.UUID] = mapped_column(
+        ForeignKey("users.id", ondelete="CASCADE"), index=True, nullable=False
+    )
+    captured_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+    subscribers: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    views: Mapped[int] = mapped_column(BigInteger, nullable=False, default=0)
+    reactions: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    comments: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    reposts: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    posts_count: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    er: Mapped[float] = mapped_column(Numeric(5, 1), nullable=False, default=0)
 
 
 class AiModelUsageEvent(Base):

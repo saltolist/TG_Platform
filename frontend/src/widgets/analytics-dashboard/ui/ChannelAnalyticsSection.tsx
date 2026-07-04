@@ -26,11 +26,14 @@ export default function ChannelAnalyticsSection({
   periods,
   onPeriodChange,
   reactions,
+  metricsRevision = 0,
 }: {
   periodIndex: number;
   periods: string[];
   onPeriodChange: (next: number) => void;
   reactions?: PostReaction[];
+  /** Ревизия channelMetricsDb — форсирует пересборку графиков при загрузке API-данных. */
+  metricsRevision?: number;
 }) {
   const isMobile = useMobile760();
   const isHeaderLe1080 = usePageHeaderLe1080();
@@ -43,7 +46,7 @@ export default function ChannelAnalyticsSection({
   const chartPeriod = ANALYTICS_SCREEN_PERIOD_TO_CHART[periodIndex] ?? 1;
   const { labels, series } = useMemo(
     () => buildChannelTrendSeries(periodIndex, { maxPoints: chartMaxPoints }),
-    [periodIndex, chartMaxPoints],
+    [periodIndex, chartMaxPoints, metricsRevision],
   );
   const seriesIds = useMemo(() => series.map((row) => row.id), [series]);
   const { isVisible, setVisible, filterSeries } = useChartSeriesVisibility(seriesIds);
@@ -139,7 +142,7 @@ export default function ChannelAnalyticsSection({
         <div className="analytics-card platform-analytics-section analytics-metrics-card">
           <div className="analytics-metrics-card-title">Прирост по метрикам</div>
           <div className="analytics-metrics-card-body">
-            <ChannelMetricBars periodIndex={periodIndex} />
+            <ChannelMetricBars periodIndex={periodIndex} metricsRevision={metricsRevision} />
           </div>
         </div>
         <div className="analytics-card channel-reactions-card platform-analytics-section analytics-metrics-card">

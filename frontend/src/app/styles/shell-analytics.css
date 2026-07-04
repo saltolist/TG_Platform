@@ -452,6 +452,16 @@
   width: fit-content;
   max-width: 100%;
 }
+.channel-reactions-empty {
+  margin: 0;
+  color: var(--muted, #8b93a7);
+  font-size: 0.85rem;
+}
+.heatmap-empty {
+  margin: 0.75rem 0 0;
+  color: var(--muted, #8b93a7);
+  font-size: 0.85rem;
+}
 .chart-series-selector {
   position: relative;
   display: inline-flex;

@@ -653,6 +653,12 @@ def merge_comments(
                     "date": incoming.get("date", copy.get("date")),
                 }
             )
+            if "textHtml" in incoming:
+                incoming_html = incoming.get("textHtml")
+                if incoming_html:
+                    copy["textHtml"] = incoming_html
+                else:
+                    copy.pop("textHtml", None)
             if incoming.get("media") is not None:
                 copy["media"] = incoming.get("media")
             if reply_to_id is not None:

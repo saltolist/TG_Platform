@@ -284,6 +284,29 @@ parse_channel_input = _parse_channel_input
 resolve_channel_entity = _resolve_entity
 
 
+def extract_subscriber_count(full: Any) -> int | None:
+    """Read ``participants_count`` from a ``GetFullChannelRequest`` response."""
+    raw = getattr(getattr(full, "full_chat", None), "participants_count", None)
+    if raw is None:
+        return None
+    try:
+        count = int(raw)
+    except (TypeError, ValueError):
+        return None
+    return count if count >= 0 else None
+
+
+async def fetch_channel_subscriber_count(
+    client: Any, entity: Any, settings: Settings
+) -> int | None:
+    """Return the channel subscriber count, or None when Telegram hides it."""
+    try:
+        full = await with_timeout(client(GetFullChannelRequest(entity)), settings)
+    except (errors.RPCError, TelegramAuthError, TypeError, ValueError):
+        return None
+    return extract_subscriber_count(full)
+
+
 async def connect_channel(
     profile: dict[str, Any], channel_input: str, settings: Settings | None = None
 ) -> dict[str, Any]:
@@ -314,8 +337,10 @@ async def connect_channel(
             raise TelegramAuthError("У вас нет прав администратора в этом канале", 403)
 
         discussion_chat_id: int | None = None
+        subscriber_count: int | None = None
         try:
             full = await with_timeout(client(GetFullChannelRequest(entity)), settings)
+            subscriber_count = extract_subscriber_count(full)
             linked = getattr(getattr(full, "full_chat", None), "linked_chat_id", None)
             if linked is not None:
                 discussion_chat_id = int(linked)
@@ -331,6 +356,9 @@ async def connect_channel(
         result["authStep"] = "connected"
         result["discussionChatId"] = str(discussion_chat_id) if discussion_chat_id else ""
         result["commentsEnabled"] = bool(discussion_chat_id)
+        if subscriber_count is not None:
+            result["subscriberCount"] = subscriber_count
+            result["subscriberCountAt"] = datetime.now(timezone.utc).isoformat()
         result["lastSync"] = datetime.now(timezone.utc).isoformat()
         sync_mode = str(profile.get("syncMode") or "history-and-live")
         if sync_mode == "publish-only":
