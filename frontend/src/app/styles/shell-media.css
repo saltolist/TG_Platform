@@ -241,6 +241,92 @@
   overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
 }
 
+.tg-media-voice {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  width: 100%;
+  box-sizing: border-box;
+  min-height: 48px;
+  padding: 8px 12px;
+  background: var(--bg4);
+  border-radius: 12px;
+}
+
+.tg-media--voice,
+.tg-media:has(.tg-media-voice) {
+  display: block;
+  background: transparent;
+  overflow: visible;
+  border-radius: 0;
+  gap: 0;
+}
+
+.tg-media.cols-1 .tg-media-item--voice,
+.tg-media.cols-1 .tg-media-item:has(.tg-media-voice),
+.tg-media.single .tg-media-item--voice,
+.tg-media.single .tg-media-item:has(.tg-media-voice),
+.tg-media-item--voice,
+.tg-media-item:has(.tg-media-voice) {
+  aspect-ratio: auto;
+  max-height: none;
+  height: auto;
+  min-height: 0;
+  background: transparent;
+  overflow: visible;
+  display: block;
+}
+
+.tg-media-voice-play {
+  flex-shrink: 0;
+  width: 36px;
+  height: 36px;
+  padding: 0;
+  border: none;
+  border-radius: 50%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: var(--accent);
+  color: #fff;
+  cursor: pointer;
+}
+
+.tg-media-voice-play svg {
+  width: 18px;
+  height: 18px;
+}
+
+.tg-media-voice-track {
+  flex: 1;
+  min-width: 0;
+  height: 4px;
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--text) 18%, transparent);
+  overflow: hidden;
+}
+
+.tg-media-voice-fill {
+  height: 100%;
+  border-radius: inherit;
+  background: var(--accent);
+  transition: width 80ms linear;
+}
+
+.tg-media-voice-duration {
+  flex-shrink: 0;
+  min-width: 36px;
+  font-size: 12px;
+  font-variant-numeric: tabular-nums;
+  color: var(--text-muted, var(--text));
+  opacity: 0.75;
+  text-align: right;
+}
+
+.tg-media-voice-audio {
+  display: none;
+}
+
 .tg-media-remove {
   position: absolute; top: 6px; right: 6px;
   width: 24px; height: 24px;

@@ -297,6 +297,7 @@ async def run_manual_reconcile(profile: Profile, user_id: UUID) -> ReconcileStat
         disconnect_safely,
         require_api_credentials,
     )
+    from app.services.telegram.post_sync import repair_empty_telegram_posts
     from app.services.telegram.session_guard import exclusive_telegram_access
     from app.db.session import async_session_factory
 
@@ -336,6 +337,15 @@ async def run_manual_reconcile(profile: Profile, user_id: UUID) -> ReconcileStat
                 force=True,
                 include_comments=True,
             )
+            repaired = await repair_empty_telegram_posts(
+                client,
+                entity,
+                user_id,
+                settings,
+                async_session_factory,
+                limit=30,
+            )
+            stats.updated += repaired
             while True:
                 probed = await probe_pending_comments_thread_flags(
                     client,

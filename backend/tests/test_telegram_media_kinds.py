@@ -9,6 +9,7 @@ from uuid import uuid4
 
 import pytest
 from telethon.tl.types import (
+    DocumentAttributeAudio,
     DocumentAttributeSticker,
     DocumentAttributeVideo,
     MessageMediaDocument,
@@ -80,6 +81,24 @@ def test_classify_photo() -> None:
     assert classify_telegram_media(message) == "image"
 
 
+def test_classify_voice_message() -> None:
+    media = _document_media(
+        mime="audio/ogg",
+        attributes=[DocumentAttributeAudio(duration=12, voice=True)],
+    )
+    message = _message_with_media(14, media, mime="audio/ogg")
+    assert classify_telegram_media(message) == "voice"
+
+
+def test_classify_non_voice_audio_as_document() -> None:
+    media = _document_media(
+        mime="audio/mpeg",
+        attributes=[DocumentAttributeAudio(duration=180, voice=False, title="Track")],
+    )
+    message = _message_with_media(15, media, mime="audio/mpeg")
+    assert classify_telegram_media(message) == "document"
+
+
 def test_normalize_tgs_to_lottie_json() -> None:
     payload = gzip.compress(json.dumps({"v": "5.5.7", "fr": 60, "layers": []}).encode("utf-8"))
     decoded = normalize_tgs_to_lottie_json(payload)
@@ -111,3 +130,27 @@ async def test_save_message_media_converts_tgs_to_json(tmp_path) -> None:
     assert saved["type"] == "application/json"
     assert saved["url"].endswith("/42.json")
     assert (tmp_path / str(user_id) / "42.json").is_file()
+
+
+@pytest.mark.asyncio
+async def test_save_message_media_stores_voice_with_duration(tmp_path) -> None:
+    user_id = uuid4()
+    settings = get_settings().model_copy(update={"media_storage_root": str(tmp_path)})
+    media = _document_media(
+        mime="audio/ogg",
+        attributes=[DocumentAttributeAudio(duration=9, voice=True)],
+    )
+    message = _message_with_media(55, media, mime="audio/ogg")
+
+    async def fake_download(_message: object, *, file: str) -> str:
+        with open(file, "wb") as handle:
+            handle.write(b"voice")
+        return file
+
+    client = SimpleNamespace(download_media=fake_download)
+    saved = await save_message_media(client, message, user_id, settings)
+    assert saved is not None
+    assert saved["kind"] == "voice"
+    assert saved["type"] == "audio/ogg"
+    assert saved["durationSeconds"] == 9
+    assert saved["url"].endswith("/55.ogg")

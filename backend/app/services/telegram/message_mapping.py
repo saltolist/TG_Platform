@@ -75,6 +75,7 @@ def message_is_importable(message: Any) -> bool:
         return (
             mime.startswith("image/")
             or mime.startswith("video/")
+            or mime.startswith("audio/")
             or mime.startswith("application/")
         )
     return False
@@ -121,6 +122,19 @@ def _telegram_edit_timestamp_iso(message: Any) -> str | None:
     if edit_date.tzinfo is None:
         edit_date = edit_date.replace(tzinfo=timezone.utc)
     return edit_date.astimezone(timezone.utc).isoformat()
+
+
+def message_group_has_caption(messages: list[Any]) -> bool:
+    return any(str(getattr(message, "message", "") or "").strip() for message in messages)
+
+
+def should_defer_media_fetch(messages: list[Any], *, update: bool) -> bool:
+    """Defer media download only for new captioned posts (text can appear first)."""
+    if update:
+        return False
+    if not any(getattr(message, "media", None) for message in messages):
+        return False
+    return message_group_has_caption(messages)
 
 
 async def map_group_to_post(

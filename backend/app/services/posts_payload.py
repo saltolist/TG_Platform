@@ -24,6 +24,7 @@ def normalize_post_media_item(item: Mapping[str, Any]) -> dict[str, Any]:
         "sticker",
         "animated_sticker",
         "video_sticker",
+        "voice",
         "document",
     }:
         return result

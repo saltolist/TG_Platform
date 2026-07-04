@@ -21,6 +21,7 @@ export const postMediaKindSchema = z.enum([
   "sticker",
   "animated_sticker",
   "video_sticker",
+  "voice",
   "document",
 ]);
 
@@ -33,6 +34,8 @@ export const postMediaSchema = z.object({
   telegramMessageId: z.string().optional(),
   /** Stable Telegram file fingerprint — changes when the attachment is replaced. */
   mediaKey: z.string().optional(),
+  /** Voice message duration in seconds (Telegram voice notes). */
+  durationSeconds: z.number().optional(),
 });
 
 export const noteFileSchema = z.object({

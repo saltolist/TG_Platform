@@ -79,4 +79,16 @@ describe("mediaKind helpers", () => {
     };
     expect(isCompactMediaKind(media)).toBe(false);
   });
+
+  it("recognizes voice media and keeps full-width layout", () => {
+    const media: PostMedia = {
+      name: "voice.ogg",
+      url: "/media/u/55.ogg",
+      type: "audio/ogg",
+      kind: "voice",
+      durationSeconds: 12,
+    };
+    expect(mediaKind(media)).toBe("voice");
+    expect(isCompactMediaKind(media)).toBe(false);
+  });
 });

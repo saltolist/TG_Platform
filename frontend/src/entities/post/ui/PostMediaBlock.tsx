@@ -4,6 +4,7 @@ import {
   isCompactMediaKind,
   isImageMedia,
   isVideoMedia,
+  isVoiceKind,
   mediaKind,
   resolveMediaUrl,
 } from "@/shared/lib/helpers";
@@ -12,6 +13,7 @@ import { AnimatedStickerMedia } from "./media/AnimatedStickerMedia";
 import { StickerMedia } from "./media/StickerMedia";
 import { VideoNoteMedia } from "./media/VideoNoteMedia";
 import { VideoStickerMedia } from "./media/VideoStickerMedia";
+import { VoiceMedia } from "./media/VoiceMedia";
 
 type Props = {
   media: PostMedia[];
@@ -25,18 +27,19 @@ export default function PostMediaBlock({ media, onRemove, variant = "default" }:
 
   const n = media.length;
   const compactSingle = n === 1 && isCompactMediaKind(media[0]);
+  const voiceSingle = n === 1 && isVoiceKind(media[0]);
   const layout = layoutClass(n);
   const editable = !!onRemove;
 
   return (
     <div
-      className={`tg-media ${layout}${editable ? " tg-media-editable" : ""}${n === 1 ? " single" : ""}${compactSingle ? " tg-media--compact" : ""}${variant === "comment" ? " tg-media--comment" : ""}`}
+      className={`tg-media ${layout}${editable ? " tg-media-editable" : ""}${n === 1 ? " single" : ""}${compactSingle ? " tg-media--compact" : ""}${voiceSingle ? " tg-media--voice" : ""}${variant === "comment" ? " tg-media--comment" : ""}`}
       data-count={n}
     >
       {media.map((m, i) => (
         <div
           key={`${m.name}-${i}`}
-          className={`tg-media-item${slotClass(n, i)}${isCompactMediaKind(m) ? " tg-media-item--compact" : ""}`}
+          className={`tg-media-item${slotClass(n, i)}${isCompactMediaKind(m) ? " tg-media-item--compact" : ""}${isVoiceKind(m) ? " tg-media-item--voice" : ""}`}
         >
           <MediaInner media={m} variant={variant} />
           {onRemove ? (
@@ -79,6 +82,9 @@ function MediaInner({ media, variant }: { media: PostMedia; variant: Props["vari
   }
   if (kind === "sticker") {
     return <StickerMedia media={media} />;
+  }
+  if (kind === "voice") {
+    return <VoiceMedia media={media} />;
   }
   if (kind === "video_note" || isVideoMedia(media)) {
     return <VideoNoteMedia media={media} stopNavigation={variant === "feed"} />;

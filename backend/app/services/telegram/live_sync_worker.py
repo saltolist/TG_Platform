@@ -28,6 +28,7 @@ from app.services.telegram.message_mapping import (
     map_group_to_post,
     map_message_for_reconcile,
     message_is_importable,
+    should_defer_media_fetch,
 )
 from app.services.telegram.text_formatting import message_entities
 from app.services.telegram.mtproto_client import build_client
@@ -62,6 +63,7 @@ from app.services.telegram.metrics_flow import (
 from app.services.telegram.post_sync import (
     _find_telegram_post,
     delete_telegram_post,
+    repair_empty_telegram_posts,
     set_sync_error,
     touch_telegram_profile,
     update_telegram_post,
@@ -353,19 +355,16 @@ async def _catch_up(
                 limit=scan_limit,
             )
     else:
-        if lightweight:
-            posts = await _collect_catch_up_posts_lightweight(
-                client, entity, min_id=min_id, limit=scan_limit
-            )
-        else:
-            posts = await collect_posts_from_iter(
-                client,
-                entity,
-                user_id,
-                settings,
-                limit=scan_limit,
-                min_id=min_id,
-            )
+        # New messages since lastTelegramMessageId need full media ingest — lightweight
+        # reconcile payloads have no media[] and create empty sticker/voice shells.
+        posts = await collect_posts_from_iter(
+            client,
+            entity,
+            user_id,
+            settings,
+            limit=scan_limit,
+            min_id=min_id,
+        )
     if not posts:
         return
     async with session_factory() as session:
@@ -432,6 +431,16 @@ async def _run_channel_maintenance_pass(
         )
     except Exception:
         logger.exception("Maintenance catch-up failed for user %s", user_id)
+    try:
+        repaired = await repair_empty_telegram_posts(
+            client, entity, user_id, settings, session_factory
+        )
+        if repaired:
+            logger.debug(
+                "Repaired %s empty Telegram posts for user %s", repaired, user_id
+            )
+    except Exception:
+        logger.exception("Maintenance empty-post repair failed for user %s", user_id)
     try:
         await reconcile_channel_window(
             client,
@@ -764,12 +773,13 @@ async def _persist_group(
                         existing_media = [item for item in raw if isinstance(item, dict)]
 
     needs_media_fetch = any(getattr(message, "media", None) for message in messages)
+    defer_media = should_defer_media_fetch(messages, update=update)
     post_data = await map_group_to_post(
         client,
         messages,
         user_id,
         settings,
-        fetch_media=update,
+        fetch_media=not defer_media,
         existing_media=existing_media if update else None,
     )
     if post_data is None:
@@ -807,7 +817,7 @@ async def _persist_group(
                     msg_id,
                 )
             )
-            if needs_media_fetch:
+            if needs_media_fetch and defer_media:
                 asyncio.create_task(
                     _enrich_live_post_media(
                         client,

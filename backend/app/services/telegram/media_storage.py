@@ -16,6 +16,7 @@ from app.services.telegram.media_fingerprint import (
 from app.services.telegram.media_kinds import (
     classify_telegram_media,
     normalize_tgs_to_lottie_json,
+    voice_duration_seconds,
 )
 
 
@@ -30,7 +31,7 @@ def _guess_extension(mime_type: str, fallback_name: str = "") -> str:
 
 async def save_message_media(
     client: Any, message: Any, user_id: UUID, settings: Settings
-) -> dict[str, str] | None:
+) -> dict[str, Any] | None:
     """Download *message* media to ``media_storage_root/<user_id>/`` and return PostMedia dict."""
     media = getattr(message, "media", None)
     if media is None:
@@ -82,13 +83,17 @@ async def save_message_media(
 
     display_name = stored_name
     url = f"/media/{user_id}/{stored_filename}"
-    item: dict[str, str] = {"name": display_name, "url": url, "type": stored_type, "kind": kind}
+    item: dict[str, Any] = {"name": display_name, "url": url, "type": stored_type, "kind": kind}
     msg_id = getattr(message, "id", None)
     if msg_id is not None:
         item["telegramMessageId"] = str(msg_id)
     fp = media_fingerprint(message)
     if fp:
         item["mediaKey"] = fp
+    if kind == "voice":
+        duration = voice_duration_seconds(message)
+        if duration is not None:
+            item["durationSeconds"] = duration
     return item
 
 

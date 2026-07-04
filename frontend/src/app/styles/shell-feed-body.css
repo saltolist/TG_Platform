@@ -413,6 +413,25 @@
 .post-card-body:not(:has(> .post-card-text)) > .post-msg-media:has(.tg-media--compact):not(:has(.tg-media-compact-slot)) {
   padding-top: 12px;
 }
+
+.post-card-media:has(.tg-media-voice),
+.post-msg-media:has(.tg-media-voice),
+.post-msg-media-edit:has(.tg-media-voice) {
+  margin-left: 0;
+  margin-right: 0;
+  margin-top: 0;
+  width: 100%;
+  overflow: visible;
+  border-radius: 0;
+  margin-bottom: 10px;
+}
+
+.post-card-body:not(:has(> .post-card-text)) > .post-card-media:has(.tg-media-voice),
+.post-card-body:not(:has(> .post-card-text)) > .post-msg-media:has(.tg-media-voice),
+.post-card-body:not(:has(> .post-card-text)) > .post-msg-media-edit:has(.tg-media-voice) {
+  padding-top: 12px;
+}
+
 .post-meta {
   display: flex;
   align-items: center;

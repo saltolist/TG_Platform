@@ -214,6 +214,7 @@ const POST_MEDIA_KINDS = new Set<PostMediaKind>([
   "sticker",
   "animated_sticker",
   "video_sticker",
+  "voice",
   "document",
 ]);
 
@@ -269,6 +270,10 @@ export function isStickerKind(m: PostMedia): boolean {
 
 export function isAnimatedStickerKind(m: PostMedia): boolean {
   return mediaKind(m) === "animated_sticker";
+}
+
+export function isVoiceKind(m: PostMedia): boolean {
+  return mediaKind(m) === "voice";
 }
 
 export function isCompactMediaKind(m: PostMedia): boolean {

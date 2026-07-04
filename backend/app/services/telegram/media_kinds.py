@@ -14,6 +14,7 @@ PostMediaKind = Literal[
     "sticker",
     "animated_sticker",
     "video_sticker",
+    "voice",
     "document",
 ]
 
@@ -45,6 +46,31 @@ def _is_round_video(document: Any) -> bool:
     return False
 
 
+def _is_voice_message(document: Any) -> bool:
+    for attr in _document_attributes(document):
+        if _attribute_type_name(attr) == "DocumentAttributeAudio":
+            if bool(getattr(attr, "voice", False)):
+                return True
+    return False
+
+
+def voice_duration_seconds(message: Any) -> int | None:
+    """Telegram voice-note duration in seconds, if present."""
+    media = getattr(message, "media", None)
+    if not isinstance(media, MessageMediaDocument):
+        return None
+    document = getattr(media, "document", None)
+    if document is None:
+        return None
+    for attr in _document_attributes(document):
+        if _attribute_type_name(attr) == "DocumentAttributeAudio":
+            if bool(getattr(attr, "voice", False)):
+                duration = getattr(attr, "duration", None)
+                if duration is not None:
+                    return int(duration)
+    return None
+
+
 def classify_telegram_media(message: Any) -> PostMediaKind | None:
     """Map a Telethon message to a platform media kind, or ``None`` when no media."""
     media = getattr(message, "media", None)
@@ -70,6 +96,8 @@ def classify_telegram_media(message: Any) -> PostMediaKind | None:
         return "video"
     if mime.startswith("image/"):
         return "image"
+    if _is_voice_message(document):
+        return "voice"
     return "document"
 
 

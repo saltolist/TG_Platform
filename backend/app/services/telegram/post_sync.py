@@ -471,3 +471,78 @@ async def set_sync_error(user_id: UUID, error: str, session_factory: Any) -> Non
             session, profile, sync_status="error", sync_error=error
         )
         await session.commit()
+
+
+async def repair_empty_telegram_posts(
+    client: Any,
+    entity: Any,
+    user_id: UUID,
+    settings: Any,
+    session_factory: Any,
+    *,
+    limit: int = 15,
+) -> int:
+    """Re-fetch Telegram payloads for posts saved without text or media."""
+    from app.services.telegram.message_mapping import (
+        map_group_to_post,
+        message_is_importable,
+    )
+
+    async with session_factory() as session:
+        result = await session.execute(
+            select(Post).where(Post.user_id == user_id).order_by(Post.position).limit(120)
+        )
+        candidates: list[str] = []
+        for post in result.scalars():
+            data = post.data
+            if data.get("status") != "published":
+                continue
+            msg_id = str(data.get("telegramMessageId") or "")
+            if not msg_id:
+                continue
+            text = str(data.get("text") or "").strip()
+            media = data.get("media")
+            has_media = isinstance(media, list) and len(media) > 0
+            if text and has_media:
+                continue
+            candidates.append(msg_id)
+
+    repaired = 0
+    for msg_id in candidates[:limit]:
+        try:
+            channel_msg_id = int(msg_id)
+        except (TypeError, ValueError):
+            continue
+        try:
+            fetched = await client.get_messages(entity, ids=channel_msg_id)
+        except Exception:
+            continue
+        if not fetched:
+            continue
+        message = fetched[0] if isinstance(fetched, (list, tuple)) else fetched
+        if not message_is_importable(message):
+            continue
+        messages = [message]
+        gid = getattr(message, "grouped_id", None) or None
+        if gid:
+            try:
+                siblings = await client.get_messages(entity, grouped_id=gid)
+                if siblings:
+                    messages = list(siblings)
+            except Exception:
+                pass
+        full = await map_group_to_post(
+            client, messages, user_id, settings, fetch_media=True
+        )
+        if full is None:
+            continue
+        if not str(full.get("text") or "").strip() and not full.get("media"):
+            continue
+        async with session_factory() as session:
+            await update_telegram_post(session, user_id, full)
+            profile = await session.get(Profile, user_id)
+            if profile is not None:
+                await touch_telegram_profile(session, profile)
+            await session.commit()
+        repaired += 1
+    return repaired
