@@ -19,6 +19,7 @@ from app.db.models import Post, Profile
 from app.services.telegram import mtproto_client
 from app.services.telegram.comments_flow import (
     DiscussionCommentBuffer,
+    apply_comments_thread_probe,
     dedupe_platform_comments,
     drain_scheduled_comment_pushes,
     get_discussion_root_message_id,
@@ -251,6 +252,28 @@ async def test_normalize_post_comments_drops_null_reply_to_id() -> None:
     )
     assert normalized[0]["id"] == "local-1"
     assert "replyToId" not in normalized[0]
+
+
+def test_apply_comments_thread_probe_clears_optimistic_true_when_absent() -> None:
+    post = {
+        "status": "published",
+        "telegramMessageId": "501",
+        "commentsThreadAvailable": True,
+    }
+    updated, changed = apply_comments_thread_probe(post, None, confirmed_absent=True)
+    assert changed is True
+    assert updated["commentsThreadAvailable"] is False
+
+
+def test_apply_comments_thread_probe_keeps_optimistic_true_when_inconclusive() -> None:
+    post = {
+        "status": "published",
+        "telegramMessageId": "501",
+        "commentsThreadAvailable": True,
+    }
+    updated, changed = apply_comments_thread_probe(post, None, confirmed_absent=False)
+    assert changed is False
+    assert updated is post
 
 
 @pytest.mark.asyncio
@@ -758,6 +781,71 @@ async def test_get_discussion_root_returns_none_without_discussion_peer() -> Non
 
 
 @pytest.mark.asyncio
+async def test_get_discussion_root_returns_none_for_old_post_when_channel_has_discussions() -> None:
+    """A public channel with discussions must not treat the channel post id as the root."""
+
+    class OldPrivatePostClient(CommentFakeTelegramClient):
+        async def __call__(self, request: Any) -> Any:
+            cls_name = type(request).__name__
+            if cls_name == "GetDiscussionMessageRequest":
+                channel_msg = SimpleNamespace(
+                    id=501,
+                    peer_id=SimpleNamespace(channel_id=555),
+                    message="Published while private",
+                )
+                return SimpleNamespace(
+                    messages=[channel_msg],
+                    chats=[
+                        SimpleNamespace(id=555, broadcast=True, title="Channel"),
+                        SimpleNamespace(id=123456789, megagroup=True, title="Discussion"),
+                    ],
+                )
+            return await super().__call__(request)
+
+    from app.core.config import get_settings
+    from app.services.telegram.comments_flow import probe_discussion_root
+
+    client = OldPrivatePostClient(None, 1, "hash")
+    channel_entity = SimpleNamespace(id=555, broadcast=True)
+    root_id, confirmed_absent = await probe_discussion_root(
+        client, channel_entity, 501, get_settings()
+    )
+    assert root_id is None
+    assert confirmed_absent is True
+
+
+def test_post_needs_comments_thread_probe_detects_bogus_discussion_root() -> None:
+    from app.services.telegram.comments_flow import post_needs_comments_thread_probe
+
+    post = {
+        "status": "published",
+        "telegramMessageId": "501",
+        "telegramDiscussionMessageId": "501",
+        "commentsThreadAvailable": True,
+    }
+    assert post_needs_comments_thread_probe(post) is True
+
+
+@pytest.mark.asyncio
+async def test_probe_discussion_root_treats_msg_id_invalid_as_absent() -> None:
+    from app.core.config import get_settings
+    from app.services.telegram.comments_flow import probe_discussion_root
+
+    class MsgIdInvalidClient:
+        async def __call__(self, request: Any) -> Any:
+            raise Exception("RPCError 400: MSG_ID_INVALID (caused by GetDiscussionMessageRequest)")
+
+    root_id, confirmed_absent = await probe_discussion_root(
+        MsgIdInvalidClient(),
+        SimpleNamespace(id=555, broadcast=True),
+        501,
+        get_settings(),
+    )
+    assert root_id is None
+    assert confirmed_absent is True
+
+
+@pytest.mark.asyncio
 async def test_reconcile_marks_post_without_discussion_thread(
     client: AsyncClient, writer_auth_headers: dict[str, str], monkeypatch: pytest.MonkeyPatch
 ) -> None:
@@ -771,6 +859,16 @@ async def test_reconcile_marks_post_without_discussion_thread(
     async with TestSessionLocal() as session:
         profile = (await session.execute(select(Profile))).scalar_one()
         writer_user_id = profile.user_id
+        row = await session.get(Post, uuid.UUID(post["id"]))
+        assert row is not None
+        data = dict(row.data)
+        data["commentsThreadAvailable"] = True
+        data["telegramDiscussionMessageId"] = TELEGRAM_MESSAGE_ID
+        row.data = data
+        from sqlalchemy.orm.attributes import flag_modified
+
+        flag_modified(row, "data")
+        await session.commit()
 
     class NoDiscussionClient(CommentFakeTelegramClient):
         async def __call__(self, request: Any) -> Any:
@@ -783,7 +881,10 @@ async def test_reconcile_marks_post_without_discussion_thread(
                 )
                 return SimpleNamespace(
                     messages=[channel_msg],
-                    chats=[SimpleNamespace(id=555, broadcast=True, title="Channel")],
+                    chats=[
+                        SimpleNamespace(id=555, broadcast=True, title="Channel"),
+                        SimpleNamespace(id=123456789, megagroup=True, title="Discussion"),
+                    ],
                 )
             return await super().__call__(request)
 

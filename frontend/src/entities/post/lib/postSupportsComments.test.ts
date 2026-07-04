@@ -11,13 +11,14 @@ const publishedPost = {
   rubric: null,
   notes: [],
   chats: [],
+  telegramMessageId: "501",
 } as Post;
 
 describe("postSupportsComments", () => {
   it("hides when channel discussions are disabled", () => {
     expect(
       postSupportsComments(
-        { ...publishedPost, commentsThreadAvailable: true },
+        { ...publishedPost, commentsThreadAvailable: true, telegramDiscussionMessageId: "9001" },
         false,
       ),
     ).toBe(false);
@@ -32,16 +33,29 @@ describe("postSupportsComments", () => {
     ).toBe(false);
   });
 
-  it("shows when thread is available", () => {
+  it("hides optimistic flag without a confirmed discussion root", () => {
     expect(
       postSupportsComments(
         { ...publishedPost, commentsThreadAvailable: true },
         true,
       ),
-    ).toBe(true);
+    ).toBe(false);
   });
 
-  it("shows when discussion root id is cached", () => {
+  it("hides when discussion root equals the channel post id", () => {
+    expect(
+      postSupportsComments(
+        {
+          ...publishedPost,
+          commentsThreadAvailable: true,
+          telegramDiscussionMessageId: "501",
+        },
+        true,
+      ),
+    ).toBe(false);
+  });
+
+  it("shows when a real discussion root id is cached", () => {
     expect(
       postSupportsComments(
         {
@@ -53,7 +67,7 @@ describe("postSupportsComments", () => {
     ).toBe(true);
   });
 
-  it("hides when not probed yet", () => {
+  it("hides when not linked to telegram", () => {
     expect(postSupportsComments(publishedPost, true)).toBe(false);
   });
 });

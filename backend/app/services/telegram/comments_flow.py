@@ -187,8 +187,6 @@ def apply_comments_thread_probe(
         ) != str(root_id)
         return updated, changed
 
-    if post_data.get("commentsThreadAvailable") or post_data.get("telegramDiscussionMessageId"):
-        return post_data, False
     if not confirmed_absent:
         return post_data, False
 
@@ -198,6 +196,98 @@ def apply_comments_thread_probe(
         post_data.get("telegramDiscussionMessageId")
     )
     return updated, changed
+
+
+def post_needs_comments_thread_probe(post_data: Mapping[str, Any]) -> bool:
+    """True for published posts that still show unconfirmed comments UI state."""
+    if post_data.get("status") != "published":
+        return False
+    telegram_message_id = str(post_data.get("telegramMessageId") or "")
+    if not telegram_message_id:
+        return False
+    if post_data.get("commentsThreadAvailable") is False:
+        return False
+    discussion_id = str(post_data.get("telegramDiscussionMessageId") or "")
+    if discussion_id:
+        if discussion_id == telegram_message_id:
+            return True
+        return False
+    return post_data.get("commentsThreadAvailable") is True
+
+
+async def refresh_post_comments_thread_flag(
+    client: Any,
+    channel_entity: Any,
+    post_data: dict[str, Any],
+    settings: Settings,
+) -> tuple[dict[str, Any], bool]:
+    """Re-probe TG; update only when a discussion thread is confirmed present or absent."""
+    if not post_data.get("telegramMessageId"):
+        return post_data, False
+    try:
+        channel_msg_id = int(post_data["telegramMessageId"])
+    except (TypeError, ValueError):
+        return post_data, False
+
+    root_id, confirmed_absent = await probe_discussion_root(
+        client, channel_entity, channel_msg_id, settings
+    )
+    if root_id is None and not confirmed_absent:
+        return post_data, False
+    return apply_comments_thread_probe(
+        post_data, root_id, confirmed_absent=confirmed_absent
+    )
+
+
+async def probe_pending_comments_thread_flags(
+    client: Any,
+    channel_entity: Any,
+    user_id: UUID,
+    session_factory: Any,
+    settings: Settings,
+) -> int:
+    """Probe optimistic per-post comment flags; return how many posts were updated."""
+    from sqlalchemy import select
+    from sqlalchemy.orm.attributes import flag_modified
+
+    limit = max(0, settings.telegram_comments_thread_probe_limit)
+    if limit == 0:
+        return 0
+
+    async with session_factory() as session:
+        profile = await session.get(Profile, user_id)
+        if profile is None or not comments_enabled(profile.telegram or {}):
+            return 0
+
+        result = await session.execute(
+            select(Post).where(Post.user_id == user_id).order_by(Post.position)
+        )
+        candidates = [
+            post
+            for post in result.scalars().all()
+            if post_needs_comments_thread_probe(post.data)
+        ][:limit]
+        if not candidates:
+            return 0
+
+        updated_count = 0
+        for post in candidates:
+            new_data, changed = await refresh_post_comments_thread_flag(
+                client,
+                channel_entity,
+                dict(post.data),
+                settings,
+            )
+            if not changed:
+                continue
+            post.data = new_data
+            flag_modified(post, "data")
+            updated_count += 1
+
+        if updated_count:
+            await touch_telegram_profile(session, profile)
+            await session.commit()
+        return updated_count
 
 
 async def post_has_discussion_thread(
@@ -253,7 +343,11 @@ async def probe_discussion_root(
             ),
             settings,
         )
-    except Exception:
+    except Exception as exc:
+        from app.services.telegram.message_mapping import is_discussion_thread_absent_error
+
+        if is_discussion_thread_absent_error(exc):
+            return None, True
         return None, False
     messages = list(getattr(result, "messages", None) or [])
     if not messages:
@@ -300,14 +394,26 @@ async def probe_discussion_root(
             if msg_id:
                 return int(msg_id), False
 
-    # Peers couldn't be resolved to ids (common in unit mocks and some
-    # Telethon payloads); the discussion root is returned last, so fall back
-    # to it now that we know a discussion group exists.
-    root = messages[-1]
-    msg_id = getattr(root, "id", None)
-    if msg_id:
-        return int(msg_id), False
-    return None, False
+    if channel_id is not None:
+        for message in messages:
+            peer = _safe_peer_id(getattr(message, "peer_id", None))
+            if peer is not None and peer != channel_id:
+                msg_id = getattr(message, "id", None)
+                if msg_id:
+                    return int(msg_id), False
+
+    # Peers couldn't be resolved to ids (common in unit mocks and some Telethon
+    # payloads); the discussion root is returned last, so fall back to it only when
+    # Telegram sent both the channel post and the linked discussion message.
+    if len(messages) >= 2:
+        root = messages[-1]
+        msg_id = getattr(root, "id", None)
+        if msg_id:
+            return int(msg_id), False
+
+    # Linked discussion group exists on the channel, but this post has no thread
+    # (typical for posts published while the channel was private).
+    return None, True
 
 
 def _message_date_iso(message: Any) -> str:
@@ -1625,9 +1731,12 @@ __all__ = [
     "normalize_post_comments",
     "post_has_discussion_thread",
     "probe_discussion_root",
-    "probe_comments_thread_for_post",
+    "post_needs_comments_thread_probe",
+    "probe_pending_comments_thread_flags",
     "pull_comments_from_telegram",
     "refresh_channel_comments_settings",
+    "probe_comments_thread_for_post",
+    "refresh_post_comments_thread_flag",
     "reconcile_post_comments",
     "removed_comment_telegram_message_ids",
     "resolve_discussion_chat_id",

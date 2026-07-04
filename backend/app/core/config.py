@@ -128,6 +128,8 @@ class Settings(BaseSettings):
     telegram_reconcile_new_scan_limit: int = 30
     # Background reconcile skips comment pulls — use sync-comments / manual reconcile.
     telegram_reconcile_include_comments: bool = False
+    # Re-probe optimistic commentsThreadAvailable flags (e.g. posts from private channel era).
+    telegram_comments_thread_probe_limit: int = 30
 
     # Publish / schedule (Phase 3, Step 4) — Celery + Redis for deferred publish only;
     # immediate publish (4a) and edit-sync (4c) run synchronously in the API request.

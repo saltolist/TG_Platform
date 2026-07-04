@@ -47,6 +47,7 @@ from app.services.telegram.comments_flow import (
     DiscussionCommentBuffer,
     apply_optimistic_comments_thread,
     comments_enabled,
+    probe_pending_comments_thread_flags,
 )
 from app.services.telegram.metrics_flow import (
     MetricsThrottleBuffer,
@@ -439,6 +440,22 @@ async def _run_channel_maintenance_pass(
         )
     except Exception:
         logger.exception("Maintenance reconcile failed for user %s", user_id)
+    try:
+        probed = await probe_pending_comments_thread_flags(
+            client,
+            entity,
+            user_id,
+            session_factory,
+            settings,
+        )
+        if probed:
+            logger.debug(
+                "Maintenance comments-thread probe updated %s posts for user %s",
+                probed,
+                user_id,
+            )
+    except Exception:
+        logger.exception("Maintenance comments-thread probe failed for user %s", user_id)
     try:
         updated = await poll_recent_post_metrics(
             client, entity, user_id, settings, session_factory

@@ -20,6 +20,7 @@ from app.services.telegram.message_mapping import (
 )
 from app.services.telegram.comments_flow import (
     comments_enabled,
+    probe_pending_comments_thread_flags,
     reconcile_post_comments,
     refresh_channel_comments_settings,
 )
@@ -335,6 +336,17 @@ async def run_manual_reconcile(profile: Profile, user_id: UUID) -> ReconcileStat
                 force=True,
                 include_comments=True,
             )
+            while True:
+                probed = await probe_pending_comments_thread_flags(
+                    client,
+                    entity,
+                    user_id,
+                    async_session_factory,
+                    settings,
+                )
+                if probed <= 0:
+                    break
+                stats.updated += probed
         finally:
             await disconnect_safely(client)
     return stats

@@ -23,11 +23,22 @@ MESSAGE_GONE_MARKERS = (
     "message to delete not found",
     "message not found",
 )
+DISCUSSION_THREAD_ABSENT_MARKERS = (
+    "msg_id_invalid",
+    "message id is invalid",
+    "topic_id_invalid",
+)
 
 
 def is_message_gone_error(exc: BaseException) -> bool:
     text = str(exc).lower()
     return any(marker in text for marker in MESSAGE_GONE_MARKERS)
+
+
+def is_discussion_thread_absent_error(exc: BaseException) -> bool:
+    """True when Telegram says this channel post has no linked discussion message."""
+    text = str(exc).lower()
+    return any(marker in text for marker in DISCUSSION_THREAD_ABSENT_MARKERS)
 
 
 def telethon_message_fetchable(message: Any) -> bool:
