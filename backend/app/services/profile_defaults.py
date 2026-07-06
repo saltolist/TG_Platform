@@ -43,6 +43,7 @@ def empty_telegram_profile() -> dict[str, Any]:
         "phone": "",
         "sessionName": "",
         "sessionString": "",
+        "writerSessionString": "",
         "channel": "",
         "channelTitle": "",
         "channelId": "",

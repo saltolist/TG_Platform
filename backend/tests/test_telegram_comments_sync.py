@@ -98,13 +98,30 @@ class CommentFakeTelegramClient:
             )
         raise AssertionError(f"Unexpected request: {cls_name}")
 
-    async def iter_messages(self, entity: Any, reply_to: int | None = None, limit: int = 200):
+    async def iter_messages(
+        self,
+        entity: Any,
+        reply_to: int | None = None,
+        limit: int = 200,
+        offset_id: int = 0,
+        **kwargs: Any,
+    ):
+        matched: list[Any] = []
         for message in SCENARIO.discussion_messages:
             reply = getattr(message, "reply_to", None)
             if reply_to is None or reply is None:
                 continue
             if reply.reply_to_msg_id == reply_to:
-                yield message
+                matched.append(message)
+        matched.sort(key=lambda m: int(getattr(m, "id", 0) or 0), reverse=True)
+        if offset_id:
+            matched = [
+                message
+                for message in matched
+                if int(getattr(message, "id", 0) or 0) < int(offset_id)
+            ]
+        for message in matched[:limit]:
+            yield message
 
     async def send_message(self, entity: Any, text: str, reply_to: int | None = None) -> Any:
         if SCENARIO.fail_send is not None:
@@ -525,6 +542,80 @@ def test_comments_pull_is_complete_empty_with_stored_synced_is_inconclusive() ->
     ]
     assert comments_pull_is_complete([], existing) is False
     assert comments_pull_is_complete([], []) is True
+    assert comments_pull_is_complete([{"id": "1"}], existing, pagination_complete=False) is False
+
+
+def _discussion_reply(msg_id: int, root_id: int = DISCUSSION_ROOT_ID) -> SimpleNamespace:
+    return SimpleNamespace(
+        id=msg_id,
+        message=f"comment-{msg_id}",
+        reply_to=SimpleNamespace(reply_to_msg_id=root_id),
+    )
+
+
+@pytest.mark.asyncio
+async def test_collect_discussion_replies_paginates_until_short_page(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from app.services.telegram.comments_flow import _collect_discussion_reply_messages
+
+    settings = get_settings()
+    monkeypatch.setattr(settings, "telegram_comments_pull_page_size", 100)
+    monkeypatch.setattr(settings, "telegram_comments_pull_max_pages", 10)
+
+    root_id = DISCUSSION_ROOT_ID
+    pages: list[list[int]] = []
+
+    class PaginatingClient:
+        async def iter_messages(self, _entity: Any, **kwargs: Any):
+            limit = int(kwargs.get("limit") or 0)
+            offset_id = int(kwargs.get("offset_id") or 0)
+            all_ids = list(range(250, 0, -1))
+            if offset_id:
+                all_ids = [msg_id for msg_id in all_ids if msg_id < offset_id]
+            batch = all_ids[:limit]
+            pages.append(batch)
+            for msg_id in batch:
+                yield _discussion_reply(msg_id, root_id)
+
+    messages, complete = await _collect_discussion_reply_messages(
+        PaginatingClient(), SimpleNamespace(), root_id, settings
+    )
+    assert len(messages) == 250
+    assert complete is True
+    assert len(pages) == 3
+    assert len(pages[0]) == 100
+    assert len(pages[1]) == 100
+    assert len(pages[2]) == 50
+
+
+@pytest.mark.asyncio
+async def test_collect_discussion_replies_stops_at_max_pages_incomplete(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from app.services.telegram.comments_flow import _collect_discussion_reply_messages
+
+    settings = get_settings()
+    monkeypatch.setattr(settings, "telegram_comments_pull_page_size", 200)
+    monkeypatch.setattr(settings, "telegram_comments_pull_max_pages", 2)
+
+    root_id = DISCUSSION_ROOT_ID
+
+    class FullPagesClient:
+        async def iter_messages(self, _entity: Any, **kwargs: Any):
+            limit = int(kwargs.get("limit") or 0)
+            offset_id = int(kwargs.get("offset_id") or 0)
+            all_ids = list(range(500, 0, -1))
+            if offset_id:
+                all_ids = [msg_id for msg_id in all_ids if msg_id < offset_id]
+            for msg_id in all_ids[:limit]:
+                yield _discussion_reply(msg_id, root_id)
+
+    messages, complete = await _collect_discussion_reply_messages(
+        FullPagesClient(), SimpleNamespace(), root_id, settings
+    )
+    assert len(messages) == 400
+    assert complete is False
 
 
 def test_empty_telegram_pull_does_not_prune_stored_synced_comments() -> None:

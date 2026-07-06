@@ -14,17 +14,14 @@ from app.core.config import Settings, get_settings
 from app.db.models import Profile
 from app.services.telegram.channel_flow import parse_channel_input, resolve_channel_entity_for_profile
 from app.services.telegram.message_mapping import is_message_gone_error, telethon_fetch_has_messages
-from app.services.telegram.mtproto_client import build_client
 from app.services.telegram.net import (
     TelegramAuthError,
-    connect_telegram_client,
     decrypt_field,
-    disconnect_safely,
     require_api_credentials,
     with_timeout,
 )
-from app.services.telegram.session_guard import exclusive_telegram_access
 from app.services.telegram.reconcile_flow import maybe_reconcile_after_rpc
+from app.services.telegram.writer_session import open_outbound_telegram_client
 
 
 async def delete_message_in_telegram(
@@ -46,9 +43,8 @@ async def delete_message_in_telegram(
     if telegram.get("authStatus") not in ("authorized", "connected"):
         raise TelegramAuthError("Сначала авторизуйтесь в Telegram", 400)
 
-    api_id, api_hash = require_api_credentials(telegram, settings)
-    session_string = decrypt_field(str(telegram.get("sessionString") or ""), settings)
-    if not session_string:
+    require_api_credentials(telegram, settings)
+    if not decrypt_field(str(telegram.get("sessionString") or ""), settings):
         raise TelegramAuthError("Не удалось подготовить удаление в Telegram", 400)
     if not str(telegram.get("channelId") or "").strip() and not parse_channel_input(
         str(telegram.get("channel") or "")
@@ -60,12 +56,11 @@ async def delete_message_in_telegram(
     except ValueError as exc:
         raise TelegramAuthError("Некорректный идентификатор сообщения", 400) from exc
 
-    async with exclusive_telegram_access(
-        user_id, listener_stop_timeout=settings.telegram_short_rpc_listener_stop_seconds
-    ):
-        client = build_client(api_id, api_hash, session_string)
-        try:
-            await connect_telegram_client(client, settings)
+    try:
+        async with open_outbound_telegram_client(profile, user_id, settings) as (
+            client,
+            telegram,
+        ):
             entity = await resolve_channel_entity_for_profile(client, telegram, settings)
 
             try:
@@ -97,16 +92,14 @@ async def delete_message_in_telegram(
                 force=True,
                 include_new_scan=False,
             )
-        except TelegramAuthError:
-            raise
-        except Exception as exc:  # noqa: BLE001
-            if is_message_gone_error(exc):
-                return
-            raise TelegramAuthError(
-                str(exc) or "Не удалось удалить сообщение в Telegram", 502
-            ) from exc
-        finally:
-            await disconnect_safely(client)
+    except TelegramAuthError:
+        raise
+    except Exception as exc:  # noqa: BLE001
+        if is_message_gone_error(exc):
+            return
+        raise TelegramAuthError(
+            str(exc) or "Не удалось удалить сообщение в Telegram", 502
+        ) from exc
 
 
 __all__ = ["delete_message_in_telegram"]

@@ -5,7 +5,8 @@ The Telegram profile is stored as JSON in ``profiles.telegram``.
 Sensitive fields that are encrypted at rest:
   - ``apiHash``      — MTProto API hash (never changes per app registration)
   - ``botApiToken``  — Telegram Bot API token (full bot control)
-  - ``sessionString`` — Telethon session string (full account access; future field)
+  - ``sessionString`` — Telethon reader session string (live-sync listener)
+  - ``writerSessionString`` — Telethon writer session string (short outbound RPCs)
 
 Non-sensitive fields (NOT encrypted):
   - ``apiId``       — numeric app ID, not a secret in itself
@@ -31,7 +32,7 @@ from app.core.config import Settings, get_settings
 from app.core.crypto import decrypt_byok, encrypt_byok, is_encrypted
 
 # Fields encrypted at rest.
-_SECRET_FIELDS = ("apiHash", "botApiToken", "sessionString")
+_SECRET_FIELDS = ("apiHash", "botApiToken", "sessionString", "writerSessionString")
 
 # Transient MTProto auth-flow plumbing (encrypted, but NEVER sent to a client —
 # no preview either, just stripped). Written/read directly by auth_flow.py.

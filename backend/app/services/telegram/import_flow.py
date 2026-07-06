@@ -33,7 +33,8 @@ from app.services.telegram.net import (
     require_api_credentials,
     with_timeout,
 )
-from app.services.telegram.session_guard import telegram_session_lock
+from app.services.telegram.session_guard import reader_session_lock, telegram_writer_access
+from app.services.telegram.writer_session import decrypt_writer_session
 
 logger = logging.getLogger(__name__)
 
@@ -112,7 +113,12 @@ async def _set_import_error(user_id: UUID, error: str) -> None:
         await session.commit()
 
 
-async def _import_channel_history(user_id: UUID, settings: Settings) -> None:
+async def _import_channel_history(
+    user_id: UUID,
+    settings: Settings,
+    *,
+    session_string: str,
+) -> None:
     async with async_session_factory() as session:
         profile = await session.get(Profile, user_id)
         if profile is None:
@@ -124,7 +130,8 @@ async def _import_channel_history(user_id: UUID, settings: Settings) -> None:
             return
 
         api_id, api_hash = require_api_credentials(telegram, settings)
-        session_string = decrypt_field(str(telegram.get("sessionString") or ""), settings)
+        if not session_string:
+            session_string = decrypt_field(str(telegram.get("sessionString") or ""), settings)
         channel_input = str(telegram.get("channel") or "")
         parsed = parse_channel_input(channel_input)
         if not parsed or not session_string:
@@ -155,11 +162,38 @@ async def run_channel_import(user_id: UUID, settings: Settings | None = None) ->
     from app.services.telegram.live_sync_worker import listener_registry
 
     settings = settings or get_settings()
+    writer_session: str | None = None
+    async with async_session_factory() as session:
+        profile = await session.get(Profile, user_id)
+        if profile is not None:
+            writer_session = decrypt_writer_session(profile.telegram or {}, settings)
+
+    if writer_session:
+        try:
+            async with telegram_writer_access(user_id):
+                await asyncio.wait_for(
+                    _import_channel_history(
+                        user_id, settings, session_string=writer_session
+                    ),
+                    timeout=settings.telegram_import_timeout_seconds,
+                )
+        except asyncio.TimeoutError:
+            logger.warning("Telegram import timed out for user %s", user_id)
+            await _set_import_error(
+                user_id, "Импорт занял слишком много времени, попробуйте позже"
+            )
+        except Exception as exc:  # noqa: BLE001
+            logger.exception("Telegram import failed for user %s", user_id)
+            await _set_import_error(
+                user_id, str(exc) or "Не удалось импортировать историю канала"
+            )
+        return
+
     await listener_registry.await_stop_user_listener(user_id)
     try:
-        async with telegram_session_lock(user_id):
+        async with reader_session_lock(user_id):
             await asyncio.wait_for(
-                _import_channel_history(user_id, settings),
+                _import_channel_history(user_id, settings, session_string=""),
                 timeout=settings.telegram_import_timeout_seconds,
             )
     except asyncio.TimeoutError:

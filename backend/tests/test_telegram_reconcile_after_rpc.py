@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import uuid
+from contextlib import asynccontextmanager
 from types import SimpleNamespace
 from typing import Any
 from unittest.mock import AsyncMock
@@ -13,6 +14,14 @@ from app.db import session as db_session_module
 from app.db.models import Post, Profile
 from app.services.telegram import delete_flow, edit_flow, publish_flow
 from tests.conftest import TestSessionLocal, writer_user
+
+
+def _fake_open_outbound(client: Any, telegram: dict[str, Any] | None = None):
+    @asynccontextmanager
+    async def _cm(*_args: Any, **_kwargs: Any):
+        yield client, telegram or {}
+
+    return _cm()
 
 
 @pytest.mark.asyncio
@@ -66,13 +75,14 @@ async def test_publish_post_calls_maybe_reconcile_after_rpc(
         async def get_messages(self, *_args: Any, **_kwargs: Any) -> list[Any]:
             return [SimpleNamespace(id=42, message="Hello", grouped_id=None)]
 
+    fake_client = FakeClient()
     monkeypatch.setattr(
         publish_flow,
-        "build_client",
-        lambda *_a, **_k: FakeClient(),
+        "open_outbound_telegram_client",
+        lambda *_a, **_k: _fake_open_outbound(fake_client),
     )
-    monkeypatch.setattr(publish_flow, "connect_telegram_client", AsyncMock())
-    monkeypatch.setattr(publish_flow, "disconnect_safely", AsyncMock())
+    monkeypatch.setattr(publish_flow, "decrypt_field", lambda value, _settings: value)
+    monkeypatch.setattr(publish_flow, "require_api_credentials", lambda _tg, _s: (1, "hash"))
     monkeypatch.setattr(
         publish_flow,
         "resolve_channel_entity_for_profile",
@@ -82,13 +92,6 @@ async def test_publish_post_calls_maybe_reconcile_after_rpc(
         publish_flow,
         "map_group_to_post",
         AsyncMock(return_value={"telegramMessageId": "42", "text": "Hello", "status": "published"}),
-    )
-    monkeypatch.setattr(publish_flow, "decrypt_field", lambda value, _settings: value)
-    monkeypatch.setattr(publish_flow, "require_api_credentials", lambda _tg, _s: (1, "hash"))
-    monkeypatch.setattr(
-        publish_flow,
-        "exclusive_telegram_access",
-        lambda *_a, **_k: _null_async_context(),
     )
     monkeypatch.setattr(db_session_module, "async_session_factory", TestSessionLocal)
     monkeypatch.setattr(publish_flow, "async_session_factory", TestSessionLocal)
@@ -125,20 +128,18 @@ async def test_delete_message_calls_maybe_reconcile_after_rpc(
         async def delete_messages(self, *_args: Any, **_kwargs: Any) -> None:
             return None
 
-    monkeypatch.setattr(delete_flow, "build_client", lambda *_a, **_k: FakeClient())
-    monkeypatch.setattr(delete_flow, "connect_telegram_client", AsyncMock())
-    monkeypatch.setattr(delete_flow, "disconnect_safely", AsyncMock())
+    fake_client = FakeClient()
+    monkeypatch.setattr(delete_flow, "decrypt_field", lambda value, _settings: value)
+    monkeypatch.setattr(delete_flow, "require_api_credentials", lambda _tg, _s: (1, "hash"))
     monkeypatch.setattr(
         delete_flow,
         "resolve_channel_entity_for_profile",
         AsyncMock(return_value=SimpleNamespace(id=1)),
     )
-    monkeypatch.setattr(delete_flow, "decrypt_field", lambda value, _settings: value)
-    monkeypatch.setattr(delete_flow, "require_api_credentials", lambda _tg, _s: (1, "hash"))
     monkeypatch.setattr(
         delete_flow,
-        "exclusive_telegram_access",
-        lambda *_a, **_k: _null_async_context(),
+        "open_outbound_telegram_client",
+        lambda *_a, **_k: _fake_open_outbound(fake_client),
     )
 
     profile = Profile(
@@ -184,20 +185,18 @@ async def test_edit_message_calls_maybe_reconcile_after_rpc(
         async def edit_message(self, *_args: Any, **_kwargs: Any) -> SimpleNamespace:
             return SimpleNamespace(id=88)
 
-    monkeypatch.setattr(edit_flow, "build_client", lambda *_a, **_k: FakeClient())
-    monkeypatch.setattr(edit_flow, "connect_telegram_client", AsyncMock())
-    monkeypatch.setattr(edit_flow, "disconnect_safely", AsyncMock())
+    fake_client = FakeClient()
+    monkeypatch.setattr(edit_flow, "decrypt_field", lambda value, _settings: value)
+    monkeypatch.setattr(edit_flow, "require_api_credentials", lambda _tg, _s: (1, "hash"))
     monkeypatch.setattr(
         edit_flow,
         "resolve_channel_entity_for_profile",
         AsyncMock(return_value=SimpleNamespace(id=1)),
     )
-    monkeypatch.setattr(edit_flow, "decrypt_field", lambda value, _settings: value)
-    monkeypatch.setattr(edit_flow, "require_api_credentials", lambda _tg, _s: (1, "hash"))
     monkeypatch.setattr(
         edit_flow,
-        "exclusive_telegram_access",
-        lambda *_a, **_k: _null_async_context(),
+        "open_outbound_telegram_client",
+        lambda *_a, **_k: _fake_open_outbound(fake_client),
     )
 
     profile = Profile(

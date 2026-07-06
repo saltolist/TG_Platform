@@ -292,16 +292,9 @@ async def run_manual_reconcile(profile: Profile, user_id: UUID) -> ReconcileStat
         parse_channel_input,
         resolve_channel_entity_for_profile,
     )
-    from app.services.telegram.mtproto_client import build_client
-    from app.services.telegram.net import (
-        TelegramAuthError,
-        connect_telegram_client,
-        decrypt_field,
-        disconnect_safely,
-        require_api_credentials,
-    )
+    from app.services.telegram.net import TelegramAuthError, decrypt_field, require_api_credentials
     from app.services.telegram.post_sync import repair_empty_telegram_posts
-    from app.services.telegram.session_guard import exclusive_telegram_access
+    from app.services.telegram.writer_session import open_outbound_telegram_client
     from app.db.session import async_session_factory
 
     settings = get_settings()
@@ -316,9 +309,8 @@ async def run_manual_reconcile(profile: Profile, user_id: UUID) -> ReconcileStat
     if telegram.get("syncMode") == "publish-only":
         raise TelegramAuthError("Режим «только публикация» — сверка недоступна", 400)
 
-    api_id, api_hash = require_api_credentials(telegram, settings)
-    session_string = decrypt_field(str(telegram.get("sessionString") or ""), settings)
-    if not session_string:
+    require_api_credentials(telegram, settings)
+    if not decrypt_field(str(telegram.get("sessionString") or ""), settings):
         raise TelegramAuthError("Не удалось подготовить сверку с каналом", 400)
     if not str(telegram.get("channelId") or "").strip() and not parse_channel_input(
         str(telegram.get("channel") or "")
@@ -326,42 +318,40 @@ async def run_manual_reconcile(profile: Profile, user_id: UUID) -> ReconcileStat
         raise TelegramAuthError("Не удалось подготовить сверку с каналом", 400)
 
     stats = ReconcileStats()
-    async with exclusive_telegram_access(user_id):
-        client = build_client(api_id, api_hash, session_string)
-        try:
-            await connect_telegram_client(client, settings)
-            entity = await resolve_channel_entity_for_profile(client, telegram, settings)
-            stats = await reconcile_channel_window(
+    async with open_outbound_telegram_client(profile, user_id, settings) as (
+        client,
+        telegram,
+    ):
+        entity = await resolve_channel_entity_for_profile(client, telegram, settings)
+        stats = await reconcile_channel_window(
+            client,
+            entity,
+            user_id,
+            settings,
+            async_session_factory,
+            force=True,
+            include_comments=True,
+        )
+        repaired = await repair_empty_telegram_posts(
+            client,
+            entity,
+            user_id,
+            settings,
+            async_session_factory,
+            limit=30,
+        )
+        stats.updated += repaired
+        while True:
+            probed = await probe_pending_comments_thread_flags(
                 client,
                 entity,
                 user_id,
-                settings,
                 async_session_factory,
-                force=True,
-                include_comments=True,
-            )
-            repaired = await repair_empty_telegram_posts(
-                client,
-                entity,
-                user_id,
                 settings,
-                async_session_factory,
-                limit=30,
             )
-            stats.updated += repaired
-            while True:
-                probed = await probe_pending_comments_thread_flags(
-                    client,
-                    entity,
-                    user_id,
-                    async_session_factory,
-                    settings,
-                )
-                if probed <= 0:
-                    break
-                stats.updated += probed
-        finally:
-            await disconnect_safely(client)
+            if probed <= 0:
+                break
+            stats.updated += probed
     return stats
 
 

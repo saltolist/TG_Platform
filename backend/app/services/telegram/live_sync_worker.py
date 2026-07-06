@@ -72,7 +72,7 @@ from app.services.telegram.post_sync import (
     upsert_telegram_post,
 )
 from app.services.telegram.reconcile_flow import reconcile_channel_window
-from app.services.telegram.session_guard import telegram_session_lock
+from app.services.telegram.session_guard import reader_session_lock
 from app.services.telegram.sync_coordination import (
     run_channel_ingest,
     run_channel_ingest_if_idle,
@@ -148,6 +148,17 @@ class ListenerRegistry:
     def is_running(self, user_id: UUID) -> bool:
         task = self._tasks.get(user_id)
         return task is not None and not task.done()
+
+    def get_active_reader_client(self, user_id: UUID) -> Any | None:
+        client = self._clients.get(user_id)
+        if client is None:
+            return None
+        try:
+            if client.is_connected():
+                return client
+        except Exception:  # noqa: BLE001
+            return None
+        return None
 
     def register_client(self, user_id: UUID, client: Any) -> None:
         self._clients[user_id] = client
@@ -850,7 +861,7 @@ async def _run_user_listener(user_id: UUID, stop_event: asyncio.Event) -> None:
         _telegram, api_id, api_hash, session_string, parsed, min_id = creds
 
         try:
-            async with telegram_session_lock(user_id):
+            async with reader_session_lock(user_id):
                 if stop_event.is_set():
                     return
 

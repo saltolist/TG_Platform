@@ -307,11 +307,15 @@ async def sync_post_comments_endpoint(
             updated["commentsThreadAvailable"] = result.comments_thread_available
             if not result.comments_thread_available:
                 updated.pop("telegramDiscussionMessageId", None)
+        if result.comments_pull_complete is not None:
+            updated["commentsPullComplete"] = result.comments_pull_complete
         post.data = updated
         await session.commit()
         response = dict(updated)
     if result.error:
         response["commentSyncError"] = result.error
+    if result.comments_pull_complete is not None:
+        response["commentsPullComplete"] = result.comments_pull_complete
     return response
 
 

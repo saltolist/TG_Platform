@@ -15,7 +15,7 @@
 | Аспект | Решение |
 |--------|---------|
 | Протокол | **MTProto** через Telethon (полный доступ: импорт истории, публикация, метрики) |
-| Сессия | Telethon-сессия привязана к аккаунту (`TelegramProfileConfig`) |
+| Сессия | Reader (`sessionString`) + writer (`writerSessionString`) — два MTProto auth key |
 | Хранение сессии | В БД (зашифровано), не в файловой системе контейнера |
 | Бот | Опционально Telegram Bot API для уведомлений |
 | Секреты в профиле | `apiHash`, `botApiToken`, `sessionString` — Fernet at-rest (тот же `BYOK_ENCRYPTION_KEY`, что и для AI BYOK) |
@@ -37,7 +37,7 @@
 - `backend/alembic/versions/007_encrypt_profile_secrets_at_rest.py` — миграция данных
 - `frontend` — preview в полях, копирование через reveal-on-copy (`TelegramSecretCopyButton`)
 
-**Шифруются:** `apiHash`, `botApiToken`, `sessionString`.
+**Шифруются:** `apiHash`, `botApiToken`, `sessionString`, `writerSessionString`.
 
 **Не шифруются:** `apiId`, `phone`, `channel`, статусы и метрики (не секреты).
 
@@ -286,14 +286,30 @@ HTTP-ответ connect возвращается мгновенно с `importSt
 | Live `NewMessage` / правка текста | нет | push + media только для новых постов | сразу |
 | Live `UpdateMessageReactions` | нет* | 0** | буфер 5 с |
 | Live `UpdateChannelMessageViews` / `Forwards` | нет | 0 | push → БД сразу |
-| Maintenance (catch-up + reconcile + metrics) | ingest | 1–3 batch/30 с | фон |
-| Ручная «Сверить канал» | exclusive (listener стоп) | полный окно + комментарии | по кнопке |
-| Publish / edit / import | exclusive | по действию пользователя | по запросу |
+| Maintenance (catch-up + reconcile + metrics) | ingest (defer при занятости) | 1–3 batch/30 с | фон |
+| Ручная «Сверить канал» | writer | полный окно + комментарии | по кнопке |
+| Publish / edit / delete / sync-comments | writer | по действию пользователя | по запросу |
+| Channel connect / первый import | reader exclusive (listener стоп) | connect + import | по запросу |
+| Import (если writer уже есть) | writer | история без остановки listener | фон |
+
+**Dual MTProto sessions:** `sessionString` — долгоживущий reader (live-sync listener);
+`writerSessionString` — отдельный auth key для коротких исходящих RPC. Writer
+создаётся лениво при первом publish/edit через `auth.ExportAuthorization` /
+`auth.ImportAuthorization` из активного reader; в Telegram → «Активные сеансы»
+появится второе устройство «TG Platform».
+
+**Ingest defer:** `run_channel_ingest_or_defer` — при занятом ingest lock один
+отложенный проход (coalesce), чтобы maintenance/fast-poll не терялись.
+
+**Comment pagination:** `sync-comments` тянет обсуждение страницами
+(`TELEGRAM_COMMENTS_PULL_PAGE_SIZE` × `TELEGRAM_COMMENTS_PULL_MAX_PAGES`, по умолчанию
+до ~2000 комментариев); `commentsPullComplete` в ответе API и `post.data`.
 
 \* flush реакций откладывается, если maintenance держит ingest lock.  
 \** реакции из события пишутся в БД без `get_messages`, если в push есть snapshot.
 
-**Frontend:** `TelegramSyncCoordinator` — поллинг `GET /profile/telegram` каждые **1 с**;
+**Frontend:** `TelegramSyncCoordinator` — SSE `GET /profile/telegram/sync-events/` (primary),
+fallback поллинг `GET /profile/telegram` каждые **1 с**;
 при росте `syncRevision` — refetch постов; при росте `commentsRevision` / `metricsRevision` —
 refetch открытого поста. `usePollOpenPost` остаётся fallback на странице поста.
 Кнопка **«Сверить канал»** в настройках Telegram → `POST /telegram/channel/reconcile/`.
@@ -315,7 +331,8 @@ refetch открытого поста. `usePollOpenPost` остаётся fallba
    (в `.env` — `DATABASE_URL=postgresql+asyncpg://tg:tg@localhost:5432/tg`).
 3. **Перезапуск Colima** — иногда сбрасывает drift VM: `colima stop && colima start`.
 
-**Явно вне рамок:** SSE/WebSocket push; синхронизация метрик (Шаг 5).
+**Явно вне рамок:** dedicated sync worker + Redis pub/sub для SSE на нескольких репликах;
+UI «Загрузить ещё комментарии» при `commentsPullComplete=false`.
 
 ---
 

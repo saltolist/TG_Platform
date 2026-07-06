@@ -202,5 +202,6 @@ async def reset_auth(
     result["authStatus"] = "idle"
     result["authStep"] = "credentials"
     result["sessionString"] = ""
+    result["writerSessionString"] = ""
     _clear_pending(result)
     return result

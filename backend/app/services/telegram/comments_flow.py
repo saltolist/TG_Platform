@@ -25,16 +25,13 @@ from app.services.telegram.channel_flow import (
     resolve_channel_entity,
     resolve_channel_entity_for_profile,
 )
-from app.services.telegram.mtproto_client import build_client
 from app.services.telegram.net import (
     TelegramAuthError,
-    connect_telegram_client,
     decrypt_field,
-    disconnect_safely,
     require_api_credentials,
     with_timeout,
 )
-from app.services.telegram.session_guard import exclusive_telegram_access
+from app.services.telegram.writer_session import open_outbound_telegram_client
 from app.services.telegram.media_storage import save_message_media
 from app.services.telegram.post_sync import touch_telegram_profile
 from app.services.telegram.text_formatting import apply_message_text_fields, extract_plain_text
@@ -61,6 +58,7 @@ class CommentSyncResult:
     comments: list[dict[str, Any]] | None = None
     telegram_discussion_message_id: str | None = None
     comments_thread_available: bool | None = None
+    comments_pull_complete: bool | None = None
     error: str | None = None
 
 
@@ -864,18 +862,72 @@ async def map_telegram_messages_to_comments(
 def comments_pull_is_complete(
     from_telegram: list[dict[str, Any]],
     existing: list[dict[str, Any]],
+    *,
+    pagination_complete: bool = True,
 ) -> bool:
     """True when a Telegram pull is safe to treat as authoritative for pruning.
 
     An empty pull with stored TG-synced comments is inconclusive (transient RPC
-    issues, rate limits) — never prune in that case.
+    issues, rate limits) — never prune in that case. Partial pagination (thread
+  longer than the configured page budget) is also inconclusive.
     """
+    if not pagination_complete:
+        return False
     if from_telegram:
         return True
     for item in existing:
         if isinstance(item, Mapping) and item.get("telegramMessageId"):
             return False
     return True
+
+
+async def _collect_discussion_reply_messages(
+    client: Any,
+    discussion_entity: Any,
+    root_id: int,
+    settings: Settings,
+) -> tuple[list[Any], bool]:
+    """Fetch discussion replies in pages; return (messages, pagination_complete)."""
+    page_size = max(1, settings.telegram_comments_pull_page_size)
+    max_pages = max(1, settings.telegram_comments_pull_max_pages)
+    collected: list[Any] = []
+    offset_id = 0
+    pages_fetched = 0
+    last_page_len = 0
+
+    while pages_fetched < max_pages:
+        page: list[Any] = []
+        iter_kwargs: dict[str, Any] = {"reply_to": root_id, "limit": page_size}
+        if offset_id > 0:
+            iter_kwargs["offset_id"] = offset_id
+        try:
+            async for message in client.iter_messages(discussion_entity, **iter_kwargs):
+                if getattr(message, "id", None) == root_id:
+                    continue
+                page.append(message)
+        except Exception:
+            return collected, False
+
+        if not page:
+            break
+
+        collected.extend(page)
+        pages_fetched += 1
+        last_page_len = len(page)
+        if last_page_len < page_size:
+            break
+
+        msg_ids = [
+            int(getattr(message, "id", 0) or 0)
+            for message in page
+            if getattr(message, "id", None) not in (None, root_id)
+        ]
+        if not msg_ids:
+            break
+        offset_id = min(msg_ids)
+
+    pagination_complete = pages_fetched < max_pages or last_page_len < page_size
+    return collected, pagination_complete
 
 
 async def fetch_comments_from_telegram(
@@ -900,16 +952,9 @@ async def fetch_comments_from_telegram(
     except Exception:
         return root_id, [], False, False
 
-    collected: list[Any] = []
-    try:
-        async for message in client.iter_messages(
-            discussion_entity, reply_to=root_id, limit=200
-        ):
-            if getattr(message, "id", None) == root_id:
-                continue
-            collected.append(message)
-    except Exception:
-        return root_id, [], False, False
+    collected, pagination_complete = await _collect_discussion_reply_messages(
+        client, discussion_entity, root_id, settings
+    )
 
     comments = await map_telegram_messages_to_comments(
         client,
@@ -920,7 +965,9 @@ async def fetch_comments_from_telegram(
         existing=existing,
     )
     existing_rows = existing or []
-    complete = comments_pull_is_complete(comments, existing_rows)
+    complete = comments_pull_is_complete(
+        comments, existing_rows, pagination_complete=pagination_complete
+    )
     return root_id, comments, False, complete
 
 
@@ -1171,6 +1218,7 @@ async def pull_comments_from_telegram(
         comments=merged,
         telegram_discussion_message_id=str(root_id),
         comments_thread_available=True,
+        comments_pull_complete=comments_complete,
     )
 
 
@@ -1178,23 +1226,18 @@ async def pull_comments_from_telegram(
 async def _with_telegram_client(profile: Profile, user_id: UUID, settings: Settings):
     telegram = profile.telegram or {}
     require_comments_enabled(telegram)
-    api_id, api_hash = require_api_credentials(telegram, settings)
-    session_string = decrypt_field(str(telegram.get("sessionString") or ""), settings)
-    if not session_string:
+    require_api_credentials(telegram, settings)
+    if not decrypt_field(str(telegram.get("sessionString") or ""), settings):
         raise TelegramAuthError("Не удалось подготовить синхронизацию комментариев", 400)
 
-    async with exclusive_telegram_access(
-        user_id, listener_stop_timeout=settings.telegram_short_rpc_listener_stop_seconds
+    async with open_outbound_telegram_client(profile, user_id, settings) as (
+        client,
+        telegram,
     ):
-        client = build_client(api_id, api_hash, session_string)
-        try:
-            await connect_telegram_client(client, settings)
-            channel_entity = await resolve_channel_entity_for_profile(
-                client, telegram, settings
-            )
-            yield client, channel_entity, telegram
-        finally:
-            await disconnect_safely(client)
+        channel_entity = await resolve_channel_entity_for_profile(
+            client, telegram, settings
+        )
+        yield client, channel_entity, telegram
 
 
 async def sync_post_comments_pull(
