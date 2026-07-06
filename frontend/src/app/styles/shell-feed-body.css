@@ -297,6 +297,7 @@
 .tg-formatted-text {
   /* Match plain post text: Telegram keeps line breaks in message text even with entities. */
   white-space: pre-wrap;
+  --tg-inline-emoji-size: 1.1em;
 }
 .tg-formatted-text strong { font-weight: 700; }
 .tg-formatted-text em { font-style: italic; }
@@ -345,25 +346,28 @@
 }
 .tg-formatted-text .tg-custom-emoji-placeholder {
   display: inline-block;
-  min-width: 1em;
-  font-size: 20px;
-  line-height: 1;
-  vertical-align: -0.2em;
+  width: var(--tg-inline-emoji-size);
+  height: var(--tg-inline-emoji-size);
+  font-size: inherit;
+  line-height: 0;
+  vertical-align: -0.12em;
 }
 .tg-formatted-text .tg-custom-emoji,
 .tg-formatted-text .tg-custom-emoji-host {
-  width: 24px;
-  height: 24px;
+  width: var(--tg-inline-emoji-size);
+  height: var(--tg-inline-emoji-size);
+  font-size: inherit;
   object-fit: contain;
-  vertical-align: -0.2em;
+  vertical-align: -0.12em;
   display: inline-block;
+  line-height: 0;
 }
 .tg-formatted-text .tg-custom-emoji-host {
   line-height: 0;
 }
 .tg-formatted-text .tg-custom-emoji-fallback {
-  font-size: 20px;
-  line-height: 1;
+  font-size: inherit;
+  line-height: 0;
 }
 .post-card-body:has(.post-reactions-row) .post-card-text,
 .post-card-body:has(.post-reactions-row) .post-card-text.empty {

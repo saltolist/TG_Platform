@@ -13,6 +13,7 @@ type Props = {
   documentId: string;
   alt?: string;
   className?: string;
+  /** Pixel size. Omit to let CSS control dimensions (e.g. inline editor emoji at 1em). */
   size?: number;
 };
 
@@ -23,8 +24,9 @@ export function CustomEmojiPreview({
   documentId,
   alt = "⭐",
   className = "tg-custom-emoji",
-  size = 24,
+  size,
 }: Props) {
+  const dimensionStyle = size !== undefined ? { width: size, height: size } : undefined;
   const [preview, setPreview] = useState<EmojiPreviewResult | null>(null);
   const [failed, setFailed] = useState(false);
   const [attempt, setAttempt] = useState(0);
@@ -73,7 +75,7 @@ export function CustomEmojiPreview({
         className={`${className} tg-custom-emoji-fallback tg-custom-emoji--failed`}
         title={`${alt} — нажмите, чтобы повторить`}
         aria-label={`${alt}: не загрузилось, повторить`}
-        style={{ width: size, height: size }}
+        style={dimensionStyle}
         onClick={(event) => {
           event.preventDefault();
           event.stopPropagation();
@@ -90,7 +92,7 @@ export function CustomEmojiPreview({
       <span
         className={`${className} tg-custom-emoji-fallback tg-custom-emoji--loading`}
         title={`Загрузка: ${alt}`}
-        style={{ width: size, height: size }}
+        style={dimensionStyle}
         aria-label={`Загрузка ${alt}`}
       >
         ◌
@@ -105,7 +107,7 @@ export function CustomEmojiPreview({
         animationData={preview.data}
         loop
         autoplay
-        style={{ width: size, height: size }}
+        style={dimensionStyle}
       />
     );
   }
@@ -119,8 +121,7 @@ export function CustomEmojiPreview({
         loop
         muted
         playsInline
-        width={size}
-        height={size}
+        {...(size !== undefined ? { width: size, height: size } : {})}
         aria-label={alt}
       />
     );
@@ -131,8 +132,7 @@ export function CustomEmojiPreview({
       className={className}
       src={preview.url}
       alt={alt}
-      width={size}
-      height={size}
+      {...(size !== undefined ? { width: size, height: size } : {})}
       draggable={false}
     />
   );

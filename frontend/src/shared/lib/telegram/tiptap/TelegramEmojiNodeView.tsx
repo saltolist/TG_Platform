@@ -15,11 +15,17 @@ export function TelegramEmojiNodeView({ node }: NodeViewProps) {
       contentEditable={false}
       data-emoji-id={documentId}
     >
-      <CustomEmojiPreview
-        documentId={documentId}
-        alt={alt}
-        className="tg-custom-emoji telegram-emoji-node-preview"
-      />
+      {/* Fallback alt char sets line/caret metrics like a normal emoji character. */}
+      <span className="telegram-emoji-glyph" aria-hidden="true">
+        {alt}
+      </span>
+      <span className="telegram-emoji-overlay">
+        <CustomEmojiPreview
+          documentId={documentId}
+          alt={alt}
+          className="tg-custom-emoji telegram-emoji-node-preview"
+        />
+      </span>
     </NodeViewWrapper>
   );
 }
