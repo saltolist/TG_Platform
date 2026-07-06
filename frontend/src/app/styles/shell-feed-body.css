@@ -415,8 +415,11 @@
 }
 
 .post-card-media:has(.tg-media-voice),
+.post-card-media:has(.tg-media-file),
 .post-msg-media:has(.tg-media-voice),
-.post-msg-media-edit:has(.tg-media-voice) {
+.post-msg-media:has(.tg-media-file),
+.post-msg-media-edit:has(.tg-media-voice),
+.post-msg-media-edit:has(.tg-media-file) {
   margin-left: 0;
   margin-right: 0;
   margin-top: 0;
@@ -427,8 +430,11 @@
 }
 
 .post-card-body:not(:has(> .post-card-text)) > .post-card-media:has(.tg-media-voice),
+.post-card-body:not(:has(> .post-card-text)) > .post-card-media:has(.tg-media-file),
 .post-card-body:not(:has(> .post-card-text)) > .post-msg-media:has(.tg-media-voice),
-.post-card-body:not(:has(> .post-card-text)) > .post-msg-media-edit:has(.tg-media-voice) {
+.post-card-body:not(:has(> .post-card-text)) > .post-msg-media:has(.tg-media-file),
+.post-card-body:not(:has(> .post-card-text)) > .post-msg-media-edit:has(.tg-media-voice),
+.post-card-body:not(:has(> .post-card-text)) > .post-msg-media-edit:has(.tg-media-file) {
   padding-top: 12px;
 }
 

@@ -14,7 +14,8 @@ COPY fixtures ./fixtures
 COPY app ./app
 COPY scripts/entrypoint.sh ./scripts/entrypoint.sh
 COPY scripts/entrypoint-celery.sh ./scripts/entrypoint-celery.sh
-RUN chmod +x ./scripts/entrypoint.sh ./scripts/entrypoint-celery.sh
+COPY scripts/entrypoint-sync-worker.sh ./scripts/entrypoint-sync-worker.sh
+RUN chmod +x ./scripts/entrypoint.sh ./scripts/entrypoint-celery.sh ./scripts/entrypoint-sync-worker.sh
 
 EXPOSE 8000
 

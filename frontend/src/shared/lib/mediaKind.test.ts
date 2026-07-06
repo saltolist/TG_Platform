@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 import {
   inferPostMediaKind,
   isCompactMediaKind,
+  isDocumentKind,
   isImageMedia,
   isVideoMedia,
   mediaKind,
@@ -89,6 +90,18 @@ describe("mediaKind helpers", () => {
       durationSeconds: 12,
     };
     expect(mediaKind(media)).toBe("voice");
+    expect(isCompactMediaKind(media)).toBe(false);
+  });
+
+  it("recognizes document attachments", () => {
+    const media: PostMedia = {
+      name: "report.pdf",
+      url: "/media/u/report.pdf",
+      type: "application/pdf",
+      kind: "document",
+    };
+    expect(mediaKind(media)).toBe("document");
+    expect(isDocumentKind(media)).toBe(true);
     expect(isCompactMediaKind(media)).toBe(false);
   });
 });

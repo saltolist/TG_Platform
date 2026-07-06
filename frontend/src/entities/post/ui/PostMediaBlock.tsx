@@ -1,7 +1,9 @@
 "use client";
 
 import {
+  isAttachCardKind,
   isCompactMediaKind,
+  isDocumentKind,
   isImageMedia,
   isVideoMedia,
   isVoiceKind,
@@ -10,6 +12,7 @@ import {
 } from "@/shared/lib/helpers";
 import type { PostMedia } from "@/shared/types";
 import { AnimatedStickerMedia } from "./media/AnimatedStickerMedia";
+import { DocumentMedia } from "./media/DocumentMedia";
 import { StickerMedia } from "./media/StickerMedia";
 import { VideoNoteMedia } from "./media/VideoNoteMedia";
 import { VideoStickerMedia } from "./media/VideoStickerMedia";
@@ -27,19 +30,19 @@ export default function PostMediaBlock({ media, onRemove, variant = "default" }:
 
   const n = media.length;
   const compactSingle = n === 1 && isCompactMediaKind(media[0]);
-  const voiceSingle = n === 1 && isVoiceKind(media[0]);
-  const layout = layoutClass(n);
+  const attachCardLayout = media.every(isAttachCardKind);
+  const layout = layoutClass(n, attachCardLayout);
   const editable = !!onRemove;
 
   return (
     <div
-      className={`tg-media ${layout}${editable ? " tg-media-editable" : ""}${n === 1 ? " single" : ""}${compactSingle ? " tg-media--compact" : ""}${voiceSingle ? " tg-media--voice" : ""}${variant === "comment" ? " tg-media--comment" : ""}`}
+      className={`tg-media ${layout}${editable ? " tg-media-editable" : ""}${n === 1 ? " single" : ""}${compactSingle ? " tg-media--compact" : ""}${attachCardLayout ? " tg-media--attach" : ""}${variant === "comment" ? " tg-media--comment" : ""}`}
       data-count={n}
     >
       {media.map((m, i) => (
         <div
           key={`${m.name}-${i}`}
-          className={`tg-media-item${slotClass(n, i)}${isCompactMediaKind(m) ? " tg-media-item--compact" : ""}${isVoiceKind(m) ? " tg-media-item--voice" : ""}`}
+          className={`tg-media-item${slotClass(n, i, attachCardLayout)}${isCompactMediaKind(m) ? " tg-media-item--compact" : ""}${isVoiceKind(m) ? " tg-media-item--voice" : ""}${isDocumentKind(m) ? " tg-media-item--file" : ""}`}
         >
           <MediaInner media={m} variant={variant} />
           {onRemove ? (
@@ -86,6 +89,9 @@ function MediaInner({ media, variant }: { media: PostMedia; variant: Props["vari
   if (kind === "voice") {
     return <VoiceMedia media={media} />;
   }
+  if (kind === "document") {
+    return <DocumentMedia media={media} />;
+  }
   if (kind === "video_note" || isVideoMedia(media)) {
     return <VideoNoteMedia media={media} stopNavigation={variant === "feed"} />;
   }
@@ -95,15 +101,11 @@ function MediaInner({ media, variant }: { media: PostMedia; variant: Props["vari
     // eslint-disable-next-line @next/next/no-img-element
     return <img className="tg-media-img" src={src} alt={media.name} loading="lazy" />;
   }
-  return (
-    <div className="tg-media-doc">
-      <div className="tg-media-doc-icon">📎</div>
-      <div className="tg-media-doc-name">{media.name || "Файл"}</div>
-    </div>
-  );
+  return <DocumentMedia media={media} />;
 }
 
-function layoutClass(n: number): string {
+function layoutClass(n: number, attachCardLayout: boolean): string {
+  if (attachCardLayout) return "cols-1 tg-media--attach-stack";
   if (n <= 1) return "cols-1";
   if (n === 2) return "cols-2";
   if (n === 3) return "cols-2 rows-2 layout-3";
@@ -112,7 +114,8 @@ function layoutClass(n: number): string {
   return "cols-3";
 }
 
-function slotClass(n: number, i: number): string {
+function slotClass(n: number, i: number, attachCardLayout: boolean): string {
+  if (attachCardLayout) return "";
   if (n === 3 && i === 0) return " span-2";
   return "";
 }

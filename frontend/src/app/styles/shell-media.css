@@ -241,7 +241,8 @@
   overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
 }
 
-.tg-media-voice {
+.tg-media-voice,
+.tg-media-file {
   display: flex;
   align-items: center;
   gap: 10px;
@@ -253,8 +254,60 @@
   border-radius: 12px;
 }
 
+.tg-media-file {
+  text-decoration: none;
+  color: inherit;
+  cursor: pointer;
+  transition: background 0.15s ease;
+}
+
+.tg-media-file:hover {
+  background: color-mix(in srgb, var(--bg4) 80%, var(--accent));
+}
+
+.tg-media-file-icon {
+  flex-shrink: 0;
+  width: 36px;
+  height: 36px;
+  border-radius: 50%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: var(--accent);
+  color: #fff;
+}
+
+.tg-media-file-icon svg {
+  width: 18px;
+  height: 18px;
+}
+
+.tg-media-file-name {
+  flex: 1;
+  min-width: 0;
+  font-size: 13px;
+  color: var(--text);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.tg-media-file-label {
+  flex-shrink: 0;
+  min-width: 36px;
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.04em;
+  font-variant-numeric: tabular-nums;
+  color: var(--text-muted, var(--text));
+  opacity: 0.75;
+  text-align: right;
+}
+
+.tg-media--attach,
 .tg-media--voice,
-.tg-media:has(.tg-media-voice) {
+.tg-media:has(.tg-media-voice),
+.tg-media:has(.tg-media-file) {
   display: block;
   background: transparent;
   overflow: visible;
@@ -262,12 +315,24 @@
   gap: 0;
 }
 
+.tg-media--attach-stack {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
 .tg-media.cols-1 .tg-media-item--voice,
 .tg-media.cols-1 .tg-media-item:has(.tg-media-voice),
 .tg-media.single .tg-media-item--voice,
 .tg-media.single .tg-media-item:has(.tg-media-voice),
 .tg-media-item--voice,
-.tg-media-item:has(.tg-media-voice) {
+.tg-media-item:has(.tg-media-voice),
+.tg-media.cols-1 .tg-media-item--file,
+.tg-media.cols-1 .tg-media-item:has(.tg-media-file),
+.tg-media.single .tg-media-item--file,
+.tg-media.single .tg-media-item:has(.tg-media-file),
+.tg-media-item--file,
+.tg-media-item:has(.tg-media-file) {
   aspect-ratio: auto;
   max-height: none;
   height: auto;

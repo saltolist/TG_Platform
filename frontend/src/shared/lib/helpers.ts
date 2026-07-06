@@ -276,6 +276,14 @@ export function isVoiceKind(m: PostMedia): boolean {
   return mediaKind(m) === "voice";
 }
 
+export function isDocumentKind(m: PostMedia): boolean {
+  return mediaKind(m) === "document";
+}
+
+export function isAttachCardKind(m: PostMedia): boolean {
+  return isVoiceKind(m) || isDocumentKind(m);
+}
+
 export function isCompactMediaKind(m: PostMedia): boolean {
   if (isStickerKind(m) || isVideoNoteKind(m)) return true;
   // Legacy Telegram round videos imported before ``kind`` was persisted.
