@@ -16,12 +16,16 @@ export type GlobalChatPatch = Partial<
   Pick<GlobalChat, "title" | "preview" | "date" | "history">
 >;
 
+export type PostPatch = Omit<Partial<Post>, "textHtml"> & {
+  textHtml?: string | null;
+};
+
 export interface PostsRepository {
   list(): Promise<Post[]>;
   /** Read one post from DB (no Telegram sync). */
   get(id: string): Promise<Post>;
   create(post: Post): Promise<Post>;
-  update(id: string, patch: Partial<Post>): Promise<Post>;
+  update(id: string, patch: PostPatch): Promise<Post>;
   reorder(posts: Post[]): Promise<Post[]>;
   remove(id: string, options?: { permanent?: boolean }): Promise<void>;
   /** Publish a draft to the connected Telegram channel now (Phase 3 / Step 4a). */

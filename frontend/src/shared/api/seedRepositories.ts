@@ -11,6 +11,7 @@ import { appendToActiveHistory } from "@/shared/lib/chatPaths";
 import { formatConnectedChannelDisplay } from "@/shared/lib/channel/normalizeChannelHandle";
 import { getGlobalReply, getPostReply } from "@/shared/api/assistantReplies";
 import { simulateStreamedText } from "@/shared/api/sse";
+import { applyPostPatch } from "@/shared/lib/posts/applyPostPatch";
 import type {
   AiProfileConfig,
   ChannelProfileConfig,
@@ -52,7 +53,7 @@ export function createSeedRepositories(): RepositoryBundle {
       async update(id, patch) {
         const idx = posts.findIndex((p) => p.id === id);
         if (idx < 0) throw new Error(`Post ${id} not found`);
-        posts[idx] = { ...posts[idx], ...patch };
+        posts[idx] = applyPostPatch(posts[idx], patch);
         return posts[idx];
       },
       async reorder(nextPosts) {

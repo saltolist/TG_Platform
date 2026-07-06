@@ -8,6 +8,7 @@ import { shouldPersistLocally } from "@/shared/lib/overlay/isOverlayAccount";
 import { mergeEntityList } from "@/shared/lib/overlay/mergeEntities";
 import { mutateOverlay, readOverlay } from "@/shared/lib/overlay/overlayStorage";
 import { scheduleOverlayNotesSync } from "@/shared/lib/overlay/syncOverlayNotes";
+import { applyPostPatch } from "@/shared/lib/posts/applyPostPatch";
 import type {
   ChatsRepository,
   GlobalChatPatch,
@@ -53,7 +54,7 @@ function overlayPosts(inner: PostsRepository): PostsRepository {
       const list = await overlayPosts(inner).list();
       const current = list.find((post) => post.id === id);
       if (!current) throw new Error(`Post ${id} not found`);
-      let updated = { ...current, ...patch };
+      let updated = applyPostPatch(current, patch);
       if (current.status === "deleted" && patch.status === "draft") {
         const {
           deletedAt: _deletedAt,

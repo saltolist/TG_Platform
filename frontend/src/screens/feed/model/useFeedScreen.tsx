@@ -20,7 +20,9 @@ import {
 } from "@/shared/lib/feed/feedScrollSession";
 import { isFeedPath } from "@/shared/lib/feed/isFeedPath";
 import { buildPublishedFeedDayGroups } from "@/shared/lib/feedTimeline";
-import { autoResize, readFileAsMedia } from "@/shared/lib/helpers";
+import { readFileAsMedia } from "@/shared/lib/helpers";
+import type { PostTextContent } from "@/shared/lib/telegram/richTextEditorDom";
+import { serializeRichTextEditor } from "@/shared/lib/telegram/richTextEditorDom";
 import { isListQueryBootstrapping } from "@/shared/lib/query/isQueryBootstrapping";
 import { routes } from "@/shared/lib/routes";
 import type { PostMedia } from "@/shared/types";
@@ -39,16 +41,12 @@ export function useFeedScreen() {
   const setPostMode = usePostNavigationStore((s) => s.setMode);
   const { layoutClassName, layoutStyle } = useFeedPostLayout();
 
-  const [draft, setDraft] = useState("");
+  const [draft, setDraft] = useState<PostTextContent>({ text: "" });
   const [pendingMedia, setPendingMedia] = useState<PostMedia[]>([]);
   const [composerReady, setComposerReady] = useState(false);
 
-  const taRef = useRef<HTMLTextAreaElement>(null);
+  const editorRef = useRef<HTMLDivElement>(null);
   const feedScrollRef = useRef<HTMLDivElement>(null);
-
-  useEffect(() => {
-    if (taRef.current) autoResize(taRef.current, 16);
-  }, [draft]);
 
   const { published, scheduled, deleted, drafts } = useMemo(
     () => buildFeedPostSections(posts, search, { showDeleted: feedShowDeleted }),
@@ -122,10 +120,17 @@ export function useFeedScreen() {
   }, [onFeed, search, showPostsLoading]);
 
   const submitDraft = useCallback(() => {
-    if (!canSubmitFeedDraft(draft, pendingMedia.length)) return;
-    const newPost = createDraftPost({ text: draft, pendingMedia });
+    const content: PostTextContent = editorRef.current
+      ? serializeRichTextEditor(editorRef.current)
+      : draft;
+    if (!canSubmitFeedDraft(content.text, pendingMedia.length)) return;
+    const newPost = createDraftPost({
+      text: content.text,
+      textHtml: content.textHtml,
+      pendingMedia,
+    });
     createPost.mutate(newPost);
-    setDraft("");
+    setDraft({ text: "" });
     setPendingMedia([]);
   }, [createPost, draft, pendingMedia]);
 
@@ -134,17 +139,17 @@ export function useFeedScreen() {
   }, []);
 
   const handleDraftKeyDown = useCallback(
-    (e: React.KeyboardEvent<HTMLTextAreaElement>) => {
+    (e: React.KeyboardEvent<HTMLDivElement>) => {
       if (e.key === "Enter" && !e.shiftKey) {
         e.preventDefault();
         submitDraft();
       }
-      if (e.key === "Backspace" && draft === "" && pendingMedia.length > 0) {
+      if (e.key === "Backspace" && !draft.text && pendingMedia.length > 0) {
         e.preventDefault();
         setPendingMedia((arr) => arr.slice(0, -1));
       }
     },
-    [draft, pendingMedia.length, submitDraft],
+    [draft.text, pendingMedia.length, submitDraft],
   );
 
   const handleAttach = useCallback(async (att: { kind: string; file?: File }) => {
@@ -193,7 +198,7 @@ export function useFeedScreen() {
       layoutClassName,
       layoutStyle,
       composerReady,
-      taRef,
+      editorRef,
       draft,
       setDraft,
       pendingMedia,

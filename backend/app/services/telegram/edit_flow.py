@@ -51,6 +51,7 @@ async def sync_edit_to_telegram(
     new_text: str,
     user_id: UUID,
     settings: Settings | None = None,
+    formatting_entities: list[Any] | None = None,
 ) -> EditSyncResult:
     """Edit *telegram_message_id* in the connected channel."""
     settings = settings or get_settings()
@@ -91,7 +92,12 @@ async def sync_edit_to_telegram(
                 await _mark_deleted_in_platform(user_id, telegram_message_id)
                 return EditSyncResult(deleted_in_telegram=True)
 
-            await with_timeout(client.edit_message(entity, msg_id, new_text), settings)
+            edit_kwargs: dict[str, Any] = {}
+            if formatting_entities:
+                edit_kwargs["formatting_entities"] = formatting_entities
+            await with_timeout(
+                client.edit_message(entity, msg_id, new_text, **edit_kwargs), settings
+            )
             await maybe_reconcile_after_rpc(
                 client,
                 entity,

@@ -1,15 +1,18 @@
 "use client";
 
-import { useEffect, useLayoutEffect, useRef, useState, type RefObject } from "react";
+import { useEffect, useRef, useState, type RefObject } from "react";
 
 import { PostMediaBlock } from "@/entities/post";
 import { PostTelegramSyncLabel } from "@/entities/post/ui/PostTelegramSyncLabel";
 import { readFileAsMedia } from "@/shared/lib/helpers";
 import { ensureVisibleInScrollParent } from "@/shared/lib/scrollIntoParent";
+import type { PostTextContent } from "@/shared/lib/telegram/richTextEditorDom";
+import { serializeRichTextEditor } from "@/shared/lib/telegram/richTextEditorDom";
 import { NoteIconAttach } from "@/shared/ui/icons/note-header-icons";
 import { PostReactionPills, PostViewsReposts } from "@/widgets/feed";
 import type { PostComment, PostMedia, PostMetrics } from "@/shared/types";
 import { TelegramFormattedText } from "@/shared/ui/TelegramFormattedText";
+import { RichTextEditor } from "@/shared/ui/RichTextEditor";
 
 import PostCardToolbar from "./PostCardToolbar";
 import PostCommentsRow from "./PostCommentsRow";
@@ -24,7 +27,7 @@ type Props = {
   isTextOnlyNoMedia?: boolean;
   onStartEdit: () => void;
   onCancel: () => void;
-  onSave: (text: string, media: PostMedia[]) => void;
+  onSave: (content: PostTextContent, media: PostMedia[]) => void;
   badge: React.ReactNode;
   metrics: PostMetrics | null;
   comments?: PostComment[];
@@ -55,9 +58,9 @@ export default function PostMessageCard({
   contentEditable = true,
 }: Props) {
   const showComments = !!metrics && commentsEnabled;
-  const [draft, setDraft] = useState(text);
+  const [draft, setDraft] = useState<PostTextContent>({ text, textHtml });
   const [mediaDraft, setMediaDraft] = useState<PostMedia[]>(media);
-  const taRef = useRef<HTMLTextAreaElement>(null);
+  const editorRef = useRef<HTMLDivElement>(null);
   const fileRef = useRef<HTMLInputElement>(null);
   const wasEditingRef = useRef(false);
 
@@ -66,23 +69,28 @@ export default function PostMessageCard({
     wasEditingRef.current = isEditing;
 
     if (enteredEdit) {
-      setDraft(text);
+      setDraft({ text, textHtml });
       setMediaDraft(media);
       return;
     }
     if (!isEditing && !isSaving) {
-      setDraft(text);
+      setDraft({ text, textHtml });
       setMediaDraft(media);
     }
-  }, [text, media, isEditing, isSaving]);
+  }, [text, textHtml, media, isEditing, isSaving]);
 
   useEffect(() => {
     if (!isEditing || isSaving) return;
     const id = window.setTimeout(() => {
-      const ta = taRef.current;
-      if (ta) {
-        ta.focus({ preventScroll: true });
-        ta.setSelectionRange(ta.value.length, ta.value.length);
+      const editor = editorRef.current;
+      if (editor) {
+        editor.focus({ preventScroll: true });
+        const selection = window.getSelection();
+        const range = document.createRange();
+        range.selectNodeContents(editor);
+        range.collapse(false);
+        selection?.removeAllRanges();
+        selection?.addRange(range);
       }
       const block = cardRef.current?.closest<HTMLElement>(".post-msg-block");
       const scrollParent = document.getElementById("post-chat-scroll");
@@ -92,14 +100,6 @@ export default function PostMessageCard({
     }, 30);
     return () => window.clearTimeout(id);
   }, [isEditing, isSaving, cardRef]);
-
-  useLayoutEffect(() => {
-    if (!isEditing) return;
-    const ta = taRef.current;
-    if (!ta) return;
-    ta.style.height = "auto";
-    ta.style.height = ta.scrollHeight + "px";
-  }, [isEditing, draft]);
 
   async function onPickFile(e: React.ChangeEvent<HTMLInputElement>) {
     if (isSaving) return;
@@ -118,6 +118,13 @@ export default function PostMessageCard({
   const copyText = text.trim() || "";
   const editorLocked = isSaving;
   const canEditContent = contentEditable && !editorLocked;
+
+  function handleSave() {
+    const content: PostTextContent = editorRef.current
+      ? serializeRichTextEditor(editorRef.current)
+      : draft;
+    onSave(content, mediaDraft);
+  }
 
   return (
     <div
@@ -155,25 +162,21 @@ export default function PostMessageCard({
             </div>
           ) : null}
           {isEditing ? (
-            <textarea
-              ref={taRef}
+            <RichTextEditor
+              editorRef={editorRef}
+              value={draft}
+              onChange={setDraft}
+              placeholder="Пост пустой — начни писать..."
               className={[
                 "post-card-text",
                 "post-msg-textarea",
-                !draft.trim() && mediaDraft.length === 0 ? "empty" : "",
+                !draft.text.trim() && mediaDraft.length === 0 ? "empty" : "",
                 editorLocked ? "post-msg-textarea--locked" : "",
               ]
                 .filter(Boolean)
                 .join(" ")}
-              value={draft}
-              onChange={(e) => setDraft(e.target.value)}
-              placeholder="Пост пустой — начни писать..."
-              rows={1}
-              spellCheck={false}
-              aria-label="Текст поста"
+              ariaLabel="Текст поста"
               disabled={editorLocked}
-              readOnly={editorLocked}
-              aria-busy={editorLocked}
             />
           ) : text || textHtml ? (
             <TelegramFormattedText text={text} textHtml={textHtml} className="post-card-text" />
@@ -228,7 +231,7 @@ export default function PostMessageCard({
                 </button>
                 <button
                   className="btn btn-primary post-edit-btn"
-                  onClick={() => onSave(draft, mediaDraft)}
+                  onClick={handleSave}
                   type="button"
                 >
                   Сохранить

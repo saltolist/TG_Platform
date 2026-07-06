@@ -36,7 +36,7 @@ export function FeedScreen() {
     layoutStyle,
     feedScrollRef,
     composerReady,
-    taRef,
+    editorRef,
     draft,
     setDraft,
     pendingMedia,
@@ -125,7 +125,7 @@ export function FeedScreen() {
         </div>
         {isChannelConnected ? (
           <FeedComposer
-            ui={{ composerReady, taRef, draft, setDraft, pendingMedia }}
+            ui={{ composerReady, editorRef, draft, setDraft, pendingMedia }}
             actions={{ submitDraft, removePendingMedia, handleDraftKeyDown, handleAttach }}
           />
         ) : null}

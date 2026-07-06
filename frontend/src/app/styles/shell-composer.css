@@ -1220,3 +1220,104 @@
   justify-content: center;
 }
 
+/* ── Rich text post editor ── */
+.rich-text-editor {
+  display: flex;
+  flex-direction: column;
+  width: 100%;
+}
+
+.rich-text-format-bubble {
+  z-index: 1200;
+  display: flex;
+  align-items: stretch;
+  gap: 0;
+  padding: 4px;
+  border-radius: 12px;
+  background: var(--bg2);
+  box-shadow: var(--shadow-strong), inset 0 0 0 1px var(--border);
+}
+
+.rich-text-format-bubble-page {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 2px;
+  min-width: 240px;
+}
+
+.rich-text-format-bubble-nav {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 28px;
+  min-width: 28px;
+  border: none;
+  border-radius: 8px;
+  background: transparent;
+  color: var(--text2);
+  cursor: pointer;
+  font-size: 18px;
+  line-height: 1;
+  padding: 0;
+}
+
+.rich-text-format-bubble-nav:hover {
+  background: var(--bg3);
+  color: var(--text);
+}
+
+.rich-text-format-bubble-btn {
+  border: none;
+  border-radius: 8px;
+  background: transparent;
+  color: var(--text);
+  cursor: pointer;
+  font-family: var(--font);
+  font-size: 13px;
+  line-height: 1.2;
+  min-width: 0;
+  padding: 6px 8px;
+  text-align: center;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.rich-text-format-bubble-btn:hover {
+  background: var(--bg3);
+}
+
+.rich-text-input {
+  flex: 0 0 auto;
+  width: 100%;
+  min-height: 22px;
+  outline: none;
+  border: none;
+  background: transparent;
+  color: var(--text);
+  font-family: var(--font);
+  font-size: 14px;
+  line-height: 1.5;
+  word-break: break-word;
+  white-space: pre-wrap;
+}
+
+.rich-text-input--empty:empty::before {
+  content: attr(data-placeholder);
+  color: var(--text3);
+  pointer-events: none;
+}
+
+.feed-rich-text-input {
+  min-height: 22px;
+}
+
+.post-msg-textarea.rich-text-input.empty {
+  color: var(--text);
+  font-style: normal;
+}
+
+.post-msg-textarea.rich-text-input--empty:empty::before {
+  color: var(--text3);
+  font-style: italic;
+}

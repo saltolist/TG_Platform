@@ -64,10 +64,12 @@ class EditFakeTelegramClient:
     async def get_entity(self, handle: str) -> SimpleNamespace:
         return SimpleNamespace(id=555, title="Edit Channel", broadcast=True)
 
-    async def edit_message(self, entity: Any, message_id: int, text: str) -> Any:
+    async def edit_message(self, entity: Any, message_id: int, text: str, **kwargs: Any) -> Any:
         if SCENARIO.fail_with is not None:
             raise SCENARIO.fail_with
-        SCENARIO.edits.append({"entity": entity, "message_id": message_id, "text": text})
+        SCENARIO.edits.append(
+            {"entity": entity, "message_id": message_id, "text": text, **kwargs}
+        )
         return SimpleNamespace(id=message_id)
 
     async def get_messages(self, entity: Any, ids: Any = None, **kwargs: Any) -> list[Any]:
@@ -167,6 +169,56 @@ async def test_patch_text_change_syncs_edit_to_telegram(
     assert len(SCENARIO.edits) == 1
     assert SCENARIO.edits[0]["message_id"] == int(TELEGRAM_MESSAGE_ID)
     assert SCENARIO.edits[0]["text"] == "Edited from platform"
+
+
+@pytest.mark.asyncio
+async def test_patch_rich_text_change_syncs_formatting_entities_to_telegram(
+    client: AsyncClient, writer_auth_headers: dict
+) -> None:
+    await _seed_connected_profile(client, writer_auth_headers)
+    post = await _create_published_post(client, writer_auth_headers)
+
+    resp = await client.patch(
+        f"/api/v1/posts/{post['id']}/",
+        headers=writer_auth_headers,
+        json={
+            "text": "bold text",
+            "textHtml": "<strong>bold</strong> text",
+        },
+    )
+    assert resp.status_code == 200
+    body = resp.json()
+    assert body["text"] == "bold text"
+    assert body.get("textHtml")
+    assert len(SCENARIO.edits) == 1
+    assert SCENARIO.edits[0]["text"] == "bold text"
+    assert SCENARIO.edits[0].get("formatting_entities")
+
+
+@pytest.mark.asyncio
+async def test_patch_formatting_only_change_syncs_to_telegram(
+    client: AsyncClient, writer_auth_headers: dict
+) -> None:
+    await _seed_connected_profile(client, writer_auth_headers)
+    post = await _create_published_post(
+        client, writer_auth_headers, text="bold text"
+    )
+
+    resp = await client.patch(
+        f"/api/v1/posts/{post['id']}/",
+        headers=writer_auth_headers,
+        json={
+            "text": "bold text",
+            "textHtml": "<strong>bold</strong> text",
+        },
+    )
+    assert resp.status_code == 200
+    body = resp.json()
+    assert body["text"] == "bold text"
+    assert body.get("textHtml")
+    assert len(SCENARIO.edits) == 1
+    assert SCENARIO.edits[0]["text"] == "bold text"
+    assert SCENARIO.edits[0].get("formatting_entities")
 
 
 @pytest.mark.asyncio

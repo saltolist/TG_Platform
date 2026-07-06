@@ -57,6 +57,7 @@ export function buildFeedPostSections(
 
 export type CreateDraftPostInput = {
   text: string;
+  textHtml?: string;
   pendingMedia?: PostMedia[];
   id?: string;
   created?: string;
@@ -64,11 +65,13 @@ export type CreateDraftPostInput = {
 
 export function createDraftPost({
   text,
+  textHtml,
   pendingMedia = [],
   id = randomId(),
   created = new Date().toISOString(),
 }: CreateDraftPostInput): Post {
   const trimmed = text.trim();
+  const html = textHtml?.trim();
   return {
     id,
     status: "draft",
@@ -77,6 +80,7 @@ export function createDraftPost({
     text: trimmed,
     notes: [],
     chats: [],
+    ...(html ? { textHtml: html } : {}),
     ...(pendingMedia.length > 0 ? { media: [...pendingMedia] } : {}),
   };
 }

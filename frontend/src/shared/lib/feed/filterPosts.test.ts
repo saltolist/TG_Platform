@@ -51,6 +51,14 @@ describe("createDraftPost", () => {
     expect(post.text).toBe("hello");
     expect(post.id).toBe("42");
   });
+
+  it("keeps textHtml when provided", () => {
+    const post = createDraftPost({
+      text: "hello",
+      textHtml: "<strong>hello</strong>",
+    });
+    expect(post.textHtml).toBe("<strong>hello</strong>");
+  });
 });
 
 describe("canSubmitFeedDraft", () => {

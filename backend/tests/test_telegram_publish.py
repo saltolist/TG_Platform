@@ -75,16 +75,18 @@ class PublishFakeTelegramClient:
     async def get_entity(self, handle: str) -> SimpleNamespace:
         return SimpleNamespace(id=555, title="Publish Channel", broadcast=True)
 
-    async def send_message(self, entity: Any, text: str) -> FakeMessage:
+    async def send_message(self, entity: Any, text: str, **kwargs: Any) -> FakeMessage:
         SCENARIO.next_message_id += 1
-        SCENARIO.sent.append({"kind": "message", "entity": entity, "text": text})
+        SCENARIO.sent.append({"kind": "message", "entity": entity, "text": text, **kwargs})
         message = FakeMessage(SCENARIO.next_message_id, text=text)
         SCENARIO.messages[message.id] = message
         return message
 
-    async def send_file(self, entity: Any, file: Any, caption: str = "") -> Any:
+    async def send_file(self, entity: Any, file: Any, caption: str = "", **kwargs: Any) -> Any:
         SCENARIO.next_message_id += 1
-        SCENARIO.sent.append({"kind": "file", "entity": entity, "file": file, "caption": caption})
+        SCENARIO.sent.append(
+            {"kind": "file", "entity": entity, "file": file, "caption": caption, **kwargs}
+        )
         message = FakeMessage(SCENARIO.next_message_id, text=caption)
         SCENARIO.messages[message.id] = message
         if isinstance(file, list):
@@ -225,6 +227,25 @@ async def test_publish_sends_text_message_and_marks_published(
     assert SCENARIO.sent[0]["kind"] == "message"
     assert SCENARIO.sent[0]["text"] == "Hello Telegram"
     assert "created" not in body
+
+
+@pytest.mark.asyncio
+async def test_publish_sends_formatting_entities_for_rich_text(
+    client: AsyncClient, writer_auth_headers: dict
+) -> None:
+    await _seed_connected_profile(client, writer_auth_headers)
+    post = await _create_draft(
+        client,
+        writer_auth_headers,
+        text="bold text",
+        textHtml="<strong>bold</strong> text",
+    )
+
+    resp = await client.post(f"/api/v1/posts/{post['id']}/publish/", headers=writer_auth_headers)
+    assert resp.status_code == 200
+    assert len(SCENARIO.sent) == 1
+    assert SCENARIO.sent[0]["text"] == "bold text"
+    assert SCENARIO.sent[0].get("formatting_entities")
 
 
 @pytest.mark.asyncio

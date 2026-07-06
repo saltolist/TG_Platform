@@ -33,6 +33,10 @@ from app.services.telegram.post_sync import mark_post_deleted, restore_deleted_p
 from app.services.telegram.publish_flow import parse_scheduled_at
 from app.services.telegram.publish_flow import publish_post as run_telegram_publish
 from app.services.posts_payload import normalize_post_for_api
+from app.services.telegram.text_formatting import (
+    apply_platform_text_fields,
+    post_formatting_entities_from_payload,
+)
 from app.services.telegram.sync_pending import (
     enrich_posts_for_user as enrich_post_sync_pending,
     telegram_sync_pending,
@@ -40,6 +44,10 @@ from app.services.telegram.sync_pending import (
 from app.tasks.publish import publish_scheduled_post
 
 router = APIRouter(prefix="/posts", tags=["Posts"])
+
+
+def _normalized_text_html(value: Any) -> str:
+    return str(value).strip() if isinstance(value, str) else ""
 
 
 async def enrich_posts_for_user(
@@ -86,6 +94,7 @@ async def create_post(payload: PostIn, user: CurrentWriter, session: DbSession) 
         raise HTTPException(status_code=400, detail="Невалидный id поста")
 
     data = payload.model_dump()
+    apply_platform_text_fields(data)
     count = await session.scalar(
         select(func.count()).select_from(Post).where(Post.user_id == user.id)
     )
@@ -120,6 +129,7 @@ async def update_post(
 ) -> dict[str, Any]:
     post = await get_owned_post(session, user.id, post_id)
     previous_text = post.data.get("text")
+    previous_text_html = post.data.get("textHtml")
     previous_status = post.data.get("status")
     previous_telegram_message_id = post.data.get("telegramMessageId")
     previous_task_id = post.data.get("_celeryTaskId")
@@ -166,13 +176,15 @@ async def update_post(
         merged = restore_deleted_post_to_draft(merged)
 
     telegram_message_id_for_edit = previous_telegram_message_id or merged.get("telegramMessageId")
-    if (
-        telegram_message_id_for_edit
-        and isinstance(patch.get("text"), str)
-        and merged.get("text") != previous_text
-    ):
+    text_changed = isinstance(patch.get("text"), str) and merged.get("text") != previous_text
+    formatting_changed = "textHtml" in patch and _normalized_text_html(
+        merged.get("textHtml")
+    ) != _normalized_text_html(previous_text_html)
+    if isinstance(patch.get("text"), str) or "textHtml" in patch:
+        apply_platform_text_fields(merged)
+
+    if telegram_message_id_for_edit and (text_changed or formatting_changed):
         merged["_platformTextEditAt"] = datetime.now(timezone.utc).isoformat()
-        merged.pop("textHtml", None)
 
     # Step 4b: cancelling a scheduled post (status leaves "scheduled") revokes its Celery task.
     if (
@@ -247,15 +259,14 @@ async def update_post(
     # Step 4c: propagate a text edit of an already-published/imported post to Telegram.
     # Best-effort — the DB write above already succeeded regardless of this outcome.
     telegram_message_id = previous_telegram_message_id or merged.get("telegramMessageId")
-    if (
-        telegram_message_id
-        and profile is not None
-        and isinstance(patch.get("text"), str)
-        and merged.get("text") != previous_text
-    ):
+    if telegram_message_id and profile is not None and (text_changed or formatting_changed):
         async with telegram_sync_pending(user.id, post_id):
             sync_result = await sync_edit_to_telegram(
-                profile, str(telegram_message_id), str(merged.get("text") or ""), user.id
+                profile,
+                str(telegram_message_id),
+                str(merged.get("text") or ""),
+                user.id,
+                formatting_entities=post_formatting_entities_from_payload(merged),
             )
         if sync_result.deleted_in_telegram:
             post = await get_owned_post(session, user.id, post_id)

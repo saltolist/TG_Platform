@@ -8,6 +8,7 @@ import { useQueryAccountScope } from "@/app/providers/useQueryAccountScope";
 import { showToast } from "@/shared/ui/toast";
 import type { Post } from "@/shared/types";
 
+import type { PostPatch } from "@/shared/api/repositories";
 import { mergePostCommentsFromServer } from "../lib/mergePostComments";
 
 export function applyPostUpdate(
@@ -100,7 +101,7 @@ export function useUpdatePost() {
   const accountId = useQueryAccountScope();
 
   return useMutation({
-    mutationFn: ({ id, patch }: { id: string; patch: Partial<Post> }) => posts.update(id, patch),
+    mutationFn: ({ id, patch }: { id: string; patch: PostPatch }) => posts.update(id, patch),
     onSuccess: (updatedPost) => {
       applyPostUpdate(queryClient, accountId, updatedPost);
       if (updatedPost.telegramSyncError) {

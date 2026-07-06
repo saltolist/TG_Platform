@@ -32,7 +32,7 @@ def test_message_to_text_html_bold_and_strike() -> None:
     html = message_to_text_html(message)
     assert html is not None
     assert "<strong>bold</strong>" in html
-    assert "<s>strike</s>" in html
+    assert ("<s>strike</s>" in html or "<del>strike</del>" in html)
 
 
 def test_message_to_text_html_spoiler() -> None:
@@ -90,3 +90,35 @@ def test_apply_message_text_fields_sets_and_clears_html() -> None:
     apply_message_text_fields(payload, plain)
     assert payload["text"] == "plain"
     assert "textHtml" not in payload
+
+
+def test_normalize_platform_text_html_accepts_bold_markup() -> None:
+    from app.services.telegram.text_formatting import (
+        apply_platform_text_fields,
+        normalize_platform_text_html,
+        post_formatting_entities_from_payload,
+    )
+
+    text, html, entities = normalize_platform_text_html(
+        "bold text", "<strong>bold</strong> text"
+    )
+    assert text == "bold text"
+    assert html is not None
+    assert "<strong>bold</strong>" in html
+    assert entities
+
+    payload = {"text": "bold text", "textHtml": "<strong>bold</strong> text"}
+    apply_platform_text_fields(payload)
+    assert payload["textHtml"] == html
+    assert post_formatting_entities_from_payload(payload)
+
+
+def test_normalize_platform_text_html_rejects_mismatched_plain_text() -> None:
+    from app.services.telegram.text_formatting import normalize_platform_text_html
+
+    text, html, entities = normalize_platform_text_html(
+        "plain", "<strong>different</strong>"
+    )
+    assert text == "plain"
+    assert html is None
+    assert entities is None

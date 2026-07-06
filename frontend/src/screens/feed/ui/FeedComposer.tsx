@@ -4,11 +4,12 @@ import { AttachMenu } from "@/widgets/composer";
 import { PostMediaBlock } from "@/entities/post";
 import { onComposerShellMouseDown } from "@/shared/lib/composerPointerDown";
 import type { FeedScreenState } from "@/screens/feed/model/useFeedScreen";
+import { RichTextEditor } from "@/shared/ui/RichTextEditor";
 
 type Props = {
   ui: Pick<
     FeedScreenState["ui"],
-    "composerReady" | "taRef" | "draft" | "setDraft" | "pendingMedia"
+    "composerReady" | "editorRef" | "draft" | "setDraft" | "pendingMedia"
   >;
   actions: Pick<
     FeedScreenState["actions"],
@@ -17,7 +18,7 @@ type Props = {
 };
 
 export function FeedComposer({ ui, actions }: Props) {
-  const { composerReady, taRef, draft, setDraft, pendingMedia } = ui;
+  const { composerReady, editorRef, draft, setDraft, pendingMedia } = ui;
   const { submitDraft, removePendingMedia, handleDraftKeyDown, handleAttach } = actions;
 
   return (
@@ -30,16 +31,15 @@ export function FeedComposer({ ui, actions }: Props) {
         {pendingMedia.length > 0 ? (
           <PostMediaBlock media={pendingMedia} onRemove={removePendingMedia} />
         ) : null}
-        <textarea
-          ref={taRef}
+        <RichTextEditor
           id="feed-input"
-          placeholder="Написать пост..."
-          rows={1}
-          autoComplete="off"
-          suppressHydrationWarning
+          editorRef={editorRef}
           value={draft}
-          onChange={(e) => setDraft(e.target.value)}
+          onChange={setDraft}
           onKeyDown={handleDraftKeyDown}
+          placeholder="Написать пост..."
+          className="feed-rich-text-input"
+          ariaLabel="Текст поста"
         />
         <div className="input-bottom">
           <div className="input-tools">

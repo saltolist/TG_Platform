@@ -35,6 +35,7 @@ from app.services.telegram.net import (
     with_timeout,
 )
 from app.services.telegram.message_mapping import map_group_to_post, telethon_message_fetchable
+from app.services.telegram.text_formatting import post_formatting_entities_from_payload
 from app.services.telegram.post_sync import finalize_published_from_telegram, mark_post_published
 from app.services.telegram.reconcile_flow import maybe_reconcile_after_rpc
 from app.services.telegram.writer_session import open_outbound_telegram_client
@@ -58,12 +59,17 @@ def _local_media_path(url: Any, user_id: UUID, settings: Settings) -> str | None
     return str(path) if path.is_file() else None
 
 
-async def _send(client: Any, entity: Any, text: str, file_paths: list[str]) -> Any:
+async def _send(
+    client: Any, entity: Any, text: str, file_paths: list[str], entities: list[Any] | None = None
+) -> Any:
+    kwargs: dict[str, Any] = {}
+    if entities:
+        kwargs["formatting_entities"] = entities
     if not file_paths:
-        return await client.send_message(entity, text)
+        return await client.send_message(entity, text, **kwargs)
     if len(file_paths) == 1:
-        return await client.send_file(entity, file_paths[0], caption=text)
-    return await client.send_file(entity, file_paths, caption=text)
+        return await client.send_file(entity, file_paths[0], caption=text, **kwargs)
+    return await client.send_file(entity, file_paths, caption=text, **kwargs)
 
 
 def _extract_message_id(sent: Any) -> str:
@@ -165,6 +171,7 @@ async def publish_post(
             raise TelegramAuthError("Не удалось подготовить публикацию", 400)
 
         text = str(data.get("text") or "")
+        formatting_entities = post_formatting_entities_from_payload(data)
         media_items = data.get("media") or []
         file_paths = [
             path
@@ -188,7 +195,9 @@ async def publish_post(
             telegram,
         ):
             entity = await resolve_channel_entity_for_profile(client, telegram, settings)
-            sent = await with_timeout(_send(client, entity, text, file_paths), settings)
+            sent = await with_timeout(
+                _send(client, entity, text, file_paths, formatting_entities), settings
+            )
             telegram_message_id = _extract_message_id(sent)
             if not telegram_message_id:
                 raise TelegramAuthError(
