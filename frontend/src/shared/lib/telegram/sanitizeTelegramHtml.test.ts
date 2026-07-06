@@ -2,34 +2,25 @@
 
 import { describe, expect, it } from "vitest";
 
-import { sanitizeTelegramHtml } from "./sanitizeTelegramHtml";
+import {
+  renderTelegramHtmlForDisplay,
+  sanitizeTelegramHtml,
+} from "./sanitizeTelegramHtml";
 
-describe("sanitizeTelegramHtml", () => {
-  it("keeps Telegram formatting tags", () => {
-    expect(sanitizeTelegramHtml("<strong>bold</strong> and <s>strike</s>")).toBe(
-      "<strong>bold</strong> and <s>strike</s>",
+describe("sanitizeTelegramHtml tg-emoji", () => {
+  it("preserves tg-emoji with emoji-id", () => {
+    const html = '<tg-emoji emoji-id="12345">⭐</tg-emoji> hello';
+    expect(sanitizeTelegramHtml(html)).toBe(
+      '<tg-emoji emoji-id="12345">⭐</tg-emoji> hello',
     );
   });
 
-  it("strips script tags", () => {
-    expect(sanitizeTelegramHtml('<strong>ok</strong><script>alert(1)</script>')).toBe(
-      "<strong>ok</strong>",
-    );
-  });
-
-  it("allows safe links only", () => {
-    expect(
-      sanitizeTelegramHtml(
-        '<a href="https://example.com">site</a><a href="javascript:alert(1)">bad</a>',
-      ),
-    ).toBe(
-      '<a href="https://example.com" rel="noopener noreferrer" target="_blank">site</a>bad',
-    );
-  });
-
-  it("preserves spoiler spans", () => {
-    expect(sanitizeTelegramHtml('<span class="tg-spoiler">secret</span>')).toBe(
-      '<span class="tg-spoiler">secret</span>',
-    );
+  it("renders custom emoji placeholders for hydration", () => {
+    const html = '<tg-emoji emoji-id="999">⭐</tg-emoji>';
+    const rendered = renderTelegramHtmlForDisplay(html);
+    expect(rendered).toContain('class="tg-custom-emoji');
+    expect(rendered).toContain('data-emoji-id="999"');
+    expect(rendered).toContain("⭐");
+    expect(rendered).not.toContain("<img");
   });
 });

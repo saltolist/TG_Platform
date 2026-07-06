@@ -4,6 +4,8 @@ import { AttachMenu } from "@/widgets/composer";
 import { PostMediaBlock } from "@/entities/post";
 import { onComposerShellMouseDown } from "@/shared/lib/composerPointerDown";
 import type { FeedScreenState } from "@/screens/feed/model/useFeedScreen";
+import { serializeRichTextEditor } from "@/shared/lib/telegram/richTextEditorDom";
+import { EmojiPickerButton } from "@/shared/ui/EmojiPickerMenu";
 import { RichTextEditor } from "@/shared/ui/RichTextEditor";
 
 type Props = {
@@ -45,9 +47,19 @@ export function FeedComposer({ ui, actions }: Props) {
           <div className="input-tools">
             <AttachMenu scope="feed" onAttach={handleAttach} />
           </div>
-          <button className="send-btn" onClick={submitDraft} type="button">
-            ↑
-          </button>
+          <div className="input-actions">
+            <EmojiPickerButton
+              editorRef={editorRef}
+              onInserted={() => {
+                const root = editorRef.current;
+                if (!root) return;
+                setDraft(serializeRichTextEditor(root));
+              }}
+            />
+            <button className="send-btn" onClick={submitDraft} type="button">
+              ↑
+            </button>
+          </div>
         </div>
       </div>
     </div>

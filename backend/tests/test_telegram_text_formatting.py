@@ -113,6 +113,30 @@ def test_normalize_platform_text_html_accepts_bold_markup() -> None:
     assert post_formatting_entities_from_payload(payload)
 
 
+def test_normalize_platform_text_html_accepts_custom_emoji() -> None:
+    from app.services.telegram.text_formatting import (
+        apply_platform_text_fields,
+        normalize_platform_text_html,
+        post_formatting_entities_from_payload,
+    )
+
+    text_html = '<tg-emoji emoji-id="12345">⭐</tg-emoji> nice'
+    text, html, entities = normalize_platform_text_html("⭐ nice", text_html)
+    assert text == "⭐ nice"
+    assert html is not None
+    assert "tg-emoji" in html
+    assert entities
+
+    payload = {"text": "⭐ nice", "textHtml": text_html}
+    apply_platform_text_fields(payload)
+    assert payload["textHtml"] == html
+    parsed_entities = post_formatting_entities_from_payload(payload)
+    assert parsed_entities
+    assert any(
+        getattr(entity, "document_id", None) == 12345 for entity in parsed_entities
+    )
+
+
 def test_normalize_platform_text_html_rejects_mismatched_plain_text() -> None:
     from app.services.telegram.text_formatting import normalize_platform_text_html
 

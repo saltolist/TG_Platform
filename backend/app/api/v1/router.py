@@ -13,6 +13,7 @@ from app.api.v1 import (
     profile,
     telegram_auth,
     telegram_channel,
+    telegram_emoji,
 )
 
 api_router = APIRouter()
@@ -24,6 +25,7 @@ api_router.include_router(overlay.router)
 api_router.include_router(profile.router)
 api_router.include_router(telegram_auth.router)
 api_router.include_router(telegram_channel.router)
+api_router.include_router(telegram_emoji.router)
 api_router.include_router(ai.router)
 api_router.include_router(analytics.router)
 api_router.include_router(csp_report.router)

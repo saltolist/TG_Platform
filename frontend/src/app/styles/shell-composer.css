@@ -1321,3 +1321,237 @@
   color: var(--text3);
   font-style: italic;
 }
+
+.input-actions {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  margin-left: auto;
+}
+
+.emoji-picker-wrap {
+  position: relative;
+  display: inline-flex;
+}
+
+.emoji-picker-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 30px;
+  height: 30px;
+  border: none;
+  border-radius: 999px;
+  background: transparent;
+  color: var(--text2);
+  font-size: 18px;
+  line-height: 1;
+  cursor: pointer;
+  transition: background 0.12s, color 0.12s;
+}
+
+.emoji-picker-btn:hover:not(:disabled) {
+  background: var(--bg3);
+  color: var(--text);
+}
+
+.emoji-picker-btn:disabled {
+  opacity: 0.45;
+  cursor: default;
+}
+
+.emoji-picker-menu {
+  z-index: 1200;
+  width: min(280px, calc(100vw - 16px));
+  padding: 8px;
+  border-radius: 12px;
+  border: 1px solid var(--border2);
+  background: var(--bg2);
+  box-shadow: 0 8px 28px rgba(0, 0, 0, 0.28);
+}
+
+.emoji-picker-status {
+  padding: 16px 8px;
+  text-align: center;
+  color: var(--text3);
+  font-size: 13px;
+}
+
+.emoji-picker-status--hint {
+  padding: 6px 8px 0;
+  text-align: center;
+  color: var(--text3);
+  font-size: 11px;
+}
+
+.emoji-picker-status--error {
+  padding: 6px 8px 0;
+  text-align: center;
+  color: #c0392b;
+  font-size: 11px;
+  line-height: 1.35;
+}
+
+.emoji-picker-header {
+  display: grid;
+  grid-template-columns: 28px minmax(0, 1fr) 28px;
+  align-items: center;
+  gap: 4px;
+  margin-bottom: 6px;
+}
+
+.emoji-picker-title {
+  min-width: 0;
+  text-align: center;
+  color: var(--text2);
+  font-size: 12px;
+  font-weight: 600;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.emoji-picker-nav {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 28px;
+  height: 28px;
+  border: none;
+  border-radius: 8px;
+  background: transparent;
+  color: var(--text2);
+  font-size: 18px;
+  line-height: 1;
+  cursor: pointer;
+}
+
+.emoji-picker-nav--placeholder {
+  pointer-events: none;
+  visibility: hidden;
+}
+
+.emoji-picker-nav:hover {
+  background: var(--bg3);
+  color: var(--text);
+}
+
+.emoji-picker-subnav {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  margin-bottom: 6px;
+}
+
+.emoji-picker-subnav-label {
+  color: var(--text3);
+  font-size: 11px;
+}
+
+.emoji-picker-subnav-btn {
+  border: none;
+  border-radius: 6px;
+  background: transparent;
+  color: var(--text2);
+  width: 22px;
+  height: 22px;
+  cursor: pointer;
+}
+
+.emoji-picker-subnav-btn:hover {
+  background: var(--bg3);
+  color: var(--text);
+}
+
+.emoji-picker-grid {
+  display: grid;
+  grid-template-columns: repeat(8, minmax(0, 1fr));
+  gap: 2px;
+}
+
+.emoji-picker-item {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 100%;
+  aspect-ratio: 1;
+  border: none;
+  border-radius: 8px;
+  background: transparent;
+  cursor: pointer;
+  padding: 0;
+}
+
+.emoji-picker-item:hover {
+  background: var(--bg3);
+}
+
+.emoji-picker-unicode {
+  font-size: 22px;
+  line-height: 1;
+}
+
+.tg-custom-emoji {
+  width: 24px;
+  height: 24px;
+  object-fit: contain;
+  vertical-align: -0.2em;
+  display: inline-block;
+}
+
+.tg-custom-emoji-host {
+  display: inline-block;
+  vertical-align: -0.2em;
+  line-height: 0;
+}
+
+.tg-custom-emoji--loading {
+  display: inline-block;
+  width: 24px;
+  height: 24px;
+  opacity: 0.55;
+}
+
+.tg-custom-emoji--failed {
+  opacity: 0.5;
+  font-size: 15px;
+  line-height: 1;
+  border: none;
+  background: transparent;
+  cursor: pointer;
+  padding: 0;
+  color: var(--text3);
+}
+
+.tg-custom-emoji--failed:hover {
+  opacity: 0.9;
+}
+
+.tg-custom-emoji-placeholder {
+  display: inline-block;
+  min-width: 1em;
+  text-align: center;
+  font-size: 20px;
+  line-height: 1;
+  vertical-align: -0.2em;
+}
+
+.tg-custom-emoji-fallback {
+  font-size: 20px;
+  line-height: 1;
+}
+
+.rich-text-input .tg-custom-emoji {
+  width: 20px;
+  height: 20px;
+}
+
+.emoji-picker-item .tg-custom-emoji,
+.emoji-picker-item .tg-custom-emoji-fallback {
+  width: 26px;
+  height: 26px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+}

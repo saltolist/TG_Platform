@@ -849,6 +849,42 @@ async def _persist_group(
                 )
 
 
+async def _maybe_bootstrap_writer_session(
+    user_id: UUID,
+    client: Any,
+    session_factory: async_sessionmaker[Any],
+    settings: Any,
+) -> None:
+    """Create writerSessionString from the live reader while it is connected."""
+    from app.db.models import Profile
+    from app.services.telegram.net import require_api_credentials
+    from app.services.telegram.writer_session import (
+        decrypt_writer_session,
+        export_writer_session,
+        persist_writer_session_string,
+    )
+
+    async with session_factory() as session:
+        profile = await session.get(Profile, user_id)
+        if profile is None:
+            return
+        telegram = profile.telegram or {}
+        if decrypt_writer_session(telegram, settings):
+            return
+        try:
+            api_id, api_hash = require_api_credentials(telegram, settings)
+            writer_session = await export_writer_session(client, api_id, api_hash, settings)
+        except Exception:
+            logger.warning(
+                "Writer session bootstrap on listener connect failed for user %s",
+                user_id,
+                exc_info=True,
+            )
+            return
+    await persist_writer_session_string(user_id, writer_session, settings)
+    logger.info("Writer session bootstrapped for user %s", user_id)
+
+
 async def _run_user_listener(user_id: UUID, stop_event: asyncio.Event) -> None:
     settings = get_settings()
     session_factory = _get_session_factory()
@@ -885,6 +921,9 @@ async def _run_user_listener(user_id: UUID, stop_event: asyncio.Event) -> None:
                 active_heartbeat_task: asyncio.Task[None] | None = None
                 try:
                     await connect_telegram_client(client, settings)
+                    await _maybe_bootstrap_writer_session(
+                        user_id, client, session_factory, settings
+                    )
                     from app.services.telegram.listener_control import (
                         clear_listener_active,
                         touch_listener_active,

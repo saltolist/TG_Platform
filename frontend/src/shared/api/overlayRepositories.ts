@@ -389,5 +389,6 @@ export function createOverlayRepositories(inner: RepositoryBundle): RepositoryBu
     profile: overlayProfile(inner.profile),
     assistant: inner.assistant,
     analytics: inner.analytics,
+    telegramEmoji: inner.telegramEmoji,
   };
 }

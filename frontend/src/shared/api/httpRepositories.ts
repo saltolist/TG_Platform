@@ -15,6 +15,7 @@ import {
   postSchema,
 } from "@/shared/api/schemas";
 import type { ChatContextMeta } from "@/shared/api/schemas/chatContextMeta";
+import type { EmojiCatalog } from "@/shared/lib/telegram/emojiCatalog";
 import type {
   AiProfileConfig,
   ChannelProfileConfig,
@@ -243,6 +244,9 @@ export function createHttpRepositories(): RepositoryBundle {
         apiRequest<unknown>(`${apiV1Path("analytics/top-posts")}?period=${period}`).then((data) =>
           channelAnalyticsTopPostsSchema.parse(data).posts,
         ),
+    },
+    telegramEmoji: {
+      catalog: () => apiRequest<EmojiCatalog>(apiV1Path("telegram/emoji/catalog/")),
     },
   };
 }

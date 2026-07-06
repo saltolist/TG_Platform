@@ -315,5 +315,21 @@ export function createSeedRepositories(): RepositoryBundle {
         return buildChannelTopPostsFromPosts(posts, period);
       },
     },
+    telegramEmoji: {
+      async catalog() {
+        return {
+          collections: [
+            {
+              id: "default-smileys",
+              title: "Смайлы",
+              kind: "unicode" as const,
+              items: ["😀", "😃", "😄", "😁", "😆", "😅", "🤣", "😂", "🙂", "😉", "😊", "😇"].map(
+                (char) => ({ type: "unicode" as const, char }),
+              ),
+            },
+          ],
+        };
+      },
+    },
   };
 }

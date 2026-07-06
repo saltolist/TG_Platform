@@ -18,6 +18,7 @@ import {
   type RichTextFormat,
 } from "@/shared/lib/telegram/richTextEditorDom";
 import { useRichTextFormatBubble } from "@/shared/lib/telegram/useRichTextFormatBubble";
+import { hydrateCustomEmojiInDom } from "@/shared/lib/telegram/hydrateCustomEmojiDom";
 import { RichTextFormatBubble } from "@/shared/ui/RichTextFormatBubble";
 
 type Props = {
@@ -61,6 +62,17 @@ export function RichTextEditor({
     onChange(next);
   }, [onChange, ref]);
 
+  const hydrateTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  const scheduleHydrate = useCallback(() => {
+    const root = ref.current;
+    if (!root) return;
+    if (hydrateTimerRef.current) clearTimeout(hydrateTimerRef.current);
+    hydrateTimerRef.current = setTimeout(() => {
+      hydrateCustomEmojiInDom(root);
+    }, 120);
+  }, [ref]);
+
   useEffect(() => {
     const root = ref.current;
     if (!root) return;
@@ -70,7 +82,15 @@ export function RichTextEditor({
     lastSerializedRef.current = serialized;
     autoResizeRichTextEditor(root, minHeight);
     closeBubble();
-  }, [closeBubble, minHeight, ref, value]);
+    scheduleHydrate();
+  }, [closeBubble, minHeight, ref, scheduleHydrate, value]);
+
+  useEffect(
+    () => () => {
+      if (hydrateTimerRef.current) clearTimeout(hydrateTimerRef.current);
+    },
+    [],
+  );
 
   useLayoutEffect(() => {
     const root = ref.current;
@@ -115,7 +135,10 @@ export function RichTextEditor({
         onInput={() => {
           syncFromDom();
           const root = ref.current;
-          if (root) autoResizeRichTextEditor(root, minHeight);
+          if (root) {
+            scheduleHydrate();
+            autoResizeRichTextEditor(root, minHeight);
+          }
         }}
         onMouseUp={refreshBubble}
         onKeyUp={refreshBubble}

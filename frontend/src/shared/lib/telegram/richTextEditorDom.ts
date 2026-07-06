@@ -41,6 +41,24 @@ function normalizeEditorElement(element: HTMLElement): void {
     return;
   }
 
+  if (tag === "tg-emoji") {
+    normalizeEditorTree(element);
+    return;
+  }
+
+  if (tag === "span" && element.classList.contains("tg-custom-emoji")) {
+    normalizeEditorTree(element);
+    return;
+  }
+
+  if (tag === "img") {
+    const emojiId = element.getAttribute("data-emoji-id");
+    if (emojiId) {
+      normalizeEditorTree(element);
+      return;
+    }
+  }
+
   if (tag === "font" || tag === "span") {
     const className = element.getAttribute("class") ?? "";
     const isSpoiler = className.split(/\s+/).includes("tg-spoiler");
@@ -72,11 +90,38 @@ export function normalizeEditorHtml(html: string): string {
   if (typeof DOMParser === "undefined") return html;
   const doc = new DOMParser().parseFromString(html, "text/html");
   normalizeEditorTree(doc.body);
+  editorImagesToEmojiTags(doc.body);
   const container = document.createElement("div");
   doc.body.childNodes.forEach((child) => {
     container.appendChild(child.cloneNode(true));
   });
   return container.innerHTML;
+}
+
+function editorImagesToEmojiTags(root: ParentNode): void {
+  root.querySelectorAll("img[data-emoji-id], .tg-custom-emoji[data-emoji-id]").forEach((node) => {
+    const element = node as HTMLElement;
+    const emojiId = element.getAttribute("data-emoji-id") ?? "";
+    if (!emojiId) return;
+    const el = document.createElement("tg-emoji");
+    el.setAttribute("emoji-id", emojiId);
+    el.textContent = element.getAttribute("data-alt") ?? element.getAttribute("alt") ?? "⭐";
+    element.replaceWith(el);
+  });
+}
+
+function emojiTagsToEditorImages(root: ParentNode): void {
+  root.querySelectorAll("tg-emoji").forEach((node) => {
+    const element = node as HTMLElement;
+    const emojiId = element.getAttribute("emoji-id") ?? "";
+    if (!emojiId) return;
+    const placeholder = document.createElement("span");
+    placeholder.className = "tg-custom-emoji tg-custom-emoji-placeholder";
+    placeholder.setAttribute("data-emoji-id", emojiId);
+    placeholder.setAttribute("data-alt", element.textContent ?? "⭐");
+    placeholder.textContent = element.textContent ?? "⭐";
+    element.replaceWith(placeholder);
+  });
 }
 
 function nodeToPlainText(node: Node): string {
@@ -87,6 +132,13 @@ function nodeToPlainText(node: Node): string {
   const el = node as HTMLElement;
   const tag = el.tagName.toLowerCase();
   if (tag === "br") return "\n";
+  if (tag === "tg-emoji") return el.textContent ?? "";
+  if (el.classList.contains("tg-custom-emoji") && el.getAttribute("data-emoji-id")) {
+    return el.getAttribute("data-alt") ?? el.getAttribute("alt") ?? el.textContent ?? "⭐";
+  }
+  if (tag === "img" && el.getAttribute("data-emoji-id")) {
+    return el.getAttribute("alt") ?? el.textContent ?? "⭐";
+  }
   let text = "";
   el.childNodes.forEach((child) => {
     text += nodeToPlainText(child);
@@ -142,7 +194,14 @@ export function serializeRichTextEditor(root: HTMLElement): PostTextContent {
 export function setRichTextContent(root: HTMLElement, value: PostTextContent): void {
   const html = value.textHtml?.trim();
   if (html) {
-    root.innerHTML = sanitizeTelegramHtml(html);
+    const sanitized = sanitizeTelegramHtml(html);
+    if (typeof DOMParser === "undefined") {
+      root.innerHTML = sanitized;
+      return;
+    }
+    const doc = new DOMParser().parseFromString(sanitized, "text/html");
+    emojiTagsToEditorImages(doc.body);
+    root.innerHTML = doc.body.innerHTML;
     return;
   }
 
@@ -217,4 +276,45 @@ export function applyRichTextFormat(format: RichTextFormat, url?: string): void 
 export function autoResizeRichTextEditor(root: HTMLElement, minHeight = 16): void {
   root.style.height = "auto";
   root.style.height = `${Math.max(minHeight, root.scrollHeight)}px`;
+}
+
+function insertNodeAtCursor(root: HTMLElement, node: Node): void {
+  if (typeof window === "undefined") return;
+  root.focus();
+  const selection = window.getSelection();
+  if (!selection) {
+    root.appendChild(node);
+    return;
+  }
+
+  let range: Range;
+  if (selection.rangeCount === 0 || !root.contains(selection.anchorNode)) {
+    range = document.createRange();
+    range.selectNodeContents(root);
+    range.collapse(false);
+  } else {
+    range = selection.getRangeAt(0);
+  }
+
+  range.deleteContents();
+  range.insertNode(node);
+  range.setStartAfter(node);
+  range.collapse(true);
+  selection.removeAllRanges();
+  selection.addRange(range);
+}
+
+export function insertUnicodeEmoji(root: HTMLElement, char: string): void {
+  if (!char) return;
+  insertNodeAtCursor(root, document.createTextNode(char));
+}
+
+export function insertCustomEmoji(root: HTMLElement, documentId: string, alt = "⭐"): void {
+  if (!documentId) return;
+  const placeholder = document.createElement("span");
+  placeholder.className = "tg-custom-emoji tg-custom-emoji-placeholder";
+  placeholder.setAttribute("data-emoji-id", documentId);
+  placeholder.setAttribute("data-alt", alt);
+  placeholder.textContent = alt;
+  insertNodeAtCursor(root, placeholder);
 }

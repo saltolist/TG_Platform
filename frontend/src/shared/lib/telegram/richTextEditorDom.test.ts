@@ -5,6 +5,7 @@ import { describe, expect, it } from "vitest";
 import {
   applyRichTextFormat,
   extractPlainTextFromEditor,
+  insertUnicodeEmoji,
   serializeRichTextEditor,
   setRichTextContent,
 } from "./richTextEditorDom";
@@ -62,6 +63,28 @@ describe("richTextEditorDom", () => {
 
     expect(root.innerHTML).toContain('class="tg-spoiler"');
     expect(serializeRichTextEditor(root).textHtml).toContain("tg-spoiler");
+    root.remove();
+  });
+
+  it("serializes custom emoji from editor placeholders into tg-emoji", () => {
+    const root = makeEditor();
+    setRichTextContent(root, {
+      text: "⭐",
+      textHtml: '<tg-emoji emoji-id="42">⭐</tg-emoji>',
+    });
+    expect(root.querySelector("[data-emoji-id='42']")).toBeTruthy();
+    expect(serializeRichTextEditor(root)).toEqual({
+      text: "⭐",
+      textHtml: '<tg-emoji emoji-id="42">⭐</tg-emoji>',
+    });
+    root.remove();
+  });
+
+  it("inserts unicode emoji at cursor", () => {
+    const root = makeEditor("hi");
+    root.focus();
+    insertUnicodeEmoji(root, "😀");
+    expect(serializeRichTextEditor(root).text).toBe("hi😀");
     root.remove();
   });
 });

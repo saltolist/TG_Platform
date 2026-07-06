@@ -12,6 +12,7 @@ import { NoteIconAttach } from "@/shared/ui/icons/note-header-icons";
 import { PostReactionPills, PostViewsReposts } from "@/widgets/feed";
 import type { PostComment, PostMedia, PostMetrics } from "@/shared/types";
 import { TelegramFormattedText } from "@/shared/ui/TelegramFormattedText";
+import { EmojiPickerButton } from "@/shared/ui/EmojiPickerMenu";
 import { RichTextEditor } from "@/shared/ui/RichTextEditor";
 
 import PostCardToolbar from "./PostCardToolbar";
@@ -229,6 +230,14 @@ export default function PostMessageCard({
                 >
                   <NoteIconAttach />
                 </button>
+                <EmojiPickerButton
+                  editorRef={editorRef}
+                  disabled={editorLocked}
+                  onInserted={() => {
+                    const root = editorRef.current;
+                    if (root) setDraft(serializeRichTextEditor(root));
+                  }}
+                />
                 <button
                   className="btn btn-primary post-edit-btn"
                   onClick={handleSave}

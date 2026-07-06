@@ -101,6 +101,7 @@ import type {
   ChannelAnalyticsOverview,
 } from "@/shared/api/schemas/channelAnalytics";
 import type { PlatformModelAnalyticsDto } from "@/shared/api/schemas/platformAnalytics";
+import type { EmojiCatalog } from "@/shared/lib/telegram/emojiCatalog";
 
 export type AssistantStreamOptions = {
   llmId?: string;
@@ -142,6 +143,10 @@ export interface AnalyticsRepository {
   getChannelTopPosts(period: string): Promise<AnalyticsTopPostRow[]>;
 }
 
+export interface TelegramEmojiRepository {
+  catalog(): Promise<EmojiCatalog>;
+}
+
 export type RepositoryBundle = {
   posts: PostsRepository;
   chats: ChatsRepository;
@@ -149,4 +154,6 @@ export type RepositoryBundle = {
   profile: ProfileRepository;
   assistant: AssistantRepository;
   analytics: AnalyticsRepository;
+  telegramEmoji: TelegramEmojiRepository;
 };
+

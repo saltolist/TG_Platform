@@ -1,8 +1,9 @@
 "use client";
 
-import type { MouseEvent } from "react";
+import { useEffect, useRef, type MouseEvent } from "react";
 
-import { sanitizeTelegramHtml } from "@/shared/lib/telegram/sanitizeTelegramHtml";
+import { hydrateCustomEmojiInDom } from "@/shared/lib/telegram/hydrateCustomEmojiDom";
+import { renderTelegramHtmlForDisplay } from "@/shared/lib/telegram/sanitizeTelegramHtml";
 
 type Props = {
   text: string;
@@ -20,12 +21,21 @@ function revealSpoiler(event: MouseEvent<HTMLDivElement>) {
 }
 
 export function TelegramFormattedText({ text, textHtml, className, emptyClassName }: Props) {
+  const containerRef = useRef<HTMLDivElement>(null);
   const html = textHtml?.trim();
+
+  useEffect(() => {
+    const container = containerRef.current;
+    if (!container || !html) return;
+    container.innerHTML = renderTelegramHtmlForDisplay(html);
+    return hydrateCustomEmojiInDom(container);
+  }, [html]);
+
   if (html) {
     return (
       <div
+        ref={containerRef}
         className={["tg-formatted-text", className].filter(Boolean).join(" ")}
-        dangerouslySetInnerHTML={{ __html: sanitizeTelegramHtml(html) }}
         onClick={revealSpoiler}
       />
     );

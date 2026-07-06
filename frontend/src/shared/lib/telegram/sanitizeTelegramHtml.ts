@@ -9,6 +9,7 @@ const ALLOWED_TAGS = new Set([
   "blockquote",
   "span",
   "br",
+  "tg-emoji",
 ]);
 
 const DROP_CONTENT_TAGS = new Set(["script", "style", "iframe", "object", "embed"]);
@@ -66,6 +67,11 @@ function sanitizeNode(node: Node): Node | null {
     if (className.split(/\s+/).includes("tg-spoiler")) {
       clean.setAttribute("class", "tg-spoiler");
     }
+  } else if (tag === "tg-emoji") {
+    const emojiId = element.getAttribute("emoji-id") ?? "";
+    if (emojiId) {
+      clean.setAttribute("emoji-id", emojiId);
+    }
   }
 
   element.childNodes.forEach((child) => {
@@ -87,6 +93,34 @@ export function sanitizeTelegramHtml(html: string): string {
   body.childNodes.forEach((child) => {
     const sanitized = sanitizeNode(child);
     if (sanitized) container.appendChild(sanitized);
+  });
+  return container.innerHTML;
+}
+
+/** Render stored Telegram HTML with custom emoji images for read-only views. */
+export function renderTelegramHtmlForDisplay(html: string): string {
+  const trimmed = html.trim();
+  if (!trimmed) return "";
+  if (typeof DOMParser === "undefined") return trimmed;
+
+  const doc = new DOMParser().parseFromString(sanitizeTelegramHtml(trimmed), "text/html");
+  doc.querySelectorAll("tg-emoji").forEach((element) => {
+    const emojiId = element.getAttribute("emoji-id") ?? "";
+    if (!emojiId) {
+      element.replaceWith(document.createTextNode(element.textContent ?? ""));
+      return;
+    }
+    const placeholder = document.createElement("span");
+    placeholder.className = "tg-custom-emoji tg-custom-emoji-placeholder";
+    placeholder.setAttribute("data-emoji-id", emojiId);
+    placeholder.setAttribute("data-alt", element.textContent ?? "⭐");
+    placeholder.textContent = element.textContent ?? "⭐";
+    element.replaceWith(placeholder);
+  });
+
+  const container = document.createElement("div");
+  doc.body.childNodes.forEach((child) => {
+    container.appendChild(child.cloneNode(true));
   });
   return container.innerHTML;
 }

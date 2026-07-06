@@ -115,17 +115,33 @@ async def ensure_writer_session_string(
             reader_client, api_id, api_hash, settings
         )
     else:
-        async with reader_session_lock(
-            user_id, acquire_timeout=settings.telegram_lock_acquire_timeout_seconds
-        ):
-            client = build_client(api_id, api_hash, reader_session)
-            try:
-                await connect_telegram_client(client, settings)
-                writer_session = await export_writer_session(
-                    client, api_id, api_hash, settings
-                )
-            finally:
-                await disconnect_safely(client)
+        from app.services.telegram.listener_control import (
+            is_listener_active_remote,
+            request_listener_pause,
+            signal_listener_resume,
+            uses_remote_listener,
+        )
+
+        remote_active = uses_remote_listener(settings) and await is_listener_active_remote(user_id)
+        if remote_active:
+            await request_listener_pause(
+                user_id, timeout=settings.telegram_listener_stop_timeout_seconds
+            )
+        try:
+            async with reader_session_lock(
+                user_id, acquire_timeout=settings.telegram_lock_acquire_timeout_seconds
+            ):
+                client = build_client(api_id, api_hash, reader_session)
+                try:
+                    await connect_telegram_client(client, settings)
+                    writer_session = await export_writer_session(
+                        client, api_id, api_hash, settings
+                    )
+                finally:
+                    await disconnect_safely(client)
+        finally:
+            if remote_active:
+                await signal_listener_resume(user_id, telegram)
 
     await persist_writer_session_string(user_id, writer_session, settings)
     return writer_session
