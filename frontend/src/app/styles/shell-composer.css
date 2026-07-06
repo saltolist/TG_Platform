@@ -1560,15 +1560,23 @@
 
 .rich-text-input .telegram-emoji-node {
   display: inline-flex;
-  vertical-align: -0.1em;
+  align-items: center;
+  justify-content: center;
+  width: 1em;
+  height: 1em;
+  vertical-align: -0.12em;
   line-height: 1;
-  user-select: none;
+  flex-shrink: 0;
 }
 
 .rich-text-input .telegram-emoji-node-preview,
 .rich-text-input .telegram-emoji-node .tg-custom-emoji {
+  display: block;
   width: 1em !important;
   height: 1em !important;
+  max-width: 1em !important;
+  max-height: 1em !important;
+  pointer-events: none;
 }
 
 .emoji-picker-item .tg-custom-emoji,

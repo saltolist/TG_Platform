@@ -1,9 +1,10 @@
 import type { Editor } from "@tiptap/core";
-import { TextSelection } from "@tiptap/pm/state";
+import { NodeSelection, TextSelection } from "@tiptap/pm/state";
 
 /** True when the editor selection spans at least one real text node (not only custom emoji atoms). */
 export function selectionHasFormatableText(editor: Editor): boolean {
   const { selection, doc } = editor.state;
+  if (selection instanceof NodeSelection) return false;
   if (!(selection instanceof TextSelection) || selection.empty) {
     return false;
   }
@@ -22,4 +23,8 @@ export function selectionHasFormatableText(editor: Editor): boolean {
   });
 
   return hasFormatableText;
+}
+
+export function isFormatBubbleSelection(editor: Editor): boolean {
+  return selectionHasFormatableText(editor);
 }

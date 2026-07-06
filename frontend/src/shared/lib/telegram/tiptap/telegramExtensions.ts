@@ -11,7 +11,7 @@ import Strike from "@tiptap/extension-strike";
 import Text from "@tiptap/extension-text";
 import Underline from "@tiptap/extension-underline";
 
-import { CollapseEmojiOnlySelection } from "./extensions/collapseEmojiOnlySelection";
+import { InlineAtomSelectionGuard } from "./extensions/inlineAtomSelectionGuard";
 import { Spoiler } from "./extensions/spoiler";
 import { TelegramEmoji } from "./extensions/telegramEmoji";
 
@@ -39,7 +39,7 @@ export function getTelegramPostExtensions(options: TelegramPostExtensionOptions 
     }),
     Spoiler,
     TelegramEmoji,
-    CollapseEmojiOnlySelection,
+    InlineAtomSelectionGuard,
     History,
     Placeholder.configure({
       placeholder: placeholder ?? "",
