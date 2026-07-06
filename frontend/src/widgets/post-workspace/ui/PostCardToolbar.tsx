@@ -33,10 +33,14 @@ function IcCopied() {
 export default function PostCardToolbar({
   plainText,
   onEdit,
+  enabled = true,
 }: {
   plainText: string;
   onEdit: () => void;
+  /** Hide copy/edit for Telegram sticker and video-note posts without caption. */
+  enabled?: boolean;
 }) {
+  const showActions = enabled;
   const [copied, setCopied] = useState(false);
   const copyTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
 
@@ -56,6 +60,8 @@ export default function PostCardToolbar({
       copyTimer.current = null;
     }, 2000);
   }, [plainText]);
+
+  if (!showActions) return null;
 
   return (
     <div className="post-msg-actions" aria-label="Действия с постом">

@@ -4,9 +4,10 @@ import { Composer } from "@/widgets/composer";
 import { ChatMessage } from "@/widgets/chat-thread";
 import { PostMessageCard, type PostWorkspace } from "@/widgets/post-workspace";
 import { useTelegramProfile } from "@/entities/channel";
+import { PostStatusBadge, usePostTelegramSyncing } from "@/entities/post";
 import { channelSupportsComments } from "@/entities/post/lib/channelSupportsComments";
 import { postSupportsComments } from "@/entities/post/lib/postSupportsComments";
-import { PostStatusBadge, usePostTelegramSyncing } from "@/entities/post";
+import { postSupportsPlatformEdit } from "@/entities/post/lib/isStandaloneCompactTelegramPost";
 import { isStreamingChatMessage } from "@/shared/lib/streaming/streamingMessage";
 import { firstUserFlatIndex, userMessageHasBranches } from "@/shared/lib/chatPaths";
 import type { Post } from "@/shared/types";
@@ -37,6 +38,7 @@ export default function PostChatView({ post, data, ui, actions }: Props) {
   const { data: telegramProfile } = useTelegramProfile();
   const channelCommentsEnabled = channelSupportsComments(telegramProfile);
   const showComments = postSupportsComments(post, channelCommentsEnabled);
+  const contentEditable = postSupportsPlatformEdit(post);
   const firstUserFlat = firstUserFlatIndex(flatMessages);
 
   return (
@@ -76,6 +78,7 @@ export default function PostChatView({ post, data, ui, actions }: Props) {
                     post.status === "deleted")
                 }
                 phoneFormat={phoneFormat}
+                contentEditable={contentEditable}
               />
               {flatMessages.map(({ message: m, path }, i) => {
                 const nextMessage = flatMessages[i + 1]?.message;

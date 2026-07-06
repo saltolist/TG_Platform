@@ -8,6 +8,7 @@ import { useNavigationStore } from "@/app/model/store/navigation-store";
 import { usePostNavigationStore } from "@/app/model/store/post-navigation-store";
 import { activePostChatIdFromPost, displayPostChatId } from "@/entities/post/lib/resolvePostChatId";
 import { usePost, useUpdatePost } from "@/entities/post";
+import { postSupportsPlatformEdit } from "@/entities/post/lib/isStandaloneCompactTelegramPost";
 import { useRetryPendingComments } from "@/entities/post/model/useRetryPendingComments";
 import { usePollOpenPost } from "@/entities/post/model/usePollOpenPost";
 import { getApiErrorMessage } from "@/shared/api/getApiErrorMessage";
@@ -159,8 +160,9 @@ export function usePostWorkspace() {
   });
 
   const startEdit = useCallback(() => {
+    if (!post || !postSupportsPlatformEdit(post)) return;
     setNav({ isEditing: true });
-  }, [setNav]);
+  }, [post, setNav]);
 
   const cancelEdit = useCallback(() => {
     if (isSavingPost) return;
@@ -169,7 +171,7 @@ export function usePostWorkspace() {
 
   const savePost = useCallback(
     async (text: string, media: PostMedia[]) => {
-      if (!post || isSavingPost) return;
+      if (!post || isSavingPost || !postSupportsPlatformEdit(post)) return;
       setIsSavingPost(true);
       try {
         await updatePost.mutateAsync({

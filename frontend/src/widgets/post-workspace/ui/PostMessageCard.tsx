@@ -31,6 +31,8 @@ type Props = {
   onOpenComments?: () => void;
   commentsEnabled?: boolean;
   phoneFormat?: boolean;
+  /** Copy/edit toolbar and inline editing (off for TG sticker / video-note posts). */
+  contentEditable?: boolean;
 };
 
 export default function PostMessageCard({
@@ -50,6 +52,7 @@ export default function PostMessageCard({
   commentsEnabled = true,
   isTextOnlyNoMedia,
   phoneFormat,
+  contentEditable = true,
 }: Props) {
   const showComments = !!metrics && commentsEnabled;
   const [draft, setDraft] = useState(text);
@@ -114,6 +117,7 @@ export default function PostMessageCard({
 
   const copyText = text.trim() || "";
   const editorLocked = isSaving;
+  const canEditContent = contentEditable && !editorLocked;
 
   return (
     <div
@@ -236,9 +240,9 @@ export default function PostMessageCard({
             )}
           </div>
         </div>
-      ) : (
+      ) : canEditContent ? (
         <PostCardToolbar plainText={copyText} onEdit={onStartEdit} />
-      )}
+      ) : null}
     </div>
   );
 }
