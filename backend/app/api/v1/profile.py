@@ -34,9 +34,9 @@ from app.services.telegram.byok_telegram import (
     mask_telegram_secrets,
     reveal_telegram_secret,
 )
-from app.services.telegram.live_sync_worker import (
-    apply_effective_sync_fields,
-    ensure_user_listener,
+from app.services.telegram.listener_control import (
+    ensure_user_listener_async,
+    apply_effective_sync_fields_async,
 )
 from app.services.telegram.sync_events import stream_telegram_sync_events
 
@@ -124,8 +124,8 @@ async def put_ai(payload: dict[str, Any], user: CurrentWriter, session: DbSessio
 async def get_telegram(user: CurrentUser, session: DbSession) -> dict[str, Any]:
     profile = await session.get(Profile, user.id)
     stored = profile.telegram if profile and profile.telegram else empty_telegram_profile()
-    ensure_user_listener(user.id, stored)
-    stored = apply_effective_sync_fields(stored, user.id)
+    await ensure_user_listener_async(user.id, stored)
+    stored = await apply_effective_sync_fields_async(stored, user.id)
     return mask_telegram_secrets(stored, get_settings())
 
 
@@ -136,8 +136,8 @@ async def stream_telegram_sync(
     """SSE stream of telegram sync revision fields (replaces 1s profile polling)."""
     profile = await session.get(Profile, user.id)
     stored = profile.telegram if profile and profile.telegram else empty_telegram_profile()
-    ensure_user_listener(user.id, stored)
-    stored = apply_effective_sync_fields(stored, user.id)
+    await ensure_user_listener_async(user.id, stored)
+    stored = await apply_effective_sync_fields_async(stored, user.id)
 
     async def event_stream():
         async for chunk in stream_telegram_sync_events(

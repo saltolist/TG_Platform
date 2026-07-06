@@ -33,6 +33,11 @@ from app.services.telegram.net import (
     require_api_credentials,
     with_timeout,
 )
+from app.services.telegram.listener_control import (
+    request_listener_pause,
+    signal_listener_resume,
+    uses_remote_listener,
+)
 from app.services.telegram.session_guard import reader_session_lock, telegram_writer_access
 from app.services.telegram.writer_session import decrypt_writer_session
 
@@ -96,9 +101,19 @@ async def _persist_import_result(
         await session.commit()
 
     if import_status == "done":
-        from app.services.telegram.live_sync_worker import listener_registry
+        from app.services.telegram.live_sync_worker import ensure_user_listener
 
-        listener_registry.start_user_listener(user_id)
+        settings = get_settings()
+        if uses_remote_listener(settings):
+            async with async_session_factory() as session:
+                profile = await session.get(Profile, user_id)
+                if profile is not None:
+                    await signal_listener_resume(user_id, profile.telegram or {})
+        else:
+            async with async_session_factory() as session:
+                profile = await session.get(Profile, user_id)
+                if profile is not None:
+                    ensure_user_listener(user_id, profile.telegram or {})
 
 
 async def _set_import_error(user_id: UUID, error: str) -> None:
@@ -159,8 +174,6 @@ async def _import_channel_history(
 
 async def run_channel_import(user_id: UUID, settings: Settings | None = None) -> None:
     """Background entry point — wraps the import with a global timeout and error handling."""
-    from app.services.telegram.live_sync_worker import listener_registry
-
     settings = settings or get_settings()
     writer_session: str | None = None
     async with async_session_factory() as session:
@@ -189,7 +202,7 @@ async def run_channel_import(user_id: UUID, settings: Settings | None = None) ->
             )
         return
 
-    await listener_registry.await_stop_user_listener(user_id)
+    await request_listener_pause(user_id)
     try:
         async with reader_session_lock(user_id):
             await asyncio.wait_for(

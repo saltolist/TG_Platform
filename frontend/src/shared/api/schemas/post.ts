@@ -204,6 +204,8 @@ export const postSchema = z.object({
   commentSyncError: z.string().optional(),
   /** True while a publish/edit/delete Telegram RPC is in flight (Redis-backed). */
   telegramSyncPending: z.boolean().optional(),
+  /** True while comment push/delete to Telegram is in flight (Redis-backed). */
+  commentsSyncPending: z.boolean().optional(),
 });
 
 export const postsListSchema = z.array(postSchema);

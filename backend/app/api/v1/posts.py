@@ -33,10 +33,24 @@ from app.services.telegram.post_sync import mark_post_deleted, restore_deleted_p
 from app.services.telegram.publish_flow import parse_scheduled_at
 from app.services.telegram.publish_flow import publish_post as run_telegram_publish
 from app.services.posts_payload import normalize_post_for_api
-from app.services.telegram.sync_pending import enrich_posts_for_user, telegram_sync_pending
+from app.services.telegram.sync_pending import (
+    enrich_posts_for_user as enrich_post_sync_pending,
+    telegram_sync_pending,
+)
 from app.tasks.publish import publish_scheduled_post
 
 router = APIRouter(prefix="/posts", tags=["Posts"])
+
+
+async def enrich_posts_for_user(
+    user_id: uuid.UUID, posts: list[dict[str, Any]]
+) -> list[dict[str, Any]]:
+    from app.services.telegram.comment_sync_pending import (
+        enrich_posts_for_user as enrich_comment_sync_pending,
+    )
+
+    enriched = await enrich_post_sync_pending(user_id, posts)
+    return await enrich_comment_sync_pending(user_id, enriched)
 
 
 @router.get("/")

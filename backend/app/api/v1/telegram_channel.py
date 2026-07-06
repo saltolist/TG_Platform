@@ -18,7 +18,7 @@ from app.core.deps import CurrentWriter, DbSession
 from app.schemas.requests import TelegramConnectChannelRequest
 from app.services.telegram.channel_flow import connect_channel
 from app.services.telegram.import_flow import run_channel_import
-from app.services.telegram.live_sync_worker import listener_registry
+from app.services.telegram.listener_control import request_listener_pause
 from app.services.telegram.reconcile_flow import run_manual_reconcile
 from app.services.telegram.session_guard import telegram_session_lock
 
@@ -30,7 +30,7 @@ async def telegram_connect_channel(
     payload: TelegramConnectChannelRequest, user: CurrentWriter, session: DbSession
 ) -> dict[str, Any]:
     profile = await get_or_create_profile(session, user.id)
-    await listener_registry.await_stop_user_listener(user.id)
+    await request_listener_pause(user.id)
     async with telegram_session_lock(user.id):
         result = await apply_telegram_flow(
             session,

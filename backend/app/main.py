@@ -82,22 +82,34 @@ async def lifespan(app: FastAPI):
         embedding_worker(async_session_factory, stop_event),
         name="rag-embedding-worker",
     )
-    live_sync_task = asyncio.create_task(
-        telegram_live_sync_worker(async_session_factory, stop_event),
-        name="telegram-live-sync-worker",
-    )
+    live_sync_task: asyncio.Task[None] | None = None
+    if settings.telegram_live_sync_enabled:
+        live_sync_task = asyncio.create_task(
+            telegram_live_sync_worker(async_session_factory, stop_event),
+            name="telegram-live-sync-worker",
+        )
+    from app.services.telegram.sync_events_redis import ensure_redis_sync_events_bridge
+
+    sync_events_bridge_task = ensure_redis_sync_events_bridge(stop_event)
 
     yield
 
     stop_event.set()
     worker_task.cancel()
-    live_sync_task.cancel()
+    if live_sync_task is not None:
+        live_sync_task.cancel()
+    sync_events_bridge_task.cancel()
     try:
         await worker_task
     except asyncio.CancelledError:
         pass
+    if live_sync_task is not None:
+        try:
+            await live_sync_task
+        except asyncio.CancelledError:
+            pass
     try:
-        await live_sync_task
+        await sync_events_bridge_task
     except asyncio.CancelledError:
         pass
     await engine.dispose()

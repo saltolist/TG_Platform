@@ -400,7 +400,8 @@ Telegram-настройки пользователя.
 хранится только на backend (internal, не в API).
 
 **Env (backend):**
-- `TELEGRAM_LIVE_SYNC_ENABLED=1` — включить воркер (на secondary-репликах → `0`)
+- `TELEGRAM_LIVE_SYNC_ENABLED=0` на API-репликах; `1` только в **sync-worker** (`docker compose` service)
+- `TELEGRAM_SYNC_EVENTS_REDIS_ENABLED=1` — SSE pub/sub между worker и API
 - `TELEGRAM_LIVE_SYNC_REGISTRY_REFRESH_SECONDS=30`
 - `TELEGRAM_LIVE_SYNC_RECONNECT_SECONDS=15`
 - `TELEGRAM_ALBUM_DEBOUNCE_SECONDS=2`

@@ -43,7 +43,11 @@ export function usePosts() {
     placeholderData: (previous) => previous,
     refetchInterval: (query) => {
       const items = query.state.data;
-      return items?.some((post) => post.telegramSyncPending) ? 3000 : false;
+      return items?.some(
+        (post) => post.telegramSyncPending || post.commentsSyncPending,
+      )
+        ? 3000
+        : false;
     },
   });
 }
@@ -126,7 +130,11 @@ export function usePostTelegramSyncing(postId: string) {
     select: (mutation) => mutation.state.variables as string,
   });
   const post = posts.find((item) => item.id === postId);
-  return pendingMutationIds.includes(postId) || post?.telegramSyncPending === true;
+  return (
+    pendingMutationIds.includes(postId) ||
+    post?.telegramSyncPending === true ||
+    post?.commentsSyncPending === true
+  );
 }
 
 export function usePublishPost() {

@@ -133,6 +133,8 @@ class Settings(BaseSettings):
     # Paginated discussion comment pulls (sync-comments / reconcile).
     telegram_comments_pull_page_size: int = 200
     telegram_comments_pull_max_pages: int = 10
+    # Fan-out sync revision SSE events to all API replicas via Redis pub/sub.
+    telegram_sync_events_redis_enabled: bool = True
 
     # Publish / schedule (Phase 3, Step 4) — Celery + Redis for deferred publish only;
     # immediate publish (4a) and edit-sync (4c) run synchronously in the API request.
@@ -188,6 +190,7 @@ class Settings(BaseSettings):
         "telegram_clock_sync_enabled",
         "telegram_live_comments_enabled",
         "telegram_reconcile_include_comments",
+        "telegram_sync_events_redis_enabled",
         mode="before",
     )
     @classmethod

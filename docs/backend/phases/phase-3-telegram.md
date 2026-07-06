@@ -314,8 +314,16 @@ fallback поллинг `GET /profile/telegram` каждые **1 с**;
 refetch открытого поста. `usePollOpenPost` остаётся fallback на странице поста.
 Кнопка **«Сверить канал»** в настройках Telegram → `POST /telegram/channel/reconcile/`.
 
-**Ограничение v1:** только один backend-процесс с `TELEGRAM_LIVE_SYNC_ENABLED=1`
-(дубликат MTProto-сессии на нескольких репликах недопустим).
+**Ограничение v1 (снято):** раньше только один backend-процесс с `TELEGRAM_LIVE_SYNC_ENABLED=1`.
+Теперь **sync-worker** (один процесс) держит listener; API-реплики stateless с `TELEGRAM_LIVE_SYNC_ENABLED=0`.
+
+**Dedicated sync worker + Redis SSE:**
+- `sync-worker` service (`python -m app.workers.sync_worker`) — MTProto listener, ingest, reconcile loops
+- API `main.py` — Redis bridge `sync_events_redis.py` доставляет ревизии на SSE всех реплик
+- `listener_control.py` — pause/resume через Redis (`tg:listener:pause|resume:{user_id}`), heartbeat `tg:listener:active:{user_id}`
+- Docker: `backend` → `TELEGRAM_LIVE_SYNC_ENABLED=0`, `sync-worker` → `1`
+
+**Comment outbound pending:** `commentsSyncPending` (Redis, `comment_sync_pending.py`) — зеркало `telegramSyncPending` для push/delete комментариев; ускоренный poll ленты 3 с.
 
 **Docker на macOS — расхождение часов:** VM Docker Desktop / Colima часто отстаёт
 от хоста на 30+ секунд. Telethon игнорирует push-обновления при skew > 30 с
@@ -331,8 +339,7 @@ refetch открытого поста. `usePollOpenPost` остаётся fallba
    (в `.env` — `DATABASE_URL=postgresql+asyncpg://tg:tg@localhost:5432/tg`).
 3. **Перезапуск Colima** — иногда сбрасывает drift VM: `colima stop && colima start`.
 
-**Явно вне рамок:** dedicated sync worker + Redis pub/sub для SSE на нескольких репликах;
-UI «Загрузить ещё комментарии» при `commentsPullComplete=false`.
+**Явно вне рамок:** UI «Загрузить ещё комментарии» при `commentsPullComplete=false`.
 
 ---
 

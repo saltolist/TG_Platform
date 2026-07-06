@@ -67,15 +67,32 @@ async def unsubscribe_telegram_sync_events(
             _subscribers.pop(user_id, None)
 
 
-def publish_telegram_sync_event(user_id: UUID, telegram: Mapping[str, Any]) -> None:
-    """Notify all SSE subscribers for *user_id* (best-effort, never raises)."""
-    payload = telegram_sync_event_payload(telegram)
+def fan_out_local_sync_event(user_id: UUID, payload: dict[str, Any]) -> None:
+    """Deliver *payload* to in-process SSE subscriber queues."""
     subscribers = list(_subscribers.get(user_id, ()))
     for queue in subscribers:
         try:
             queue.put_nowait(payload)
         except Exception:  # noqa: BLE001
-            logger.debug("Failed to enqueue telegram sync event for user %s", user_id, exc_info=True)
+            logger.debug(
+                "Failed to enqueue telegram sync event for user %s", user_id, exc_info=True
+            )
+
+
+def publish_telegram_sync_event(user_id: UUID, telegram: Mapping[str, Any]) -> None:
+    """Notify all SSE subscribers for *user_id* (best-effort, never raises)."""
+    payload = telegram_sync_event_payload(telegram)
+    fan_out_local_sync_event(user_id, payload)
+    try:
+        loop = asyncio.get_running_loop()
+        from app.services.telegram.sync_events_redis import publish_sync_event_to_redis
+
+        loop.create_task(
+            publish_sync_event_to_redis(user_id, payload),
+            name=f"sync-event-redis-{user_id}",
+        )
+    except RuntimeError:
+        pass
 
 
 async def stream_telegram_sync_events(
@@ -102,6 +119,7 @@ async def stream_telegram_sync_events(
 
 
 __all__ = [
+    "fan_out_local_sync_event",
     "publish_telegram_sync_event",
     "stream_telegram_sync_events",
     "subscribe_telegram_sync_events",

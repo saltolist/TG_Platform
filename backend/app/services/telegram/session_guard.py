@@ -98,17 +98,23 @@ async def exclusive_telegram_access(
     """
     from app.db.models import Profile
     from app.db.session import async_session_factory
-    from app.services.telegram.live_sync_worker import (
-        ensure_user_listener,
-        listener_registry,
+    from app.services.telegram.listener_control import (
+        is_listener_active_remote,
+        request_listener_pause,
+        signal_listener_resume,
+        uses_remote_listener,
     )
+    from app.services.telegram.live_sync_worker import listener_registry
 
     settings = get_settings()
-    was_listening = listener_registry.is_running(user_id)
+    remote = uses_remote_listener(settings)
+    was_listening = (
+        await is_listener_active_remote(user_id)
+        if remote
+        else listener_registry.is_running(user_id)
+    )
     if was_listening:
-        await listener_registry.await_stop_user_listener(
-            user_id, timeout=listener_stop_timeout
-        )
+        await request_listener_pause(user_id, timeout=listener_stop_timeout)
     try:
         async with reader_session_lock(
             user_id, acquire_timeout=settings.telegram_lock_acquire_timeout_seconds
@@ -119,4 +125,4 @@ async def exclusive_telegram_access(
             async with async_session_factory() as session:
                 profile = await session.get(Profile, user_id)
                 if profile is not None:
-                    ensure_user_listener(user_id, profile.telegram or {})
+                    await signal_listener_resume(user_id, profile.telegram or {})

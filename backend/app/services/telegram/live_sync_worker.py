@@ -882,8 +882,25 @@ async def _run_user_listener(user_id: UUID, stop_event: asyncio.Event) -> None:
                 clock_refresh_task: asyncio.Task[None] | None = None
                 fast_poll_task: asyncio.Task[None] | None = None
                 analytics_snapshot_task: asyncio.Task[None] | None = None
+                active_heartbeat_task: asyncio.Task[None] | None = None
                 try:
                     await connect_telegram_client(client, settings)
+                    from app.services.telegram.listener_control import (
+                        clear_listener_active,
+                        touch_listener_active,
+                    )
+
+                    await touch_listener_active(user_id)
+
+                    async def _listener_active_heartbeat() -> None:
+                        while True:
+                            await asyncio.sleep(30)
+                            await touch_listener_active(user_id)
+
+                    active_heartbeat_task = asyncio.create_task(
+                        _listener_active_heartbeat(),
+                        name=f"tg-listener-heartbeat-{user_id}",
+                    )
                     entity = await resolve_channel_entity(client, parsed, settings)
                     await reinforce_clock_after_telegram_rpc(client, settings)
                     metrics_buffer = MetricsThrottleBuffer(
@@ -1193,6 +1210,15 @@ async def _run_user_listener(user_id: UUID, stop_event: asyncio.Event) -> None:
                             await periodic_drift_task
                         except asyncio.CancelledError:
                             pass
+                    if active_heartbeat_task is not None:
+                        active_heartbeat_task.cancel()
+                        try:
+                            await active_heartbeat_task
+                        except asyncio.CancelledError:
+                            pass
+                    from app.services.telegram.listener_control import clear_listener_active
+
+                    await clear_listener_active(user_id)
                     listener_registry.unregister_client(user_id, client)
                     await disconnect_safely(client)
         except asyncio.CancelledError:

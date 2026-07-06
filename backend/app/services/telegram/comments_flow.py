@@ -31,6 +31,10 @@ from app.services.telegram.net import (
     require_api_credentials,
     with_timeout,
 )
+from app.services.telegram.comment_sync_pending import (
+    clear_comments_sync_pending,
+    mark_comments_sync_pending,
+)
 from app.services.telegram.writer_session import open_outbound_telegram_client
 from app.services.telegram.media_storage import save_message_media
 from app.services.telegram.post_sync import touch_telegram_profile
@@ -1407,6 +1411,13 @@ def _enqueue_discussion_outbound(
         return
 
     _discussion_outbound_queues.setdefault(post_key, []).append(job)
+    try:
+        asyncio.get_running_loop().create_task(
+            mark_comments_sync_pending(user_id, post_key),
+            name=f"comment-sync-pending-{post_key}",
+        )
+    except RuntimeError:
+        pass
     _ensure_discussion_outbound_drain(user_id, post_key)
 
 
@@ -1422,6 +1433,7 @@ async def _delete_discussion_comments_background(
     if not telegram_message_ids:
         return
 
+    will_retry = False
     try:
         async with async_session_factory() as session:
             profile = await session.get(Profile, user_id)
@@ -1444,6 +1456,7 @@ async def _delete_discussion_comments_background(
                     error,
                 )
                 if delete_attempt < 3:
+                    will_retry = True
                     _enqueue_discussion_outbound(
                         user_id,
                         post_id,
@@ -1461,12 +1474,16 @@ async def _delete_discussion_comments_background(
     except Exception:
         logger.exception("Background comment delete crashed for post %s", post_id)
         if delete_attempt < 3:
+            will_retry = True
             _enqueue_discussion_outbound(
                 user_id,
                 post_id,
                 delete_telegram_message_ids=telegram_message_ids,
                 delete_attempt=delete_attempt + 1,
             )
+    finally:
+        if not will_retry:
+            await clear_comments_sync_pending(user_id, post_id)
 
 
 async def persist_comment_push_result(
@@ -1528,10 +1545,17 @@ async def push_pending_post_comments(user_id: UUID, post_id: str) -> None:
                 logger.warning(
                     "Comment push failed for post %s: %s", post_id, comment_result.error
                 )
+                updated = dict(post.data)
+                updated["commentSyncError"] = comment_result.error
+                post.data = updated
+                flag_modified(post, "data")
+                await session.commit()
                 return
             await persist_comment_push_result(session, post, profile, comment_result)
     except Exception:
         logger.exception("Background comment push crashed for post %s", post_id)
+    finally:
+        await clear_comments_sync_pending(user_id, post_id)
 
 
 def schedule_post_comments_push(user_id: UUID, post_id: str) -> None:

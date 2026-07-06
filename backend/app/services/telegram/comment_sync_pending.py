@@ -1,28 +1,23 @@
-"""Track in-flight platform→Telegram operations in Redis (survives page reload).
+"""Track in-flight platform→Telegram comment push/delete in Redis (survives reload).
 
-While publish / post edit-sync / post delete-sync runs, the post id is stored under
-a short TTL so ``GET /posts/`` can expose ``telegramSyncPending: true`` until the
-RPC finishes or the TTL expires. Comment push/delete uses ``comment_sync_pending.py``
-(``commentsSyncPending``).
+While background comment push or discussion delete runs, the post id is stored so
+``GET /posts/`` can expose ``commentsSyncPending: true`` until the RPC finishes.
 """
 
 from __future__ import annotations
 
 import logging
 import time
-from contextlib import asynccontextmanager
-from collections.abc import AsyncIterator
 from typing import Any
 from uuid import UUID
 
-from app.core.config import Settings, get_settings
+from app.core.config import get_settings
 
 logger = logging.getLogger(__name__)
 
 _TTL_SECONDS = 180
 _redis_client: Any | None = None
 _redis_unavailable = False
-# Fallback when Redis is down (tests / local without redis).
 _memory_store: dict[str, dict[str, float]] = {}
 
 
@@ -31,11 +26,11 @@ def _user_key(user_id: UUID) -> str:
 
 
 def _post_key(user_id: UUID, post_id: str) -> str:
-    return f"tg:sync:{user_id}:{post_id}"
+    return f"tg:comment-sync:{user_id}:{post_id}"
 
 
 def _set_key(user_id: UUID) -> str:
-    return f"tg:sync-pending:{user_id}"
+    return f"tg:comment-sync-pending:{user_id}"
 
 
 async def _get_redis() -> Any | None:
@@ -52,7 +47,9 @@ async def _get_redis() -> Any | None:
         await _redis_client.ping()
         return _redis_client
     except Exception:  # noqa: BLE001
-        logger.warning("Redis unavailable for telegram sync-pending — using in-memory fallback")
+        logger.warning(
+            "Redis unavailable for comment sync-pending — using in-memory fallback"
+        )
         _redis_unavailable = True
         return None
 
@@ -78,7 +75,7 @@ def _memory_pending(user_id: UUID) -> set[str]:
     return alive
 
 
-async def mark_post_sync_pending(user_id: UUID, post_id: str) -> None:
+async def mark_comments_sync_pending(user_id: UUID, post_id: str) -> None:
     pid = str(post_id)
     redis = await _get_redis()
     if redis is None:
@@ -90,7 +87,7 @@ async def mark_post_sync_pending(user_id: UUID, post_id: str) -> None:
     await pipe.execute()
 
 
-async def clear_post_sync_pending(user_id: UUID, post_id: str) -> None:
+async def clear_comments_sync_pending(user_id: UUID, post_id: str) -> None:
     pid = str(post_id)
     redis = await _get_redis()
     if redis is None:
@@ -102,7 +99,7 @@ async def clear_post_sync_pending(user_id: UUID, post_id: str) -> None:
     await pipe.execute()
 
 
-async def get_pending_post_ids(user_id: UUID) -> set[str]:
+async def get_pending_comment_post_ids(user_id: UUID) -> set[str]:
     redis = await _get_redis()
     if redis is None:
         return _memory_pending(user_id)
@@ -122,32 +119,20 @@ def enrich_post_data(data: dict[str, Any], pending_ids: set[str]) -> dict[str, A
     result = dict(data)
     post_id = str(result.get("id") or "")
     if post_id and post_id in pending_ids:
-        result["telegramSyncPending"] = True
+        result["commentsSyncPending"] = True
     else:
-        result.pop("telegramSyncPending", None)
+        result.pop("commentsSyncPending", None)
     return result
 
 
 async def enrich_posts_for_user(
     user_id: UUID, posts: list[dict[str, Any]]
 ) -> list[dict[str, Any]]:
-    pending = await get_pending_post_ids(user_id)
+    pending = await get_pending_comment_post_ids(user_id)
     return [enrich_post_data(post, pending) for post in posts]
 
 
-@asynccontextmanager
-async def telegram_sync_pending(
-    user_id: UUID, post_id: str | UUID
-) -> AsyncIterator[None]:
-    pid = str(post_id)
-    await mark_post_sync_pending(user_id, pid)
-    try:
-        yield
-    finally:
-        await clear_post_sync_pending(user_id, pid)
-
-
-async def reset_sync_pending_storage() -> None:
+async def reset_comment_sync_pending_storage() -> None:
     """Test helper — drop in-memory state and redis connection."""
     global _redis_client, _redis_unavailable
     _memory_store.clear()
@@ -161,11 +146,10 @@ async def reset_sync_pending_storage() -> None:
 
 
 __all__ = [
-    "clear_post_sync_pending",
+    "clear_comments_sync_pending",
     "enrich_post_data",
     "enrich_posts_for_user",
-    "get_pending_post_ids",
-    "mark_post_sync_pending",
-    "reset_sync_pending_storage",
-    "telegram_sync_pending",
+    "get_pending_comment_post_ids",
+    "mark_comments_sync_pending",
+    "reset_comment_sync_pending_storage",
 ]

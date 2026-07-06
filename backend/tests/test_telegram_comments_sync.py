@@ -158,11 +158,14 @@ async def _patch_comment_environment(monkeypatch: pytest.MonkeyPatch) -> None:
     # session-scoped event loop, a client created in one test is bound to that
     # test's loop and raises "attached to a different loop" in the next test
     # that pushes comments. Reset it before and after each test so it re-binds.
+    from app.services.telegram.comment_sync_pending import reset_comment_sync_pending_storage
     from app.services.telegram.sync_pending import reset_sync_pending_storage
 
     await reset_sync_pending_storage()
+    await reset_comment_sync_pending_storage()
     yield
     await reset_sync_pending_storage()
+    await reset_comment_sync_pending_storage()
 
 
 def _connected_telegram_payload(**overrides: Any) -> dict[str, Any]:
@@ -858,6 +861,86 @@ async def test_patch_new_comment_pushes_to_telegram(
     assert "commentSyncError" not in retry_body
     # The already-synced comment must not be re-sent.
     assert len(SCENARIO.sent) == 2
+
+
+@pytest.mark.asyncio
+async def test_patch_comment_exposes_comments_sync_pending_before_push(
+    client: AsyncClient, writer_auth_headers: dict[str, str], monkeypatch: pytest.MonkeyPatch
+) -> None:
+    from app.services.telegram import comments_flow as comments_flow_module
+
+    await _seed_connected_profile(client, writer_auth_headers)
+    post = await _create_published_post(client, writer_auth_headers)
+
+    push_started = asyncio.Event()
+    release_push = asyncio.Event()
+
+    original_push = comments_flow_module.push_pending_post_comments
+
+    async def slow_push(user_id: uuid.UUID, post_id: str) -> None:
+        push_started.set()
+        await release_push.wait()
+        await original_push(user_id, post_id)
+
+    monkeypatch.setattr(comments_flow_module, "push_pending_post_comments", slow_push)
+
+    response = await client.patch(
+        f"/api/v1/posts/{post['id']}/",
+        headers=writer_auth_headers,
+        json={
+            "comments": [
+                {
+                    "id": "new-local",
+                    "author": "Вы",
+                    "text": "Pending flag",
+                    "date": "2026-07-02T12:00:00Z",
+                }
+            ]
+        },
+    )
+    assert response.status_code == 200
+    await asyncio.wait_for(push_started.wait(), timeout=5.0)
+
+    list_resp = await client.get("/api/v1/posts/", headers=writer_auth_headers)
+    listed = next(item for item in list_resp.json() if item["id"] == post["id"])
+    assert listed.get("commentsSyncPending") is True
+
+    release_push.set()
+    await comments_flow_module.drain_scheduled_comment_pushes()
+
+    list_after = await client.get("/api/v1/posts/", headers=writer_auth_headers)
+    listed_after = next(item for item in list_after.json() if item["id"] == post["id"])
+    assert listed_after.get("commentsSyncPending") is not True
+
+
+@pytest.mark.asyncio
+async def test_comment_push_failure_persists_comment_sync_error(
+    client: AsyncClient, writer_auth_headers: dict[str, str]
+) -> None:
+    from telethon import errors
+
+    await _seed_connected_profile(client, writer_auth_headers)
+    post = await _create_published_post(client, writer_auth_headers)
+    SCENARIO.fail_send = errors.FloodWaitError(request=None, capture=30)
+
+    response = await client.patch(
+        f"/api/v1/posts/{post['id']}/",
+        headers=writer_auth_headers,
+        json={
+            "comments": [
+                {
+                    "id": "fail-local",
+                    "author": "Вы",
+                    "text": "Will fail",
+                    "date": "2026-07-02T12:00:00Z",
+                }
+            ]
+        },
+    )
+    assert response.status_code == 200
+    body = await _post_after_comment_push(client, post["id"], writer_auth_headers)
+    assert body.get("commentSyncError")
+    assert body.get("commentsSyncPending") is not True
 
 
 def test_merge_patch_comments_preserves_telegram_message_id() -> None:
