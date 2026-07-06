@@ -101,13 +101,18 @@ class PublishFakeTelegramClient:
     async def __call__(self, request: Any) -> Any:
         cls_name = type(request).__name__
         if cls_name == "GetDiscussionMessageRequest":
+            channel_msg = SimpleNamespace(
+                id=int(getattr(request, "msg_id", 0) or 0),
+                peer_id=SimpleNamespace(channel_id=555),
+                message="Channel post",
+            )
             root = SimpleNamespace(
                 id=DISCUSSION_ROOT_ID,
                 peer_id=SimpleNamespace(channel_id=int(DISCUSSION_CHAT_ID)),
                 message="Discussion root",
             )
             return SimpleNamespace(
-                messages=[root],
+                messages=[channel_msg, root],
                 chats=[
                     SimpleNamespace(id=555, broadcast=True, title="Channel"),
                     SimpleNamespace(
@@ -384,13 +389,13 @@ async def test_publish_optimistically_enables_comments_when_probe_is_slow(
     )
     post = await _create_draft(client, writer_auth_headers, text="Slow thread")
 
-    async def no_root(*_args: Any, **_kwargs: Any) -> None:
-        return None
+    async def no_discussion(*_args: Any, **_kwargs: Any) -> tuple[None, bool]:
+        return None, False
 
     monkeypatch.setattr(
         comments_flow_module,
-        "get_discussion_root_message_id",
-        no_root,
+        "probe_discussion_root",
+        no_discussion,
     )
 
     async def skip_reconcile(*_args: Any, **_kwargs: Any) -> None:

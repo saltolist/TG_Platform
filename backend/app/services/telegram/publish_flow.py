@@ -39,6 +39,7 @@ from app.services.telegram.net import (
 )
 from app.services.telegram.message_mapping import map_group_to_post, telethon_message_fetchable
 from app.services.telegram.post_sync import finalize_published_from_telegram, mark_post_published
+from app.services.telegram.reconcile_flow import maybe_reconcile_after_rpc
 from app.services.telegram.session_guard import exclusive_telegram_access
 from app.services.telegram.sync_pending import telegram_sync_pending
 
@@ -227,9 +228,44 @@ async def publish_post(
                     await _persist_post_data(user_id, post_id, probed_data)
                     merged_data = probed_data
 
+                comment_fields = {
+                    key: merged_data[key]
+                    for key in (
+                        "commentsThreadAvailable",
+                        "commentsThreadLiveOptimistic",
+                        "telegramDiscussionMessageId",
+                    )
+                    if key in merged_data
+                }
+
+                await maybe_reconcile_after_rpc(
+                    client,
+                    entity,
+                    user_id,
+                    settings,
+                    force=True,
+                    include_new_scan=True,
+                )
+
                 fresh = await _load_post_data(user_id, post_id)
                 if fresh:
-                    merged_data = fresh
+                    merged_data = {**fresh, **comment_fields}
+
+                if comment_fields.get("telegramDiscussionMessageId") or comment_fields.get(
+                    "commentsThreadLiveOptimistic"
+                ):
+                    final_data = merged_data
+                else:
+                    final_data = await probe_comments_thread_for_post(
+                        client, entity, merged_data, telegram, settings
+                    )
+                    if comments_enabled(telegram) and not final_data.get(
+                        "telegramDiscussionMessageId"
+                    ):
+                        final_data = apply_initial_comments_thread_flag(final_data, telegram)
+                    if final_data != merged_data:
+                        await _persist_post_data(user_id, post_id, final_data)
+                merged_data = final_data
             finally:
                 await disconnect_safely(client)
 

@@ -1,6 +1,7 @@
 from typing import Any
 
-from fastapi import APIRouter, HTTPException
+from fastapi import APIRouter, HTTPException, Request
+from fastapi.responses import StreamingResponse
 
 from app.core.deps import CurrentUser, CurrentWriter, DbSession
 from app.core.config import get_settings
@@ -37,8 +38,14 @@ from app.services.telegram.live_sync_worker import (
     apply_effective_sync_fields,
     ensure_user_listener,
 )
+from app.services.telegram.sync_events import stream_telegram_sync_events
 
 router = APIRouter(prefix="/profile", tags=["Profile"])
+
+_SSE_HEADERS = {
+    "Cache-Control": "no-cache",
+    "X-Accel-Buffering": "no",
+}
 
 
 async def _get_or_create(session: DbSession, user_id) -> Profile:
@@ -120,6 +127,27 @@ async def get_telegram(user: CurrentUser, session: DbSession) -> dict[str, Any]:
     ensure_user_listener(user.id, stored)
     stored = apply_effective_sync_fields(stored, user.id)
     return mask_telegram_secrets(stored, get_settings())
+
+
+@router.get("/telegram/sync-events/")
+async def stream_telegram_sync(
+    request: Request, user: CurrentUser, session: DbSession
+) -> StreamingResponse:
+    """SSE stream of telegram sync revision fields (replaces 1s profile polling)."""
+    profile = await session.get(Profile, user.id)
+    stored = profile.telegram if profile and profile.telegram else empty_telegram_profile()
+    ensure_user_listener(user.id, stored)
+    stored = apply_effective_sync_fields(stored, user.id)
+
+    async def event_stream():
+        async for chunk in stream_telegram_sync_events(
+            user.id,
+            stored,
+            is_disconnected=request.is_disconnected,
+        ):
+            yield chunk
+
+    return StreamingResponse(event_stream(), media_type="text/event-stream", headers=_SSE_HEADERS)
 
 
 @router.post("/telegram/reveal-secret/", response_model=RevealTelegramSecretResponse)

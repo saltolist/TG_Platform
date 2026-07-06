@@ -20,6 +20,10 @@ def format_sse_meta(meta: dict[str, object]) -> str:
     return f"data: {json.dumps({'meta': meta}, ensure_ascii=False)}\n\n"
 
 
+def format_sse_comment(comment: str) -> str:
+    return f": {comment}\n\n"
+
+
 def parse_sse_text_chunk(event_block: str) -> str | None:
     for line in event_block.split("\n"):
         if not line.startswith("data: "):

@@ -278,6 +278,43 @@ export const handlers = [
     return HttpResponse.json(store.telegramProfile);
   }),
 
+  http.get(apiV1MswPath("profile/telegram/sync-events"), ({ request }) => {
+    const store = requireStore(request);
+    if (!store) return unauthorized();
+    const profile = store.telegramProfile;
+    const meta = {
+      syncRevision: profile.syncRevision ?? 0,
+      commentsRevision: profile.commentsRevision ?? 0,
+      metricsRevision: profile.metricsRevision ?? 0,
+      lastSync: profile.lastSync ?? "—",
+      syncStatus: profile.syncStatus ?? "idle",
+      syncError: profile.syncError ?? "",
+      channelStatus: profile.channelStatus ?? "idle",
+      syncMode: profile.syncMode ?? "history-and-live",
+      importStatus: profile.importStatus ?? "idle",
+    };
+    const stream = new ReadableStream({
+      start(controller) {
+        const encoder = new TextEncoder();
+        controller.enqueue(encoder.encode(`data: ${JSON.stringify({ meta })}\n\n`));
+        const intervalId = window.setInterval(() => {
+          controller.enqueue(encoder.encode(": ping\n\n"));
+        }, 25_000);
+        request.signal.addEventListener(
+          "abort",
+          () => {
+            window.clearInterval(intervalId);
+            controller.close();
+          },
+          { once: true },
+        );
+      },
+    });
+    return new HttpResponse(stream, {
+      headers: { "Content-Type": "text/event-stream" },
+    });
+  }),
+
   http.put(apiV1MswPath("profile/telegram"), async ({ request }) => {
     const store = requireStore(request);
     if (!store) return unauthorized();

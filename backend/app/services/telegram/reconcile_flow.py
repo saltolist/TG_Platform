@@ -13,6 +13,7 @@ from sqlalchemy.orm.attributes import flag_modified
 
 from app.core.config import Settings, get_settings
 from app.db.models import Post, Profile
+from app.services.telegram.net import call_with_flood_wait
 from app.services.telegram.message_mapping import (
     collect_posts_from_iter,
     map_message_for_reconcile,
@@ -112,7 +113,9 @@ async def _fetch_messages_by_ids(
     for offset in range(0, len(message_ids), _BATCH_SIZE):
         chunk = message_ids[offset : offset + _BATCH_SIZE]
         try:
-            fetched = await client.get_messages(entity, ids=chunk)
+            fetched = await call_with_flood_wait(
+                lambda ids=chunk: client.get_messages(entity, ids=ids)
+            )
         except Exception:
             logger.debug("get_messages batch failed for ids %s", chunk, exc_info=True)
             continue

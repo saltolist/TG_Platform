@@ -70,6 +70,11 @@ export interface ProfileRepository {
     field: AiModelListField,
   ): Promise<RevealAiModelApiKeyResponse>;
   getTelegram(): Promise<TelegramProfileConfig>;
+  /** Long-lived SSE stream of sync revision fields (falls back to polling when unavailable). */
+  streamTelegramSync(
+    onMeta: (meta: Record<string, unknown>) => void,
+    signal?: AbortSignal,
+  ): Promise<void>;
   updateTelegram(config: TelegramProfileConfig): Promise<TelegramProfileConfig>;
   revealTelegramSecret(field: string): Promise<{ value: string }>;
   /** Start (or retry) real MTProto authorization — sends a confirmation code to `phone`. */

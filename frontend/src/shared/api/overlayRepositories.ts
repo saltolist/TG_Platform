@@ -268,6 +268,7 @@ function overlayProfile(inner: ProfileRepository): ProfileRepository {
       const overlay = readOverlay().profile?.telegram;
       return overlay ? normalizeTelegramProfileConfig({ ...base, ...overlay }) : base;
     },
+    streamTelegramSync: (onMeta, signal) => inner.streamTelegramSync(onMeta, signal),
     updateTelegram: async (config) => {
       if (!shouldPersistLocally()) return inner.updateTelegram(config);
       mutateOverlay((overlay) => {

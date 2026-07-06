@@ -11,6 +11,7 @@ from sqlalchemy import select
 from sqlalchemy.orm.attributes import flag_modified
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 from telethon import events
+from telethon import errors as telethon_errors
 from telethon.tl.types import (
     UpdateChannelMessageForwards,
     UpdateChannelMessageViews,
@@ -34,6 +35,7 @@ from app.services.telegram.text_formatting import message_entities
 from app.services.telegram.mtproto_client import build_client
 from app.services.telegram.net import (
     TelegramAuthError,
+    call_with_flood_wait,
     connect_telegram_client,
     decrypt_field,
     disconnect_safely,
@@ -318,16 +320,20 @@ async def _collect_catch_up_posts_lightweight(
     limit: int,
 ) -> list[dict[str, Any]]:
     """Fast catch-up for drift correction — no media downloads."""
-    posts: list[dict[str, Any]] = []
-    async for message in client.iter_messages(entity, min_id=min_id, limit=max(limit * 5, limit)):
-        if not message_is_importable(message):
-            continue
-        mapped = map_message_for_reconcile(message)
-        if mapped is not None:
-            posts.append(mapped)
-        if len(posts) >= limit:
-            break
-    return posts
+
+    async def _collect() -> list[dict[str, Any]]:
+        collected: list[dict[str, Any]] = []
+        async for message in client.iter_messages(entity, min_id=min_id, limit=max(limit * 5, limit)):
+            if not message_is_importable(message):
+                continue
+            mapped = map_message_for_reconcile(message)
+            if mapped is not None:
+                collected.append(mapped)
+            if len(collected) >= limit:
+                break
+        return collected
+
+    return await call_with_flood_wait(_collect)
 
 
 async def _catch_up(
@@ -649,7 +655,9 @@ async def _refresh_channel_message(client: Any, entity: Any, message: Any) -> An
     if not msg_id:
         return message
     try:
-        fetched = await client.get_messages(entity, ids=msg_id)
+        fetched = await call_with_flood_wait(
+            lambda: client.get_messages(entity, ids=msg_id)
+        )
     except Exception:
         logger.debug("Failed to refresh message %s for live-sync edit", msg_id, exc_info=True)
         return message
@@ -896,7 +904,9 @@ async def _run_user_listener(user_id: UUID, stop_event: asyncio.Event) -> None:
                         gid = getattr(message, "grouped_id", None) or None
                         messages = [message]
                         if gid:
-                            siblings = await client.get_messages(entity, grouped_id=gid)
+                            siblings = await call_with_flood_wait(
+                                lambda: client.get_messages(entity, grouped_id=gid)
+                            )
                             if siblings:
                                 messages = list(siblings)
                         await _persist_group(
@@ -1128,6 +1138,14 @@ async def _run_user_listener(user_id: UUID, stop_event: asyncio.Event) -> None:
                     await comment_buffer.flush()
                     await metrics_buffer.flush()
                     raise
+                except telethon_errors.FloodWaitError as exc:
+                    seconds = min(int(getattr(exc, "seconds", 0) or 0), 60)
+                    logger.warning(
+                        "Live-sync FloodWait for user %s (%ss) — backing off before reconnect",
+                        user_id,
+                        seconds,
+                    )
+                    await asyncio.sleep(max(1, seconds))
                 except TelegramAuthError as exc:
                     if exc.status_code == 504:
                         logger.warning(

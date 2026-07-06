@@ -1,5 +1,5 @@
 import { apiV1Path } from "@/shared/config/basePath";
-import { apiRequest, apiStream } from "@/shared/api/httpClient";
+import { apiRequest, apiSseSubscribe, apiStream } from "@/shared/api/httpClient";
 import type { AssistantStreamOptions, RepositoryBundle, TelegramReconcileResponse } from "@/shared/api/repositories";
 import {
   normalizeAiProfileConfigFromServer,
@@ -179,6 +179,8 @@ export function createHttpRepositories(): RepositoryBundle {
         apiRequest<TelegramProfileConfig>(apiV1Path("profile/telegram")).then(
           normalizeTelegramProfileConfig,
         ),
+      streamTelegramSync: (onMeta, signal) =>
+        apiSseSubscribe(apiV1Path("profile/telegram/sync-events"), { onMeta, signal }),
       updateTelegram: (config) =>
         apiRequest<TelegramProfileConfig>(apiV1Path("profile/telegram"), {
           method: "PUT",

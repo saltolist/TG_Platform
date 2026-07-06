@@ -24,6 +24,7 @@ from app.services.telegram.net import (
     with_timeout,
 )
 from app.services.telegram.session_guard import exclusive_telegram_access
+from app.services.telegram.reconcile_flow import maybe_reconcile_after_rpc
 
 
 async def delete_message_in_telegram(
@@ -88,6 +89,14 @@ async def delete_message_in_telegram(
                 raise TelegramAuthError(
                     str(exc) or "Не удалось удалить сообщение в Telegram", 502
                 ) from exc
+            await maybe_reconcile_after_rpc(
+                client,
+                entity,
+                user_id,
+                settings,
+                force=True,
+                include_new_scan=False,
+            )
         except TelegramAuthError:
             raise
         except Exception as exc:  # noqa: BLE001

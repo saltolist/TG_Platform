@@ -170,6 +170,27 @@ export function createSeedRepositories(): RepositoryBundle {
       async getTelegram() {
         return telegramProfile;
       },
+      async streamTelegramSync(onMeta, signal) {
+        onMeta({
+          syncRevision: telegramProfile.syncRevision ?? 0,
+          commentsRevision: telegramProfile.commentsRevision ?? 0,
+          metricsRevision: telegramProfile.metricsRevision ?? 0,
+          lastSync: telegramProfile.lastSync ?? "—",
+          syncStatus: telegramProfile.syncStatus ?? "idle",
+          syncError: telegramProfile.syncError ?? "",
+          channelStatus: telegramProfile.channelStatus ?? "idle",
+          syncMode: telegramProfile.syncMode ?? "history-and-live",
+          importStatus: telegramProfile.importStatus ?? "idle",
+        });
+        await new Promise<void>((resolve) => {
+          if (!signal) return;
+          if (signal.aborted) {
+            resolve();
+            return;
+          }
+          signal.addEventListener("abort", () => resolve(), { once: true });
+        });
+      },
       async updateTelegram(config) {
         telegramProfile = config;
         return telegramProfile;

@@ -98,6 +98,50 @@ export async function apiRequest<T>(path: string, options: RequestOptions = {}):
   return JSON.parse(text) as T;
 }
 
+type SseSubscribeOptions = {
+  signal?: AbortSignal;
+  onMeta?: (meta: Record<string, unknown>) => void;
+};
+
+export async function apiSseSubscribe(
+  path: string,
+  options: SseSubscribeOptions = {},
+): Promise<void> {
+  const { signal, onMeta } = options;
+  const { headers, url } = await prepareApiFetch(path, { method: "GET", signal });
+
+  const res = await fetch(url, {
+    method: "GET",
+    headers,
+    signal,
+    credentials: fetchCredentials(),
+  });
+
+  if (!res.ok) {
+    if (res.status === 401) {
+      onUnauthorized?.();
+      throw new ApiError("Unauthorized", 401);
+    }
+    let payload: unknown;
+    try {
+      payload = await res.json();
+    } catch {
+      payload = await res.text().catch(() => undefined);
+    }
+    throw new ApiError(`API GET ${path} failed (${res.status})`, res.status, payload);
+  }
+
+  if (!res.body) {
+    throw new ApiError(`API GET ${path} returned empty stream`, res.status);
+  }
+
+  const { consumeSseTextStream } = await import("@/shared/api/sse");
+  await consumeSseTextStream(res.body, () => undefined, {
+    onMeta,
+    paintBetweenChunks: false,
+  });
+}
+
 export async function apiStream(
   path: string,
   options: StreamRequestOptions,

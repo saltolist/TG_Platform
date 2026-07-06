@@ -88,6 +88,9 @@ async def touch_telegram_profile(
         telegram["syncError"] = sync_error[:500] if sync_error else ""
         profile.telegram = telegram
         flag_modified(profile, "telegram")
+        from app.services.telegram.sync_events import publish_telegram_sync_event
+
+        publish_telegram_sync_event(profile.user_id, telegram)
         return
     telegram["lastSync"] = datetime.now(timezone.utc).isoformat()
     if comment_only:
@@ -107,6 +110,9 @@ async def touch_telegram_profile(
     telegram["syncError"] = sync_error[:500] if sync_error else ""
     profile.telegram = telegram
     flag_modified(profile, "telegram")
+    from app.services.telegram.sync_events import publish_telegram_sync_event
+
+    publish_telegram_sync_event(profile.user_id, telegram)
 
 
 async def mark_post_deleted(post: Post) -> None:

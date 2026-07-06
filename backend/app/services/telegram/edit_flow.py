@@ -30,6 +30,7 @@ from app.services.telegram.message_mapping import (
     telethon_fetch_has_messages,
 )
 from app.services.telegram.post_sync import delete_telegram_post
+from app.services.telegram.reconcile_flow import maybe_reconcile_after_rpc
 from app.services.telegram.session_guard import exclusive_telegram_access
 
 
@@ -96,6 +97,14 @@ async def sync_edit_to_telegram(
                 return EditSyncResult(deleted_in_telegram=True)
 
             await with_timeout(client.edit_message(entity, msg_id, new_text), settings)
+            await maybe_reconcile_after_rpc(
+                client,
+                entity,
+                user_id,
+                settings,
+                force=True,
+                include_new_scan=False,
+            )
         except TelegramAuthError as exc:
             if is_message_gone_error(exc):
                 await _mark_deleted_in_platform(user_id, telegram_message_id)

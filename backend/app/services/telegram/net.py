@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import asyncio
 import logging
+from collections.abc import Awaitable, Callable
 from typing import Any, TypeVar
 
 from app.core.config import Settings
@@ -59,6 +60,38 @@ async def with_timeout(coro: Any, settings: Settings) -> _T:
         return await asyncio.wait_for(coro, timeout=settings.telegram_rpc_timeout_seconds)
     except asyncio.TimeoutError:
         raise TelegramAuthError(TELEGRAM_TIMEOUT_MESSAGE, 504) from None
+
+
+async def call_with_flood_wait(
+    factory: Callable[[], Awaitable[_T]],
+    *,
+    max_retries: int = 3,
+    max_sleep_seconds: float = 60.0,
+) -> _T:
+    """Retry a background Telethon RPC after ``FloodWaitError`` (live-sync only)."""
+    from telethon import errors
+
+    last_exc: errors.FloodWaitError | None = None
+    for attempt in range(max_retries + 1):
+        try:
+            return await factory()
+        except errors.FloodWaitError as exc:
+            last_exc = exc
+            if attempt >= max_retries:
+                raise
+            seconds = int(getattr(exc, "seconds", 0) or 0)
+            sleep_for = min(max(seconds, 1), int(max_sleep_seconds))
+            logger.warning(
+                "Telegram FloodWait %ss — backing off %ss (attempt %s/%s)",
+                seconds,
+                sleep_for,
+                attempt + 1,
+                max_retries,
+            )
+            await asyncio.sleep(sleep_for)
+    if last_exc is not None:
+        raise last_exc
+    raise RuntimeError("call_with_flood_wait exhausted without result")
 
 
 async def connect_telegram_client(client: Any, settings: Settings) -> None:
