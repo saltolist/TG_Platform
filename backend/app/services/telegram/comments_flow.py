@@ -861,6 +861,23 @@ async def map_telegram_messages_to_comments(
     return comments
 
 
+def comments_pull_is_complete(
+    from_telegram: list[dict[str, Any]],
+    existing: list[dict[str, Any]],
+) -> bool:
+    """True when a Telegram pull is safe to treat as authoritative for pruning.
+
+    An empty pull with stored TG-synced comments is inconclusive (transient RPC
+    issues, rate limits) — never prune in that case.
+    """
+    if from_telegram:
+        return True
+    for item in existing:
+        if isinstance(item, Mapping) and item.get("telegramMessageId"):
+            return False
+    return True
+
+
 async def fetch_comments_from_telegram(
     client: Any,
     channel_entity: Any,
@@ -902,7 +919,9 @@ async def fetch_comments_from_telegram(
         settings=settings,
         existing=existing,
     )
-    return root_id, comments, False, True
+    existing_rows = existing or []
+    complete = comments_pull_is_complete(comments, existing_rows)
+    return root_id, comments, False, complete
 
 
 def _local_media_path(url: Any, user_id: UUID, settings: Settings) -> str | None:

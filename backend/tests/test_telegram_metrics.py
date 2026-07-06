@@ -128,6 +128,63 @@ async def test_update_telegram_post_text_change_bumps_sync_revision(writer_user)
 
 
 @pytest.mark.asyncio
+async def test_update_telegram_post_preserves_comments_on_media_refresh(writer_user) -> None:
+    user_id = writer_user.id
+    async with TestSessionLocal() as db_session:
+        if await db_session.get(Profile, user_id) is None:
+            db_session.add(Profile(user_id=user_id, telegram={}))
+        post = Post(
+            id=uuid.uuid4(),
+            user_id=user_id,
+            position=0,
+            data={
+                "id": "post-comments",
+                "status": "published",
+                "text": "Caption",
+                "telegramMessageId": "9010",
+                "source": "telegram",
+                "metrics": {"views": "10", "reposts": 0, "reactions": []},
+                "comments": [
+                    {
+                        "id": "tg-42",
+                        "author": "Reader",
+                        "text": "Nice post",
+                        "date": "2026-07-02T12:00:00Z",
+                        "telegramMessageId": "42",
+                    }
+                ],
+            },
+        )
+        db_session.add(post)
+        await db_session.commit()
+
+        await update_telegram_post(
+            db_session,
+            user_id,
+            {
+                "id": "9010",
+                "status": "published",
+                "date": "2026-07-02T10:00:00Z",
+                "text": "Caption",
+                "metrics": {"views": "11", "reposts": 0, "reactions": []},
+                "notes": [],
+                "chats": [],
+                "comments": [],
+                "source": "telegram",
+                "telegramMessageId": "9010",
+                "media": [{"kind": "photo", "type": "image/jpeg", "url": "/media/x.jpg"}],
+            },
+        )
+        await db_session.commit()
+
+        refreshed = await db_session.get(Post, post.id)
+        assert refreshed is not None
+        comments = refreshed.data.get("comments") or []
+        assert len(comments) == 1
+        assert comments[0]["telegramMessageId"] == "42"
+
+
+@pytest.mark.asyncio
 async def test_channel_analytics_endpoints(
     client: AsyncClient,
     writer_auth_headers: dict,

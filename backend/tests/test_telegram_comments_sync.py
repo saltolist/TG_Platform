@@ -511,6 +511,37 @@ def test_full_pull_prunes_synced_comment_missing_in_telegram() -> None:
     assert any(item.get("telegramMessageId") == "7001" for item in full)
 
 
+def test_comments_pull_is_complete_empty_with_stored_synced_is_inconclusive() -> None:
+    from app.services.telegram.comments_flow import comments_pull_is_complete
+
+    existing = [
+        {
+            "id": "tg-7000",
+            "author": "Пользователь",
+            "text": "Was in TG",
+            "date": "2026-07-02T12:00:00Z",
+            "telegramMessageId": "7000",
+        }
+    ]
+    assert comments_pull_is_complete([], existing) is False
+    assert comments_pull_is_complete([], []) is True
+
+
+def test_empty_telegram_pull_does_not_prune_stored_synced_comments() -> None:
+    existing = [
+        {
+            "id": "tg-7000",
+            "author": "Пользователь",
+            "text": "Still in DB",
+            "date": "2026-07-02T12:00:00Z",
+            "telegramMessageId": "7000",
+        }
+    ]
+    merged = merge_comments(existing, [], prune_missing_synced=False)
+    assert len(merged) == 1
+    assert merged[0]["telegramMessageId"] == "7000"
+
+
 def test_dedupe_platform_comments_collapses_live_sync_race() -> None:
     comments = [
         {

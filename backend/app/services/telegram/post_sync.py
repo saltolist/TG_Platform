@@ -233,6 +233,25 @@ def _is_metrics_only_change(existing: dict[str, Any], incoming: dict[str, Any]) 
     return (existing.get("metrics") or {}) != (incoming.get("metrics") or {})
 
 
+_PRESERVE_NON_EMPTY_ON_EMPTY_LIST = ("comments", "notes", "chats")
+
+
+def _merge_telegram_post_payload(
+    existing: dict[str, Any], incoming: dict[str, Any]
+) -> dict[str, Any]:
+    """Merge a Telethon-mapped payload into stored post data.
+
+    Channel ingest always maps ``comments``/``notes``/``chats`` to ``[]``. Those
+    fields are managed separately (comments_flow, platform UI) and must not be
+    wiped by media enrich, message edits, or catch-up updates.
+    """
+    patched = dict(incoming)
+    for key in _PRESERVE_NON_EMPTY_ON_EMPTY_LIST:
+        if patched.get(key) == [] and existing.get(key):
+            patched.pop(key, None)
+    return {**existing, **patched}
+
+
 def _incoming_telegram_edit_is_stale(existing: dict[str, Any], incoming: dict[str, Any]) -> bool:
     """Drop a live-sync text update that predates the latest platform-side edit.
 
@@ -291,7 +310,7 @@ async def update_telegram_post(
     if _incoming_telegram_edit_is_stale(existing.data, post_data):
         return
 
-    merged = {**existing.data, **post_data}
+    merged = _merge_telegram_post_payload(existing.data, post_data)
     if post_data.get("date"):
         merged["date"] = post_data["date"]
     if merged.get("status") == "published" and merged.get("source") == "telegram":
