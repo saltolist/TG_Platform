@@ -1,24 +1,26 @@
 "use client";
 
+import { EditorContent, useEditor } from "@tiptap/react";
 import {
   useCallback,
   useEffect,
   useLayoutEffect,
+  useMemo,
   useRef,
   type KeyboardEvent,
   type RefObject,
 } from "react";
 
+import type { RichTextFormat } from "@/shared/lib/telegram/richTextFormat";
+import { applyTelegramFormat } from "@/shared/lib/telegram/tiptap/applyTelegramFormat";
+import { createEditorHandle, type TelegramPostEditorHandle } from "@/shared/lib/telegram/tiptap/editorHandle";
+import type { PostTextContent } from "@/shared/lib/telegram/tiptap/postTextContent";
+import { getTelegramPostEditorExtensions } from "@/shared/lib/telegram/tiptap/telegramEditorExtensions";
 import {
-  applyRichTextFormat,
-  autoResizeRichTextEditor,
-  serializeRichTextEditor,
-  setRichTextContent,
-  type PostTextContent,
-  type RichTextFormat,
-} from "@/shared/lib/telegram/richTextEditorDom";
+  editorToPostContent,
+  postContentToEditorHtml,
+} from "@/shared/lib/telegram/tiptap/telegramHtmlBridge";
 import { useRichTextFormatBubble } from "@/shared/lib/telegram/useRichTextFormatBubble";
-import { hydrateCustomEmojiInDom } from "@/shared/lib/telegram/hydrateCustomEmojiDom";
 import { RichTextFormatBubble } from "@/shared/ui/RichTextFormatBubble";
 
 type Props = {
@@ -27,7 +29,7 @@ type Props = {
   onKeyDown?: (event: KeyboardEvent<HTMLDivElement>) => void;
   placeholder?: string;
   className?: string;
-  editorRef?: RefObject<HTMLDivElement | null>;
+  editorRef?: RefObject<TelegramPostEditorHandle | null>;
   disabled?: boolean;
   id?: string;
   ariaLabel?: string;
@@ -46,106 +48,116 @@ export function RichTextEditor({
   ariaLabel,
   minHeight = 16,
 }: Props) {
-  const localRef = useRef<HTMLDivElement>(null);
-  const ref = editorRef ?? localRef;
   const lastSerializedRef = useRef("");
+  const wrapperRef = useRef<HTMLDivElement>(null);
   const isEmpty = !value.text.trim() && !value.textHtml?.trim();
-  const { bubble, refreshBubble, closeBubble } = useRichTextFormatBubble(ref, disabled);
 
-  const syncFromDom = useCallback(() => {
-    const root = ref.current;
-    if (!root) return;
-    const next = serializeRichTextEditor(root);
-    const serialized = JSON.stringify(next);
-    if (serialized === lastSerializedRef.current) return;
-    lastSerializedRef.current = serialized;
-    onChange(next);
-  }, [onChange, ref]);
-
-  const hydrateTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
-
-  const scheduleHydrate = useCallback(() => {
-    const root = ref.current;
-    if (!root) return;
-    if (hydrateTimerRef.current) clearTimeout(hydrateTimerRef.current);
-    hydrateTimerRef.current = setTimeout(() => {
-      hydrateCustomEmojiInDom(root);
-    }, 120);
-  }, [ref]);
-
-  useEffect(() => {
-    const root = ref.current;
-    if (!root) return;
-    const serialized = JSON.stringify(value);
-    if (serialized === lastSerializedRef.current) return;
-    setRichTextContent(root, value);
-    lastSerializedRef.current = serialized;
-    autoResizeRichTextEditor(root, minHeight);
-    closeBubble();
-    scheduleHydrate();
-  }, [closeBubble, minHeight, ref, scheduleHydrate, value]);
-
-  useEffect(
-    () => () => {
-      if (hydrateTimerRef.current) clearTimeout(hydrateTimerRef.current);
-    },
-    [],
+  const extensions = useMemo(
+    () => getTelegramPostEditorExtensions(placeholder),
+    [placeholder],
   );
 
-  useLayoutEffect(() => {
-    const root = ref.current;
-    if (!root) return;
-    autoResizeRichTextEditor(root, minHeight);
-  }, [minHeight, ref, value.text, value.textHtml]);
-
-  const handleFormat = useCallback(
-    (format: RichTextFormat) => {
-      if (disabled) return;
-      const root = ref.current;
-      if (!root) return;
-      root.focus();
-      applyRichTextFormat(format);
-      syncFromDom();
-      autoResizeRichTextEditor(root, minHeight);
-      refreshBubble();
-    },
-    [disabled, minHeight, ref, refreshBubble, syncFromDom],
-  );
-
-  return (
-    <div className="rich-text-editor">
-      <div
-        ref={ref}
-        id={id}
-        className={[
+  const editor = useEditor({
+    extensions,
+    content: postContentToEditorHtml(value),
+    editable: !disabled,
+    immediatelyRender: false,
+    editorProps: {
+      attributes: {
+        ...(id ? { id } : {}),
+        class: [
           "rich-text-input",
           "tg-formatted-text",
+          "ProseMirror",
           isEmpty ? "rich-text-input--empty" : "",
           className,
         ]
           .filter(Boolean)
-          .join(" ")}
-        contentEditable={!disabled}
-        role="textbox"
-        aria-multiline="true"
-        aria-label={ariaLabel}
-        aria-disabled={disabled}
-        data-placeholder={placeholder}
-        suppressContentEditableWarning
-        onInput={() => {
-          syncFromDom();
-          const root = ref.current;
-          if (root) {
-            scheduleHydrate();
-            autoResizeRichTextEditor(root, minHeight);
+          .join(" "),
+        role: "textbox",
+        "aria-multiline": "true",
+        "aria-label": ariaLabel ?? "",
+        "aria-disabled": String(disabled),
+      },
+    },
+    onUpdate: ({ editor: currentEditor }) => {
+      const next = editorToPostContent(currentEditor);
+      const serialized = JSON.stringify(next);
+      if (serialized === lastSerializedRef.current) return;
+      lastSerializedRef.current = serialized;
+      onChange(next);
+      autoResizeEditor(wrapperRef.current, minHeight);
+    },
+  });
+
+  const { bubble, openBubble, closeBubble } = useRichTextFormatBubble(editor, disabled);
+
+  useEffect(() => {
+    if (!editorRef) return;
+    editorRef.current = createEditorHandle(editor);
+    return () => {
+      editorRef.current = null;
+    };
+  }, [editor, editorRef]);
+
+  useEffect(() => {
+    if (!editor) return;
+    editor.setEditable(!disabled);
+  }, [disabled, editor]);
+
+  useEffect(() => {
+    if (!editor) return;
+    const serialized = JSON.stringify(value);
+    if (serialized === lastSerializedRef.current) return;
+    editor.commands.setContent(postContentToEditorHtml(value), { emitUpdate: false });
+    lastSerializedRef.current = serialized;
+    autoResizeEditor(wrapperRef.current, minHeight);
+    closeBubble();
+  }, [closeBubble, editor, minHeight, value]);
+
+  useLayoutEffect(() => {
+    autoResizeEditor(wrapperRef.current, minHeight);
+  }, [minHeight, value.text, value.textHtml]);
+
+  const handleFormat = useCallback(
+    (format: RichTextFormat) => {
+      if (disabled || !editor) return;
+      applyTelegramFormat(editor, format);
+      openBubble();
+      autoResizeEditor(wrapperRef.current, minHeight);
+    },
+    [disabled, editor, minHeight, openBubble],
+  );
+
+  if (!editor) {
+    return <div className="rich-text-editor" ref={wrapperRef} />;
+  }
+
+  return (
+    <div className="rich-text-editor" ref={wrapperRef}>
+      <EditorContent
+        editor={editor}
+        onKeyDown={(event) => {
+          onKeyDown?.(event);
+        }}
+        onBlur={() => {
+          if (!editor) return;
+          const next = editorToPostContent(editor);
+          const serialized = JSON.stringify(next);
+          if (serialized !== lastSerializedRef.current) {
+            lastSerializedRef.current = serialized;
+            onChange(next);
           }
         }}
-        onMouseUp={refreshBubble}
-        onKeyUp={refreshBubble}
-        onKeyDown={onKeyDown}
-        onBlur={syncFromDom}
       />
       <RichTextFormatBubble bubble={bubble} onFormat={handleFormat} />
     </div>
   );
+}
+
+function autoResizeEditor(root: HTMLElement | null, minHeight = 16): void {
+  const prose = root?.querySelector<HTMLElement>(".ProseMirror");
+  if (!prose) return;
+  prose.style.height = "auto";
+  prose.style.height = `${Math.max(minHeight, prose.scrollHeight)}px`;
 }

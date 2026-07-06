@@ -1,0 +1,27 @@
+"use client";
+
+import { NodeViewWrapper, type NodeViewProps } from "@tiptap/react";
+
+import { CustomEmojiPreview } from "@/shared/ui/CustomEmojiPreview";
+
+export function TelegramEmojiNodeView({ node }: NodeViewProps) {
+  const documentId = String(node.attrs.documentId ?? "");
+  const alt = String(node.attrs.alt ?? "⭐");
+
+  return (
+    <NodeViewWrapper
+      as="span"
+      className="telegram-emoji-node"
+      contentEditable={false}
+      data-emoji-id={documentId}
+      onMouseDown={(event) => event.preventDefault()}
+    >
+      <CustomEmojiPreview
+        documentId={documentId}
+        alt={alt}
+        className="tg-custom-emoji telegram-emoji-node-preview"
+        size={14}
+      />
+    </NodeViewWrapper>
+  );
+}

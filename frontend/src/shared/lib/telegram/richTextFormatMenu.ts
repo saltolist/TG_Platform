@@ -1,4 +1,4 @@
-import type { RichTextFormat } from "./richTextEditorDom";
+import type { RichTextFormat } from "@/shared/lib/telegram/richTextFormat";
 
 export const FORMAT_MENU_PAGE_SIZE = 3;
 

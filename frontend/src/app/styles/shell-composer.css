@@ -1302,6 +1302,22 @@
   white-space: pre-wrap;
 }
 
+.rich-text-editor .ProseMirror {
+  outline: none;
+}
+
+.rich-text-editor .ProseMirror p {
+  margin: 0;
+}
+
+.rich-text-input.rich-text-input--empty p.is-empty:first-child::before {
+  content: attr(data-placeholder);
+  color: var(--text3);
+  pointer-events: none;
+  float: left;
+  height: 0;
+}
+
 .rich-text-input--empty:empty::before {
   content: attr(data-placeholder);
   color: var(--text3);
@@ -1317,7 +1333,7 @@
   font-style: normal;
 }
 
-.post-msg-textarea.rich-text-input--empty:empty::before {
+.post-msg-textarea.rich-text-input--empty p.is-empty:first-child::before {
   color: var(--text3);
   font-style: italic;
 }
@@ -1542,9 +1558,17 @@
   line-height: 1;
 }
 
-.rich-text-input .tg-custom-emoji {
-  width: 20px;
-  height: 20px;
+.rich-text-input .telegram-emoji-node {
+  display: inline-flex;
+  vertical-align: -0.1em;
+  line-height: 1;
+  user-select: none;
+}
+
+.rich-text-input .telegram-emoji-node-preview,
+.rich-text-input .telegram-emoji-node .tg-custom-emoji {
+  width: 1em !important;
+  height: 1em !important;
 }
 
 .emoji-picker-item .tg-custom-emoji,

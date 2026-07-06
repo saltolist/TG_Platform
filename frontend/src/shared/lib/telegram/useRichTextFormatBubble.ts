@@ -1,4 +1,7 @@
-import { useCallback, useEffect, useState, type RefObject } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
+import type { Editor } from "@tiptap/core";
+
+import { selectionHasFormatableText } from "@/shared/lib/telegram/tiptap/selectionHasFormatableText";
 
 export type RichTextFormatBubbleState = {
   open: boolean;
@@ -6,62 +9,130 @@ export type RichTextFormatBubbleState = {
   left: number;
 };
 
-export function useRichTextFormatBubble(
-  editorRef: RefObject<HTMLElement | null>,
-  disabled: boolean,
-) {
+function bubbleCoords(editor: Editor): Pick<RichTextFormatBubbleState, "top" | "left"> | null {
+  if (!selectionHasFormatableText(editor)) return null;
+
+  const { from, to } = editor.state.selection;
+  const start = editor.view.coordsAtPos(from);
+  const end = editor.view.coordsAtPos(to);
+
+  return {
+    left: (start.left + end.right) / 2,
+    top: Math.min(start.top, end.top) - 8,
+  };
+}
+
+function isNavigationKey(key: string): boolean {
+  return (
+    key === "ArrowLeft" ||
+    key === "ArrowRight" ||
+    key === "ArrowUp" ||
+    key === "ArrowDown" ||
+    key === "Home" ||
+    key === "End"
+  );
+}
+
+export function useRichTextFormatBubble(editor: Editor | null, disabled: boolean) {
   const [bubble, setBubble] = useState<RichTextFormatBubbleState>({
     open: false,
     top: 0,
     left: 0,
   });
+  const shiftKeyRef = useRef(false);
 
-  const refreshBubble = useCallback(() => {
-    const root = editorRef.current;
-    if (!root || disabled) {
+  const tryOpen = useCallback(() => {
+    if (!editor || disabled) {
       setBubble((current) => (current.open ? { ...current, open: false } : current));
       return;
     }
 
-    const selection = window.getSelection();
-    if (!selection || selection.rangeCount === 0 || selection.isCollapsed) {
+    const coords = bubbleCoords(editor);
+    if (!coords) {
       setBubble((current) => (current.open ? { ...current, open: false } : current));
       return;
     }
 
-    const range = selection.getRangeAt(0);
-    if (!root.contains(range.commonAncestorContainer)) {
+    setBubble({ open: true, ...coords });
+  }, [disabled, editor]);
+
+  const syncIfOpen = useCallback(() => {
+    if (!editor || disabled) {
       setBubble((current) => (current.open ? { ...current, open: false } : current));
       return;
     }
 
-    const rect = range.getBoundingClientRect();
-    if (rect.width === 0 && rect.height === 0) {
-      setBubble((current) => (current.open ? { ...current, open: false } : current));
-      return;
-    }
-
-    setBubble({
-      open: true,
-      top: rect.top - 8,
-      left: rect.left + rect.width / 2,
+    setBubble((current) => {
+      if (!current.open) return current;
+      const coords = bubbleCoords(editor);
+      if (!coords) return { ...current, open: false };
+      return { ...current, ...coords };
     });
-  }, [disabled, editorRef]);
+  }, [disabled, editor]);
 
   const closeBubble = useCallback(() => {
     setBubble((current) => (current.open ? { ...current, open: false } : current));
   }, []);
 
   useEffect(() => {
-    document.addEventListener("selectionchange", refreshBubble);
-    window.addEventListener("resize", refreshBubble);
-    window.addEventListener("scroll", refreshBubble, true);
-    return () => {
-      document.removeEventListener("selectionchange", refreshBubble);
-      window.removeEventListener("resize", refreshBubble);
-      window.removeEventListener("scroll", refreshBubble, true);
-    };
-  }, [refreshBubble]);
+    if (!editor) return undefined;
 
-  return { bubble, refreshBubble, closeBubble };
+    const dom = editor.view.dom;
+
+    const onSelectionUpdate = () => {
+      if (shiftKeyRef.current) {
+        tryOpen();
+        return;
+      }
+      syncIfOpen();
+    };
+
+    const onMouseUp = () => {
+      requestAnimationFrame(() => {
+        if (!editor || editor.state.selection.empty) return;
+        tryOpen();
+      });
+    };
+
+    const onKeyDown = (event: KeyboardEvent) => {
+      shiftKeyRef.current = event.shiftKey;
+
+      if ((event.ctrlKey || event.metaKey) && event.key.toLowerCase() === "a") {
+        requestAnimationFrame(() => tryOpen());
+        return;
+      }
+
+      if (!event.shiftKey && isNavigationKey(event.key)) {
+        closeBubble();
+      }
+    };
+
+    const onKeyUp = (event: KeyboardEvent) => {
+      shiftKeyRef.current = event.shiftKey;
+    };
+
+    editor.on("selectionUpdate", onSelectionUpdate);
+    dom.addEventListener("mouseup", onMouseUp);
+    dom.addEventListener("keydown", onKeyDown, true);
+    dom.addEventListener("keyup", onKeyUp, true);
+
+    return () => {
+      editor.off("selectionUpdate", onSelectionUpdate);
+      dom.removeEventListener("mouseup", onMouseUp);
+      dom.removeEventListener("keydown", onKeyDown, true);
+      dom.removeEventListener("keyup", onKeyUp, true);
+    };
+  }, [closeBubble, editor, syncIfOpen, tryOpen]);
+
+  useEffect(() => {
+    const onLayoutChange = () => syncIfOpen();
+    window.addEventListener("resize", onLayoutChange);
+    window.addEventListener("scroll", onLayoutChange, true);
+    return () => {
+      window.removeEventListener("resize", onLayoutChange);
+      window.removeEventListener("scroll", onLayoutChange, true);
+    };
+  }, [syncIfOpen]);
+
+  return { bubble, openBubble: tryOpen, closeBubble };
 }

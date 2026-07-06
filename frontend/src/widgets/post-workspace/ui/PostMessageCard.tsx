@@ -6,8 +6,8 @@ import { PostMediaBlock } from "@/entities/post";
 import { PostTelegramSyncLabel } from "@/entities/post/ui/PostTelegramSyncLabel";
 import { readFileAsMedia } from "@/shared/lib/helpers";
 import { ensureVisibleInScrollParent } from "@/shared/lib/scrollIntoParent";
-import type { PostTextContent } from "@/shared/lib/telegram/richTextEditorDom";
-import { serializeRichTextEditor } from "@/shared/lib/telegram/richTextEditorDom";
+import type { PostTextContent } from "@/shared/lib/telegram/tiptap/postTextContent";
+import type { TelegramPostEditorHandle } from "@/shared/lib/telegram/tiptap/editorHandle";
 import { NoteIconAttach } from "@/shared/ui/icons/note-header-icons";
 import { PostReactionPills, PostViewsReposts } from "@/widgets/feed";
 import type { PostComment, PostMedia, PostMetrics } from "@/shared/types";
@@ -61,7 +61,7 @@ export default function PostMessageCard({
   const showComments = !!metrics && commentsEnabled;
   const [draft, setDraft] = useState<PostTextContent>({ text, textHtml });
   const [mediaDraft, setMediaDraft] = useState<PostMedia[]>(media);
-  const editorRef = useRef<HTMLDivElement>(null);
+  const editorRef = useRef<TelegramPostEditorHandle | null>(null);
   const fileRef = useRef<HTMLInputElement>(null);
   const wasEditingRef = useRef(false);
 
@@ -83,15 +83,10 @@ export default function PostMessageCard({
   useEffect(() => {
     if (!isEditing || isSaving) return;
     const id = window.setTimeout(() => {
-      const editor = editorRef.current;
-      if (editor) {
-        editor.focus({ preventScroll: true });
-        const selection = window.getSelection();
-        const range = document.createRange();
-        range.selectNodeContents(editor);
-        range.collapse(false);
-        selection?.removeAllRanges();
-        selection?.addRange(range);
+      const handle = editorRef.current;
+      const tipTap = handle?.getEditor();
+      if (tipTap) {
+        tipTap.commands.focus("end");
       }
       const block = cardRef.current?.closest<HTMLElement>(".post-msg-block");
       const scrollParent = document.getElementById("post-chat-scroll");
@@ -121,9 +116,7 @@ export default function PostMessageCard({
   const canEditContent = contentEditable && !editorLocked;
 
   function handleSave() {
-    const content: PostTextContent = editorRef.current
-      ? serializeRichTextEditor(editorRef.current)
-      : draft;
+    const content: PostTextContent = editorRef.current?.serialize() ?? draft;
     onSave(content, mediaDraft);
   }
 
@@ -234,8 +227,8 @@ export default function PostMessageCard({
                   editorRef={editorRef}
                   disabled={editorLocked}
                   onInserted={() => {
-                    const root = editorRef.current;
-                    if (root) setDraft(serializeRichTextEditor(root));
+                    const serialized = editorRef.current?.serialize();
+                    if (serialized) setDraft(serialized);
                   }}
                 />
                 <button

@@ -4,7 +4,6 @@ import { AttachMenu } from "@/widgets/composer";
 import { PostMediaBlock } from "@/entities/post";
 import { onComposerShellMouseDown } from "@/shared/lib/composerPointerDown";
 import type { FeedScreenState } from "@/screens/feed/model/useFeedScreen";
-import { serializeRichTextEditor } from "@/shared/lib/telegram/richTextEditorDom";
 import { EmojiPickerButton } from "@/shared/ui/EmojiPickerMenu";
 import { RichTextEditor } from "@/shared/ui/RichTextEditor";
 
@@ -51,9 +50,8 @@ export function FeedComposer({ ui, actions }: Props) {
             <EmojiPickerButton
               editorRef={editorRef}
               onInserted={() => {
-                const root = editorRef.current;
-                if (!root) return;
-                setDraft(serializeRichTextEditor(root));
+                const serialized = editorRef.current?.serialize();
+                if (serialized) setDraft(serialized);
               }}
             />
             <button className="send-btn" onClick={submitDraft} type="button">

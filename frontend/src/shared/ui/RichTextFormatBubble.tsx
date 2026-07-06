@@ -8,7 +8,7 @@ import {
   type RichTextFormatMenuItem,
 } from "@/shared/lib/telegram/richTextFormatMenu";
 import type { RichTextFormatBubbleState } from "@/shared/lib/telegram/useRichTextFormatBubble";
-import type { RichTextFormat } from "@/shared/lib/telegram/richTextEditorDom";
+import type { RichTextFormat } from "@/shared/lib/telegram/richTextFormat";
 
 type Props = {
   bubble: RichTextFormatBubbleState;

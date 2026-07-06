@@ -31,7 +31,7 @@ import { useCompactHeader1000 } from "@/shared/lib/hooks/useCompactHeader1000";
 import { useMobile760 } from "@/shared/lib/hooks/useMobile760";
 import { showToast } from "@/shared/ui/toast";
 import type { LocalNote, NoteListFilter, PostMedia, PostMode } from "@/shared/types";
-import type { PostTextContent } from "@/shared/lib/telegram/richTextEditorDom";
+import type { PostTextContent } from "@/shared/lib/telegram/tiptap/postTextContent";
 
 export function usePostWorkspace() {
   const router = useRouter();

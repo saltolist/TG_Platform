@@ -21,8 +21,8 @@ import {
 import { isFeedPath } from "@/shared/lib/feed/isFeedPath";
 import { buildPublishedFeedDayGroups } from "@/shared/lib/feedTimeline";
 import { readFileAsMedia } from "@/shared/lib/helpers";
-import type { PostTextContent } from "@/shared/lib/telegram/richTextEditorDom";
-import { serializeRichTextEditor } from "@/shared/lib/telegram/richTextEditorDom";
+import type { PostTextContent } from "@/shared/lib/telegram/tiptap/postTextContent";
+import type { TelegramPostEditorHandle } from "@/shared/lib/telegram/tiptap/editorHandle";
 import { isListQueryBootstrapping } from "@/shared/lib/query/isQueryBootstrapping";
 import { routes } from "@/shared/lib/routes";
 import type { PostMedia } from "@/shared/types";
@@ -45,7 +45,7 @@ export function useFeedScreen() {
   const [pendingMedia, setPendingMedia] = useState<PostMedia[]>([]);
   const [composerReady, setComposerReady] = useState(false);
 
-  const editorRef = useRef<HTMLDivElement>(null);
+  const editorRef = useRef<TelegramPostEditorHandle | null>(null);
   const feedScrollRef = useRef<HTMLDivElement>(null);
 
   const { published, scheduled, deleted, drafts } = useMemo(
@@ -120,9 +120,7 @@ export function useFeedScreen() {
   }, [onFeed, search, showPostsLoading]);
 
   const submitDraft = useCallback(() => {
-    const content: PostTextContent = editorRef.current
-      ? serializeRichTextEditor(editorRef.current)
-      : draft;
+    const content: PostTextContent = editorRef.current?.serialize() ?? draft;
     if (!canSubmitFeedDraft(content.text, pendingMedia.length)) return;
     const newPost = createDraftPost({
       text: content.text,

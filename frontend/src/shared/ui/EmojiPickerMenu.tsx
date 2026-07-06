@@ -5,6 +5,7 @@ import { createPortal } from "react-dom";
 
 import type { EmojiCatalogItem } from "@/shared/lib/telegram/emojiCatalog";
 import { FALLBACK_EMOJI_CATALOG } from "@/shared/lib/telegram/emojiCatalog";
+import type { TelegramPostEditorHandle } from "@/shared/lib/telegram/tiptap/editorHandle";
 import { CustomEmojiPreview } from "@/shared/ui/CustomEmojiPreview";
 import {
   getEmojiCollectionNav,
@@ -13,18 +14,12 @@ import {
 import { useEmojiCatalog, useWarmEmojiCatalog } from "@/shared/lib/telegram/useEmojiCatalog";
 import { useEmojiPickerMenu } from "@/shared/lib/telegram/useEmojiPickerMenu";
 import type { useEmojiPickerMenu as UseEmojiPickerMenu } from "@/shared/lib/telegram/useEmojiPickerMenu";
-import {
-  autoResizeRichTextEditor,
-  insertCustomEmoji,
-  insertUnicodeEmoji,
-} from "@/shared/lib/telegram/richTextEditorDom";
-import { hydrateCustomEmojiInDom } from "@/shared/lib/telegram/hydrateCustomEmojiDom";
 import { fetchEmojiPreview } from "@/shared/lib/telegram/emojiPreviewClient";
 
 type PickerState = ReturnType<typeof UseEmojiPickerMenu>;
 
 type Props = {
-  editorRef: RefObject<HTMLDivElement | null>;
+  editorRef: RefObject<TelegramPostEditorHandle | null>;
   picker: PickerState;
   disabled?: boolean;
   onInserted?: () => void;
@@ -68,17 +63,15 @@ export function EmojiPickerMenu({ editorRef, picker, disabled = false, onInserte
   }, [picker.open, collectionNav.collection?.kind, itemsPage.items]);
 
   function handlePick(item: EmojiCatalogItem) {
-    const root = editorRef.current;
-    if (!root || disabled) return;
+    const editor = editorRef.current;
+    if (!editor || disabled) return;
     if (item.type === "unicode") {
-      insertUnicodeEmoji(root, item.char);
+      editor.insertUnicodeEmoji(item.char);
     } else {
-      insertCustomEmoji(root, item.documentId, item.alt);
+      editor.insertCustomEmoji(item.documentId, item.alt);
     }
-    autoResizeRichTextEditor(root);
     onInserted?.();
     picker.closeMenu();
-    hydrateCustomEmojiInDom(root);
   }
 
   if (!picker.open || typeof document === "undefined") {
@@ -236,7 +229,7 @@ export function EmojiPickerButton({
   className,
   onInserted,
 }: {
-  editorRef: RefObject<HTMLDivElement | null>;
+  editorRef: RefObject<TelegramPostEditorHandle | null>;
   disabled?: boolean;
   className?: string;
   onInserted?: () => void;

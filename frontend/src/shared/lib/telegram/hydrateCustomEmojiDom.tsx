@@ -27,13 +27,22 @@ function altFromNode(node: HTMLElement): string {
   return node.getAttribute("data-alt") ?? node.getAttribute("alt") ?? "⭐";
 }
 
-async function mountPreview(node: HTMLElement, documentId: string, alt: string): Promise<void> {
+async function mountPreview(
+  node: HTMLElement,
+  documentId: string,
+  alt: string,
+  inline: boolean,
+): Promise<void> {
   const preview = await fetchEmojiPreview(documentId);
-  if (node.dataset.emojiHydrated !== "pending") return;
+  if (!node.isConnected || node.dataset.emojiHydrated !== "pending") return;
+
+  const mediaClass = inline
+    ? "tg-custom-emoji tg-custom-emoji-inline"
+    : node.className.replace("tg-custom-emoji-placeholder", "").trim() || "tg-custom-emoji";
 
   if (preview.kind === "image") {
     const img = document.createElement("img");
-    img.className = node.className.replace("tg-custom-emoji-placeholder", "").trim() || "tg-custom-emoji";
+    img.className = mediaClass;
     img.src = preview.url;
     img.alt = alt;
     img.draggable = false;
@@ -44,7 +53,7 @@ async function mountPreview(node: HTMLElement, documentId: string, alt: string):
 
   if (preview.kind === "video") {
     const video = document.createElement("video");
-    video.className = node.className.replace("tg-custom-emoji-placeholder", "").trim() || "tg-custom-emoji";
+    video.className = mediaClass;
     video.src = preview.url;
     video.autoplay = true;
     video.loop = true;
@@ -57,7 +66,7 @@ async function mountPreview(node: HTMLElement, documentId: string, alt: string):
   }
 
   const host = document.createElement("span");
-  host.className = "tg-custom-emoji-host";
+  host.className = inline ? "tg-custom-emoji-host tg-custom-emoji-inline" : "tg-custom-emoji-host";
   host.setAttribute("data-emoji-id", documentId);
   node.replaceWith(host);
 
@@ -82,7 +91,7 @@ async function mountPreview(node: HTMLElement, documentId: string, alt: string):
 const MAX_HYDRATE_RETRIES = 3;
 const HYDRATE_RETRY_DELAY_MS = 1500;
 
-function hydrateNode(node: HTMLElement): void {
+function hydrateNode(node: HTMLElement, inline: boolean): void {
   const documentId = node.getAttribute("data-emoji-id");
   if (!documentId || node.dataset.emojiHydrated) return;
 
@@ -90,40 +99,57 @@ function hydrateNode(node: HTMLElement): void {
   const alt = altFromNode(node);
   const retries = Number(node.dataset.emojiRetries ?? "0");
 
-  void mountPreview(node, documentId, alt).catch((error: unknown) => {
-    if (!node.isConnected) return;
+  void mountPreview(node, documentId, alt, inline).catch((error: unknown) => {
+    const target = node.isConnected
+      ? node
+      : (node.parentElement?.querySelector<HTMLElement>(
+          `.tg-custom-emoji-widget[data-emoji-id="${documentId}"] .tg-custom-emoji`,
+        ) ?? node);
+    if (!target.isConnected) return;
 
     const permanent = error instanceof EmojiPreviewError && error.permanent;
     if (!permanent && retries < MAX_HYDRATE_RETRIES) {
-      node.dataset.emojiRetries = String(retries + 1);
-      delete node.dataset.emojiHydrated;
+      target.dataset.emojiRetries = String(retries + 1);
+      delete target.dataset.emojiHydrated;
       setTimeout(() => {
-        if (node.isConnected && !node.dataset.emojiHydrated) {
-          hydrateNode(node);
+        if (target.isConnected && !target.dataset.emojiHydrated) {
+          hydrateNode(target, inline);
         }
       }, HYDRATE_RETRY_DELAY_MS * (retries + 1));
       return;
     }
 
-    node.dataset.emojiHydrated = "failed";
-    node.classList.add("tg-custom-emoji-fallback");
-    if (!node.textContent?.trim()) {
-      node.textContent = alt;
+    target.dataset.emojiHydrated = "failed";
+    target.classList.add("tg-custom-emoji-fallback");
+    if (!target.textContent?.trim()) {
+      target.textContent = alt;
     }
   });
 }
 
+export type HydrateCustomEmojiOptions = {
+  /** Keep atomic widget wrapper; size preview to inline text (composer). */
+  inline?: boolean;
+};
+
 /** Lazy-hydrate custom emoji placeholders when they enter the viewport. */
-export function hydrateCustomEmojiInDom(container: ParentNode): () => void {
+export function hydrateCustomEmojiInDom(
+  container: ParentNode,
+  options: HydrateCustomEmojiOptions = {},
+): () => void {
   if (typeof window === "undefined" || typeof IntersectionObserver === "undefined") {
     return () => undefined;
   }
 
+  const inline = options.inline ?? false;
   const nodes = Array.from(
     container.querySelectorAll<HTMLElement>(
       ".tg-custom-emoji[data-emoji-id]:not([data-emoji-hydrated])",
     ),
-  );
+  ).filter((node) => {
+    const inWidget = Boolean(node.closest(".tg-custom-emoji-widget"));
+    return inline ? inWidget : !inWidget;
+  });
   if (nodes.length === 0) return () => undefined;
 
   const observer = new IntersectionObserver(
@@ -132,7 +158,7 @@ export function hydrateCustomEmojiInDom(container: ParentNode): () => void {
         if (!entry.isIntersecting) continue;
         const node = entry.target as HTMLElement;
         observer.unobserve(node);
-        hydrateNode(node);
+        hydrateNode(node, inline);
       }
     },
     { rootMargin: "120px" },
