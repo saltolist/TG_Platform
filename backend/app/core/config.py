@@ -117,13 +117,15 @@ class Settings(BaseSettings):
     # Channel analytics snapshots — two cadences:
     # - telegram_analytics_snapshot_seconds: cheap DB-only totals capture (Celery Beat).
     #   The chart's current bucket is always rebuilt from live post data on read
-    #   (see channel_metrics.build_overview_from_history), so this interval
+    #   (see channel_metrics.build_channel_trend live-overlay), so this interval
     #   controls historical resolution, not how fresh the growth chart looks.
     # - telegram_analytics_subscriber_refresh_seconds: Telethon RPC for real
     #   subscriber count + pre-snapshot metrics poll (throttled separately).
     telegram_analytics_snapshot_seconds: float = 300.0
     telegram_analytics_subscriber_refresh_seconds: float = 3600.0
     analytics_snapshot_retention_days: int = 120
+    # Pushgateway URL for analytics snapshot metrics (empty = disabled).
+    prometheus_pushgateway_url: str = ""
 
     # Window reconcile — drift correction between channel and platform DB
     telegram_reconcile_enabled: bool = True

@@ -6,9 +6,12 @@ import { appendToActiveHistory } from "@/shared/lib/chatPaths";
 import { getGlobalReply, getPostReply } from "@/shared/api/assistantReplies";
 import { chunkTextForStream, formatSseData } from "@/shared/api/sse";
 import { PLATFORM_ANALYTICS_PERIODS } from "@/shared/lib/platformAnalyticsPeriods";
+import { DEMO_CHANNEL_ANALYTICS_HEATMAP } from "@/shared/data/analyticsSeedData";
 import {
-  buildChannelOverviewFromPosts,
+  buildChannelReactionsFromPosts,
+  buildChannelSummaryFromPosts,
   buildChannelTopPostsFromPosts,
+  buildChannelTrendFromPosts,
 } from "@/shared/lib/analytics/buildChannelOverviewFromPosts";
 import { buildModelUsage } from "@/shared/lib/profile/platformAnalytics";
 import type { GlobalChat, GlobalNote, Post, TelegramProfileConfig } from "@/shared/types";
@@ -489,11 +492,32 @@ export const handlers = [
     });
   }),
 
-  http.get(apiV1MswPath("analytics/overview"), ({ request }) => {
+  http.get(apiV1MswPath("analytics/summary"), ({ request }) => {
     const store = requireStore(request);
     if (!store) return unauthorized();
     const period = new URL(request.url).searchParams.get("period") ?? "30d";
-    return HttpResponse.json(buildChannelOverviewFromPosts(store.posts, period));
+    return HttpResponse.json(buildChannelSummaryFromPosts(store.posts, period));
+  }),
+
+  http.get(apiV1MswPath("analytics/trend"), ({ request }) => {
+    const store = requireStore(request);
+    if (!store) return unauthorized();
+    const period = new URL(request.url).searchParams.get("period") ?? "30d";
+    return HttpResponse.json(buildChannelTrendFromPosts(store.posts, period));
+  }),
+
+  http.get(apiV1MswPath("analytics/heatmap"), ({ request }) => {
+    const store = requireStore(request);
+    if (!store) return unauthorized();
+    const period = new URL(request.url).searchParams.get("period") ?? "30d";
+    void period;
+    return HttpResponse.json(DEMO_CHANNEL_ANALYTICS_HEATMAP);
+  }),
+
+  http.get(apiV1MswPath("analytics/reactions"), ({ request }) => {
+    const store = requireStore(request);
+    if (!store) return unauthorized();
+    return HttpResponse.json(buildChannelReactionsFromPosts(store.posts));
   }),
 
   http.get(apiV1MswPath("analytics/top-posts"), ({ request }) => {

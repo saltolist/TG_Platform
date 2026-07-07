@@ -25,8 +25,11 @@ import type {
   TelegramProfileConfig,
 } from "@/shared/types";
 import {
-  channelAnalyticsOverviewSchema,
+  channelAnalyticsReactionsSchema,
+  channelAnalyticsSummarySchema,
   channelAnalyticsTopPostsSchema,
+  channelAnalyticsTrendSchema,
+  channelHeatmapSchema,
 } from "@/shared/api/schemas/channelAnalytics";
 import {
   platformModelAnalyticsSchema,
@@ -236,9 +239,21 @@ export function createHttpRepositories(): RepositoryBundle {
         apiRequest<unknown>(
           `${apiV1Path("analytics/platform-models")}?period=${period}&points=${points}`,
         ).then((data) => platformModelAnalyticsSchema.parse(data)),
-      getChannelOverview: (period) =>
-        apiRequest<unknown>(`${apiV1Path("analytics/overview")}?period=${period}`).then((data) =>
-          channelAnalyticsOverviewSchema.parse(data),
+      getChannelSummary: (period) =>
+        apiRequest<unknown>(`${apiV1Path("analytics/summary")}?period=${period}`).then((data) =>
+          channelAnalyticsSummarySchema.parse(data),
+        ),
+      getChannelTrend: (period) =>
+        apiRequest<unknown>(`${apiV1Path("analytics/trend")}?period=${period}`).then((data) =>
+          channelAnalyticsTrendSchema.parse(data),
+        ),
+      getChannelHeatmap: (period) =>
+        apiRequest<unknown>(`${apiV1Path("analytics/heatmap")}?period=${period}`).then((data) =>
+          channelHeatmapSchema.parse(data),
+        ),
+      getChannelReactions: () =>
+        apiRequest<unknown>(`${apiV1Path("analytics/reactions")}`).then((data) =>
+          channelAnalyticsReactionsSchema.parse(data),
         ),
       getChannelTopPosts: (period) =>
         apiRequest<unknown>(`${apiV1Path("analytics/top-posts")}?period=${period}`).then((data) =>

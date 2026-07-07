@@ -13,9 +13,10 @@ from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 from sqlalchemy.orm.attributes import flag_modified
 
 from app.core.config import Settings
+from app.core.metrics import SnapshotCycleMetrics
 from app.db.models import ChannelMetricSnapshot, Post, PostMetricSnapshot, Profile
 from app.services.analytics.channel_metrics import (
-    _published_posts,
+    published_posts,
     _totals_from_posts,
     parse_views_value,
     sum_reactions,
@@ -56,7 +57,7 @@ def _posts_for_capture(
     The daily full pass at the :00 slot catches long-tail metric changes on
     older posts without snapshotting every post every 30 minutes.
     """
-    published = _published_posts(posts)
+    published = published_posts(posts)
     if full_pass:
         return published
     limit = max(1, settings.telegram_metrics_poll_window)
@@ -69,7 +70,7 @@ def _posts_for_capture(
 
 async def _load_published_posts(session: AsyncSession, user_id: UUID) -> list[Post]:
     result = await session.execute(select(Post).where(Post.user_id == user_id))
-    return _published_posts(list(result.scalars().all()))
+    return published_posts(list(result.scalars().all()))
 
 
 async def capture_metrics_snapshot(
@@ -78,6 +79,8 @@ async def capture_metrics_snapshot(
     client: Any | None,
     entity: Any | None,
     settings: Settings,
+    *,
+    metrics: SnapshotCycleMetrics | None = None,
 ) -> bool:
     """Persist per-post and channel metrics for the current 30-minute slot.
 
@@ -96,6 +99,8 @@ async def capture_metrics_snapshot(
                 user_id,
                 exc_info=True,
             )
+            if metrics is not None:
+                metrics.record_error("subscriber_rpc")
 
     slot = snapshot_slot()
     now_iso = datetime.now(timezone.utc).isoformat()

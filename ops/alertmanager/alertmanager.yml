@@ -1,0 +1,15 @@
+global:
+  resolve_timeout: 5m
+
+route:
+  receiver: default
+  group_by: ["alertname", "channel"]
+  group_wait: 30s
+  group_interval: 5m
+  repeat_interval: 4h
+
+receivers:
+  - name: default
+    # No external integrations configured — alerts are visible in the
+    # Alertmanager UI at http://localhost:9093. Add Slack/Telegram/email
+    # here when ready (see docs/ops/observability.md).

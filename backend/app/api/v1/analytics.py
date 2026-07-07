@@ -5,13 +5,19 @@ from typing import Any
 from fastapi import APIRouter, HTTPException, Query
 from sqlalchemy import select
 
+from app.core.config import get_settings
 from app.core.deps import CurrentUser, DbSession
 from app.db.models import Post, Profile
 from app.services.analytics.analytics_snapshot import load_post_snapshots, load_snapshots
 from app.services.analytics.channel_metrics import (
+    MISSED_SNAPSHOT_MULTIPLIER,
     VALID_PERIODS,
-    build_overview_from_history,
+    aggregate_reactions,
+    build_channel_summary,
+    build_channel_trend,
+    build_heatmap,
     build_top_posts,
+    published_posts,
 )
 from app.services.analytics.platform_models import get_platform_model_analytics
 from app.services.profile_defaults import empty_ai_profile
@@ -32,22 +38,82 @@ def _validate_period(period: str) -> str:
     return period
 
 
-@router.get("/overview/")
-async def get_channel_overview(
+async def _load_channel_context(
+    session: DbSession,
+    user_id: Any,
+) -> tuple[list[Post], list, list, dict[str, Any] | None]:
+    posts = await _load_user_posts(session, user_id)
+    profile = await session.get(Profile, user_id)
+    telegram = profile.telegram if profile and profile.telegram else None
+    channel_snapshots = await load_snapshots(session, user_id)
+    post_snapshots = await load_post_snapshots(session, user_id)
+    return posts, channel_snapshots, post_snapshots, telegram
+
+
+def _snapshot_stale_after_seconds() -> float | None:
+    settings = get_settings()
+    if settings.telegram_analytics_snapshot_seconds <= 0:
+        return None
+    return settings.telegram_analytics_snapshot_seconds * MISSED_SNAPSHOT_MULTIPLIER
+
+
+@router.get("/summary/")
+async def get_channel_summary(
     user: CurrentUser,
     session: DbSession,
     period: str = Query("30d"),
 ) -> dict[str, Any]:
-    """Channel metrics overview: per-post snapshot history with legacy fallback."""
+    """Channel period totals and data-freshness metadata."""
     period = _validate_period(period)
-    posts = await _load_user_posts(session, user.id)
-    profile = await session.get(Profile, user.id)
-    telegram = profile.telegram if profile and profile.telegram else None
-    channel_snapshots = await load_snapshots(session, user.id)
-    post_snapshots = await load_post_snapshots(session, user.id)
-    return build_overview_from_history(
+    posts, channel_snapshots, post_snapshots, telegram = await _load_channel_context(
+        session, user.id
+    )
+    return build_channel_summary(
+        posts,
+        channel_snapshots,
+        post_snapshots,
+        period,
+        telegram,
+        snapshot_stale_after_seconds=_snapshot_stale_after_seconds(),
+    )
+
+
+@router.get("/trend/")
+async def get_channel_trend(
+    user: CurrentUser,
+    session: DbSession,
+    period: str = Query("30d"),
+) -> dict[str, Any]:
+    """Channel metric growth time series for the selected period."""
+    period = _validate_period(period)
+    posts, channel_snapshots, post_snapshots, telegram = await _load_channel_context(
+        session, user.id
+    )
+    return build_channel_trend(
         posts, channel_snapshots, post_snapshots, period, telegram
     )
+
+
+@router.get("/heatmap/")
+async def get_channel_heatmap(
+    user: CurrentUser,
+    session: DbSession,
+    period: str = Query("30d"),
+) -> dict[str, Any]:
+    """Views heatmap by weekday and publish-hour slot."""
+    period = _validate_period(period)
+    posts = await _load_user_posts(session, user.id)
+    return build_heatmap(posts, period)
+
+
+@router.get("/reactions/")
+async def get_channel_reactions(
+    user: CurrentUser,
+    session: DbSession,
+) -> dict[str, Any]:
+    """Aggregated emoji reaction counts across all published posts."""
+    posts = await _load_user_posts(session, user.id)
+    return {"reactions": aggregate_reactions(published_posts(posts))}
 
 
 @router.get("/top-posts/")

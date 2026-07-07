@@ -9,16 +9,17 @@ import {
   ANALYTICS_SCREEN_PERIOD_TO_CHART,
   buildChannelTrendSeries,
   formatChannelTrackingSinceLabel,
+  formatDataAgeLabel,
 } from "@/shared/lib/channelAnalyticsTrend";
 import { resolveTrendChartMaxPoints } from "@/shared/lib/trendChart/periodLabels";
 import { useChartSeriesVisibility } from "@/shared/lib/hooks/useChartSeriesVisibility";
 import { useMobile760 } from "@/shared/lib/hooks/useMobile760";
 import { usePageHeaderLe1080, usePageHeaderLe640 } from "@/widgets/page-header";
 
-import type { ChannelAnalyticsOverview } from "@/shared/api/schemas/channelAnalytics";
+import type { ChannelAnalyticsTrend } from "@/shared/api/schemas/channelAnalytics";
 import type { PostReaction } from "@/shared/types";
 
-type HistorySource = NonNullable<ChannelAnalyticsOverview["historySource"]>;
+type HistorySource = NonNullable<ChannelAnalyticsTrend["historySource"]>;
 
 export default function ChannelAnalyticsSection({
   periodIndex,
@@ -28,6 +29,8 @@ export default function ChannelAnalyticsSection({
   metricsRevision = 0,
   historySource,
   trackingSince,
+  isStale,
+  dataAgeSeconds,
 }: {
   periodIndex: number;
   periods: string[];
@@ -37,6 +40,8 @@ export default function ChannelAnalyticsSection({
   metricsRevision?: number;
   historySource?: HistorySource;
   trackingSince?: string | null;
+  isStale?: boolean;
+  dataAgeSeconds?: number | null;
 }) {
   const isMobile = useMobile760();
   const isHeaderLe1080 = usePageHeaderLe1080();
@@ -63,6 +68,8 @@ export default function ChannelAnalyticsSection({
   const trackingSinceLabel = trackingSince
     ? formatChannelTrackingSinceLabel(trackingSince)
     : null;
+  const staleLabel =
+    isStale && typeof dataAgeSeconds === "number" ? formatDataAgeLabel(dataAgeSeconds) : null;
 
   return (
     <>
@@ -100,6 +107,11 @@ export default function ChannelAnalyticsSection({
             {!isNoHistory && trackingSinceLabel ? (
               <p className="channel-analytics-tracking-since">
                 Отслеживаем метрики с {trackingSinceLabel}
+              </p>
+            ) : null}
+            {!isNoHistory && staleLabel ? (
+              <p className="channel-analytics-stale-warning">
+                Данные могли не обновляться {staleLabel} — проверьте подключение канала
               </p>
             ) : null}
             <ChannelMetricBarList

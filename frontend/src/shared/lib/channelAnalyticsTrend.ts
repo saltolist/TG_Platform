@@ -293,6 +293,17 @@ export function formatChannelTrackingSinceLabel(isoDate: string): string | null 
   return `${parsed.getDate()} ${RU_MONTH_GENITIVE[parsed.getMonth()]} ${parsed.getFullYear()}`;
 }
 
+/** Человекочитаемый возраст последнего снимка аналитики ("5 мин", "3 ч", "2 дн"). */
+export function formatDataAgeLabel(ageSeconds: number): string {
+  if (ageSeconds < 60) return "меньше минуты";
+  const minutes = Math.floor(ageSeconds / 60);
+  if (minutes < 60) return `${minutes} мин`;
+  const hours = Math.floor(minutes / 60);
+  if (hours < 24) return `${hours} ч`;
+  const days = Math.floor(hours / 24);
+  return `${days} дн`;
+}
+
 export function formatChannelPostMetricValue(metricId: string, value: number): string {
   if (isErMetric(metricId)) return `${value.toFixed(1)}%`;
   return formatNumber(Math.round(value));

@@ -1,0 +1,35 @@
+groups:
+  - name: analytics_snapshot
+    rules:
+      - alert: AnalyticsSnapshotChannelOverdue
+        expr: analytics_snapshot_lag_seconds > 1800
+        for: 5m
+        labels:
+          severity: warning
+        annotations:
+          summary: "Analytics snapshot overdue for channel {{ $labels.channel }}"
+          description: >-
+            Channel {{ $labels.channel }} has not received an analytics snapshot
+            for {{ $value | humanizeDuration }} (threshold 30m).
+
+      - alert: AnalyticsSnapshotCycleStalled
+        expr: time() - analytics_snapshot_cycle_timestamp_seconds > 1800
+        for: 5m
+        labels:
+          severity: critical
+        annotations:
+          summary: "Analytics snapshot cycle has not completed"
+          description: >-
+            No analytics snapshot cycle has completed in the last 30 minutes.
+            Check celery-beat and celery-worker.
+
+      - alert: AnalyticsSnapshotErrors
+        expr: sum(analytics_snapshot_last_cycle_errors) > 0
+        for: 0m
+        labels:
+          severity: warning
+        annotations:
+          summary: "Analytics snapshot errors in last cycle"
+          description: >-
+            One or more analytics snapshot captures failed in the last cycle.
+            Check celery-worker logs and Grafana errors-by-type panel.

@@ -16,3 +16,4 @@ fastembed>=0.4,<1.0
 telethon>=1.36,<2.0
 pysocks>=1.7,<2.0
 celery[redis]>=5.4,<6.0
+prometheus-client>=0.20,<1.0

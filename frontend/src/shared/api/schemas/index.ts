@@ -1,9 +1,18 @@
 export {
-  channelAnalyticsOverviewSchema,
+  channelAnalyticsSummarySchema,
+  channelAnalyticsTrendSchema,
+  channelAnalyticsReactionsSchema,
+  channelHeatmapSchema,
   channelAnalyticsTopPostsSchema,
   analyticsTopPostRowSchema,
 } from "./channelAnalytics";
-export type { ChannelAnalyticsOverview, AnalyticsTopPostRow } from "./channelAnalytics";
+export type {
+  ChannelAnalyticsSummary,
+  ChannelAnalyticsTrend,
+  ChannelAnalyticsReactions,
+  ChannelAnalyticsHeatmap,
+  AnalyticsTopPostRow,
+} from "./channelAnalytics";
 
 export {
   postSchema,

@@ -284,6 +284,13 @@
   margin-bottom: 0;
 }
 
+.channel-analytics-stale-warning {
+  margin: -6px 0 14px;
+  color: var(--orange);
+  font-size: 12px;
+  line-height: 1.4;
+}
+
 .channel-metric-bar-list {
   display: flex;
   flex-direction: column;

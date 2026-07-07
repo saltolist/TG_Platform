@@ -1,22 +1,16 @@
 "use client";
 
-import { ANALYTICS_HEATMAP_HOURS, ANALYTICS_HEATMAP_ROWS } from "@/shared/data/analyticsSeedData";
 import { shouldPersistLocally } from "@/shared/lib/overlay/isOverlayAccount";
+import { DEMO_CHANNEL_ANALYTICS_HEATMAP } from "@/shared/data/analyticsSeedData";
 import type { ChannelAnalyticsHeatmap } from "@/shared/api/schemas/channelAnalytics";
-
-const SEED_HEATMAP: ChannelAnalyticsHeatmap = {
-  hours: [...ANALYTICS_HEATMAP_HOURS],
-  rows: ANALYTICS_HEATMAP_ROWS.map((row) => ({ day: row.day, values: [...row.values] })),
-  hasData: true,
-};
 
 export default function AnalyticsHeatmap({
   heatmap,
 }: {
-  /** Реальная карта из overview API; для demo-режима используется seed. */
+  /** Реальная карта из analytics API; для demo-режима используется seed. */
   heatmap?: ChannelAnalyticsHeatmap;
 }) {
-  const resolved = heatmap ?? (shouldPersistLocally() ? SEED_HEATMAP : undefined);
+  const resolved = heatmap ?? (shouldPersistLocally() ? DEMO_CHANNEL_ANALYTICS_HEATMAP : undefined);
   const hasData = resolved != null && resolved.hasData !== false;
 
   return (

@@ -98,7 +98,10 @@ export interface ProfileRepository {
 import type { ChatContextMeta } from "@/shared/api/schemas/chatContextMeta";
 import type {
   AnalyticsTopPostRow,
-  ChannelAnalyticsOverview,
+  ChannelAnalyticsHeatmap,
+  ChannelAnalyticsReactions,
+  ChannelAnalyticsSummary,
+  ChannelAnalyticsTrend,
 } from "@/shared/api/schemas/channelAnalytics";
 import type { PlatformModelAnalyticsDto } from "@/shared/api/schemas/platformAnalytics";
 import type { EmojiCatalog } from "@/shared/lib/telegram/emojiCatalog";
@@ -139,7 +142,10 @@ export interface AssistantRepository {
 
 export interface AnalyticsRepository {
   getPlatformModels(period: number, points: number): Promise<PlatformModelAnalyticsDto>;
-  getChannelOverview(period: string): Promise<ChannelAnalyticsOverview>;
+  getChannelSummary(period: string): Promise<ChannelAnalyticsSummary>;
+  getChannelTrend(period: string): Promise<ChannelAnalyticsTrend>;
+  getChannelHeatmap(period: string): Promise<ChannelAnalyticsHeatmap>;
+  getChannelReactions(): Promise<ChannelAnalyticsReactions>;
   getChannelTopPosts(period: string): Promise<AnalyticsTopPostRow[]>;
 }
 
