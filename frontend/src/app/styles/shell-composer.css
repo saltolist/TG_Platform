@@ -1361,18 +1361,40 @@
   width: 30px;
   height: 30px;
   border: none;
-  border-radius: 999px;
+  border-radius: 50%;
   background: transparent;
-  color: var(--text2);
-  font-size: 18px;
-  line-height: 1;
+  color: var(--text3);
   cursor: pointer;
-  transition: background 0.12s, color 0.12s;
+  transition: background 0.15s, color 0.15s;
+}
+
+.emoji-picker-btn-icon {
+  width: 25px;
+  height: 25px;
+  display: block;
+  flex-shrink: 0;
+}
+
+.note-header-plain-btn.emoji-picker-btn {
+  width: 22px;
+  height: 22px;
+  border-radius: 8px;
+  color: var(--text3);
+}
+
+.note-header-plain-btn.emoji-picker-btn .emoji-picker-btn-icon {
+  width: 100%;
+  height: 100%;
+}
+
+.note-header-plain-btn.emoji-picker-btn:hover:not(:disabled) {
+  background: transparent;
+  color: var(--text);
 }
 
 .emoji-picker-btn:hover:not(:disabled) {
-  background: var(--bg3);
-  color: var(--text);
+  background: var(--bg5);
+  color: var(--text2);
 }
 
 .emoji-picker-btn:disabled {

@@ -8,6 +8,7 @@ import {
   getEmojiCollectionTitle,
 } from "@/shared/lib/telegram/emojiCatalog";
 import type { TelegramPostEditorHandle } from "@/shared/lib/telegram/tiptap/editorHandle";
+import { ComposerEmojiIcon } from "@/shared/ui/icons/composer-emoji-icon";
 import { CustomEmojiPreview } from "@/shared/ui/CustomEmojiPreview";
 import { getEmojiCollectionNav } from "@/shared/lib/telegram/emojiPickerPaging";
 import { resolveEmojiCatalogCollections } from "@/shared/lib/telegram/mergeEmojiCatalog";
@@ -187,11 +188,13 @@ export function EmojiPickerButton({
   editorRef,
   disabled = false,
   className,
+  buttonClassName,
   onInserted,
 }: {
   editorRef: RefObject<TelegramPostEditorHandle | null>;
   disabled?: boolean;
   className?: string;
+  buttonClassName?: string;
   onInserted?: () => void;
 }) {
   const picker = useEmojiPickerMenu({ disabled });
@@ -202,13 +205,13 @@ export function EmojiPickerButton({
       <button
         ref={picker.btnRef}
         type="button"
-        className="emoji-picker-btn"
+        className={["emoji-picker-btn", buttonClassName].filter(Boolean).join(" ")}
         aria-label="Эмодзи"
         title="Эмодзи"
         disabled={disabled}
         onClick={picker.onTriggerClick}
       >
-        ☺
+        <ComposerEmojiIcon className="emoji-picker-btn-icon" />
       </button>
       <EmojiPickerMenu
         editorRef={editorRef}
