@@ -302,14 +302,51 @@ function formatChannelIndexGrowthPercent(index: number): string {
   return `${sign}${Math.abs(growth * 100).toFixed(1)}%`;
 }
 
+function formatPeriodGrowthPercent(
+  metricId: string,
+  values: number[],
+  pointIndex: number,
+  priorCumulative = 0,
+): string {
+  if (isErMetric(metricId)) {
+    const current = (values[pointIndex] ?? 0) / 10;
+    const periodStart =
+      priorCumulative > 0 ? priorCumulative / 10 : (values[0] ?? 0) / 10;
+    const delta = current - periodStart;
+    if (Math.abs(delta) < 0.05) return "+0.0%";
+    if (periodStart <= 0) {
+      if (current <= 0) return "+0.0%";
+      const percent = (delta / current) * 100;
+      const sign = percent >= 0 ? "+" : "−";
+      return `${sign}${Math.abs(percent).toFixed(1)}%`;
+    }
+    const percent = (delta / periodStart) * 100;
+    const sign = percent >= 0 ? "+" : "−";
+    return `${sign}${Math.abs(percent).toFixed(1)}%`;
+  }
+
+  const periodStart = priorCumulative;
+  const total = cumulativeChannelValue(values, pointIndex, priorCumulative);
+  const delta = Math.round(total - periodStart);
+  if (delta === 0) return "+0.0%";
+  if (periodStart <= 0) {
+    if (total <= 0) return "+0.0%";
+    const percent = (delta / total) * 100;
+    const sign = percent >= 0 ? "+" : "−";
+    return `${sign}${Math.abs(percent).toFixed(1)}%`;
+  }
+  const percent = (delta / periodStart) * 100;
+  const sign = percent >= 0 ? "+" : "−";
+  return `${sign}${Math.abs(percent).toFixed(1)}%`;
+}
+
 function formatChannelPointGrowthPercentInParens(
   metricId: string,
   pointIndex: number,
   values: number[],
   priorCumulative = 0,
 ): string {
-  const index = channelPeriodIndexRatio(metricId, values, pointIndex, priorCumulative);
-  return formatChannelIndexGrowthPercent(index);
+  return formatPeriodGrowthPercent(metricId, values, pointIndex, priorCumulative);
 }
 
 /** Числовой прирост за шаг — строка с названием метрики в тултипе. */

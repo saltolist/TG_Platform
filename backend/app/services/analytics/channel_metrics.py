@@ -5,7 +5,9 @@ from __future__ import annotations
 from datetime import date, datetime, timedelta, timezone
 from typing import Any
 
-from app.db.models import ChannelMetricSnapshot, Post
+from uuid import UUID
+
+from app.db.models import ChannelMetricSnapshot, Post, PostMetricSnapshot
 
 VALID_PERIODS = frozenset({"24h", "7d", "30d", "90d", "all"})
 _PERIOD_DAYS: dict[str, int | None] = {
@@ -181,88 +183,6 @@ def build_top_posts(posts: list[Post], period: str) -> list[dict[str, Any]]:
     return rows
 
 
-def _backfill_days(
-    published: list[Post],
-    window_posts: list[Post],
-    start_day: date,
-    day_span: int,
-) -> list[dict[str, Any]]:
-    """Per-day rows grouped by post publish date (used before snapshots exist)."""
-    days: list[dict[str, Any]] = []
-    for offset in range(day_span):
-        day = start_day + timedelta(days=offset)
-        day_posts = [post for post in window_posts if _post_date(post) == day]
-        day_totals = _totals_from_posts(day_posts)
-        days.append(
-            {
-                "date": day.isoformat(),
-                "views": int(day_totals["views"]),
-                "posts": len(day_posts),
-                "subscribers": 0,
-                "reactions": int(day_totals["reactions"]),
-                "comments": int(day_totals["comments"]),
-                "reposts": int(day_totals["reposts"]),
-                "er": float(day_totals["er"]),
-            }
-        )
-    return days
-
-
-def build_overview(
-    posts: list[Post],
-    period: str,
-    telegram: dict[str, Any] | None = None,
-) -> dict[str, Any]:
-    """Backfill overview built from post publish dates (no snapshot history).
-
-    Subscribers come from the real Telegram count synced to the profile; the
-    per-day subscriber deltas are unknown without snapshots and stay 0.
-    """
-    published = _published_posts(posts)
-    window_posts = _posts_in_window(published, period)
-    day_span = _period_day_span(period, published)
-    today = datetime.now(timezone.utc).date()
-    start_day = today - timedelta(days=day_span - 1)
-
-    subscribers = subscriber_count_from_profile(telegram)
-    end_totals = _totals_from_posts(published)
-    window_totals = _totals_from_posts(window_posts)
-    start_er = max(0.0, float(end_totals["er"]) - float(window_totals["er"]))
-    if start_er == 0 and int(end_totals["views"]) > int(window_totals["views"]):
-        start_er = calc_er(
-            max(0, int(end_totals["views"]) - int(window_totals["views"])),
-            max(0, int(end_totals["reactions"]) - int(window_totals["reactions"])),
-            max(0, int(end_totals["comments"]) - int(window_totals["comments"])),
-        )
-    start_totals = {
-        "subscribers": subscribers or 0,
-        "reactions": max(0, int(end_totals["reactions"]) - int(window_totals["reactions"])),
-        "views": max(0, int(end_totals["views"]) - int(window_totals["views"])),
-        "comments": max(0, int(end_totals["comments"]) - int(window_totals["comments"])),
-        "reposts": max(0, int(end_totals["reposts"]) - int(window_totals["reposts"])),
-        "er": start_er,
-    }
-
-    days = _backfill_days(published, window_posts, start_day, day_span)
-
-    return {
-        "version": 1,
-        "dayCount": day_span,
-        "startTotals": start_totals,
-        "endTotals": {
-            "subscribers": subscribers or 0,
-            "reactions": int(end_totals["reactions"]),
-            "views": int(end_totals["views"]),
-            "comments": int(end_totals["comments"]),
-            "reposts": int(end_totals["reposts"]),
-            "er": float(end_totals["er"]),
-        },
-        "subscribersAvailable": subscribers is not None,
-        "days": days,
-        "reactions": aggregate_reactions(published),
-    }
-
-
 _HEATMAP_DAYS = ["Пн", "Вт", "Ср", "Чт", "Пт", "Сб", "Вс"]
 _HEATMAP_HOURS = [9, 12, 15, 18, 21]
 
@@ -326,13 +246,86 @@ def _snapshot_totals(snapshot: ChannelMetricSnapshot) -> dict[str, float | int]:
     }
 
 
+def _post_snapshot_values(snapshot: PostMetricSnapshot) -> dict[str, int]:
+    return {
+        "views": int(snapshot.views or 0),
+        "reactions": int(snapshot.reactions or 0),
+        "comments": int(snapshot.comments or 0),
+        "reposts": int(snapshot.reposts or 0),
+    }
+
+
+def _group_post_snapshots_by_post(
+    post_snapshots: list[PostMetricSnapshot],
+) -> dict[UUID, list[PostMetricSnapshot]]:
+    grouped: dict[UUID, list[PostMetricSnapshot]] = {}
+    for snapshot in sorted(post_snapshots, key=lambda row: row.captured_at):
+        grouped.setdefault(snapshot.post_id, []).append(snapshot)
+    return grouped
+
+
+def _latest_post_snapshot_at_or_before(
+    snapshots: list[PostMetricSnapshot],
+    moment: datetime,
+) -> PostMetricSnapshot | None:
+    latest: PostMetricSnapshot | None = None
+    for snapshot in snapshots:
+        if snapshot.captured_at.astimezone(timezone.utc) <= moment:
+            latest = snapshot
+        else:
+            break
+    return latest
+
+
+def _post_totals_at_moment(
+    by_post: dict[UUID, list[PostMetricSnapshot]],
+    moment: datetime,
+) -> dict[str, int]:
+    totals = {"views": 0, "reactions": 0, "comments": 0, "reposts": 0}
+    for snapshots in by_post.values():
+        latest = _latest_post_snapshot_at_or_before(snapshots, moment)
+        if latest is None:
+            continue
+        values = _post_snapshot_values(latest)
+        for key in totals:
+            totals[key] += values[key]
+    return totals
+
+
+def _posts_published_on_day(published: list[Post], day: date) -> int:
+    return sum(1 for post in published if _post_date(post) == day)
+
+
+def _delta_row_from_post_totals(
+    date_label: str,
+    current: dict[str, int],
+    previous: dict[str, int] | None,
+    posts_delta: int,
+) -> dict[str, Any]:
+    prev = previous or {}
+    view_delta = current["views"] - int(prev.get("views") or 0)
+    reaction_delta = current["reactions"] - int(prev.get("reactions") or 0)
+    comment_delta = current["comments"] - int(prev.get("comments") or 0)
+    repost_delta = current["reposts"] - int(prev.get("reposts") or 0)
+    return {
+        "date": date_label,
+        "views": view_delta,
+        "posts": max(0, posts_delta),
+        "subscribers": 0,
+        "reactions": reaction_delta,
+        "comments": comment_delta,
+        "reposts": repost_delta,
+        "er": calc_er(view_delta, reaction_delta, comment_delta),
+    }
+
+
 def _delta_row(
     date_label: str,
     current: dict[str, float | int],
     previous: dict[str, float | int] | None,
     posts_delta: int,
 ) -> dict[str, Any]:
-    """Growth between two cumulative snapshots (ER is a level, not a delta)."""
+    """Growth between two cumulative channel snapshots (ER is a level, not a delta)."""
 
     def count_delta(key: str) -> int:
         cur = current.get(key)
@@ -387,6 +380,32 @@ def _snapshot_day_rows(
     return rows
 
 
+def _post_snapshot_day_rows(
+    by_post: dict[UUID, list[PostMetricSnapshot]],
+    published: list[Post],
+    start_day: date,
+    end_day: date,
+) -> dict[date, dict[str, Any]]:
+    """Daily growth from per-post snapshot deltas summed into channel totals."""
+    rows: dict[date, dict[str, Any]] = {}
+    window_start = datetime.combine(start_day, datetime.min.time(), tzinfo=timezone.utc)
+    previous_totals = _post_totals_at_moment(by_post, window_start - timedelta(microseconds=1))
+
+    day = start_day
+    while day <= end_day:
+        end_of_day = datetime.combine(day, datetime.max.time(), tzinfo=timezone.utc)
+        current_totals = _post_totals_at_moment(by_post, end_of_day)
+        rows[day] = _delta_row_from_post_totals(
+            day.isoformat(),
+            current_totals,
+            previous_totals,
+            _posts_published_on_day(published, day),
+        )
+        previous_totals = current_totals
+        day += timedelta(days=1)
+    return rows
+
+
 def _snapshot_slot_rows(
     snapshots: list[ChannelMetricSnapshot],
     since: datetime,
@@ -409,101 +428,223 @@ def _snapshot_slot_rows(
     return rows
 
 
+def _post_snapshot_slot_rows(
+    by_post: dict[UUID, list[PostMetricSnapshot]],
+    post_snapshots: list[PostMetricSnapshot],
+    since: datetime,
+) -> list[dict[str, Any]]:
+    """30-minute growth rows aggregated from per-post snapshots."""
+    slot_times = sorted(
+        {
+            snapshot.captured_at.astimezone(timezone.utc)
+            for snapshot in post_snapshots
+            if snapshot.captured_at.astimezone(timezone.utc) >= since
+        }
+    )
+    if not slot_times:
+        return []
+
+    rows: list[dict[str, Any]] = []
+    previous_totals = _post_totals_at_moment(by_post, since - timedelta(microseconds=1))
+    for slot in slot_times:
+        current_totals = _post_totals_at_moment(by_post, slot)
+        rows.append(
+            _delta_row_from_post_totals(
+                slot.isoformat(),
+                current_totals,
+                previous_totals,
+                0,
+            )
+        )
+        previous_totals = current_totals
+    return rows
+
+
+def _tracking_since(
+    channel_snapshots: list[ChannelMetricSnapshot],
+    post_snapshots: list[PostMetricSnapshot],
+) -> str | None:
+    dates: list[date] = []
+    if channel_snapshots:
+        dates.append(channel_snapshots[0].captured_at.astimezone(timezone.utc).date())
+    if post_snapshots:
+        dates.append(post_snapshots[0].captured_at.astimezone(timezone.utc).date())
+    if not dates:
+        return None
+    return min(dates).isoformat()
+
+
+def _start_totals_from_window(
+    published: list[Post],
+    period: str,
+    subscribers: int | None,
+) -> dict[str, float | int]:
+    window_posts = _posts_in_window(published, period)
+    end_totals = _totals_from_posts(published)
+    window_totals = _totals_from_posts(window_posts)
+    start_er = max(0.0, float(end_totals["er"]) - float(window_totals["er"]))
+    if start_er == 0 and int(end_totals["views"]) > int(window_totals["views"]):
+        start_er = calc_er(
+            max(0, int(end_totals["views"]) - int(window_totals["views"])),
+            max(0, int(end_totals["reactions"]) - int(window_totals["reactions"])),
+            max(0, int(end_totals["comments"]) - int(window_totals["comments"])),
+        )
+    return {
+        "subscribers": subscribers or 0,
+        "reactions": max(0, int(end_totals["reactions"]) - int(window_totals["reactions"])),
+        "views": max(0, int(end_totals["views"]) - int(window_totals["views"])),
+        "comments": max(0, int(end_totals["comments"]) - int(window_totals["comments"])),
+        "reposts": max(0, int(end_totals["reposts"]) - int(window_totals["reposts"])),
+        "er": start_er,
+    }
+
+
+def _zeroed_period_days(start_day: date, day_span: int) -> list[dict[str, Any]]:
+    return [
+        {
+            "date": (start_day + timedelta(days=offset)).isoformat(),
+            "views": 0,
+            "posts": 0,
+            "subscribers": 0,
+            "reactions": 0,
+            "comments": 0,
+            "reposts": 0,
+            "er": 0.0,
+        }
+        for offset in range(day_span)
+    ]
+
+
+def _merge_subscriber_deltas(
+    days: list[dict[str, Any]],
+    channel_snap_rows: dict[date, dict[str, Any]],
+) -> None:
+    for row in days:
+        day = date.fromisoformat(str(row["date"])[:10])
+        channel_row = channel_snap_rows.get(day)
+        if channel_row is not None:
+            row["subscribers"] = int(channel_row.get("subscribers") or 0)
+
+
 def build_overview_from_history(
     posts: list[Post],
-    snapshots: list[ChannelMetricSnapshot],
+    channel_snapshots: list[ChannelMetricSnapshot],
+    post_snapshots: list[PostMetricSnapshot],
     period: str,
     telegram: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
-    """Overview v2: snapshot history where available, publish-date backfill before it.
-
-    - Days before the first snapshot use the v1 grouping by post publish date.
-    - Days covered by snapshots use real deltas between daily last snapshots.
-    - ``24h`` uses 30-minute snapshot slots when at least two exist.
-    """
+    """Overview v2: per-post snapshot deltas with legacy channel-snapshot fallback."""
     published = _published_posts(posts)
-    window_posts = _posts_in_window(published, period)
     day_span = _period_day_span(period, published)
     today = datetime.now(timezone.utc).date()
     start_day = today - timedelta(days=day_span - 1)
-
-    snapshots = sorted(snapshots, key=lambda snap: snap.captured_at)
-    subscribers_now = subscriber_count_from_profile(telegram)
-    if subscribers_now is None and snapshots:
-        last_subs = snapshots[-1].subscribers
-        subscribers_now = int(last_subs) if last_subs is not None else None
-
-    backfill = build_overview(posts, period, telegram)
     heatmap = build_heatmap(posts, period)
 
-    if not snapshots:
+    channel_snapshots = sorted(channel_snapshots, key=lambda snap: snap.captured_at)
+    post_snapshots = sorted(post_snapshots, key=lambda snap: snap.captured_at)
+    by_post = _group_post_snapshots_by_post(post_snapshots)
+
+    subscribers_now = subscriber_count_from_profile(telegram)
+    if subscribers_now is None and channel_snapshots:
+        last_subs = channel_snapshots[-1].subscribers
+        subscribers_now = int(last_subs) if last_subs is not None else None
+
+    end_post_totals = _totals_from_posts(published)
+    end_totals = _normalize_totals(
+        end_post_totals,
+        subscribers_fallback=subscribers_now or 0,
+        subscribers_override=subscribers_now,
+    )
+    tracking_since = _tracking_since(channel_snapshots, post_snapshots)
+
+    if not channel_snapshots and not post_snapshots:
+        start_totals = _start_totals_from_window(published, period, subscribers_now)
         return {
-            **backfill,
             "version": 2,
+            "dayCount": day_span,
             "granularity": "day",
             "anchorDate": today.isoformat(),
+            "startTotals": start_totals,
+            "endTotals": end_totals,
+            "subscribersAvailable": subscribers_now is not None,
+            "days": _zeroed_period_days(start_day, day_span),
+            "reactions": aggregate_reactions(published),
             "heatmap": heatmap,
-            "historySource": "publish_backfill",
+            "historySource": "no_history",
+            "trackingSince": None,
         }
 
-    first_snap_day = snapshots[0].captured_at.astimezone(timezone.utc).date()
-    last_snapshot = snapshots[-1]
-    last_totals = _snapshot_totals(last_snapshot)
+    first_post_snap_day = (
+        post_snapshots[0].captured_at.astimezone(timezone.utc).date()
+        if post_snapshots
+        else None
+    )
+    channel_snap_rows = _snapshot_day_rows(channel_snapshots, start_day, today)
+    post_snap_rows = (
+        _post_snapshot_day_rows(by_post, published, start_day, today)
+        if post_snapshots
+        else {}
+    )
 
-    # 24h: use 30-minute slots once at least two snapshots cover the day.
     if period == "24h":
         since = datetime.now(timezone.utc) - timedelta(hours=24)
-        slot_rows = _snapshot_slot_rows(snapshots, since)
+        if post_snapshots:
+            slot_rows = _post_snapshot_slot_rows(by_post, post_snapshots, since)
+            history_source = "post_snapshots"
+        else:
+            slot_rows = _snapshot_slot_rows(channel_snapshots, since)
+            history_source = "legacy_channel_snapshots"
+
         if len(slot_rows) >= 2:
-            in_window = [
-                snap
-                for snap in snapshots
-                if snap.captured_at.astimezone(timezone.utc) >= since
-            ]
-            baseline = None
-            for snap in snapshots:
-                if snap.captured_at.astimezone(timezone.utc) < since:
-                    baseline = snap
-            baseline_totals = (
-                _snapshot_totals(baseline)
-                if baseline is not None
-                else _snapshot_totals(in_window[0])
-            )
+            baseline_moment = since - timedelta(microseconds=1)
+            if post_snapshots:
+                baseline_totals = _post_totals_at_moment(by_post, baseline_moment)
+                start_totals = _normalize_totals(baseline_totals, subscribers_fallback=0)
+            else:
+                baseline = None
+                for snap in channel_snapshots:
+                    if snap.captured_at.astimezone(timezone.utc) < since:
+                        baseline = snap
+                in_window = [
+                    snap
+                    for snap in channel_snapshots
+                    if snap.captured_at.astimezone(timezone.utc) >= since
+                ]
+                baseline_totals = (
+                    _snapshot_totals(baseline)
+                    if baseline is not None
+                    else _snapshot_totals(in_window[0])
+                )
+                start_totals = _normalize_totals(baseline_totals, subscribers_fallback=0)
+
             return {
                 "version": 2,
                 "dayCount": len(slot_rows),
                 "granularity": "30m",
                 "anchorDate": today.isoformat(),
-                "startTotals": _normalize_totals(baseline_totals, subscribers_fallback=0),
-                "endTotals": _normalize_totals(
-                    last_totals, subscribers_fallback=subscribers_now or 0,
-                    subscribers_override=subscribers_now,
-                ),
+                "startTotals": start_totals,
+                "endTotals": end_totals,
                 "subscribersAvailable": subscribers_now is not None,
                 "days": slot_rows,
                 "reactions": aggregate_reactions(published),
                 "heatmap": heatmap,
-                "historySource": "snapshots",
+                "historySource": history_source,
+                "trackingSince": tracking_since,
             }
 
-    snap_rows = _snapshot_day_rows(snapshots, start_day, today)
-
     days: list[dict[str, Any]] = []
-    used_backfill = False
-    used_snapshots = False
-    backfill_days: list[dict[str, Any]] = backfill["days"]
+    used_legacy = False
+    used_post = False
     for offset in range(day_span):
         day = start_day + timedelta(days=offset)
-        snap_row = snap_rows.get(day)
-        if snap_row is not None:
-            days.append(snap_row)
-            used_snapshots = True
-        elif day < first_snap_day:
-            days.append(backfill_days[offset])
-            used_backfill = True
-        else:
-            # Snapshot-era day without a snapshot (listener down): no growth data.
-            previous_er = days[-1]["er"] if days else float(backfill["startTotals"]["er"])
+        use_post = first_post_snap_day is not None and day >= first_post_snap_day
+        if use_post and day in post_snap_rows:
+            days.append(dict(post_snap_rows[day]))
+            used_post = True
+        elif day in channel_snap_rows:
+            days.append(dict(channel_snap_rows[day]))
+            used_legacy = True
+        elif use_post:
             days.append(
                 {
                     "date": day.isoformat(),
@@ -513,32 +654,50 @@ def build_overview_from_history(
                     "reactions": 0,
                     "comments": 0,
                     "reposts": 0,
-                    "er": previous_er,
+                    "er": 0.0,
                 }
             )
-            used_snapshots = True
+            used_post = True
+        else:
+            days.append(
+                {
+                    "date": day.isoformat(),
+                    "views": 0,
+                    "posts": 0,
+                    "subscribers": 0,
+                    "reactions": 0,
+                    "comments": 0,
+                    "reposts": 0,
+                    "er": 0.0,
+                }
+            )
 
-    baseline = None
+    if used_post:
+        _merge_subscriber_deltas(days, channel_snap_rows)
+
     window_start = datetime.combine(start_day, datetime.min.time(), tzinfo=timezone.utc)
-    for snap in snapshots:
-        if snap.captured_at.astimezone(timezone.utc) < window_start:
-            baseline = snap
-    if baseline is not None:
-        start_totals = _normalize_totals(_snapshot_totals(baseline), subscribers_fallback=0)
+    if post_snapshots:
+        baseline_totals = _post_totals_at_moment(
+            by_post,
+            window_start - timedelta(microseconds=1),
+        )
+        start_totals = _normalize_totals(baseline_totals, subscribers_fallback=0)
     else:
-        start_totals = dict(backfill["startTotals"])
+        baseline = None
+        for snap in channel_snapshots:
+            if snap.captured_at.astimezone(timezone.utc) < window_start:
+                baseline = snap
+        if baseline is not None:
+            start_totals = _normalize_totals(_snapshot_totals(baseline), subscribers_fallback=0)
+        else:
+            start_totals = _start_totals_from_window(published, period, subscribers_now)
 
-    end_totals = _normalize_totals(
-        last_totals,
-        subscribers_fallback=subscribers_now or 0,
-        subscribers_override=subscribers_now,
-    )
-
-    history_source = (
-        "mixed" if used_backfill and used_snapshots
-        else "snapshots" if used_snapshots
-        else "publish_backfill"
-    )
+    if used_legacy and used_post:
+        history_source = "mixed"
+    elif used_post:
+        history_source = "post_snapshots"
+    else:
+        history_source = "legacy_channel_snapshots"
 
     return {
         "version": 2,
@@ -552,6 +711,7 @@ def build_overview_from_history(
         "reactions": aggregate_reactions(published),
         "heatmap": heatmap,
         "historySource": history_source,
+        "trackingSince": tracking_since,
     }
 
 

@@ -10,7 +10,7 @@ import pytest
 from httpx import AsyncClient
 
 from app.db.models import Post, Profile
-from app.services.analytics.channel_metrics import build_overview, build_top_posts
+from app.services.analytics.channel_metrics import build_overview_from_history, build_top_posts
 from app.services.telegram.message_mapping import extract_metrics_from_message
 from app.services.telegram.post_sync import update_telegram_post
 from tests.conftest import TestSessionLocal, writer_auth_headers, writer_user
@@ -284,6 +284,6 @@ def test_build_overview_aggregates_reactions() -> None:
         )
     ]
 
-    overview = build_overview(posts, "7d")
+    overview = build_overview_from_history(posts, [], [], "7d")
     assert overview["endTotals"]["views"] == 200
     assert overview["reactions"] == [{"emoji": "🔥", "count": 3}]

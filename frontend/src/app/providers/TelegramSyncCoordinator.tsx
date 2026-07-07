@@ -115,6 +115,9 @@ export function TelegramSyncCoordinator() {
       if (syncRevisionAdvanced || lastSyncAdvanced || metricsRevisionAdvanced) {
         await queryClient.refetchQueries({ queryKey: queryKeys.posts.list(accountId) });
       }
+      if (metricsRevisionAdvanced) {
+        await queryClient.refetchQueries({ queryKey: queryKeys.analytics.all(accountId) });
+      }
       syncRevisionRef.current = syncRevision;
       lastSyncRef.current = lastSync;
 

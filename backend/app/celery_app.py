@@ -24,7 +24,7 @@ celery_app = Celery(
     "tg_platform",
     broker=settings.redis_url,
     backend=settings.redis_url,
-    include=["app.tasks.publish"],
+    include=["app.tasks.publish", "app.tasks.analytics_snapshot"],
 )
 
 celery_app.conf.update(
@@ -34,3 +34,11 @@ celery_app.conf.update(
     timezone="UTC",
     enable_utc=True,
 )
+
+if settings.telegram_analytics_snapshot_seconds > 0:
+    celery_app.conf.beat_schedule = {
+        "capture-channel-metric-snapshots": {
+            "task": "app.tasks.analytics_snapshot.capture_all_channel_snapshots",
+            "schedule": settings.telegram_analytics_snapshot_seconds,
+        },
+    }

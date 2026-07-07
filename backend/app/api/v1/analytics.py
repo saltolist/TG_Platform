@@ -7,7 +7,7 @@ from sqlalchemy import select
 
 from app.core.deps import CurrentUser, DbSession
 from app.db.models import Post, Profile
-from app.services.analytics.analytics_snapshot import load_snapshots
+from app.services.analytics.analytics_snapshot import load_post_snapshots, load_snapshots
 from app.services.analytics.channel_metrics import (
     VALID_PERIODS,
     build_overview_from_history,
@@ -38,13 +38,16 @@ async def get_channel_overview(
     session: DbSession,
     period: str = Query("30d"),
 ) -> dict[str, Any]:
-    """Channel metrics overview: snapshot history + publish-date backfill (v2)."""
+    """Channel metrics overview: per-post snapshot history with legacy fallback."""
     period = _validate_period(period)
     posts = await _load_user_posts(session, user.id)
     profile = await session.get(Profile, user.id)
     telegram = profile.telegram if profile and profile.telegram else None
-    snapshots = await load_snapshots(session, user.id)
-    return build_overview_from_history(posts, snapshots, period, telegram)
+    channel_snapshots = await load_snapshots(session, user.id)
+    post_snapshots = await load_post_snapshots(session, user.id)
+    return build_overview_from_history(
+        posts, channel_snapshots, post_snapshots, period, telegram
+    )
 
 
 @router.get("/top-posts/")

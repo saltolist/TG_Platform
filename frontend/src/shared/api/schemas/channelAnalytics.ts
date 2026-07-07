@@ -40,7 +40,18 @@ export const channelAnalyticsOverviewSchema = z.object({
   anchorDate: z.string().optional(),
   subscribersAvailable: z.boolean().optional(),
   heatmap: channelHeatmapSchema.optional(),
-  historySource: z.enum(["publish_backfill", "snapshots", "mixed"]).optional(),
+  historySource: z
+    .enum([
+      "post_snapshots",
+      "legacy_channel_snapshots",
+      "mixed",
+      "no_history",
+      // legacy values kept for cached responses during rollout
+      "publish_backfill",
+      "snapshots",
+    ])
+    .optional(),
+  trackingSince: z.string().nullable().optional(),
 });
 
 export type ChannelAnalyticsHeatmap = z.infer<typeof channelHeatmapSchema>;

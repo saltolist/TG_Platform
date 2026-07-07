@@ -123,6 +123,28 @@ class ChannelMetricSnapshot(Base):
     er: Mapped[float] = mapped_column(Numeric(5, 1), nullable=False, default=0)
 
 
+class PostMetricSnapshot(Base):
+    """Per-post metrics at each 30-minute slot — source for channel growth aggregation."""
+
+    __tablename__ = "post_metric_snapshots"
+    __table_args__ = (
+        UniqueConstraint("post_id", "captured_at", name="uq_post_metric_snapshots_slot"),
+    )
+
+    id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    post_id: Mapped[uuid.UUID] = mapped_column(
+        ForeignKey("posts.id", ondelete="CASCADE"), index=True, nullable=False
+    )
+    user_id: Mapped[uuid.UUID] = mapped_column(
+        ForeignKey("users.id", ondelete="CASCADE"), index=True, nullable=False
+    )
+    captured_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+    views: Mapped[int] = mapped_column(BigInteger, nullable=False, default=0)
+    reactions: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    reposts: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    comments: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+
+
 class AiModelUsageEvent(Base):
     __tablename__ = "ai_model_usage_events"
 

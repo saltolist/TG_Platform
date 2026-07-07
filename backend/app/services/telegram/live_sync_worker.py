@@ -574,72 +574,6 @@ async def _fast_catch_up_loop(
             logger.debug("Fast live-sync poll failed for user %s", user_id, exc_info=True)
 
 
-async def _load_last_analytics_snapshot_at(
-    session_factory: async_sessionmaker[AsyncSession], user_id: UUID
-) -> float | None:
-    """Seconds elapsed since the last analytics snapshot, or None when never taken."""
-    from datetime import datetime, timezone
-
-    async with session_factory() as session:
-        profile = await session.get(Profile, user_id)
-        if profile is None:
-            return None
-        raw = (profile.telegram or {}).get("lastAnalyticsSnapshotAt")
-    if not raw:
-        return None
-    try:
-        captured = datetime.fromisoformat(str(raw))
-    except ValueError:
-        return None
-    if captured.tzinfo is None:
-        captured = captured.replace(tzinfo=timezone.utc)
-    return (datetime.now(timezone.utc) - captured).total_seconds()
-
-
-async def _analytics_snapshot_loop(
-    client: Any,
-    entity: Any,
-    user_id: UUID,
-    settings: Settings,
-    session_factory: async_sessionmaker[AsyncSession],
-    stop_event: asyncio.Event,
-) -> None:
-    """Capture channel metric snapshots every ``telegram_analytics_snapshot_seconds``."""
-    from app.services.analytics.analytics_snapshot import capture_channel_snapshot
-
-    interval = settings.telegram_analytics_snapshot_seconds
-    if interval <= 0:
-        return
-    interval = max(60.0, interval)
-
-    # Take the first snapshot shortly after connect when the stored one is stale
-    # (or missing) so a fresh deploy starts collecting history right away.
-    elapsed = await _load_last_analytics_snapshot_at(session_factory, user_id)
-    first_delay = 30.0 if elapsed is None or elapsed >= interval else interval - elapsed
-    try:
-        await asyncio.wait_for(stop_event.wait(), timeout=first_delay)
-        return
-    except asyncio.TimeoutError:
-        pass
-
-    while not stop_event.is_set():
-        try:
-
-            async def _pass() -> None:
-                await capture_channel_snapshot(
-                    session_factory, user_id, client, entity, settings
-                )
-
-            await run_channel_ingest(user_id, _pass)
-        except Exception:
-            logger.exception("Analytics snapshot failed for user %s", user_id)
-        try:
-            await asyncio.wait_for(stop_event.wait(), timeout=interval)
-            return
-        except asyncio.TimeoutError:
-            pass
-
-
 async def _periodic_clock_refresh_loop(
     client: Any,
     settings: Settings,
@@ -917,7 +851,6 @@ async def _run_user_listener(user_id: UUID, stop_event: asyncio.Event) -> None:
                 periodic_drift_task: asyncio.Task[None] | None = None
                 clock_refresh_task: asyncio.Task[None] | None = None
                 fast_poll_task: asyncio.Task[None] | None = None
-                analytics_snapshot_task: asyncio.Task[None] | None = None
                 active_heartbeat_task: asyncio.Task[None] | None = None
                 try:
                     await connect_telegram_client(client, settings)
@@ -1160,17 +1093,6 @@ async def _run_user_listener(user_id: UUID, stop_event: asyncio.Event) -> None:
                     clock_refresh_task = asyncio.create_task(
                         _periodic_clock_refresh_loop(client, settings, stop_event)
                     )
-                    if settings.telegram_analytics_snapshot_seconds > 0:
-                        analytics_snapshot_task = asyncio.create_task(
-                            _analytics_snapshot_loop(
-                                client,
-                                entity,
-                                user_id,
-                                settings,
-                                session_factory,
-                                stop_event,
-                            )
-                        )
                     if settings.telegram_live_sync_fast_poll_seconds > 0:
                         fast_poll_task = asyncio.create_task(
                             _fast_catch_up_loop(
@@ -1235,12 +1157,6 @@ async def _run_user_listener(user_id: UUID, stop_event: asyncio.Event) -> None:
                         fast_poll_task.cancel()
                         try:
                             await fast_poll_task
-                        except asyncio.CancelledError:
-                            pass
-                    if analytics_snapshot_task is not None:
-                        analytics_snapshot_task.cancel()
-                        try:
-                            await analytics_snapshot_task
                         except asyncio.CancelledError:
                             pass
                     if periodic_drift_task is not None:
