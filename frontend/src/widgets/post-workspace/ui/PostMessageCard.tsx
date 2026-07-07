@@ -227,6 +227,7 @@ export default function PostMessageCard({
                   editorRef={editorRef}
                   disabled={editorLocked}
                   buttonClassName="note-header-plain-btn note-header-plain-btn--sm"
+                  placement="down-right"
                   onInserted={() => {
                     const serialized = editorRef.current?.serialize();
                     if (serialized) setDraft(serialized);

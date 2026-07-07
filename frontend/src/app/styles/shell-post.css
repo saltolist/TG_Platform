@@ -685,7 +685,6 @@
   width: 22px;
   height: 22px;
   transform: none;
-  margin-right: 4px;
 }
 /* Кнопки «Сохранить» / «Отмена» — пост, редактирование сообщения и модалка */
 .post-edit-toolbar .post-edit-btn,

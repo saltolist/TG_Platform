@@ -189,15 +189,17 @@ export function EmojiPickerButton({
   disabled = false,
   className,
   buttonClassName,
+  placement,
   onInserted,
 }: {
   editorRef: RefObject<TelegramPostEditorHandle | null>;
   disabled?: boolean;
   className?: string;
   buttonClassName?: string;
+  placement?: "up" | "down" | "down-right";
   onInserted?: () => void;
 }) {
-  const picker = useEmojiPickerMenu({ disabled });
+  const picker = useEmojiPickerMenu({ disabled, placement });
   useWarmEmojiCatalog();
 
   return (

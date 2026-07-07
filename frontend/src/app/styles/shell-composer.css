@@ -1332,6 +1332,11 @@
   min-height: 22px;
 }
 
+.post-msg-textarea.rich-text-input {
+  /* TipTap emoji overlay is absolutely positioned; legacy textarea overflow hid it. */
+  overflow: visible;
+}
+
 .post-msg-textarea.rich-text-input.empty {
   color: var(--text);
   font-style: normal;
@@ -1597,6 +1602,7 @@
   display: inline;
   vertical-align: baseline;
   line-height: 1;
+  isolation: isolate;
 }
 
 .rich-text-input .telegram-emoji-glyph {

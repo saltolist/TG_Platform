@@ -9,8 +9,11 @@ type Pos =
   | { mode: "up"; bottom: number; left: number }
   | { mode: "down"; top: number; left: number };
 
+const MENU_WIDTH_ESTIMATE = 280;
+const MENU_GAP = 6;
+
 type Options = {
-  placement?: "up" | "down";
+  placement?: "up" | "down" | "down-right";
   disabled?: boolean;
 };
 
@@ -27,11 +30,16 @@ export function useEmojiPickerMenu({ placement = "up", disabled = false }: Optio
     const btn = btnRef.current;
     if (!btn) return;
     const r = btn.getBoundingClientRect();
-    if (placement === "down") {
-      setPos({ mode: "down", top: r.bottom + 6, left: r.left });
-    } else {
-      setPos({ mode: "up", bottom: window.innerHeight - r.top + 6, left: r.left });
+
+    if (placement === "down" || placement === "down-right") {
+      let left = placement === "down-right" ? r.right + MENU_GAP : r.left;
+      const maxLeft = window.innerWidth - MENU_WIDTH_ESTIMATE - 8;
+      left = Math.min(Math.max(8, left), maxLeft);
+      setPos({ mode: "down", top: r.bottom + MENU_GAP, left });
+      return;
     }
+
+    setPos({ mode: "up", bottom: window.innerHeight - r.top + MENU_GAP, left: r.left });
   }, [placement]);
 
   useLayoutEffect(() => {
