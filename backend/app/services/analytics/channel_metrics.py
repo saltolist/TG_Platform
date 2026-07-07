@@ -296,6 +296,54 @@ def _posts_published_on_day(published: list[Post], day: date) -> int:
     return sum(1 for post in published if _post_date(post) == day)
 
 
+def _floor_to_slot(moment: datetime, minutes: int = 30) -> datetime:
+    """Round *moment* down to a fixed-width slot boundary (mirrors snapshot capture)."""
+    minute = (moment.minute // minutes) * minutes
+    return moment.replace(minute=minute, second=0, microsecond=0)
+
+
+def _subscribers_before_moment(
+    moment: datetime,
+    channel_snapshots: list[ChannelMetricSnapshot],
+) -> int:
+    """Subscriber count as of just before *moment* — always from channel snapshots.
+
+    Subscriber count only ever comes from a Telethon call made during a
+    scheduled snapshot capture (there is no continuous live source for it,
+    unlike views/reactions), so it stays tied to snapshot cadence.
+    """
+    baseline: ChannelMetricSnapshot | None = None
+    for snap in channel_snapshots:
+        if snap.captured_at.astimezone(timezone.utc) < moment:
+            baseline = snap
+    if baseline is None or baseline.subscribers is None:
+        return 0
+    return int(baseline.subscribers)
+
+
+def _totals_before_moment(
+    moment: datetime,
+    by_post: dict[UUID, list[PostMetricSnapshot]],
+    channel_snapshots: list[ChannelMetricSnapshot],
+) -> dict[str, int]:
+    """Baseline counts as of just before *moment* — per-post history first, legacy fallback."""
+    if by_post:
+        return _post_totals_at_moment(by_post, moment - timedelta(microseconds=1))
+    baseline: ChannelMetricSnapshot | None = None
+    for snap in channel_snapshots:
+        if snap.captured_at.astimezone(timezone.utc) < moment:
+            baseline = snap
+    if baseline is None:
+        return {"views": 0, "reactions": 0, "comments": 0, "reposts": 0}
+    totals = _snapshot_totals(baseline)
+    return {
+        "views": int(totals["views"]),
+        "reactions": int(totals["reactions"]),
+        "comments": int(totals["comments"]),
+        "reposts": int(totals["reposts"]),
+    }
+
+
 def _delta_row_from_post_totals(
     date_label: str,
     current: dict[str, int],
@@ -325,13 +373,19 @@ def _delta_row(
     previous: dict[str, float | int] | None,
     posts_delta: int,
 ) -> dict[str, Any]:
-    """Growth between two cumulative channel snapshots (ER is a level, not a delta)."""
+    """Growth between two cumulative channel snapshots (ER is a level, not a delta).
+
+    A missing *previous* snapshot means "no earlier baseline in range" (e.g. the
+    first tracked day), not "no growth" — treat it as a zero baseline so counts
+    grow from 0, matching ``_delta_row_from_post_totals``. A missing *current*
+    value still means "unknown for this metric" and stays 0.
+    """
 
     def count_delta(key: str) -> int:
         cur = current.get(key)
-        prev = (previous or {}).get(key)
-        if cur is None or prev is None:
+        if cur is None:
             return 0
+        prev = (previous or {}).get(key) or 0
         return int(cur) - int(prev)
 
     return {
@@ -595,6 +649,27 @@ def build_overview_from_history(
             slot_rows = _snapshot_slot_rows(channel_snapshots, since)
             history_source = "legacy_channel_snapshots"
 
+        # The most recent slot is always rebuilt from live post data so growth
+        # shows up immediately, without waiting for the next scheduled capture.
+        now = datetime.now(timezone.utc)
+        current_slot_start = _floor_to_slot(now)
+        live_slot_row = _delta_row_from_post_totals(
+            now.isoformat(),
+            end_post_totals,
+            _totals_before_moment(current_slot_start, by_post, channel_snapshots),
+            0,
+        )
+        live_slot_row["subscribers"] = (subscribers_now or 0) - _subscribers_before_moment(
+            current_slot_start, channel_snapshots
+        )
+        # ER is always the channel's current overall level (matches endTotals
+        # and the legacy convention), not a delta computed for just this slot.
+        live_slot_row["er"] = float(end_post_totals["er"])
+        if slot_rows and datetime.fromisoformat(str(slot_rows[-1]["date"])) >= current_slot_start:
+            slot_rows[-1] = live_slot_row
+        else:
+            slot_rows.append(live_slot_row)
+
         if len(slot_rows) >= 2:
             baseline_moment = since - timedelta(microseconds=1)
             if post_snapshots:
@@ -672,8 +747,30 @@ def build_overview_from_history(
                 }
             )
 
-    if used_post:
-        _merge_subscriber_deltas(days, channel_snap_rows)
+    # Today's bar is always rebuilt from live post data so growth shows up
+    # immediately, without waiting for the next scheduled capture. History
+    # classification (used_legacy/used_post/historySource) stays based on
+    # what actually backed the window, unaffected by this live refresh.
+    if days:
+        today_start = datetime.combine(today, datetime.min.time(), tzinfo=timezone.utc)
+        baseline_today = _totals_before_moment(today_start, by_post, channel_snapshots)
+        live_today_row = _delta_row_from_post_totals(
+            days[-1]["date"],
+            end_post_totals,
+            baseline_today,
+            _posts_published_on_day(published, today),
+        )
+        live_today_row["subscribers"] = (subscribers_now or 0) - _subscribers_before_moment(
+            today_start, channel_snapshots
+        )
+        # ER is always the channel's current overall level (matches endTotals
+        # and the legacy convention), not a delta computed for just today.
+        live_today_row["er"] = float(end_post_totals["er"])
+        days[-1] = live_today_row
+
+    # Backfill subscriber deltas for any earlier day still sourced from
+    # per-post history (_delta_row_from_post_totals always zeroes them there).
+    _merge_subscriber_deltas(days, channel_snap_rows)
 
     window_start = datetime.combine(start_day, datetime.min.time(), tzinfo=timezone.utc)
     if post_snapshots:

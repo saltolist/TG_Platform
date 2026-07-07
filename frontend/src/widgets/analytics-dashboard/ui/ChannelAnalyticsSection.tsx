@@ -1,25 +1,24 @@
 "use client";
 
-import { useMemo, type CSSProperties } from "react";
-import { ChartSeriesSelector, MultiSeriesTrendChart } from "@/widgets/charts";
-import ChannelMetricBars from "@/widgets/analytics-dashboard/ui/ChannelMetricBars";
+import { useMemo } from "react";
+import { ChartSeriesSelector } from "@/widgets/charts";
+import ChannelMetricBarList from "@/widgets/analytics-dashboard/ui/ChannelMetricBarList";
 import ChannelReactionsPanel from "@/widgets/analytics-dashboard/ui/ChannelReactionsPanel";
 import ModelPicker from "@/shared/ui/model-picker";
 import {
   ANALYTICS_SCREEN_PERIOD_TO_CHART,
-  buildChannelSummaryCards,
   buildChannelTrendSeries,
-  formatChannelGrowthBadge,
-  formatChannelGrowthPrimary,
-  formatChannelPointPercentGrowth,
+  formatChannelTrackingSinceLabel,
 } from "@/shared/lib/channelAnalyticsTrend";
-import { formatChannelTrendChartRangeFromStart } from "@/shared/lib/channelMetricsDb";
 import { resolveTrendChartMaxPoints } from "@/shared/lib/trendChart/periodLabels";
 import { useChartSeriesVisibility } from "@/shared/lib/hooks/useChartSeriesVisibility";
 import { useMobile760 } from "@/shared/lib/hooks/useMobile760";
 import { usePageHeaderLe1080, usePageHeaderLe640 } from "@/widgets/page-header";
 
+import type { ChannelAnalyticsOverview } from "@/shared/api/schemas/channelAnalytics";
 import type { PostReaction } from "@/shared/types";
+
+type HistorySource = NonNullable<ChannelAnalyticsOverview["historySource"]>;
 
 export default function ChannelAnalyticsSection({
   periodIndex,
@@ -27,6 +26,8 @@ export default function ChannelAnalyticsSection({
   onPeriodChange,
   reactions,
   metricsRevision = 0,
+  historySource,
+  trackingSince,
 }: {
   periodIndex: number;
   periods: string[];
@@ -34,6 +35,8 @@ export default function ChannelAnalyticsSection({
   reactions?: PostReaction[];
   /** Ревизия channelMetricsDb — форсирует пересборку графиков при загрузке API-данных. */
   metricsRevision?: number;
+  historySource?: HistorySource;
+  trackingSince?: string | null;
 }) {
   const isMobile = useMobile760();
   const isHeaderLe1080 = usePageHeaderLe1080();
@@ -55,10 +58,11 @@ export default function ChannelAnalyticsSection({
     () => series.map((row) => ({ id: row.id, label: row.label, color: row.color })),
     [series],
   );
-  const summaryCards = useMemo(
-    () => buildChannelSummaryCards(series, periodIndex),
-    [series, periodIndex],
-  );
+
+  const isNoHistory = historySource === "no_history";
+  const trackingSinceLabel = trackingSince
+    ? formatChannelTrackingSinceLabel(trackingSince)
+    : null;
 
   return (
     <>
@@ -86,70 +90,32 @@ export default function ChannelAnalyticsSection({
             />
           </div>
         </div>
-        {summaryCards.length > 0 ? (
-          <div
-            className="model-analytics-summary channel-analytics-summary"
-            style={{ "--summary-cols": series.length } as CSSProperties}
-          >
-            {summaryCards.map((card) => (
-              <div className="mini-metric channel-mini-metric" key={card.id}>
-                <div className="mini-metric-label">{card.label}</div>
-                <div className="mini-metric-value">{card.value}</div>
-              </div>
-            ))}
-          </div>
-        ) : null}
-        <MultiSeriesTrendChart
-          labels={labels}
-          series={visibleSeries}
-          period={chartPeriod}
-          compactAxisLabels={chartPeriod === 0 || chartPeriod === 2 || chartPeriod === 3 || chartPeriod === 4}
-          showYAxisLabels={false}
-          title="Динамика прироста по метрикам канала"
-          getDotGrowthBadge={(row, value, pointIndex) =>
-            formatChannelGrowthBadge(
-              row.id,
-              value,
-              pointIndex,
-              row.values,
-              row.priorCumulative ?? 0,
-            )
-          }
-          getDotPrimaryLine={(row, value, pointIndex) =>
-            formatChannelGrowthPrimary(
-              row.id,
-              value,
-              pointIndex,
-              row.values,
-              row.priorCumulative ?? 0,
-            )
-          }
-          getDotRangeFromStartLine={(_, __, pointIndex) =>
-            formatChannelTrendChartRangeFromStart(chartPeriod, pointIndex, labels.length)
-          }
-          getDotPercentGrowthLine={(row, _, pointIndex) =>
-            formatChannelPointPercentGrowth(
-              row.id,
-              pointIndex,
-              row.values,
-              row.priorCumulative ?? 0,
-            )
-          }
-        />
+
+        {isNoHistory ? (
+          <p className="channel-analytics-history-empty">
+            Собираем историю канала — данные появятся после первого цикла сбора метрик
+          </p>
+        ) : (
+          <>
+            {!isNoHistory && trackingSinceLabel ? (
+              <p className="channel-analytics-tracking-since">
+                Отслеживаем метрики с {trackingSinceLabel}
+              </p>
+            ) : null}
+            <ChannelMetricBarList
+              labels={labels}
+              series={visibleSeries}
+              chartPeriod={chartPeriod}
+              periodIndex={periodIndex}
+            />
+          </>
+        )}
       </div>
 
-      <div className="analytics-metrics-row">
-        <div className="analytics-card platform-analytics-section analytics-metrics-card">
-          <div className="analytics-metrics-card-title">Прирост по метрикам</div>
-          <div className="analytics-metrics-card-body">
-            <ChannelMetricBars periodIndex={periodIndex} metricsRevision={metricsRevision} />
-          </div>
-        </div>
-        <div className="analytics-card channel-reactions-card platform-analytics-section analytics-metrics-card">
-          <div className="analytics-metrics-card-title">Реакции</div>
-          <div className="analytics-metrics-card-body">
-            <ChannelReactionsPanel reactions={reactions} />
-          </div>
+      <div className="analytics-card channel-reactions-card platform-analytics-section analytics-metrics-card">
+        <div className="analytics-metrics-card-title">Реакции</div>
+        <div className="analytics-metrics-card-body">
+          <ChannelReactionsPanel reactions={reactions} />
         </div>
       </div>
     </>

@@ -114,8 +114,12 @@ class Settings(BaseSettings):
     telegram_metrics_poll_window: int = 20
     # Live metrics events coalesced — at most one TG batch per interval per listener.
     telegram_metrics_min_sync_seconds: float = 5.0
-    # Channel analytics snapshots: totals + real subscriber count every 30 minutes.
-    telegram_analytics_snapshot_seconds: float = 1800.0
+    # Channel analytics snapshots: totals + real subscriber count, once an hour.
+    # The chart's current bucket is always rebuilt from live post data on read
+    # (see channel_metrics.build_overview_from_history), so this interval only
+    # controls historical resolution and how often the real subscriber count
+    # is refreshed from Telegram — not how fresh the growth chart looks.
+    telegram_analytics_snapshot_seconds: float = 3600.0
     analytics_snapshot_retention_days: int = 120
 
     # Window reconcile — drift correction between channel and platform DB

@@ -70,6 +70,8 @@ export function useAnalyticsScreen() {
   }, [overviewQuery.data?.reactions, useRealAnalytics]);
 
   const channelHeatmap = useRealAnalytics ? overviewQuery.data?.heatmap : undefined;
+  const historySource = useRealAnalytics ? overviewQuery.data?.historySource : undefined;
+  const trackingSince = useRealAnalytics ? overviewQuery.data?.trackingSince : undefined;
 
   const topPostsDesktopGridStyle = useMemo(
     () =>
@@ -125,6 +127,8 @@ export function useAnalyticsScreen() {
       topPostsTableWrapStyle,
       channelReactions,
       channelHeatmap,
+      historySource,
+      trackingSince,
       metricsRevision,
       isLoadingAnalytics:
         useRealAnalytics &&

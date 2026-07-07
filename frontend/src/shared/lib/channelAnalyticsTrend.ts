@@ -99,40 +99,38 @@ function isErMetric(metricId: string) {
   return isChannelErMetric(metricId);
 }
 
-/**
- * Индекс от состояния до начала графика (prior): 1 = база, >1 — рост.
- * Первая видимая точка уже отражает прирост за день, поэтому линии не сходятся в одну точку.
- */
-function channelPeriodIndexRatio(
-  metricId: string,
-  values: number[],
-  pointIndex: number,
-  priorCumulative = 0,
-): number {
-  if (isErMetric(metricId)) {
-    const current = (values[pointIndex] ?? 0) / 10;
-    const base =
-      priorCumulative > 0 ? priorCumulative / 10 : (values[0] ?? 0) / 10;
-    if (base <= 0) return 1;
-    return current / base;
-  }
-
-  const total = cumulativeChannelValue(values, pointIndex, priorCumulative);
-  const base =
-    priorCumulative > 0 ? priorCumulative : cumulativeChannelValue(values, 0, 0);
-  if (base <= 0) return 1;
-  return total / base;
-}
-
-/** Ось Y — индекс от старта периода (совпадает с подписью в карточке). */
+/** Ось Y — абсолютное значение метрики на каждой точке (своя шкала в мини-графике). */
 export function buildChannelTrendPlotYValues(
   metricId: string,
   values: number[],
   priorCumulative = 0,
 ): number[] {
+  if (isErMetric(metricId)) {
+    return values.map((value) => value / 10);
+  }
   return values.map((_, pointIndex) =>
-    channelPeriodIndexRatio(metricId, values, pointIndex, priorCumulative),
+    cumulativeChannelValue(values, pointIndex, priorCumulative),
   );
+}
+
+/**
+ * Прирост метрики за каждый временной слот (высота столбца).
+ * Для счётных метрик values уже являются поинтервальными приростами; для ER берём
+ * разницу уровней между соседними слотами (в процентных пунктах).
+ */
+export function buildChannelMetricGrowthBars(
+  metricId: string,
+  values: number[],
+  priorCumulative = 0,
+): number[] {
+  if (isErMetric(metricId)) {
+    return values.map((value, index) => {
+      const level = (value ?? 0) / 10;
+      const prevLevel = index > 0 ? (values[index - 1] ?? 0) / 10 : priorCumulative / 10;
+      return level - prevLevel;
+    });
+  }
+  return values.map((value) => value ?? 0);
 }
 
 export function buildChannelTrendSeries(
@@ -271,6 +269,30 @@ export function buildChannelMetricSummaries(
   });
 }
 
+/** Человекочитаемая дата начала отслеживания метрик канала. */
+export function formatChannelTrackingSinceLabel(isoDate: string): string | null {
+  const normalized = isoDate.includes("T") ? isoDate : `${isoDate}T12:00:00`;
+  const parsed = new Date(normalized);
+  if (Number.isNaN(parsed.getTime())) return null;
+
+  const RU_MONTH_GENITIVE = [
+    "января",
+    "февраля",
+    "марта",
+    "апреля",
+    "мая",
+    "июня",
+    "июля",
+    "августа",
+    "сентября",
+    "октября",
+    "ноября",
+    "декабря",
+  ] as const;
+
+  return `${parsed.getDate()} ${RU_MONTH_GENITIVE[parsed.getMonth()]} ${parsed.getFullYear()}`;
+}
+
 export function formatChannelPostMetricValue(metricId: string, value: number): string {
   if (isErMetric(metricId)) return `${value.toFixed(1)}%`;
   return formatNumber(Math.round(value));
@@ -294,12 +316,6 @@ function formatChannelMomentCount(
   if (!("countForms" in metric)) return formatNumber(total);
 
   return `${formatNumber(total)} ${pluralRu(total, metric.countForms)}`;
-}
-
-function formatChannelIndexGrowthPercent(index: number): string {
-  const growth = index - 1;
-  const sign = growth >= 0 ? "+" : "−";
-  return `${sign}${Math.abs(growth * 100).toFixed(1)}%`;
 }
 
 function formatPeriodGrowthPercent(

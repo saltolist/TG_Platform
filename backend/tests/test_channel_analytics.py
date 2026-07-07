@@ -33,6 +33,7 @@ def _published_post(
     date: str,
     views: str,
     reactions: int = 0,
+    comments: int = 0,
     db_id: uuid.UUID | None = None,
 ) -> Post:
     return Post(
@@ -49,7 +50,7 @@ def _published_post(
                 "reposts": 0,
                 "reactions": [{"emoji": "🔥", "count": reactions}] if reactions else [],
             },
-            "comments": [],
+            "comments": [{} for _ in range(comments)],
         },
     )
 
@@ -160,6 +161,9 @@ def test_build_heatmap_levels_and_empty_state() -> None:
 def test_build_overview_from_history_legacy_channel_snapshot_deltas() -> None:
     now = datetime.now(timezone.utc)
     yesterday = now - timedelta(days=1)
+    # Today's row is always rebuilt from live posts, so the fixture posts must
+    # match the last snapshot's totals (150 views) for the deltas to line up.
+    posts = [_published_post("p1", date=now.isoformat(), views="150")]
     snapshots = [
         _snapshot(yesterday.replace(hour=10, minute=0), views=100, subscribers=50),
         _snapshot(yesterday.replace(hour=23, minute=30), views=120, subscribers=52, er=3.0),
@@ -167,25 +171,54 @@ def test_build_overview_from_history_legacy_channel_snapshot_deltas() -> None:
     ]
 
     overview = build_overview_from_history(
-        [], snapshots, [], "7d", {"subscriberCount": 55}
+        posts, snapshots, [], "7d", {"subscriberCount": 55}
     )
     assert overview["version"] == 2
     assert overview["granularity"] == "day"
     assert overview["historySource"] == "legacy_channel_snapshots"
     assert overview["subscribersAvailable"] is True
-    assert overview["endTotals"]["views"] == 0
+    assert overview["endTotals"]["views"] == 150
     assert overview["endTotals"]["subscribers"] == 55
 
     today_row = overview["days"][-1]
     yesterday_row = overview["days"][-2]
-    assert yesterday_row["views"] == 0
+    # "Yesterday" is the first day with any snapshot in this window — no earlier
+    # baseline exists, so growth is counted from zero (not silently zeroed out).
+    assert yesterday_row["views"] == 120
     assert today_row["views"] == 30
     assert today_row["subscribers"] == 3
-    assert today_row["er"] == 3.5
+    # Today's ER is always the live channel-wide level (calc_er over all posts),
+    # not the snapshot's stored value — the fixture post has no reactions.
+    assert today_row["er"] == 0.0
+
+
+def test_build_overview_from_history_legacy_first_day_counts_grow_from_zero() -> None:
+    """Regression: counts must grow from an implicit zero baseline, like ER already did.
+
+    Previously ``_delta_row`` returned 0 for every count metric whenever no
+    earlier snapshot existed in range (the first tracked day), while ``er``
+    (a level, not a delta) still showed a real number — making it look like
+    only ER was "growing" while views/reactions stayed flat.
+    """
+    now = datetime.now(timezone.utc)
+    posts = [_published_post("p1", date=now.isoformat(), views="35", reactions=3)]
+    snapshots = [
+        _snapshot(now, views=35, reactions=3, er=8.6),
+    ]
+
+    overview = build_overview_from_history(posts, snapshots, [], "7d", {"subscriberCount": 1})
+
+    only_row = overview["days"][-1]
+    assert only_row["views"] == 35
+    assert only_row["reactions"] == 3
+    assert only_row["er"] == 8.6
 
 
 def test_build_overview_from_history_24h_uses_30m_slots() -> None:
     now = datetime.now(timezone.utc)
+    # The current slot is always rebuilt live, so give it a matching post —
+    # 150 views, i.e. no further growth since the last captured snapshot.
+    posts = [_published_post("p1", date=now.isoformat(), views="150")]
     snapshots = [
         _snapshot(now - timedelta(hours=30), views=90, subscribers=48),
         _snapshot(now - timedelta(hours=2), views=100, subscribers=50),
@@ -194,15 +227,15 @@ def test_build_overview_from_history_24h_uses_30m_slots() -> None:
     ]
 
     overview = build_overview_from_history(
-        [], snapshots, [], "24h", {"subscriberCount": 52}
+        posts, snapshots, [], "24h", {"subscriberCount": 52}
     )
     assert overview["version"] == 2
     assert overview["granularity"] == "30m"
-    assert overview["dayCount"] == 3
+    assert overview["dayCount"] == 4
     assert overview["historySource"] == "legacy_channel_snapshots"
-    assert [day["views"] for day in overview["days"]] == [10, 30, 20]
+    assert [day["views"] for day in overview["days"]] == [10, 30, 20, 0]
     assert overview["startTotals"]["views"] == 90
-    assert overview["endTotals"]["views"] == 0
+    assert overview["endTotals"]["views"] == 150
 
 
 def test_build_overview_from_history_without_snapshots_returns_no_history() -> None:
@@ -239,6 +272,7 @@ def test_post_snapshot_new_post_shows_full_growth_from_zero() -> None:
             "new-post",
             date=now.isoformat(),
             views="50",
+            reactions=4,
             db_id=post_id,
         )
     ]
@@ -252,6 +286,37 @@ def test_post_snapshot_new_post_shows_full_growth_from_zero() -> None:
     today_row = overview["days"][-1]
     assert today_row["views"] == 50
     assert today_row["reactions"] == 4
+
+
+def test_overview_current_slot_reflects_live_growth_since_last_capture() -> None:
+    """The current bucket is always rebuilt from live posts, not the stale last capture.
+
+    Simulates a post-snapshot capture that ran a few hours ago, followed by
+    more live growth that hasn't been captured yet — the chart's current slot
+    must show that live growth immediately, without waiting for another
+    scheduled capture.
+    """
+    now = datetime.now(timezone.utc)
+    post_id = uuid.uuid4()
+    posts = [
+        _published_post("p1", date=now.isoformat(), views="80", reactions=8, db_id=post_id)
+    ]
+    post_snapshots = [
+        _post_snapshot(post_id, now - timedelta(hours=3), views=50, reactions=3),
+    ]
+
+    overview = build_overview_from_history(posts, [], post_snapshots, "24h", None)
+
+    assert overview["granularity"] == "30m"
+    assert len(overview["days"]) == 2
+    captured_row, live_row = overview["days"]
+    # The historical capture keeps its own recorded delta...
+    assert captured_row["views"] == 50
+    assert captured_row["reactions"] == 3
+    # ...while the current slot reflects growth that happened since, live.
+    assert live_row["views"] == 30
+    assert live_row["reactions"] == 5
+    assert overview["endTotals"]["views"] == 80
 
 
 def test_build_overview_from_history_mixed_legacy_and_post_snapshots() -> None:
@@ -280,7 +345,11 @@ def test_post_snapshot_er_recomputed_from_daily_deltas() -> None:
     now = datetime.now(timezone.utc)
     yesterday = now - timedelta(days=1)
     post_id = uuid.uuid4()
-    posts = [_published_post("p1", date=now.isoformat(), views="100", db_id=post_id)]
+    posts = [
+        _published_post(
+            "p1", date=now.isoformat(), views="100", reactions=10, comments=5, db_id=post_id
+        )
+    ]
     post_snapshots = [
         _post_snapshot(post_id, yesterday.replace(hour=12, minute=0), views=0, reactions=0),
         _post_snapshot(post_id, now.replace(hour=12, minute=0), views=100, reactions=10, comments=5),
