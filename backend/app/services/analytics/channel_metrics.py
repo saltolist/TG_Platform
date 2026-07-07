@@ -662,9 +662,9 @@ def build_overview_from_history(
         live_slot_row["subscribers"] = (subscribers_now or 0) - _subscribers_before_moment(
             current_slot_start, channel_snapshots
         )
-        # ER is always the channel's current overall level (matches endTotals
-        # and the legacy convention), not a delta computed for just this slot.
-        live_slot_row["er"] = float(end_post_totals["er"])
+        # ER stays as computed by _delta_row_from_post_totals — a delta over
+        # just this slot — matching every other post-snapshot-backed row in
+        # the same series (do not mix in the channel-wide cumulative level).
         if slot_rows and datetime.fromisoformat(str(slot_rows[-1]["date"])) >= current_slot_start:
             slot_rows[-1] = live_slot_row
         else:
@@ -763,9 +763,9 @@ def build_overview_from_history(
         live_today_row["subscribers"] = (subscribers_now or 0) - _subscribers_before_moment(
             today_start, channel_snapshots
         )
-        # ER is always the channel's current overall level (matches endTotals
-        # and the legacy convention), not a delta computed for just today.
-        live_today_row["er"] = float(end_post_totals["er"])
+        # ER stays as computed by _delta_row_from_post_totals — a delta over
+        # just today — matching every other post-snapshot-backed row in the
+        # same series (do not mix in the channel-wide cumulative level).
         days[-1] = live_today_row
 
     # Backfill subscriber deltas for any earlier day still sourced from

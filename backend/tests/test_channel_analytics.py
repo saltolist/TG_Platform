@@ -6,6 +6,7 @@ import asyncio
 import uuid
 from datetime import datetime, timedelta, timezone
 from types import SimpleNamespace
+from typing import Any
 
 import pytest
 
@@ -187,8 +188,8 @@ def test_build_overview_from_history_legacy_channel_snapshot_deltas() -> None:
     assert yesterday_row["views"] == 120
     assert today_row["views"] == 30
     assert today_row["subscribers"] == 3
-    # Today's ER is always the live channel-wide level (calc_er over all posts),
-    # not the snapshot's stored value — the fixture post has no reactions.
+    # Today's ER is recomputed from today's own delta (30 views, 0 reactions),
+    # not the snapshot's stored level — the fixture post has no reactions.
     assert today_row["er"] == 0.0
 
 
@@ -316,6 +317,10 @@ def test_overview_current_slot_reflects_live_growth_since_last_capture() -> None
     # ...while the current slot reflects growth that happened since, live.
     assert live_row["views"] == 30
     assert live_row["reactions"] == 5
+    # ER must be recomputed from *this slot's* delta (5/30), not swapped out
+    # for the channel's cumulative level (8/80 = 10.0) — mixing the two would
+    # put this bar on a different scale than every other bar in the series.
+    assert live_row["er"] == 16.7
     assert overview["endTotals"]["views"] == 80
 
 
@@ -566,3 +571,218 @@ async def test_capture_all_channel_snapshots_continues_after_failure(
 
     assert other_id in captured
     assert user_id not in captured
+
+
+def test_subscriber_refresh_due_when_missing_or_stale() -> None:
+    settings = get_settings()
+    assert analytics_snapshot_task._subscriber_refresh_due({}, settings) is True
+    assert (
+        analytics_snapshot_task._subscriber_refresh_due(
+            {"subscriberCountAt": "not-a-date"},
+            settings,
+        )
+        is True
+    )
+    stale = (datetime.now(timezone.utc) - timedelta(hours=2)).isoformat()
+    assert (
+        analytics_snapshot_task._subscriber_refresh_due(
+            {"subscriberCountAt": stale},
+            settings,
+        )
+        is True
+    )
+    fresh = datetime.now(timezone.utc).isoformat()
+    assert (
+        analytics_snapshot_task._subscriber_refresh_due(
+            {"subscriberCountAt": fresh},
+            settings,
+        )
+        is False
+    )
+
+
+def test_log_if_snapshot_overdue_warns_when_stale(caplog: pytest.LogCaptureFixture) -> None:
+    settings = get_settings()
+    interval = settings.telegram_analytics_snapshot_seconds
+    stale_at = (
+        datetime.now(timezone.utc)
+        - timedelta(seconds=interval * analytics_snapshot_task._MISSED_SNAPSHOT_MULTIPLIER + 60)
+    ).isoformat()
+    profile = Profile(
+        user_id=uuid.uuid4(),
+        telegram={"channelStatus": "connected", "lastAnalyticsSnapshotAt": stale_at},
+    )
+
+    with caplog.at_level("WARNING"):
+        analytics_snapshot_task._log_if_snapshot_overdue(
+            profile,
+            settings,
+            datetime.now(timezone.utc),
+        )
+
+    assert any("Analytics snapshot overdue" in record.message for record in caplog.records)
+
+
+def test_log_if_snapshot_overdue_silent_when_fresh(caplog: pytest.LogCaptureFixture) -> None:
+    settings = get_settings()
+    fresh_at = datetime.now(timezone.utc).isoformat()
+    profile = Profile(
+        user_id=uuid.uuid4(),
+        telegram={"channelStatus": "connected", "lastAnalyticsSnapshotAt": fresh_at},
+    )
+
+    with caplog.at_level("WARNING"):
+        analytics_snapshot_task._log_if_snapshot_overdue(
+            profile,
+            settings,
+            datetime.now(timezone.utc),
+        )
+
+    assert not any("Analytics snapshot overdue" in record.message for record in caplog.records)
+
+
+@pytest.mark.asyncio
+async def test_capture_for_user_skips_telethon_when_subscriber_fresh(
+    writer_user, monkeypatch
+) -> None:  # noqa: F811
+    user_id = writer_user.id
+    fresh_at = datetime.now(timezone.utc).isoformat()
+    async with TestSessionLocal() as session:
+        session.add(
+            Profile(
+                user_id=user_id,
+                telegram={
+                    "channelStatus": "connected",
+                    "subscriberCountAt": fresh_at,
+                    "subscriberCount": 100,
+                },
+            )
+        )
+        await session.commit()
+
+    def fail_if_called(*_args, **_kwargs):  # noqa: ANN001
+        raise AssertionError("Telethon client should not be built when subscriber is fresh")
+
+    captured: list[tuple[Any | None, Any | None]] = []
+
+    async def fake_capture(_factory, uid, client, entity, settings) -> bool:  # noqa: ANN001
+        captured.append((client, entity))
+        return True
+
+    monkeypatch.setattr(analytics_snapshot_task, "build_client", fail_if_called)
+    monkeypatch.setattr(analytics_snapshot_task, "async_session_factory", TestSessionLocal)
+    monkeypatch.setattr(analytics_snapshot_task, "capture_metrics_snapshot", fake_capture)
+
+    await analytics_snapshot_task._capture_for_user(user_id, get_settings())
+
+    assert len(captured) == 1
+    assert captured[0] == (None, None)
+
+
+@pytest.mark.asyncio
+async def test_capture_for_user_polls_before_capture_when_subscriber_stale(
+    writer_user, monkeypatch
+) -> None:  # noqa: F811
+    user_id = writer_user.id
+    stale_at = (datetime.now(timezone.utc) - timedelta(hours=2)).isoformat()
+    async with TestSessionLocal() as session:
+        session.add(
+            Profile(
+                user_id=user_id,
+                telegram={
+                    "channelStatus": "connected",
+                    "channel": "@testchannel",
+                    "sessionString": "enc:test",
+                    "subscriberCountAt": stale_at,
+                },
+            )
+        )
+        await session.commit()
+
+    call_order: list[str] = []
+    fake_entity = object()
+
+    async def fake_connect(client, settings) -> None:  # noqa: ANN001
+        call_order.append("connect")
+
+    async def fake_resolve(client, parsed, settings):  # noqa: ANN001
+        call_order.append("resolve")
+        return fake_entity
+
+    async def fake_poll(client, entity, uid, settings, factory) -> int:  # noqa: ANN001
+        call_order.append("poll")
+        return 0
+
+    async def fake_capture(_factory, uid, client, entity, settings) -> bool:  # noqa: ANN001
+        call_order.append("capture")
+        return True
+
+    async def fake_disconnect(client) -> None:  # noqa: ANN001
+        pass
+
+    monkeypatch.setattr(analytics_snapshot_task, "build_client", lambda *a, **k: object())
+    monkeypatch.setattr(analytics_snapshot_task, "connect_telegram_client", fake_connect)
+    monkeypatch.setattr(analytics_snapshot_task, "resolve_channel_entity", fake_resolve)
+    monkeypatch.setattr(analytics_snapshot_task, "require_api_credentials", lambda t, s: (1, "hash"))
+    monkeypatch.setattr(analytics_snapshot_task, "decrypt_field", lambda v, s: "session")
+    monkeypatch.setattr(analytics_snapshot_task, "parse_channel_input", lambda v: object())
+    monkeypatch.setattr(analytics_snapshot_task, "disconnect_safely", fake_disconnect)
+    monkeypatch.setattr(analytics_snapshot_task, "poll_recent_post_metrics", fake_poll)
+    monkeypatch.setattr(analytics_snapshot_task, "async_session_factory", TestSessionLocal)
+    monkeypatch.setattr(analytics_snapshot_task, "capture_metrics_snapshot", fake_capture)
+
+    await analytics_snapshot_task._capture_for_user(user_id, get_settings())
+
+    assert call_order == ["connect", "resolve", "poll", "capture"]
+
+
+@pytest.mark.asyncio
+async def test_capture_for_user_continues_when_poll_fails(
+    writer_user, monkeypatch
+) -> None:  # noqa: F811
+    user_id = writer_user.id
+    async with TestSessionLocal() as session:
+        session.add(
+            Profile(
+                user_id=user_id,
+                telegram={
+                    "channelStatus": "connected",
+                    "channel": "@testchannel",
+                    "sessionString": "enc:test",
+                },
+            )
+        )
+        await session.commit()
+
+    captured: list[bool] = []
+
+    async def fail_poll(*_args, **_kwargs) -> int:  # noqa: ANN001
+        raise RuntimeError("poll failed")
+
+    async def fake_capture(_factory, uid, client, entity, settings) -> bool:  # noqa: ANN001
+        captured.append(True)
+        return True
+
+    async def fake_connect(client, settings) -> None:  # noqa: ANN001
+        pass
+
+    async def fake_resolve(client, parsed, settings):  # noqa: ANN001
+        return object()
+
+    async def fake_disconnect(client) -> None:  # noqa: ANN001
+        pass
+
+    monkeypatch.setattr(analytics_snapshot_task, "build_client", lambda *a, **k: object())
+    monkeypatch.setattr(analytics_snapshot_task, "connect_telegram_client", fake_connect)
+    monkeypatch.setattr(analytics_snapshot_task, "resolve_channel_entity", fake_resolve)
+    monkeypatch.setattr(analytics_snapshot_task, "require_api_credentials", lambda t, s: (1, "hash"))
+    monkeypatch.setattr(analytics_snapshot_task, "decrypt_field", lambda v, s: "session")
+    monkeypatch.setattr(analytics_snapshot_task, "parse_channel_input", lambda v: object())
+    monkeypatch.setattr(analytics_snapshot_task, "disconnect_safely", fake_disconnect)
+    monkeypatch.setattr(analytics_snapshot_task, "poll_recent_post_metrics", fail_poll)
+    monkeypatch.setattr(analytics_snapshot_task, "async_session_factory", TestSessionLocal)
+    monkeypatch.setattr(analytics_snapshot_task, "capture_metrics_snapshot", fake_capture)
+
+    await analytics_snapshot_task._capture_for_user(user_id, get_settings())
+
+    assert captured == [True]
