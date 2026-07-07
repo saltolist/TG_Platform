@@ -307,6 +307,26 @@ def _floor_to_slot(moment: datetime, minutes: int = 30) -> datetime:
     return moment.replace(minute=minute, second=0, microsecond=0)
 
 
+def _last_subscriber_count_at_or_before(
+    moment: datetime,
+    channel_snapshots: list[ChannelMetricSnapshot],
+) -> int | None:
+    """Last known subscriber count from channel snapshots at or before *moment*.
+
+    Skips rows where the subscriber refresh did not run (``subscribers`` is
+    NULL) so a stale NULL tail does not hide an older real count.
+    """
+    moment = moment.astimezone(timezone.utc)
+    last: int | None = None
+    for snap in channel_snapshots:
+        captured = snap.captured_at.astimezone(timezone.utc)
+        if captured > moment:
+            break
+        if snap.subscribers is not None:
+            last = int(snap.subscribers)
+    return last
+
+
 def _subscribers_before_moment(
     moment: datetime,
     channel_snapshots: list[ChannelMetricSnapshot],
@@ -317,13 +337,95 @@ def _subscribers_before_moment(
     scheduled snapshot capture (there is no continuous live source for it,
     unlike views/reactions), so it stays tied to snapshot cadence.
     """
-    baseline: ChannelMetricSnapshot | None = None
-    for snap in channel_snapshots:
-        if snap.captured_at.astimezone(timezone.utc) < moment:
-            baseline = snap
-    if baseline is None or baseline.subscribers is None:
+    probe = moment.astimezone(timezone.utc) - timedelta(microseconds=1)
+    return _last_subscriber_count_at_or_before(probe, channel_snapshots) or 0
+
+
+def _live_subscriber_delta(
+    subscribers_now: int | None,
+    channel_snapshots: list[ChannelMetricSnapshot],
+    current_slot_start: datetime,
+) -> int:
+    """Subscriber growth in the live slot only (not replaying older snapshot gaps)."""
+    if subscribers_now is None:
         return 0
-    return int(baseline.subscribers)
+    baseline = _last_subscriber_count_at_or_before(current_slot_start, channel_snapshots)
+    if baseline is None:
+        return 0
+    return subscribers_now - baseline
+
+
+def _subscriber_growth_in_window(
+    subscribers_now: int | None,
+    channel_snapshots: list[ChannelMetricSnapshot],
+    since: datetime,
+) -> int:
+    """Net subscriber change strictly inside a time window (e.g. last 24h)."""
+    if subscribers_now is None:
+        return 0
+    baseline = _last_subscriber_count_at_or_before(since, channel_snapshots)
+    if baseline is None:
+        return 0
+    return subscribers_now - baseline
+
+
+def _apply_subscriber_deltas_for_24h(
+    slot_rows: list[dict[str, Any]],
+    live_slot_row: dict[str, Any],
+    *,
+    subscribers_now: int | None,
+    channel_snapshots: list[ChannelMetricSnapshot],
+    since: datetime,
+    current_slot_start: datetime,
+    replacing_last: bool,
+) -> None:
+    """Clamp 24h subscriber bars to real in-window growth.
+
+  A subscriber refresh that only catches up a stale count must not create a
+  bar in the 24h chart when the actual subscribe event was days earlier.
+    """
+    growth_in_window = _subscriber_growth_in_window(
+        subscribers_now, channel_snapshots, since
+    )
+    recorded = sum(int(row.get("subscribers") or 0) for row in slot_rows)
+    if replacing_last and slot_rows:
+        recorded -= int(slot_rows[-1].get("subscribers") or 0)
+
+    if growth_in_window <= 0:
+        for row in slot_rows:
+            row["subscribers"] = 0
+        live_slot_row["subscribers"] = 0
+        return
+
+    live_slot_row["subscribers"] = max(0, growth_in_window - recorded)
+
+
+def _merge_subscriber_slot_deltas(
+    slot_rows: list[dict[str, Any]],
+    channel_snapshots: list[ChannelMetricSnapshot],
+    since: datetime,
+) -> None:
+    """Backfill subscriber deltas from channel snapshots into 24h slot rows.
+
+    Per-post snapshot slots always zero subscribers; channel snapshots carry the
+    real cadence-bound deltas and must be merged by slot time.
+    """
+    if not channel_snapshots or not slot_rows:
+        return
+    by_slot: dict[datetime, int] = {}
+    for row in _snapshot_slot_rows(channel_snapshots, since):
+        moment = datetime.fromisoformat(str(row["date"]))
+        if moment.tzinfo is None:
+            moment = moment.replace(tzinfo=timezone.utc)
+        by_slot[_floor_to_slot(moment)] = int(row.get("subscribers") or 0)
+
+    for row in slot_rows:
+        moment = datetime.fromisoformat(str(row["date"]))
+        if moment.tzinfo is None:
+            moment = moment.replace(tzinfo=timezone.utc)
+        delta = by_slot.get(_floor_to_slot(moment))
+        if delta is not None:
+            row["subscribers"] = delta
 
 
 def _totals_before_moment(
@@ -694,22 +796,43 @@ def _compute_channel_overview(
             _totals_before_moment(current_slot_start, by_post, channel_snapshots),
             0,
         )
-        live_slot_row["subscribers"] = (subscribers_now or 0) - _subscribers_before_moment(
-            current_slot_start, channel_snapshots
-        )
         # ER stays as computed by _delta_row_from_post_totals — a delta over
         # just this slot — matching every other post-snapshot-backed row in
         # the same series (do not mix in the channel-wide cumulative level).
-        if slot_rows and datetime.fromisoformat(str(slot_rows[-1]["date"])) >= current_slot_start:
+        if post_snapshots:
+            _merge_subscriber_slot_deltas(slot_rows, channel_snapshots, since)
+
+        replacing_last = bool(
+            slot_rows
+            and datetime.fromisoformat(str(slot_rows[-1]["date"])) >= current_slot_start
+        )
+        _apply_subscriber_deltas_for_24h(
+            slot_rows,
+            live_slot_row,
+            subscribers_now=subscribers_now,
+            channel_snapshots=channel_snapshots,
+            since=since,
+            current_slot_start=current_slot_start,
+            replacing_last=replacing_last,
+        )
+
+        if replacing_last:
             slot_rows[-1] = live_slot_row
         else:
             slot_rows.append(live_slot_row)
 
         if len(slot_rows) >= 2:
             baseline_moment = since - timedelta(microseconds=1)
+            subs_at_window_start = _last_subscriber_count_at_or_before(
+                since, channel_snapshots
+            )
             if post_snapshots:
                 baseline_totals = _post_totals_at_moment(by_post, baseline_moment)
-                start_totals = _normalize_totals(baseline_totals, subscribers_fallback=0)
+                start_totals = _normalize_totals(
+                    baseline_totals,
+                    subscribers_fallback=0,
+                    subscribers_override=subs_at_window_start,
+                )
             else:
                 baseline = None
                 for snap in channel_snapshots:
@@ -725,7 +848,11 @@ def _compute_channel_overview(
                     if baseline is not None
                     else _snapshot_totals(in_window[0])
                 )
-                start_totals = _normalize_totals(baseline_totals, subscribers_fallback=0)
+                start_totals = _normalize_totals(
+                    baseline_totals,
+                    subscribers_fallback=0,
+                    subscribers_override=subs_at_window_start,
+                )
 
             return {
                 "dayCount": len(slot_rows),
@@ -793,8 +920,10 @@ def _compute_channel_overview(
             baseline_today,
             _posts_published_on_day(published, today),
         )
-        live_today_row["subscribers"] = (subscribers_now or 0) - _subscribers_before_moment(
-            today_start, channel_snapshots
+        live_today_row["subscribers"] = _live_subscriber_delta(
+            subscribers_now,
+            channel_snapshots,
+            today_start,
         )
         # ER stays as computed by _delta_row_from_post_totals — a delta over
         # just today — matching every other post-snapshot-backed row in the

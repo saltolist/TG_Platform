@@ -36,7 +36,8 @@ describe("buildChannelMetricGrowthBars", () => {
   });
 
   it("returns level-to-level deltas for er metric", () => {
-    const bars = buildChannelMetricGrowthBars("er", [48, 52, 50], 450);
+    // priorCumulative for ER is the level × 10, so 45 → prior level 4.5.
+    const bars = buildChannelMetricGrowthBars("er", [48, 52, 50], 45);
 
     // levels: 4.8, 5.2, 5.0; prior level 4.5
     expect(bars[0]).toBeCloseTo(0.3, 5);

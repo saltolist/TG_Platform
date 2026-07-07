@@ -133,6 +133,17 @@ async def capture_metrics_snapshot(
             )
             await session.execute(post_stmt)
 
+        channel_update: dict[str, Any] = {
+            "views": int(totals["views"]),
+            "reactions": int(totals["reactions"]),
+            "comments": int(totals["comments"]),
+            "reposts": int(totals["reposts"]),
+            "posts_count": len(posts),
+            "er": float(totals["er"]),
+        }
+        if subscribers is not None:
+            channel_update["subscribers"] = subscribers
+
         channel_stmt = (
             pg_insert(ChannelMetricSnapshot)
             .values(
@@ -148,15 +159,7 @@ async def capture_metrics_snapshot(
             )
             .on_conflict_do_update(
                 constraint="uq_channel_metric_snapshots_slot",
-                set_={
-                    "subscribers": subscribers,
-                    "views": int(totals["views"]),
-                    "reactions": int(totals["reactions"]),
-                    "comments": int(totals["comments"]),
-                    "reposts": int(totals["reposts"]),
-                    "posts_count": len(posts),
-                    "er": float(totals["er"]),
-                },
+                set_=channel_update,
             )
         )
         await session.execute(channel_stmt)

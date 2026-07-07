@@ -492,12 +492,7 @@ function formatChannelPointGrowthDelta(
     return `${sign}${Math.abs(delta).toFixed(1)}%`;
   }
 
-  const total = cumulativeChannelValue(values, pointIndex, priorCumulative);
-  const prevTotal =
-    pointIndex > 0
-      ? cumulativeChannelValue(values, pointIndex - 1, priorCumulative)
-      : priorCumulative;
-  const delta = Math.round(total - prevTotal);
+  const delta = Math.round(value ?? 0);
   const sign = delta >= 0 ? "+" : "−";
   return `${sign}${formatNumber(Math.abs(delta))}`;
 }

@@ -526,6 +526,101 @@ def test_build_overview_er_zero_when_views_delta_is_exactly_zero() -> None:
     assert live_row["er"] == 0.0
 
 
+def test_build_overview_24h_merges_subscriber_deltas_into_post_snapshot_slots() -> None:
+    """Post snapshot slots zero subscribers; channel snapshots carry the real deltas."""
+    now = datetime.now(timezone.utc)
+    post_id = uuid.uuid4()
+    posts = [_published_post("p1", date=now.isoformat(), views="150")]
+    channel_snapshots = [
+        _snapshot(now - timedelta(hours=30), views=90, subscribers=49),
+        _snapshot(now - timedelta(hours=5), views=100, subscribers=50),
+        _snapshot(now - timedelta(hours=1), views=130, subscribers=51),
+    ]
+    post_snapshots = [
+        _post_snapshot(post_id, now - timedelta(hours=5), views=100),
+        _post_snapshot(post_id, now - timedelta(hours=1), views=130),
+    ]
+
+    trend = build_channel_trend(
+        posts, channel_snapshots, post_snapshots, "24h", {"subscriberCount": 51}
+    )
+
+    assert trend["granularity"] == "30m"
+    historical = trend["days"][:-1]
+    live_row = trend["days"][-1]
+    assert historical[0]["subscribers"] == 1
+    assert historical[1]["subscribers"] == 1
+    assert live_row["subscribers"] == 0
+
+
+def test_build_overview_24h_live_subscriber_delta_not_replayed_from_old_snapshot() -> None:
+    """Subscriber growth days ago must not reappear in the live 24h column."""
+    now = datetime.now(timezone.utc)
+    five_days_ago = now - timedelta(days=5)
+    post_id = uuid.uuid4()
+    posts = [_published_post("p1", date=now.isoformat(), views="150")]
+    channel_snapshots = [
+        _snapshot(
+            five_days_ago.replace(hour=12, minute=0),
+            views=100,
+            subscribers=50,
+        ),
+        _snapshot(
+            five_days_ago.replace(hour=18, minute=0),
+            views=110,
+            subscribers=51,
+        ),
+        # Recent DB-only captures without a subscriber refresh (NULL tail).
+        _snapshot(now - timedelta(hours=2), views=140, subscribers=None),
+        _snapshot(now - timedelta(hours=1), views=150, subscribers=None),
+    ]
+    post_snapshots = [
+        _post_snapshot(post_id, now - timedelta(hours=2), views=140),
+    ]
+
+    trend = build_channel_trend(
+        posts, channel_snapshots, post_snapshots, "24h", {"subscriberCount": 51}
+    )
+
+    live_row = trend["days"][-1]
+    assert live_row["subscribers"] == 0
+    assert all(row["subscribers"] == 0 for row in trend["days"][:-1])
+
+
+def test_build_overview_24h_zeros_catch_up_refresh_not_in_window() -> None:
+    """Hourly refresh that only catches an old count must not create a 24h bar."""
+    now = datetime.now(timezone.utc)
+    five_days_ago = now - timedelta(days=5)
+    post_id = uuid.uuid4()
+    posts = [_published_post("p1", date=now.isoformat(), views="150")]
+    channel_snapshots = [
+        _snapshot(
+            five_days_ago.replace(hour=12, minute=0),
+            views=100,
+            subscribers=50,
+        ),
+        _snapshot(
+            five_days_ago.replace(hour=18, minute=0),
+            views=110,
+            subscribers=51,
+        ),
+        _snapshot(now - timedelta(hours=3), views=140, subscribers=51),
+    ]
+    post_snapshots = [
+        _post_snapshot(post_id, now - timedelta(hours=3), views=140),
+    ]
+
+    trend = build_channel_trend(
+        posts, channel_snapshots, post_snapshots, "24h", {"subscriberCount": 51}
+    )
+    summary = build_channel_summary(
+        posts, channel_snapshots, post_snapshots, "24h", {"subscriberCount": 51}
+    )
+
+    assert summary["endTotals"]["subscribers"] - summary["startTotals"]["subscribers"] == 0
+    assert all(row["subscribers"] == 0 for row in trend["days"])
+
+
 @pytest.mark.asyncio
 async def test_capture_metrics_snapshot_publishes_sync_event(writer_user) -> None:  # noqa: F811
     from app.services.telegram.sync_events import subscribe_telegram_sync_events, unsubscribe_telegram_sync_events

@@ -96,6 +96,9 @@ describe("channelMetricsDb", () => {
   });
 
   it("aggregates 30-minute snapshots into 24 hourly bars for 24h charts", () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date("2026-07-04T15:00:00.000Z"));
+
     loadDataset({
       granularity: "30m",
       startTotals: { views: 90, subscribers: 48 },
@@ -141,12 +144,11 @@ describe("channelMetricsDb", () => {
     expect(viewsSeries.values.reduce((sum, value) => sum + value, 0)).toBe(60);
     expect(viewsSeries.priorCumulative).toBe(90);
     expect(formatChannelTrendPointPeriod(0, 1, 24)).toMatch(/—/);
+
+    vi.useRealTimers();
   });
 
-  it("maps latest UTC calendar day to local today on week charts", () => {
-    vi.useFakeTimers();
-    vi.setSystemTime(new Date("2026-07-07T21:30:00.000Z"));
-
+  it("anchors the newest snapshot to the rightmost column and spaces earlier rows by real date", () => {
     loadDataset({
       days: [
         {
@@ -163,6 +165,34 @@ describe("channelMetricsDb", () => {
           date: "2026-07-07",
           subscribers: 4,
           reactions: 0,
+          views: 35,
+          comments: 0,
+          reposts: 0,
+          posts: 0,
+          er: 0,
+        },
+      ],
+    });
+
+    const subscribers = extractChannelMetricSeriesForChart("subscribers", 1, 7);
+    const views = extractChannelMetricSeriesForChart("views", 1, 7);
+    // Newest row (07-07) is 0 days from newest → rightmost column (index 6).
+    expect(subscribers.values[6]).toBe(4);
+    expect(views.values[6]).toBe(35);
+    // 07-01 is 6 days before 07-07 → column index 0.
+    expect(subscribers.values[0]).toBe(1);
+    // Every other column is empty (no snapshot on that day).
+    expect(views.values[0]).toBe(0);
+    expect(subscribers.values[3]).toBe(0);
+  });
+
+  it("does not dump day-level subscriber deltas into the last 24h hour", () => {
+    loadDataset({
+      days: [
+        {
+          date: "2026-07-05",
+          subscribers: 1,
+          reactions: 0,
           views: 0,
           comments: 0,
           reposts: 0,
@@ -172,10 +202,31 @@ describe("channelMetricsDb", () => {
       ],
     });
 
-    const series = extractChannelMetricSeriesForChart("subscribers", 1, 7);
-    expect(series.values[6]).toBe(4);
+    const subscribers = extractChannelMetricSeriesForChart("subscribers", 0, 24);
+    expect(subscribers.values.every((value) => value === 0)).toBe(true);
+  });
 
-    vi.useRealTimers();
+  it("zeros 24h subscriber bars when period growth from totals is zero", () => {
+    loadDataset({
+      granularity: "30m",
+      startTotals: { subscribers: 51, views: 0, reactions: 0, comments: 0, reposts: 0, er: 0 },
+      endTotals: { subscribers: 51, views: 100, reactions: 0, comments: 0, reposts: 0, er: 0 },
+      days: [
+        {
+          date: "2026-07-08T01:00:00+00:00",
+          subscribers: 1,
+          reactions: 0,
+          views: 10,
+          comments: 0,
+          reposts: 0,
+          posts: 0,
+          er: 0,
+        },
+      ],
+    });
+
+    const subscribers = extractChannelMetricSeriesForChart("subscribers", 0, 24);
+    expect(subscribers.values.every((value) => value === 0)).toBe(true);
   });
 
   it("tracks hidden subscriber counts from API metadata", () => {
