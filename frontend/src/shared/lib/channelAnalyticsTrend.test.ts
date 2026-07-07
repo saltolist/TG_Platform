@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 
 import {
+  buildChannelMetricBarSeries,
   buildChannelMetricGrowthBars,
   buildChannelTrendPlotYValues,
   formatChannelPointPercentGrowth,
@@ -47,6 +48,22 @@ describe("buildChannelMetricGrowthBars", () => {
     const bars = buildChannelMetricGrowthBars("subscribers", [5, -3, 0], 200);
 
     expect(bars).toEqual([5, -3, 0]);
+  });
+});
+
+describe("buildChannelMetricBarSeries", () => {
+  it("uses per-slot deltas for count metrics", () => {
+    const bars = buildChannelMetricBarSeries("reactions", [2, 1, 3], 100);
+
+    expect(bars).toEqual([2, 1, 3]);
+  });
+
+  it("uses absolute ER level per slot (not the delta)", () => {
+    const bars = buildChannelMetricBarSeries("er", [48, 52, 50], 450);
+
+    expect(bars[0]).toBeCloseTo(4.8, 5);
+    expect(bars[1]).toBeCloseTo(5.2, 5);
+    expect(bars[2]).toBeCloseTo(5.0, 5);
   });
 });
 

@@ -3,6 +3,7 @@ import {
   extractChannelMetricSeriesForChart,
   getChannelChartPeriodDaySpan,
   getChannelEndTotals,
+  getChannelStartTotals,
   getMetricTypicalPeriodGrowth,
   isChannelErMetric,
   isChannelSubscribersAvailable,
@@ -133,6 +134,21 @@ export function buildChannelMetricGrowthBars(
   return values.map((value) => value ?? 0);
 }
 
+/**
+ * Высота столбцов в карточке. Для счётных метрик — поинтервальный прирост;
+ * для ER — абсолютный уровень в каждом слоте (не прирост).
+ */
+export function buildChannelMetricBarSeries(
+  metricId: string,
+  values: number[],
+  priorCumulative = 0,
+): number[] {
+  if (isErMetric(metricId)) {
+    return values.map((value) => (value ?? 0) / 10);
+  }
+  return buildChannelMetricGrowthBars(metricId, values, priorCumulative);
+}
+
 export function buildChannelTrendSeries(
   analyticsPeriodIndex: number,
   options?: { maxPoints?: number },
@@ -166,7 +182,41 @@ export function buildChannelTrendSeries(
     };
   });
 
+  rebuildErSeriesAsLevel(series);
+
   return { labels, series };
+}
+
+/**
+ * ER на момент столбца — уровень (накопленные реакции+комментарии / накопленные
+ * просмотры), а не дневная дельта. Дневная дельта давала 0 в неактивные дни и
+ * случайные всплески, хотя ER так себя не ведёт. Точки до появления данных
+ * (накопленные просмотры = 0) остаются нулевыми — «канал ещё не был подключён».
+ */
+function rebuildErSeriesAsLevel(series: TrendSeriesRow[]): void {
+  const erRow = series.find((row) => isErMetric(row.id));
+  if (!erRow) return;
+  const views = series.find((row) => row.id === "views");
+  const reactions = series.find((row) => row.id === "reactions");
+  const comments = series.find((row) => row.id === "comments");
+  if (!views || !reactions) return;
+
+  const cumViews = views.yValues ?? [];
+  const cumReactions = reactions.yValues ?? [];
+  const cumComments = comments?.yValues ?? [];
+
+  const levelValues = erRow.values.map((_, index) => {
+    const v = cumViews[index] ?? 0;
+    if (v <= 0) return 0;
+    const r = cumReactions[index] ?? 0;
+    const c = cumComments[index] ?? 0;
+    const level = ((r + c) / v) * 100;
+    return Math.round(level * 10);
+  });
+
+  erRow.values = levelValues;
+  erRow.priorCumulative = 0;
+  erRow.yValues = buildChannelTrendPlotYValues(erRow.id, levelValues, 0);
 }
 
 export type ChannelMetricSummary = {
@@ -187,15 +237,6 @@ export type ChannelMetricSummary = {
 const CHANNEL_BAR_FILL_AVERAGE_ANCHOR_PERCENT = 50;
 const CHANNEL_BAR_FILL_MIN_PERCENT = 4;
 
-function computePeriodGrowth(metricId: string, values: number[]): number {
-  if (isErMetric(metricId)) {
-    const last = values[values.length - 1] ?? 0;
-    const first = values[0] ?? last;
-    return (last - first) / 10;
-  }
-  return values.reduce((sum, value) => sum + value, 0);
-}
-
 function formatGrowthDelta(metricId: string, growth: number) {
   if (isErMetric(metricId)) {
     const sign = growth >= 0 ? "+" : "−";
@@ -203,6 +244,15 @@ function formatGrowthDelta(metricId: string, growth: number) {
   }
   const sign = growth >= 0 ? "+" : "−";
   return `${sign}${formatNumber(Math.round(Math.abs(growth)))}`;
+}
+
+/** Заголовок карточки метрики: «Подписчики 98 (+4)». */
+export function formatChannelMetricCardHeadline(
+  label: string,
+  total: string,
+  growth: string,
+): string {
+  return `${label} ${total} (${growth})`;
 }
 
 function formatGrowthRelativeToQuantityPercent(growth: number, quantity: number) {
@@ -252,9 +302,17 @@ export function buildChannelMetricSummaries(
 
   return series.map((row) => {
     const metricId = row.id as ChannelMetricId;
-    const growth = computePeriodGrowth(row.id, row.values);
+    // Прирост за период — чистое изменение на той же базе, что и итог
+    // (endTotals − startTotals). Так прирост согласован с показанным итогом и
+    // не может его превысить (в отличие от суммы дельт снимков, которая
+    // включает удалённые посты).
+    const endQuantity = getChannelCurrentTotals()[metricId] ?? 0;
+    const startQuantity = getChannelStartTotals()[metricId] ?? 0;
+    const growth = endQuantity - startQuantity;
     const typicalPeriodGrowth = getMetricTypicalPeriodGrowth(metricId, periodDaySpan);
-    const quantity = getChannelCurrentTotals()[metricId] ?? 0;
+    // Итог — текущее значение метрики на платформе (не зависит от выбранного
+    // периода).
+    const quantity = endQuantity;
 
     return {
       id: row.id,

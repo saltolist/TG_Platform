@@ -3,7 +3,7 @@
 import { useMemo, type CSSProperties, type Ref } from "react";
 import { createPortal } from "react-dom";
 import {
-  buildChannelMetricGrowthBars,
+  buildChannelMetricBarSeries,
   buildChannelMetricSummaries,
   formatChannelGrowthBadge,
   formatChannelGrowthPrimary,
@@ -62,7 +62,7 @@ export default function ChannelMetricBarList({
             key={row.id}
             row={row}
             label={summary.label}
-            quantity={summary.displayQuantity}
+            total={summary.displayQuantity}
             growth={summary.displayGrowth}
             labels={labels}
             chartPeriod={chartPeriod}
@@ -76,14 +76,14 @@ export default function ChannelMetricBarList({
 function MetricBarCard({
   row,
   label,
-  quantity,
+  total,
   growth,
   labels,
   chartPeriod,
 }: {
   row: TrendSeriesRow;
   label: string;
-  quantity: string;
+  total: string;
   growth: string;
   labels: string[];
   chartPeriod: number;
@@ -92,14 +92,14 @@ function MetricBarCard({
   const pointCount = labels.length;
 
   const bars = useMemo<BarDatum[]>(() => {
-    const growthValues = buildChannelMetricGrowthBars(row.id, row.values, prior);
-    const maxMagnitude = growthValues.reduce(
+    const barValues = buildChannelMetricBarSeries(row.id, row.values, prior);
+    const maxMagnitude = barValues.reduce(
       (max, value) => Math.max(max, Math.abs(value)),
       0,
     );
 
     return labels.map((axisLabel, index) => {
-      const growthAmount = growthValues[index] ?? 0;
+      const barAmount = barValues[index] ?? 0;
       return {
         key: `${row.id}:${index}`,
         axisLabel,
@@ -118,8 +118,8 @@ function MetricBarCard({
           row.values,
           prior,
         ),
-        magnitude: maxMagnitude > 0 ? Math.abs(growthAmount) / maxMagnitude : 0,
-        isNegative: growthAmount < 0,
+        magnitude: maxMagnitude > 0 ? Math.abs(barAmount) / maxMagnitude : 0,
+        isNegative: barAmount < 0,
       };
     });
   }, [row.id, row.values, prior, labels, chartPeriod, pointCount]);
@@ -134,11 +134,11 @@ function MetricBarCard({
       <header className="channel-metric-bar-card-head">
         <div className="channel-metric-bar-card-title">
           <span className="channel-metric-bar-card-dot" aria-hidden />
-          <span className="channel-metric-bar-card-label">{label}</span>
-        </div>
-        <div className="channel-metric-bar-card-stats">
-          <span className="channel-metric-bar-card-value">{quantity}</span>
-          <span className="channel-metric-bar-card-growth">{growth}</span>
+          <span className="channel-metric-bar-card-label">
+            {label}{" "}
+            <span className="channel-metric-bar-card-total">{total}</span>{" "}
+            <span className="channel-metric-bar-card-growth">({growth})</span>
+          </span>
         </div>
       </header>
 

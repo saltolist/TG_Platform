@@ -11,10 +11,8 @@ import {
   formatChannelTrackingSinceLabel,
   formatDataAgeLabel,
 } from "@/shared/lib/channelAnalyticsTrend";
-import { resolveTrendChartMaxPoints } from "@/shared/lib/trendChart/periodLabels";
 import { useChartSeriesVisibility } from "@/shared/lib/hooks/useChartSeriesVisibility";
 import { useMobile760 } from "@/shared/lib/hooks/useMobile760";
-import { usePageHeaderLe1080, usePageHeaderLe640 } from "@/widgets/page-header";
 
 import type { ChannelAnalyticsTrend } from "@/shared/api/schemas/channelAnalytics";
 import type { PostReaction } from "@/shared/types";
@@ -44,17 +42,10 @@ export default function ChannelAnalyticsSection({
   dataAgeSeconds?: number | null;
 }) {
   const isMobile = useMobile760();
-  const isHeaderLe1080 = usePageHeaderLe1080();
-  const isHeaderLe640 = usePageHeaderLe640();
-  const chartMaxPoints = resolveTrendChartMaxPoints({
-    isMobile,
-    isHeaderLe1080,
-    isHeaderLe640,
-  });
   const chartPeriod = ANALYTICS_SCREEN_PERIOD_TO_CHART[periodIndex] ?? 1;
   const { labels, series } = useMemo(
-    () => buildChannelTrendSeries(periodIndex, { maxPoints: chartMaxPoints }),
-    [periodIndex, chartMaxPoints, metricsRevision],
+    () => buildChannelTrendSeries(periodIndex),
+    [periodIndex, metricsRevision],
   );
   const seriesIds = useMemo(() => series.map((row) => row.id), [series]);
   const { isVisible, setVisible, filterSeries } = useChartSeriesVisibility(seriesIds);

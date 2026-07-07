@@ -302,7 +302,7 @@
   border-radius: calc(var(--block-r) - 4px);
   background: var(--profile-field-bg);
   box-shadow: var(--profile-field-shadow);
-  padding: 14px 16px 12px;
+  padding: 10px 14px 8px;
   min-width: 0;
   overflow: visible;
 }
@@ -312,7 +312,7 @@
   align-items: flex-start;
   justify-content: space-between;
   gap: 8px;
-  margin-bottom: 12px;
+  margin-bottom: 8px;
 }
 
 .channel-metric-bar-card-title {
@@ -337,6 +337,19 @@
   line-height: 1.2;
 }
 
+.channel-metric-bar-card-total {
+  font-weight: 600;
+  color: var(--text);
+  font-variant-numeric: tabular-nums;
+}
+
+.channel-metric-bar-card-growth {
+  font-size: 12px;
+  font-weight: 400;
+  color: var(--text3);
+  font-variant-numeric: tabular-nums;
+}
+
 .channel-metric-bar-card-stats {
   display: flex;
   align-items: baseline;
@@ -352,18 +365,11 @@
   font-variant-numeric: tabular-nums;
 }
 
-.channel-metric-bar-card-growth {
-  font-size: 12px;
-  font-weight: 600;
-  color: var(--text3);
-  font-variant-numeric: tabular-nums;
-}
-
 .channel-metric-bar-chart {
   display: flex;
   align-items: flex-end;
   gap: 3px;
-  height: 120px;
+  height: 80px;
   min-width: 0;
 }
 
@@ -397,8 +403,9 @@
 
 .channel-metric-bar-col-fill {
   position: absolute;
-  left: 0;
-  width: 100%;
+  left: 50%;
+  transform: translateX(-50%);
+  width: 66%;
   bottom: 0;
   border-radius: 3px 3px 0 0;
   background: var(--metric-color, var(--accent));
@@ -423,7 +430,7 @@
 .channel-metric-bar-labels {
   display: flex;
   gap: 3px;
-  margin-top: 6px;
+  margin-top: 4px;
 }
 
 .channel-metric-bar-label-cell {
@@ -441,11 +448,11 @@
 
 @media (max-width: 760px) {
   .channel-metric-bar-card {
-    padding: 12px 12px 10px;
+    padding: 8px 10px 8px;
   }
 
   .channel-metric-bar-chart {
-    height: 96px;
+    height: 64px;
     gap: 2px;
   }
 

@@ -1,4 +1,4 @@
-import { afterEach, describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 
 import {
   buildChannelChartLabels,
@@ -65,7 +65,7 @@ afterEach(() => {
 });
 
 describe("channelMetricsDb", () => {
-  it("uses API dates for chart labels instead of synthetic today-based dates", () => {
+  it("uses a fixed 7-day axis for the week chart", () => {
     loadDataset({
       days: [
         {
@@ -91,10 +91,11 @@ describe("channelMetricsDb", () => {
       ],
     });
 
-    expect(buildChannelChartLabels(1)).toEqual(["01.06", "02.06"]);
+    expect(buildChannelChartLabels(1)).toHaveLength(7);
+    expect(buildChannelChartLabels(2)).toHaveLength(30);
   });
 
-  it("keeps real 30-minute snapshot rows without splitting the day synthetically", () => {
+  it("aggregates 30-minute snapshots into 24 hourly bars for 24h charts", () => {
     loadDataset({
       granularity: "30m",
       startTotals: { views: 90, subscribers: 48 },
@@ -134,12 +135,47 @@ describe("channelMetricsDb", () => {
     });
 
     expect(isChannel30mGranularity()).toBe(true);
-    expect(buildChannelChartLabels(0)).toEqual(["10:00", "10:30", "11:00"]);
-    expect(extractChannelMetricSeriesForChart("views", 0, 3)).toEqual({
-      values: [10, 30, 20],
-      priorCumulative: 90,
+    expect(buildChannelChartLabels(0)).toHaveLength(24);
+    const viewsSeries = extractChannelMetricSeriesForChart("views", 0, 24);
+    expect(viewsSeries.values).toHaveLength(24);
+    expect(viewsSeries.values.reduce((sum, value) => sum + value, 0)).toBe(60);
+    expect(viewsSeries.priorCumulative).toBe(90);
+    expect(formatChannelTrendPointPeriod(0, 1, 24)).toMatch(/—/);
+  });
+
+  it("maps latest UTC calendar day to local today on week charts", () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date("2026-07-07T21:30:00.000Z"));
+
+    loadDataset({
+      days: [
+        {
+          date: "2026-07-01",
+          subscribers: 1,
+          reactions: 0,
+          views: 0,
+          comments: 0,
+          reposts: 0,
+          posts: 0,
+          er: 0,
+        },
+        {
+          date: "2026-07-07",
+          subscribers: 4,
+          reactions: 0,
+          views: 0,
+          comments: 0,
+          reposts: 0,
+          posts: 0,
+          er: 0,
+        },
+      ],
     });
-    expect(formatChannelTrendPointPeriod(0, 1, 3)).toBe("10:30 — 11:00");
+
+    const series = extractChannelMetricSeriesForChart("subscribers", 1, 7);
+    expect(series.values[6]).toBe(4);
+
+    vi.useRealTimers();
   });
 
   it("tracks hidden subscriber counts from API metadata", () => {
