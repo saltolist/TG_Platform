@@ -3,7 +3,6 @@
 import { useMemo, type CSSProperties, type Ref } from "react";
 import { createPortal } from "react-dom";
 import {
-  buildChannelMetricBarSeries,
   buildChannelMetricSummaries,
   formatChannelGrowthBadge,
   formatChannelGrowthPrimary,
@@ -23,15 +22,22 @@ type ChannelMetricBarListProps = {
 
 type BarDatum = {
   key: string;
-  /** Короткая подпись под столбцом (время или дата). */
+  /** Короткая подпись под точкой (время или дата). */
   axisLabel: string;
   periodLabel: string;
   growthLabel: string;
   cumulativeLabel: string;
-  /** Высота столбца от нулевой линии, доля 0..1. */
+  /** Положение точки в пределах видимого диапазона (min..max), доля 0..1. */
   magnitude: number;
-  isNegative: boolean;
 };
+
+// Отступ сверху/снизу трека (в %), чтобы точки на краях диапазона не обрезались.
+const CHART_PADDING = 6;
+
+/** Позиция точки снизу трека в процентах — итоговое значение на этот момент. */
+function pointOffsetPercent(bar: BarDatum): number {
+  return CHART_PADDING + bar.magnitude * (100 - 2 * CHART_PADDING);
+}
 
 export default function ChannelMetricBarList({
   labels,
@@ -92,14 +98,15 @@ function MetricBarCard({
   const pointCount = labels.length;
 
   const bars = useMemo<BarDatum[]>(() => {
-    const barValues = buildChannelMetricBarSeries(row.id, row.values, prior);
-    const maxMagnitude = barValues.reduce(
-      (max, value) => Math.max(max, Math.abs(value)),
-      0,
-    );
+    // Итоговое значение метрики на каждый момент (накопленный итог / уровень ER),
+    // а не поинтервальный прирост.
+    const plotValues = row.yValues ?? [];
+    const min = plotValues.length ? Math.min(...plotValues) : 0;
+    const max = plotValues.length ? Math.max(...plotValues) : 0;
+    const range = max - min;
 
     return labels.map((axisLabel, index) => {
-      const barAmount = barValues[index] ?? 0;
+      const value = plotValues[index] ?? 0;
       return {
         key: `${row.id}:${index}`,
         axisLabel,
@@ -118,13 +125,12 @@ function MetricBarCard({
           row.values,
           prior,
         ),
-        magnitude: maxMagnitude > 0 ? Math.abs(barAmount) / maxMagnitude : 0,
-        isNegative: barAmount < 0,
+        // Авто-масштаб по видимому диапазону: min → низ, max → верх. Иначе итог
+        // (напр. 3800 просмотров) прижимался бы к потолку и линия была бы плоской.
+        magnitude: range > 0 ? (value - min) / range : 0.5,
       };
     });
-  }, [row.id, row.values, prior, labels, chartPeriod, pointCount]);
-
-  const hasNegative = bars.some((bar) => bar.isNegative);
+  }, [row.id, row.values, row.yValues, prior, labels, chartPeriod, pointCount]);
 
   return (
     <article
@@ -142,13 +148,7 @@ function MetricBarCard({
         </div>
       </header>
 
-      <div
-        className={`channel-metric-bar-chart${hasNegative ? " channel-metric-bar-chart--signed" : ""}`}
-      >
-        {bars.map((bar) => (
-          <MetricBarColumn key={bar.key} bar={bar} signed={hasNegative} />
-        ))}
-      </div>
+      <MetricLineChart bars={bars} />
 
       <div className="channel-metric-bar-labels">
         {bars.map((bar) => (
@@ -158,6 +158,39 @@ function MetricBarCard({
         ))}
       </div>
     </article>
+  );
+}
+
+function MetricLineChart({ bars }: { bars: BarDatum[] }) {
+  const count = bars.length;
+  const polylinePoints = bars
+    .map((bar, index) => {
+      const x = count > 0 ? ((index + 0.5) / count) * 100 : 50;
+      const y = 100 - pointOffsetPercent(bar);
+      return `${x.toFixed(3)},${y.toFixed(3)}`;
+    })
+    .join(" ");
+
+  return (
+    <div className="channel-metric-line-chart">
+      <svg
+        className="channel-metric-line-svg"
+        viewBox="0 0 100 100"
+        preserveAspectRatio="none"
+        aria-hidden
+      >
+        {count > 1 ? (
+          <polyline
+            className="channel-metric-line-path"
+            points={polylinePoints}
+            vectorEffect="non-scaling-stroke"
+          />
+        ) : null}
+      </svg>
+      {bars.map((bar) => (
+        <MetricLinePoint key={bar.key} bar={bar} />
+      ))}
+    </div>
   );
 }
 
@@ -171,34 +204,28 @@ function MetricBarTooltipBody({ bar }: { bar: BarDatum }) {
   );
 }
 
-function MetricBarColumn({ bar, signed }: { bar: BarDatum; signed: boolean }) {
+function MetricLinePoint({ bar }: { bar: BarDatum }) {
   const isMobile = useMobile760();
   const { rowRef, open, mobileHandlers } = useAnchoredBarRowTooltip(isMobile);
   const { desktopTooltipPos, desktopTooltipHandlers } = useDesktopBarTooltipPortal(!isMobile);
 
-  // Со знаком: доступна половина высоты трека по каждую сторону нулевой линии.
-  const maxPercent = signed ? 50 : 100;
-  const heightPercent = Math.max(bar.magnitude * maxPercent, bar.magnitude > 0 ? 3 : 0);
-  const fillStyle: CSSProperties = signed
-    ? bar.isNegative
-      ? { top: "50%", bottom: "auto", height: `${heightPercent}%` }
-      : { bottom: "50%", height: `${heightPercent}%` }
-    : { bottom: 0, height: `${heightPercent}%` };
+  const offsetPercent = pointOffsetPercent(bar);
 
   return (
     <div
       ref={rowRef as Ref<HTMLDivElement>}
-      className={`channel-metric-bar-col${bar.isNegative ? " channel-metric-bar-col--negative" : ""}${
-        open && isMobile ? " channel-metric-bar-col--tooltip-open" : ""
+      className={`channel-metric-line-col${
+        open && isMobile ? " channel-metric-line-col--tooltip-open" : ""
       }`}
       role="button"
       tabIndex={0}
-      aria-label={`${bar.periodLabel}: прирост ${bar.growthLabel}`}
+      aria-label={`${bar.periodLabel}: всего ${bar.cumulativeLabel}`}
       {...(isMobile ? mobileHandlers : desktopTooltipHandlers)}
     >
-      <div className="channel-metric-bar-col-track">
-        <div className="channel-metric-bar-col-fill" style={fillStyle} />
-      </div>
+      <span
+        className="channel-metric-line-dot"
+        style={{ bottom: `${offsetPercent}%` }}
+      />
       {isMobile && open ? (
         <div className="model-usage-tooltip model-usage-tooltip--anchored-row">
           <MetricBarTooltipBody bar={bar} />
