@@ -382,10 +382,20 @@
   pointer-events: none;
 }
 
+.channel-metric-line-area-stop-top {
+  stop-color: var(--metric-color, var(--accent));
+  stop-opacity: 0.22;
+}
+
+.channel-metric-line-area-stop-bottom {
+  stop-color: var(--metric-color, var(--accent));
+  stop-opacity: 0;
+}
+
 .channel-metric-line-path {
   fill: none;
   stroke: var(--metric-color, var(--accent));
-  stroke-width: 2;
+  stroke-width: 1.75;
   stroke-linejoin: round;
   stroke-linecap: round;
 }
@@ -404,20 +414,27 @@
 .channel-metric-line-dot {
   position: absolute;
   left: 50%;
-  width: 7px;
-  height: 7px;
+  width: 8px;
+  height: 8px;
   border-radius: 50%;
-  background: var(--metric-color, var(--accent));
-  transform: translate(-50%, 50%);
-  transition: transform 0.16s ease, filter 0.16s ease, background-color 0.16s ease;
+  background: var(--profile-field-bg, var(--bg));
+  border: 2px solid var(--metric-color, var(--accent));
+  box-shadow: 0 1px 4px color-mix(in srgb, var(--metric-color, var(--accent)) 28%, transparent);
+  opacity: 0;
+  transform: translate(-50%, 50%) scale(0.5);
+  transition:
+    opacity 0.14s ease,
+    transform 0.14s ease,
+    box-shadow 0.14s ease;
   pointer-events: none;
 }
 
 .channel-metric-line-col:hover .channel-metric-line-dot,
 .channel-metric-line-col:focus-visible .channel-metric-line-dot,
 .channel-metric-line-col--tooltip-open .channel-metric-line-dot {
-  transform: translate(-50%, 50%) scale(1.4);
-  filter: saturate(1.28) contrast(1.14) brightness(1.05);
+  opacity: 1;
+  transform: translate(-50%, 50%) scale(1);
+  box-shadow: 0 2px 8px color-mix(in srgb, var(--metric-color, var(--accent)) 36%, transparent);
 }
 
 .channel-metric-line-col:focus-visible {
@@ -453,8 +470,9 @@
   }
 
   .channel-metric-line-dot {
-    width: 6px;
-    height: 6px;
+    width: 7px;
+    height: 7px;
+    border-width: 1.5px;
   }
 
   .channel-metric-bar-labels {

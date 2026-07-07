@@ -39,6 +39,31 @@ function pointOffsetPercent(bar: BarDatum): number {
   return CHART_PADDING + bar.magnitude * (100 - 2 * CHART_PADDING);
 }
 
+/** Координаты точек в viewBox 0..100 (ось Y снизу вверх). */
+function buildChartPoints(bars: BarDatum[], count: number) {
+  return bars.map((bar, index) => {
+    const x = count > 0 ? ((index + 0.5) / count) * 100 : 50;
+    const y = 100 - pointOffsetPercent(bar);
+    return { x, y };
+  });
+}
+
+function formatSvgPoints(points: { x: number; y: number }[]) {
+  return points.map((point) => `${point.x.toFixed(3)},${point.y.toFixed(3)}`).join(" ");
+}
+
+/** Замкнутый полигон: низ → линия → низ (заливка под кривой). */
+function buildAreaPolygonPoints(points: { x: number; y: number }[]) {
+  if (points.length === 0) return "";
+  const first = points[0];
+  const last = points[points.length - 1];
+  return formatSvgPoints([
+    { x: first.x, y: 100 },
+    ...points,
+    { x: last.x, y: 100 },
+  ]);
+}
+
 export default function ChannelMetricBarList({
   labels,
   series,
@@ -148,7 +173,7 @@ function MetricBarCard({
         </div>
       </header>
 
-      <MetricLineChart bars={bars} />
+      <MetricLineChart chartId={row.id} bars={bars} />
 
       <div className="channel-metric-bar-labels">
         {bars.map((bar) => (
@@ -161,15 +186,12 @@ function MetricBarCard({
   );
 }
 
-function MetricLineChart({ bars }: { bars: BarDatum[] }) {
+function MetricLineChart({ chartId, bars }: { chartId: string; bars: BarDatum[] }) {
   const count = bars.length;
-  const polylinePoints = bars
-    .map((bar, index) => {
-      const x = count > 0 ? ((index + 0.5) / count) * 100 : 50;
-      const y = 100 - pointOffsetPercent(bar);
-      return `${x.toFixed(3)},${y.toFixed(3)}`;
-    })
-    .join(" ");
+  const points = buildChartPoints(bars, count);
+  const polylinePoints = formatSvgPoints(points);
+  const areaPoints = buildAreaPolygonPoints(points);
+  const gradientId = `channel-metric-area-${chartId}`;
 
   return (
     <div className="channel-metric-line-chart">
@@ -179,12 +201,25 @@ function MetricLineChart({ bars }: { bars: BarDatum[] }) {
         preserveAspectRatio="none"
         aria-hidden
       >
+        <defs>
+          <linearGradient id={gradientId} x1="0" y1="0" x2="0" y2="1">
+            <stop offset="0%" className="channel-metric-line-area-stop-top" />
+            <stop offset="100%" className="channel-metric-line-area-stop-bottom" />
+          </linearGradient>
+        </defs>
         {count > 1 ? (
-          <polyline
-            className="channel-metric-line-path"
-            points={polylinePoints}
-            vectorEffect="non-scaling-stroke"
-          />
+          <>
+            <polygon
+              className="channel-metric-line-area"
+              points={areaPoints}
+              fill={`url(#${gradientId})`}
+            />
+            <polyline
+              className="channel-metric-line-path"
+              points={polylinePoints}
+              vectorEffect="non-scaling-stroke"
+            />
+          </>
         ) : null}
       </svg>
       {bars.map((bar) => (
