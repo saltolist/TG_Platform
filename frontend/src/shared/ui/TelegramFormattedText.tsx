@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useRef, type MouseEvent } from "react";
+import { useLayoutEffect, useRef, type MouseEvent } from "react";
 
 import { hydrateCustomEmojiInDom } from "@/shared/lib/telegram/hydrateCustomEmojiDom";
 import { renderTelegramHtmlForDisplay } from "@/shared/lib/telegram/sanitizeTelegramHtml";
@@ -22,12 +22,19 @@ function revealSpoiler(event: MouseEvent<HTMLDivElement>) {
 
 export function TelegramFormattedText({ text, textHtml, className, emptyClassName }: Props) {
   const containerRef = useRef<HTMLDivElement>(null);
+  const renderedHtmlRef = useRef("");
   const html = textHtml?.trim();
 
-  useEffect(() => {
+  useLayoutEffect(() => {
     const container = containerRef.current;
     if (!container || !html) return;
-    container.innerHTML = renderTelegramHtmlForDisplay(html);
+
+    const displayHtml = renderTelegramHtmlForDisplay(html);
+    if (renderedHtmlRef.current !== displayHtml) {
+      container.innerHTML = displayHtml;
+      renderedHtmlRef.current = displayHtml;
+    }
+
     return hydrateCustomEmojiInDom(container);
   }, [html]);
 

@@ -1,5 +1,6 @@
 "use client";
 
+import { CustomEmojiCaretStruts } from "./extensions/customEmojiCaretStruts";
 import { CustomEmojiMarkNavigation } from "./extensions/customEmojiMarkNavigation";
 import { TelegramCustomEmojiWithPreview } from "./extensions/telegramCustomEmojiClient";
 import { getTelegramPostExtensions } from "./telegramExtensions";
@@ -11,5 +12,6 @@ export function getTelegramPostEditorExtensions(placeholder?: string) {
       extension.name === "telegramCustomEmoji" ? TelegramCustomEmojiWithPreview : extension,
     ),
     CustomEmojiMarkNavigation,
+    CustomEmojiCaretStruts,
   ];
 }

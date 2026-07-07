@@ -1299,14 +1299,13 @@
   font-family: var(--font);
   font-size: 14px;
   line-height: 1.5;
-  --tg-inline-emoji-size: 1.1em;
-  --tg-inline-emoji-gap: 0.1em;
   word-break: break-word;
   white-space: pre-wrap;
 }
 
 .rich-text-editor .ProseMirror {
   outline: none;
+  overflow: visible;
 }
 
 .rich-text-editor .ProseMirror p {
@@ -1330,6 +1329,7 @@
 
 .feed-rich-text-input {
   min-height: 22px;
+  overflow: visible;
 }
 
 .post-msg-textarea.rich-text-input {
@@ -1548,23 +1548,23 @@
 }
 
 .tg-custom-emoji {
-  width: 24px;
-  height: 24px;
+  width: var(--tg-inline-emoji-size);
+  height: var(--tg-inline-emoji-size);
   object-fit: contain;
-  vertical-align: -0.2em;
+  vertical-align: var(--tg-inline-emoji-vertical-align);
   display: inline-block;
 }
 
 .tg-custom-emoji-host {
   display: inline-block;
-  vertical-align: -0.2em;
+  vertical-align: var(--tg-inline-emoji-vertical-align);
   line-height: 0;
 }
 
 .tg-custom-emoji--loading {
   display: inline-block;
-  width: 24px;
-  height: 24px;
+  width: var(--tg-inline-emoji-size);
+  height: var(--tg-inline-emoji-size);
   opacity: 0.55;
 }
 
@@ -1589,7 +1589,7 @@
   text-align: center;
   font-size: 20px;
   line-height: 1;
-  vertical-align: -0.2em;
+  vertical-align: var(--tg-inline-emoji-vertical-align);
 }
 
 .tg-custom-emoji-fallback {
@@ -1597,47 +1597,59 @@
   line-height: 1;
 }
 
-.rich-text-input .telegram-emoji-mark {
+.rich-text-input .telegram-emoji-atom {
+  display: inline-block;
   position: relative;
-  display: inline;
-  vertical-align: baseline;
-  line-height: 1;
-  isolation: isolate;
-}
-
-.rich-text-input .telegram-emoji-glyph {
-  color: transparent;
-  -webkit-text-fill-color: transparent;
-  caret-color: var(--text);
-  line-height: 1;
-  vertical-align: baseline;
-  padding: 0 var(--tg-inline-emoji-gap);
-}
-
-.rich-text-input .telegram-emoji-overlay {
-  position: absolute;
-  left: 50%;
-  bottom: 0.06em;
-  transform: translateX(-50%);
+  vertical-align: var(--tg-inline-emoji-vertical-align);
+  font-size: inherit;
+  line-height: inherit;
   width: var(--tg-inline-emoji-size);
-  height: var(--tg-inline-emoji-size);
-  line-height: 0;
+  height: 1em;
+  overflow: visible;
+  margin: 0;
+}
+
+/* Gap only between emoji and text, not at line/paragraph edges or in emoji chains. */
+.rich-text-input p > .telegram-emoji-atom:not(:first-child) {
+  margin-left: var(--tg-inline-emoji-gap);
+}
+
+.rich-text-input p > .telegram-emoji-atom:not(:last-child) {
+  margin-right: var(--tg-inline-emoji-gap);
+}
+
+.rich-text-input .telegram-emoji-atom + .telegram-emoji-atom {
+  margin-left: 0;
+}
+
+.rich-text-input .telegram-emoji-atom:has(+ .telegram-emoji-atom) {
+  margin-right: 0;
+}
+
+.rich-text-input .telegram-emoji-caret-strut {
+  display: inline;
+  width: 0;
+  overflow: hidden;
+  font-size: inherit;
+  line-height: inherit;
+  vertical-align: baseline;
   pointer-events: none;
   user-select: none;
-  z-index: -1;
 }
 
 .rich-text-input .telegram-emoji-node-preview,
-.rich-text-input .telegram-emoji-mark .tg-custom-emoji,
-.rich-text-input .telegram-emoji-mark .tg-custom-emoji--loading,
-.rich-text-input .telegram-emoji-mark .tg-custom-emoji--failed,
-.rich-text-input .telegram-emoji-mark .tg-custom-emoji-fallback,
-.rich-text-input .telegram-emoji-mark .telegram-emoji-overlay > div {
+.rich-text-input .telegram-emoji-atom .tg-custom-emoji,
+.rich-text-input .telegram-emoji-atom .tg-custom-emoji--loading,
+.rich-text-input .telegram-emoji-atom .tg-custom-emoji--failed,
+.rich-text-input .telegram-emoji-atom .tg-custom-emoji-fallback {
+  position: absolute;
+  left: 0;
+  bottom: 0;
   display: block;
-  width: 100% !important;
-  height: 100% !important;
-  max-width: 100% !important;
-  max-height: 100% !important;
+  width: var(--tg-inline-emoji-size) !important;
+  height: var(--tg-inline-emoji-size) !important;
+  max-width: var(--tg-inline-emoji-size) !important;
+  max-height: var(--tg-inline-emoji-size) !important;
   font-size: inherit !important;
   line-height: 0 !important;
   object-fit: contain;

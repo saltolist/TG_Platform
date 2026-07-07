@@ -16,26 +16,19 @@ function isNavigationKey(key: string): boolean {
   );
 }
 
-function textNodeHasCustomEmojiMark(node: ProseMirrorNode | null | undefined): boolean {
-  return Boolean(node?.isText && node.marks.some((mark) => mark.type.name === TELEGRAM_CUSTOM_EMOJI));
-}
-
-function hasCustomEmojiMarkAt(doc: ProseMirrorNode, pos: number): boolean {
-  if (pos < 0 || pos > doc.content.size) return false;
-  return doc.resolve(pos).marks().some((mark) => mark.type.name === TELEGRAM_CUSTOM_EMOJI);
+function isCustomEmojiNode(node: ProseMirrorNode | null | undefined): boolean {
+  return node?.type.name === TELEGRAM_CUSTOM_EMOJI;
 }
 
 function isImmediatelyBeforeCustomEmoji(doc: ProseMirrorNode, pos: number): boolean {
   const $pos = doc.resolve(pos);
-  if (textNodeHasCustomEmojiMark($pos.nodeAfter)) return true;
-  return hasCustomEmojiMarkAt(doc, pos);
+  return isCustomEmojiNode($pos.nodeAfter);
 }
 
 function isImmediatelyAfterCustomEmoji(doc: ProseMirrorNode, pos: number): boolean {
   if (pos <= 0) return false;
   const $pos = doc.resolve(pos);
-  if (textNodeHasCustomEmojiMark($pos.nodeBefore)) return true;
-  return hasCustomEmojiMarkAt(doc, pos - 1);
+  return isCustomEmojiNode($pos.nodeBefore);
 }
 
 function moveSelection(view: EditorView, pos: number) {
@@ -46,7 +39,7 @@ function moveSelection(view: EditorView, pos: number) {
 
 const customEmojiMarkNavigationKey = new PluginKey("customEmojiMarkNavigation");
 
-/** Skip custom emoji marks on arrow keys; delete them atomically on Backspace/Delete. */
+/** Skip custom emoji atoms on arrow keys; delete them atomically on Backspace/Delete. */
 export const CustomEmojiMarkNavigation = Extension.create({
   name: "customEmojiMarkNavigation",
 
@@ -62,7 +55,7 @@ export const CustomEmojiMarkNavigation = Extension.create({
 
             if (event.key === "Backspace" && selection instanceof TextSelection && selection.empty) {
               const nodeBefore = selection.$from.nodeBefore;
-              if (textNodeHasCustomEmojiMark(nodeBefore)) {
+              if (isCustomEmojiNode(nodeBefore)) {
                 view.dispatch(
                   view.state.tr
                     .delete(selection.from - nodeBefore!.nodeSize, selection.from)
@@ -75,7 +68,7 @@ export const CustomEmojiMarkNavigation = Extension.create({
 
             if (event.key === "Delete" && selection instanceof TextSelection && selection.empty) {
               const nodeAfter = selection.$from.nodeAfter;
-              if (textNodeHasCustomEmojiMark(nodeAfter)) {
+              if (isCustomEmojiNode(nodeAfter)) {
                 view.dispatch(
                   view.state.tr.delete(selection.from, selection.from + nodeAfter!.nodeSize).scrollIntoView(),
                 );
@@ -90,10 +83,7 @@ export const CustomEmojiMarkNavigation = Extension.create({
             if (event.key === "ArrowRight") {
               if (isImmediatelyBeforeCustomEmoji(doc, selection.from)) {
                 const nodeAfter = selection.$from.nodeAfter;
-                const nextPos = textNodeHasCustomEmojiMark(nodeAfter)
-                  ? selection.from + nodeAfter!.nodeSize
-                  : selection.from + 1;
-                moveSelection(view, nextPos);
+                moveSelection(view, selection.from + nodeAfter!.nodeSize);
                 event.preventDefault();
                 return true;
               }
@@ -113,10 +103,7 @@ export const CustomEmojiMarkNavigation = Extension.create({
             if (event.key === "ArrowLeft") {
               if (isImmediatelyAfterCustomEmoji(doc, selection.from)) {
                 const nodeBefore = selection.$from.nodeBefore;
-                const prevPos = textNodeHasCustomEmojiMark(nodeBefore)
-                  ? selection.from - nodeBefore!.nodeSize
-                  : selection.from - 1;
-                moveSelection(view, prevPos);
+                moveSelection(view, selection.from - nodeBefore!.nodeSize);
                 event.preventDefault();
                 return true;
               }

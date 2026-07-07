@@ -1,4 +1,4 @@
-import { Mark, mergeAttributes } from "@tiptap/core";
+import { mergeAttributes, Node } from "@tiptap/core";
 
 declare module "@tiptap/core" {
   interface Commands<ReturnType> {
@@ -8,9 +8,12 @@ declare module "@tiptap/core" {
   }
 }
 
-export const TelegramCustomEmoji = Mark.create({
+export const TelegramCustomEmoji = Node.create({
   name: "telegramCustomEmoji",
-  inclusive: false,
+  group: "inline",
+  inline: true,
+  atom: true,
+  selectable: false,
 
   addAttributes() {
     return {
@@ -22,6 +25,10 @@ export const TelegramCustomEmoji = Mark.create({
           return { "emoji-id": attributes.documentId };
         },
       },
+      alt: {
+        default: "⭐",
+        parseHTML: (element) => element.textContent ?? "⭐",
+      },
     };
   },
 
@@ -29,12 +36,16 @@ export const TelegramCustomEmoji = Mark.create({
     return [{ tag: "tg-emoji[emoji-id]" }];
   },
 
-  renderHTML({ mark, HTMLAttributes }) {
+  renderHTML({ node, HTMLAttributes }) {
     return [
       "tg-emoji",
-      mergeAttributes(HTMLAttributes, { "emoji-id": mark.attrs.documentId }),
-      0,
+      mergeAttributes(HTMLAttributes, { "emoji-id": node.attrs.documentId }),
+      node.attrs.alt ?? "⭐",
     ];
+  },
+
+  renderText({ node }) {
+    return node.attrs.alt ?? "⭐";
   },
 
   addCommands() {
@@ -42,17 +53,14 @@ export const TelegramCustomEmoji = Mark.create({
       insertTelegramEmoji:
         (attrs) =>
         ({ chain }) => {
-          const alt = attrs.alt ?? "⭐";
+          if (!attrs.documentId) return false;
           return chain()
             .insertContent({
-              type: "text",
-              text: alt,
-              marks: [
-                {
-                  type: this.name,
-                  attrs: { documentId: attrs.documentId },
-                },
-              ],
+              type: this.name,
+              attrs: {
+                documentId: attrs.documentId,
+                alt: attrs.alt ?? "⭐",
+              },
             })
             .run();
         },

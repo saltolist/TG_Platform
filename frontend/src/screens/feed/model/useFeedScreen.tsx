@@ -120,6 +120,13 @@ export function useFeedScreen() {
   }, [onFeed, search, showPostsLoading]);
 
   const submitDraft = useCallback(() => {
+    const editor = editorRef.current?.getEditor();
+    if (editor && !editor.isDestroyed) {
+      const view = editor.view;
+      if (view.hasFocus()) {
+        view.dom.blur();
+      }
+    }
     const content: PostTextContent = editorRef.current?.serialize() ?? draft;
     if (!canSubmitFeedDraft(content.text, pendingMedia.length)) return;
     const newPost = createDraftPost({

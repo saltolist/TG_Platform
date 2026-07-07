@@ -1,15 +1,14 @@
 "use client";
 
-import { ReactMarkViewRenderer } from "@tiptap/react";
+import { ReactNodeViewRenderer } from "@tiptap/react";
 
-import { TelegramCustomEmojiMarkView } from "../TelegramCustomEmojiMarkView";
+import { TelegramCustomEmojiNodeView } from "../TelegramCustomEmojiNodeView";
 import { TelegramCustomEmoji } from "./telegramCustomEmoji";
 
 export const TelegramCustomEmojiWithPreview = TelegramCustomEmoji.extend({
-  addMarkView() {
-    return ReactMarkViewRenderer(TelegramCustomEmojiMarkView, {
+  addNodeView() {
+    return ReactNodeViewRenderer(TelegramCustomEmojiNodeView, {
       as: "span",
-      className: "telegram-emoji-mark",
-    }) as never;
+    });
   },
 });

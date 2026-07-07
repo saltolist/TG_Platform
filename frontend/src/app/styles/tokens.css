@@ -65,6 +65,9 @@
   --note-embed-image-max-w: 400px;
   --note-embed-image-gap: 8px;
   --post-inline-icon: 14px;
+  --tg-inline-emoji-size: 1.3em;
+  --tg-inline-emoji-gap: 0.1em;
+  --tg-inline-emoji-vertical-align: -0.2em;
   --post-media-clip-r: calc(var(--post-card-r) - 3px);
   --shadow-strong: 0 8px 24px rgba(0, 0, 0, 0.35);
   --shadow-focus: 0 10px 28px rgba(0, 0, 0, 0.4);
