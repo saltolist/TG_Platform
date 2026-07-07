@@ -22,6 +22,7 @@ import type {
 } from "@/shared/types";
 import type { AiModelListField } from "@/shared/lib/profile/aiModelListField";
 import { PLATFORM_ANALYTICS_PERIODS } from "@/shared/lib/platformAnalyticsPeriods";
+import { STANDARD_UNICODE_EMOJI_COLLECTION } from "@/shared/lib/telegram/standardUnicodeEmojis";
 import {
   buildChannelOverviewFromPosts,
   buildChannelTopPostsFromPosts,
@@ -318,16 +319,7 @@ export function createSeedRepositories(): RepositoryBundle {
     telegramEmoji: {
       async catalog() {
         return {
-          collections: [
-            {
-              id: "default-smileys",
-              title: "Смайлы",
-              kind: "unicode" as const,
-              items: ["😀", "😃", "😄", "😁", "😆", "😅", "🤣", "😂", "🙂", "😉", "😊", "😇"].map(
-                (char) => ({ type: "unicode" as const, char }),
-              ),
-            },
-          ],
+          collections: [STANDARD_UNICODE_EMOJI_COLLECTION],
         };
       },
     },

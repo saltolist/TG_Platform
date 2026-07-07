@@ -3,7 +3,7 @@ import type { MouseEvent } from "react";
 const COMPOSER_BOX_SELECTOR = ".input-box";
 const COMPOSER_FIELD_SELECTOR = ".composer-editor, textarea, .rich-text-input";
 const COMPOSER_CONTROL_SELECTOR =
-  "button, .model-picker, .attach-wrap, .emoji-picker-wrap, .inline-chip-remove, .comment-composer-reply-cancel, .post-comment-actions, .tg-media, .tg-media-remove, .rich-text-format-bubble, .rich-text-format-bubble-btn, .rich-text-format-bubble-nav, .emoji-picker-menu, .emoji-picker-btn, .emoji-picker-item, .emoji-picker-nav, .emoji-picker-subnav-btn";
+  "button, .model-picker, .attach-wrap, .emoji-picker-wrap, .inline-chip-remove, .comment-composer-reply-cancel, .post-comment-actions, .tg-media, .tg-media-remove, .rich-text-format-bubble, .rich-text-format-bubble-btn, .rich-text-format-bubble-nav, .emoji-picker-menu, .emoji-picker-btn, .emoji-picker-item, .emoji-picker-nav, .emoji-picker-grid-scroll";
 
 function blurActiveComposerField() {
   const active = document.activeElement;

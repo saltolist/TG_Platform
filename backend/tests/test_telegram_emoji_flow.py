@@ -66,6 +66,7 @@ def test_merge_unicode_groups_deduplicates_chars() -> None:
     merged = _merge_unicode_groups(groups)
     assert merged is not None
     assert merged["id"] == "standard"
+    assert merged["title"] == "Стандартные"
     assert merged["kind"] == "unicode"
     assert merged["items"] == [
         {"type": "unicode", "char": "😀"},

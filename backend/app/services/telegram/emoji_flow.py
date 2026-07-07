@@ -17,12 +17,13 @@ from app.services.telegram.net import (
     require_api_credentials,
     with_timeout,
 )
+from app.services.telegram.standard_unicode_emojis import STANDARD_UNICODE_EMOJI_COLLECTION
 from app.services.telegram.writer_session import open_outbound_telegram_client
 
 logger = logging.getLogger(__name__)
 
 _CATALOG_TTL_SECONDS = 300
-_CATALOG_SCHEMA_VERSION = 4
+_CATALOG_SCHEMA_VERSION = 6
 _catalog_cache: dict[UUID, tuple[float, int, dict[str, Any]]] = {}
 _catalog_inflight: dict[UUID, asyncio.Task[dict[str, Any]]] = {}
 _PREVIEW_BATCH_SIZE = 100
@@ -65,7 +66,7 @@ def _merge_unicode_groups(groups: list[Any]) -> dict[str, Any] | None:
         return None
     return {
         "id": "standard",
-        "title": "Смайлы",
+        "title": "Стандартные",
         "kind": "unicode",
         "items": items,
     }
@@ -178,18 +179,6 @@ def _custom_collection(
     }
 
 
-async def _fetch_standard_unicode_collection(client: Any) -> dict[str, Any] | None:
-    from telethon.tl.functions.messages import GetEmojiGroupsRequest
-
-    try:
-        result = await client(GetEmojiGroupsRequest(hash=0))
-    except Exception:
-        logger.debug("GetEmojiGroups failed", exc_info=True)
-        return None
-    groups = list(getattr(result, "groups", None) or [])
-    return _merge_unicode_groups(groups)
-
-
 async def _fetch_installed_custom_collections(client: Any) -> list[dict[str, Any]]:
     """User-installed custom emoji sticker sets — one picker tab per set."""
     from telethon.tl.functions.messages import GetEmojiStickersRequest, GetStickerSetRequest
@@ -236,27 +225,8 @@ async def _fetch_installed_custom_collections(client: Any) -> list[dict[str, Any
 
 
 async def _fetch_emoji_catalog(client: Any) -> dict[str, Any]:
-    collections: list[dict[str, Any]] = []
-
-    standard = await _fetch_standard_unicode_collection(client)
-    if standard is not None:
-        collections.append(standard)
-
+    collections: list[dict[str, Any]] = [dict(STANDARD_UNICODE_EMOJI_COLLECTION)]
     collections.extend(await _fetch_installed_custom_collections(client))
-
-    if not collections:
-        collections.append(
-            {
-                "id": "unicode-fallback",
-                "title": "Смайлы",
-                "kind": "unicode",
-                "items": [
-                    {"type": "unicode", "char": char}
-                    for char in ["😀", "😂", "❤️", "👍", "🔥", "🎉", "🙏", "✨"]
-                ],
-            }
-        )
-
     return {"collections": collections}
 
 

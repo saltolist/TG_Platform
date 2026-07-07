@@ -17,7 +17,6 @@ type Options = {
 export function useEmojiPickerMenu({ placement = "up", disabled = false }: Options = {}) {
   const [open, setOpen] = useState(false);
   const [collectionIndex, setCollectionIndex] = useState(0);
-  const [itemPage, setItemPage] = useState(0);
   const [pos, setPos] = useState<Pos | null>(null);
 
   const wrapRef = useRef<HTMLDivElement>(null);
@@ -54,6 +53,7 @@ export function useEmojiPickerMenu({ placement = "up", disabled = false }: Optio
     open,
     onReflow: updatePos,
     onClose: closeMenu,
+    ignoreScrollWithinRef: menuRef,
   });
 
   const onTriggerClick = useCallback(
@@ -64,17 +64,12 @@ export function useEmojiPickerMenu({ placement = "up", disabled = false }: Optio
         const next = !value;
         if (next) {
           setCollectionIndex(0);
-          setItemPage(0);
         }
         return next;
       });
     },
     [consumeSuppressTriggerClick, disabled],
   );
-
-  const resetItemPage = useCallback(() => {
-    setItemPage(0);
-  }, []);
 
   return {
     open,
@@ -84,9 +79,6 @@ export function useEmojiPickerMenu({ placement = "up", disabled = false }: Optio
     menuRef,
     collectionIndex,
     setCollectionIndex,
-    itemPage,
-    setItemPage,
-    resetItemPage,
     onTriggerClick,
     closeMenu,
   };
