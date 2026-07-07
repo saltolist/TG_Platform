@@ -14,8 +14,11 @@ function escapeHtml(text: string): string {
 }
 
 function applyMarks(text: string, marks: readonly Mark[]): string {
+  const emojiMark = marks.find((mark) => mark.type.name === "telegramCustomEmoji");
+  const formattingMarks = marks.filter((mark) => mark.type.name !== "telegramCustomEmoji");
+
   let result = text;
-  for (const mark of marks) {
+  for (const mark of formattingMarks) {
     switch (mark.type.name) {
       case "bold":
         result = `<strong>${result}</strong>`;
@@ -46,6 +49,12 @@ function applyMarks(text: string, marks: readonly Mark[]): string {
         break;
     }
   }
+
+  if (emojiMark) {
+    const documentId = String(emojiMark.attrs.documentId ?? "");
+    return `<tg-emoji emoji-id="${escapeHtml(documentId)}">${result}</tg-emoji>`;
+  }
+
   return result;
 }
 
@@ -55,11 +64,6 @@ function serializeInlineNode(node: PMNode): string {
   }
   if (node.type.name === "hardBreak") {
     return "<br>";
-  }
-  if (node.type.name === "telegramEmoji") {
-    const documentId = String(node.attrs.documentId ?? "");
-    const alt = escapeHtml(String(node.attrs.alt ?? "⭐"));
-    return `<tg-emoji emoji-id="${escapeHtml(documentId)}">${alt}</tg-emoji>`;
   }
   return "";
 }
@@ -85,9 +89,6 @@ export function docToTelegramHtml(doc: PMNode): string {
 function extractInlinePlainText(node: PMNode): string {
   if (node.isText) {
     return node.text ?? "";
-  }
-  if (node.type.name === "telegramEmoji") {
-    return String(node.attrs.alt ?? "⭐");
   }
   if (node.type.name === "hardBreak") {
     return "\n";
