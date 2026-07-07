@@ -8,6 +8,8 @@
 - [Архитектура](architecture.md) — FSD, слои, паттерны, потоки данных
 - [Режимы работы](runtime-modes.md) — презентация / демо / реальный аккаунт, ключи, overlay
 - [Сборка контекста для AI-чатов](ai-context-assembly.md) — слои промпта, bundle, rolling summary, ветки
+- [Роадмап: Agentic Graph RAG](roadmap-agentic-rag.md) — приоритеты реализации graph RAG и будущих агентных действий
+- [Сценарий: Agentic Graph RAG на разных запросах](agentic-rag-scenario.md) — трассировка каскада L0/L1/L2 на конкретных примерах
 - [Сценарий: сводки, ветки и окно LLM](summary-branch-scenario.md) — эталонное поведение при форках и 3+ поколениях bundle
 - [Метки сводок `1-2-3`](summary-version-labels.md) — каталог версий и метки на сообщениях
 - [API-контракты](api-contracts.md) — эндпоинты, Zod-схемы, типы

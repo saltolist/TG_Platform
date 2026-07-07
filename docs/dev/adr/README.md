@@ -14,6 +14,7 @@
 | [005](005-assistant-repository.md) | AssistantRepository для изоляции AI-логики | ✅ Принято |
 | [006](006-global-401-handler.md) | Глобальный обработчик 401 в httpClient | ✅ Принято |
 | [007](007-runtime-modes-keys-overlay.md) | Режимы работы, резолв ключей AI и локальный overlay | 📝 Предложено |
+| [008](008-agentic-graph-rag.md) | Agentic Graph RAG — модель retrieval | 📝 Предложено |
 
 ## Формат ADR
 
