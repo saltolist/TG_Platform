@@ -1299,6 +1299,7 @@
   font-size: 14px;
   line-height: 1.5;
   --tg-inline-emoji-size: 1.1em;
+  --tg-inline-emoji-gap: 0.1em;
   word-break: break-word;
   white-space: pre-wrap;
 }
@@ -1574,6 +1575,7 @@
   font-size: inherit;
   line-height: inherit;
   vertical-align: baseline;
+  padding: 0 var(--tg-inline-emoji-gap);
 }
 
 .rich-text-input .telegram-emoji-overlay {
