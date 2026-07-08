@@ -24,6 +24,8 @@ from app.services.ai.providers import WebSearchPath
 from app.services.ai.note_citations import NoteCite
 from app.services.ai.rag_query import retrieve_rag_for_reply
 from app.services.ai.rag_reasoner import resolve_rag_reasoner_llm
+from app.services.ai.intent_router import classify_intent, parse_period
+from app.services.ai.rag_tools import build_post_analytics_context
 from app.services.ai.byok_profile import MASKED_VALUE, is_api_key_preview
 from app.services.ai.reply_orchestrator import (
     ReplyContext,
@@ -302,36 +304,76 @@ async def ai_reply(
     rag_cites: list[NoteCite] = []
     if settings.rag_enabled:
         try:
-            embedding_backend = resolve_embedding_backend(user, ai_profile, settings)
-            rag_reasoner_llm = resolve_rag_reasoner_llm(user, ai_profile, settings)
-            rewrite_spec = rewrite_model = rewrite_api_key = None
-            if rag_reasoner_llm is not None:
-                rewrite_spec, rewrite_model, rewrite_api_key = rag_reasoner_llm
-            rag_context, rag_cites = await retrieve_rag_for_reply(
-                session=session,
-                user_id=user.id,
-                scope=payload.scope,
-                user_text=payload.text,
-                history=history,
-                embedding_backend=embedding_backend,
-                post_data=post_data,
-                tenant_key=tenant_key,
-                post_id=payload.post_id,
-                top_k=settings.rag_top_k,
-                min_similarity=settings.rag_min_similarity,
-                history_turns=settings.rag_query_history_turns,
-                query_max_chars=settings.rag_query_max_chars,
-                rewrite_on_miss=settings.rag_query_rewrite_on_miss,
-                rewrite_spec=rewrite_spec,
-                rewrite_model=rewrite_model,
-                rewrite_api_key=rewrite_api_key,
-                l0_enabled=settings.rag_l0_enabled,
-                escalate_min_similarity=settings.rag_escalate_min_similarity,
-                escalate_on_miss=settings.rag_escalate_on_miss,
-                tier_b_enabled=settings.rag_tier_b_enabled,
-                rag_mode=settings.rag_mode,
-                rag_agent_max_steps=settings.rag_agent_max_steps,
-            )
+            analytics_shortcut = False
+            if (
+                settings.rag_intent_routing_enabled
+                and payload.scope == "post"
+                and payload.post_id
+            ):
+                intent = classify_intent(payload.text, has_post_context=True)
+                if intent == "post_analytics":
+                    period = parse_period(payload.text)
+                    stale_after: float | None = None
+                    if settings.telegram_analytics_snapshot_seconds > 0:
+                        from app.services.analytics.channel_metrics import (
+                            MISSED_SNAPSHOT_MULTIPLIER,
+                        )
+
+                        stale_after = (
+                            settings.telegram_analytics_snapshot_seconds
+                            * MISSED_SNAPSHOT_MULTIPLIER
+                        )
+                    rag_context, rag_cites, analytics_error = await build_post_analytics_context(
+                        session,
+                        user.id,
+                        payload.post_id,
+                        period,
+                        snapshot_stale_after_seconds=stale_after,
+                    )
+                    if analytics_error:
+                        import logging
+
+                        logging.getLogger(__name__).warning(
+                            "Post analytics shortcut failed: %s", analytics_error
+                        )
+                        rag_context, rag_cites = "", []
+                    else:
+                        analytics_shortcut = True
+
+            if not analytics_shortcut:
+                embedding_backend = resolve_embedding_backend(user, ai_profile, settings)
+                rag_reasoner_llm = resolve_rag_reasoner_llm(user, ai_profile, settings)
+                rewrite_spec = rewrite_model = rewrite_api_key = None
+                if rag_reasoner_llm is not None:
+                    rewrite_spec, rewrite_model, rewrite_api_key = rag_reasoner_llm
+                rag_context, rag_cites = await retrieve_rag_for_reply(
+                    session=session,
+                    user_id=user.id,
+                    scope=payload.scope,
+                    user_text=payload.text,
+                    history=history,
+                    embedding_backend=embedding_backend,
+                    post_data=post_data,
+                    tenant_key=tenant_key,
+                    post_id=payload.post_id,
+                    top_k=settings.rag_top_k,
+                    min_similarity=settings.rag_min_similarity,
+                    history_turns=settings.rag_query_history_turns,
+                    query_max_chars=settings.rag_query_max_chars,
+                    rewrite_on_miss=settings.rag_query_rewrite_on_miss,
+                    rewrite_spec=rewrite_spec,
+                    rewrite_model=rewrite_model,
+                    rewrite_api_key=rewrite_api_key,
+                    l0_enabled=settings.rag_l0_enabled,
+                    escalate_min_similarity=settings.rag_escalate_min_similarity,
+                    escalate_on_miss=settings.rag_escalate_on_miss,
+                    tier_b_enabled=settings.rag_tier_b_enabled,
+                    rag_mode=settings.rag_mode,
+                    rag_agent_max_steps=settings.rag_agent_max_steps,
+                    user=user,
+                    ai_profile=ai_profile,
+                    intent_routing_enabled=settings.rag_intent_routing_enabled,
+                )
         except Exception as exc:
             import logging
             logging.getLogger(__name__).warning("RAG retrieval skipped: %s", exc)

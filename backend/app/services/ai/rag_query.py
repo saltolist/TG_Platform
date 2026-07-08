@@ -16,6 +16,7 @@ from app.services.ai.rag import format_rag_context, retrieve_top_k
 from app.services.ai.rag_agent import run_agentic_loop
 from app.services.ai.rag_escalation import TierAResult, evaluate_tier_a
 from app.services.ai.rag_gate import l0_skip_reason
+from app.services.ai.intent_router import classify_intent
 from app.services.ai.rag_manifest import filter_unopened_neighbors
 from app.services.ai.rag_sufficiency import TierBResult, evaluate_tier_b
 from app.services.ai.rag_tools import AgentState
@@ -213,6 +214,10 @@ def _should_escalate(
 def _seed_and_hints(
     tier_a: TierAResult,
     tier_b: TierBResult | None,
+    *,
+    user_text: str = "",
+    scope: str = "global",
+    intent_routing_enabled: bool = False,
 ) -> tuple[str | None, list[str]]:
     candidates: list[str] = []
     if tier_a.escalate_target:
@@ -230,6 +235,22 @@ def _seed_and_hints(
             seed_ref = text
         else:
             hints.append(text)
+
+    if intent_routing_enabled and scope == "global":
+        intent = classify_intent(user_text, has_post_context=False)
+        if intent == "post_analytics":
+            hints.append(
+                "Похоже, вопрос про статистику поста — сначала найди пост через "
+                "SearchNodes/OpenPost, затем вызови GetPostAnalytics."
+            )
+        elif intent == "channel_analytics":
+            # TODO(Priority 3): route to GetChannelAnalytics / GetTopPosts
+            logger.debug("RAG intent channel_analytics detected — deferred to Priority 3")
+
+    for index, hint in enumerate(hints):
+        lowered = hint.lower()
+        if "comment" in lowered or "комментар" in lowered:
+            hints[index] = f"{hint} (используй ListPostComments)"
     return seed_ref, hints
 
 
@@ -258,6 +279,9 @@ async def retrieve_rag_for_reply(
     tier_b_enabled: bool = False,
     rag_mode: str = "off",
     rag_agent_max_steps: int = 4,
+    user: Any | None = None,
+    ai_profile: Mapping[str, Any] | None = None,
+    intent_routing_enabled: bool = False,
 ) -> tuple[str, list[NoteCite]]:
     """Retrieve note context using history-expanded query and optional rewrite-on-miss."""
     if l0_enabled:
@@ -384,7 +408,15 @@ async def retrieve_rag_for_reply(
         and rewrite_model
         and rewrite_api_key
     ):
-        seed_ref, hints = _seed_and_hints(tier_a, tier_b)
+        seed_ref, hints = _seed_and_hints(
+            tier_a,
+            tier_b,
+            user_text=user_text,
+            scope=scope,
+            intent_routing_enabled=intent_routing_enabled,
+        )
+        from app.core.config import get_settings
+
         agent_state = AgentState(
             session=session,
             user_id=user_id,
@@ -394,6 +426,9 @@ async def retrieve_rag_for_reply(
             base_post_data=post_data,
             min_similarity=min_similarity,
             search_k=top_k,
+            user=user,
+            ai_profile=ai_profile or {},
+            settings=get_settings(),
         )
         agent_result = await run_agentic_loop(
             state=agent_state,

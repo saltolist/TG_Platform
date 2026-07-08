@@ -12,7 +12,10 @@ from app.services.ai.rag_json import extract_json_object
 from app.services.ai.rag_tools import (
     AgentState,
     ToolOutcome,
+    tool_get_post_analytics,
+    tool_hydrate_attachment,
     tool_list_note_attachments,
+    tool_list_post_comments,
     tool_list_post_notes,
     tool_open_note,
     tool_open_post,
@@ -30,8 +33,15 @@ _AGENT_SYSTEM = (
     '- ListPostNotes: {"post_id": "..."}\n'
     '- OpenNote: {"note_id": "...", "post_id": "..."?}\n'
     '- ListNoteAttachments: {"note_id": "...", "post_id": "..."?}\n'
+    '- HydrateAttachment: {"ref": "attachment:<id>|file:<id>", "mode": "text"|"vision", '
+    '"note_id": "..."?, "post_id": "..."?}\n'
+    '- ListPostComments: {"post_id": "..."}\n'
+    '- GetPostAnalytics: {"post_id": "...", "period": "7d|30d|90d|24h|all"}\n'
     '- Stop: {"reason": "sufficient"}\n'
     "SearchNodes возвращает кандидатов без содержимого — для текста вызывай OpenPost/OpenNote. "
+    "HydrateAttachment mode=vision используй только если вопрос про содержимое изображения — "
+    "не для обычных текстовых вопросов. "
+    "ListPostComments используй, если вопрос про реакцию аудитории или комментарии. "
     "Когда контекста достаточно — Stop."
 )
 
@@ -42,6 +52,9 @@ _KNOWN_TOOLS = frozenset(
         "ListPostNotes",
         "OpenNote",
         "ListNoteAttachments",
+        "HydrateAttachment",
+        "ListPostComments",
+        "GetPostAnalytics",
         "Stop",
     }
 )
@@ -140,6 +153,26 @@ async def _dispatch_tool(state: AgentState, action: PlannerAction) -> ToolOutcom
                 state,
                 note_id=str(args.get("note_id") or ""),
                 post_id=post_id or None,
+            )
+        if tool == "HydrateAttachment":
+            post_id_raw = args.get("post_id")
+            post_id = str(post_id_raw).strip() if post_id_raw else None
+            note_id_raw = args.get("note_id")
+            note_id = str(note_id_raw).strip() if note_id_raw else None
+            return await tool_hydrate_attachment(
+                state,
+                ref=str(args.get("ref") or ""),
+                mode=str(args.get("mode") or "text"),
+                note_id=note_id or None,
+                post_id=post_id or None,
+            )
+        if tool == "ListPostComments":
+            return tool_list_post_comments(state, post_id=str(args.get("post_id") or ""))
+        if tool == "GetPostAnalytics":
+            return await tool_get_post_analytics(
+                state,
+                post_id=str(args.get("post_id") or ""),
+                period=str(args.get("period") or "30d"),
             )
         return ToolOutcome(summary=f"Неизвестный инструмент: {tool}", error="unknown_tool")
     except Exception as exc:

@@ -939,3 +939,27 @@ async def test_retrieve_rag_for_reply_rag_mode_auto_skips_l2_without_reasoner() 
 
     assert context == ""
     loop_mock.assert_not_awaited()
+
+
+def test_seed_and_hints_post_analytics_global() -> None:
+    from app.services.ai.rag_query import _seed_and_hints
+
+    seed, hints = _seed_and_hints(
+        TierAResult(None, None, TierASignals(False, False, False, False), {}),
+        None,
+        user_text="Сколько просмотров у поста про скидки?",
+        scope="global",
+        intent_routing_enabled=True,
+    )
+    assert seed is None
+    assert any("GetPostAnalytics" in hint for hint in hints)
+
+
+def test_seed_and_hints_comments_hint_names_tool() -> None:
+    from app.services.ai.rag_query import _seed_and_hints
+
+    _, hints = _seed_and_hints(
+        TierAResult(None, "comments", TierASignals(False, False, False, False), {}),
+        None,
+    )
+    assert any("ListPostComments" in hint for hint in hints)

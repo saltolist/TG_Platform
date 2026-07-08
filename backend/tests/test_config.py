@@ -52,6 +52,15 @@ def test_rag_agent_max_steps_default() -> None:
     assert Settings().rag_agent_max_steps == 4
 
 
+def test_rag_agent_max_vision_default() -> None:
+    assert Settings().rag_agent_max_vision == 2
+
+
+def test_rag_intent_routing_enabled_parses_string_flags() -> None:
+    assert Settings(rag_intent_routing_enabled="1").rag_intent_routing_enabled is True
+    assert Settings(rag_intent_routing_enabled="0").rag_intent_routing_enabled is False
+
+
 def test_provider_keys_default_empty() -> None:
     settings = Settings()
     assert settings.openai_api_key == ""

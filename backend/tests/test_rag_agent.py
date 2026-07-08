@@ -149,3 +149,100 @@ async def test_run_agentic_loop_parse_failed_fail_soft() -> None:
 
     assert result.stopped_reason == "parse_failed"
     assert result.rag_context == ""
+
+
+@pytest.mark.asyncio
+async def test_dispatch_hydrate_attachment_text() -> None:
+    from app.services.ai.rag_agent import _dispatch_tool, PlannerAction
+
+    state = _state()
+    with patch(
+        "app.services.ai.rag_agent.tool_hydrate_attachment",
+        new_callable=AsyncMock,
+        return_value=ToolOutcome(summary="hydrated"),
+    ) as hydrate_mock:
+        outcome = await _dispatch_tool(
+            state,
+            PlannerAction(
+                tool="HydrateAttachment",
+                args={"ref": "attachment:f1", "mode": "text", "note_id": "n1"},
+            ),
+        )
+
+    assert outcome.summary == "hydrated"
+    hydrate_mock.assert_awaited_once()
+
+
+@pytest.mark.asyncio
+async def test_dispatch_list_post_comments() -> None:
+    from app.services.ai.rag_agent import _dispatch_tool, PlannerAction
+
+    state = _state()
+    with patch(
+        "app.services.ai.rag_agent.tool_list_post_comments",
+        return_value=ToolOutcome(summary="comments"),
+    ) as comments_mock:
+        outcome = await _dispatch_tool(
+            state,
+            PlannerAction(tool="ListPostComments", args={"post_id": "post-1"}),
+        )
+
+    assert outcome.summary == "comments"
+    comments_mock.assert_called_once()
+
+
+@pytest.mark.asyncio
+async def test_dispatch_get_post_analytics() -> None:
+    from app.services.ai.rag_agent import _dispatch_tool, PlannerAction
+
+    state = _state()
+    with patch(
+        "app.services.ai.rag_agent.tool_get_post_analytics",
+        new_callable=AsyncMock,
+        return_value=ToolOutcome(summary="analytics"),
+    ) as analytics_mock:
+        outcome = await _dispatch_tool(
+            state,
+            PlannerAction(
+                tool="GetPostAnalytics",
+                args={"post_id": "post-1", "period": "7d"},
+            ),
+        )
+
+    assert outcome.summary == "analytics"
+    analytics_mock.assert_awaited_once()
+
+
+@pytest.mark.asyncio
+async def test_run_agentic_loop_keeps_context_after_hydration_failure() -> None:
+    state = _state()
+    state.context_blocks.append((NoteCite(path="/post/p1/", title="Post"), "Existing context"))
+    with (
+        patch(
+            "app.services.ai.llm.complete_chat_completion",
+            new_callable=AsyncMock,
+            side_effect=[
+                '{"tool": "HydrateAttachment", "args": {"ref": "attachment:f1", "mode": "text", "note_id": "n1"}}',
+                '{"tool": "Stop", "args": {"reason": "sufficient"}}',
+            ],
+        ),
+        patch(
+            "app.services.ai.rag_agent.tool_hydrate_attachment",
+            new_callable=AsyncMock,
+            return_value=ToolOutcome(summary="failed", error="fetch_failed"),
+        ),
+    ):
+        result = await run_agentic_loop(
+            state=state,
+            user_text="Вопрос",
+            seed_ref=None,
+            hints=[],
+            spec=object(),  # type: ignore[arg-type]
+            model="gpt-test",
+            api_key="key",
+            max_steps=3,
+        )
+
+    assert "Existing context" in result.rag_context
+    assert result.stopped_reason == "sufficient"
+

@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import json
 from collections.abc import AsyncIterator
+from unittest.mock import AsyncMock
 from typing import Any
 
 import pytest
@@ -14,6 +15,7 @@ from app.core.config import Settings
 from app.db.models import Profile, User
 from app.services.ai.context import assemble_reply_messages
 from app.services.ai.llm import (
+    complete_vision_completion,
     parse_openai_stream_line,
     stream_chat_completion_tokens,
     stream_llm_sse,
@@ -57,6 +59,45 @@ def test_get_provider_spec_known() -> None:
 )
 def test_parse_openai_stream_line(line: str, expected: str | None) -> None:
     assert parse_openai_stream_line(line) == expected
+
+
+@pytest.mark.asyncio
+async def test_complete_vision_completion_payload_shape() -> None:
+    spec = get_provider_spec("OpenAI")
+    assert spec is not None
+
+    captured: dict[str, Any] = {}
+
+    async def fake_post(url: str, headers: dict[str, str], json: dict[str, Any]) -> httpx.Response:
+        captured["url"] = url
+        captured["json"] = json
+        return httpx.Response(
+            200,
+            json={"choices": [{"message": {"content": "A chart with numbers"}}]},
+            request=httpx.Request("POST", url),
+        )
+
+    client = AsyncMock()
+    client.post = AsyncMock(side_effect=fake_post)
+    client.aclose = AsyncMock()
+
+    result = await complete_vision_completion(
+        spec=spec,
+        model="gpt-4o",
+        api_key="sk-test",
+        prompt="Describe image",
+        image_bytes=b"\x89PNG",
+        mime_type="image/png",
+        client=client,
+    )
+
+    assert result == "A chart with numbers"
+    messages = captured["json"]["messages"]
+    content = messages[0]["content"]
+    assert content[0]["type"] == "text"
+    assert content[1]["type"] == "image_url"
+    assert content[1]["image_url"]["url"].startswith("data:image/png;base64,")
+
 
 
 def test_build_reply_messages_uses_profile_system_prompt() -> None:

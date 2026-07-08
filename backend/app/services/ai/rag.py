@@ -427,6 +427,27 @@ async def get_attachment_extraction(
     return row.extracted_text
 
 
+async def get_attachment_extraction_by_hash(
+    session: AsyncSession,
+    user_id: uuid.UUID,
+    content_hash_value: str,
+) -> str | None:
+    row = (
+        await session.execute(
+            text(
+                "SELECT extracted_text FROM attachment_extractions "
+                "WHERE user_id = :uid AND content_hash = :ch "
+                "AND extracted_text IS NOT NULL AND extracted_text != '' "
+                "ORDER BY extracted_at DESC LIMIT 1"
+            ),
+            {"uid": str(user_id), "ch": content_hash_value},
+        )
+    ).fetchone()
+    if row is None:
+        return None
+    return row.extracted_text
+
+
 async def retrieve_top_k(
     session: AsyncSession,
     user_id: uuid.UUID,

@@ -191,6 +191,8 @@ class Settings(BaseSettings):
     # L2 agentic loop mode: off (default) | flat | agentic | auto
     rag_mode: Literal["off", "flat", "agentic", "auto"] = "off"
     rag_agent_max_steps: int = 4
+    rag_agent_max_vision: int = 2
+    rag_intent_routing_enabled: bool = False
 
     # Embeddings configuration
     # Local model name for fastembed (must be in TextEmbedding.list_supported_models())
@@ -207,6 +209,7 @@ class Settings(BaseSettings):
         "rag_l0_enabled",
         "rag_escalate_on_miss",
         "rag_tier_b_enabled",
+        "rag_intent_routing_enabled",
         "cookie_secure",
         "telegram_live_sync_enabled",
         "telegram_reconcile_enabled",

@@ -126,6 +126,61 @@ async def complete_chat_completion(
             await client.aclose()
 
 
+async def complete_vision_completion(
+    *,
+    spec: ProviderSpec,
+    model: str,
+    api_key: str,
+    prompt: str,
+    image_bytes: bytes,
+    mime_type: str,
+    client: httpx.AsyncClient | None = None,
+) -> str:
+    """Non-streaming vision completion with OpenAI-style image_url content part."""
+    import base64
+
+    url = chat_completions_url(spec)
+    headers = {
+        "Authorization": f"Bearer {api_key}",
+        "Content-Type": "application/json",
+    }
+    image_b64 = base64.b64encode(image_bytes).decode("ascii")
+    data_url = f"data:{mime_type};base64,{image_b64}"
+    body = {
+        "model": model,
+        "messages": [
+            {
+                "role": "user",
+                "content": [
+                    {"type": "text", "text": prompt},
+                    {"type": "image_url", "image_url": {"url": data_url}},
+                ],
+            }
+        ],
+        "stream": False,
+    }
+
+    owns_client = client is None
+    if client is None:
+        client = httpx.AsyncClient(timeout=_HTTP_TIMEOUT)
+
+    try:
+        response = await client.post(url, headers=headers, json=body)
+        response.raise_for_status()
+        data = response.json()
+        choices = data.get("choices")
+        if not isinstance(choices, list) or not choices:
+            return ""
+        message = choices[0].get("message") if isinstance(choices[0], dict) else None
+        if not isinstance(message, dict):
+            return ""
+        content = message.get("content")
+        return content if isinstance(content, str) else ""
+    finally:
+        if owns_client:
+            await client.aclose()
+
+
 async def stream_llm_sse(
     *,
     spec: ProviderSpec,
