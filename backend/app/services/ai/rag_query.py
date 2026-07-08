@@ -12,6 +12,7 @@ from app.services.ai.embeddings import EmbeddingBackend
 from app.services.ai.note_citations import NoteCite
 from app.services.ai.providers import ProviderSpec
 from app.services.ai.rag import format_rag_context, retrieve_top_k
+from app.services.ai.rag_escalation import evaluate_tier_a
 from app.services.ai.rag_gate import l0_skip_reason
 from app.services.ai.rolling_summary import exchanges_from_messages
 
@@ -205,6 +206,8 @@ async def retrieve_rag_for_reply(
     rewrite_model: str | None = None,
     rewrite_api_key: str | None = None,
     l0_enabled: bool = True,
+    escalate_min_similarity: float = 0.72,
+    escalate_on_miss: bool = True,
 ) -> tuple[str, list[NoteCite]]:
     """Retrieve note context using history-expanded query and optional rewrite-on-miss."""
     if l0_enabled:
@@ -262,6 +265,21 @@ async def retrieve_rag_for_reply(
             if retry_results:
                 results = retry_results
                 query_used = rewritten
+
+    tier_a = evaluate_tier_a(
+        user_text=user_text,
+        history=history,
+        results=results,
+        post_data=post_data,
+        min_similarity_escalate=escalate_min_similarity,
+        escalate_on_miss=escalate_on_miss,
+    )
+    logger.info(
+        "RAG Tier A: fast_path=%s target=%s signals=%s",
+        tier_a.fast_path,
+        tier_a.escalate_target,
+        tier_a.signals,
+    )
 
     if not results:
         return "", []

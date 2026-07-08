@@ -182,6 +182,10 @@ class Settings(BaseSettings):
     rag_query_rewrite_on_miss: bool = True
     # L0 gate: skip RAG for non-substantive replies and style/tone edit requests.
     rag_l0_enabled: bool = True
+    # Tier A fast-path: escalate when top L1 similarity is below this threshold.
+    rag_escalate_min_similarity: float = 0.72
+    # Tier A fast-path: treat empty L1 as escalation trigger.
+    rag_escalate_on_miss: bool = True
 
     # Embeddings configuration
     # Local model name for fastembed (must be in TextEmbedding.list_supported_models())
@@ -196,6 +200,7 @@ class Settings(BaseSettings):
         "ai_context_stamps",
         "rag_query_rewrite_on_miss",
         "rag_l0_enabled",
+        "rag_escalate_on_miss",
         "cookie_secure",
         "telegram_live_sync_enabled",
         "telegram_reconcile_enabled",

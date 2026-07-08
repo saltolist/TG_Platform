@@ -9,10 +9,13 @@ from unittest.mock import AsyncMock, MagicMock, patch
 import pytest
 
 from app.services.ai.rag import (
+    NODE_POST_TEXT,
     _chunk_text,
     _vec_to_pg,
     content_hash,
+    extract_referenced_attachment_ids,
     format_rag_context,
+    index_text_node,
     markdown_to_index_text,
     retrieve_top_k,
 )
@@ -52,6 +55,15 @@ class TestMarkdownToIndexText:
         result = markdown_to_index_text("", "[Отчёт за апрель](attachment:xyz)")
         assert "Отчёт за апрель" in result
         assert "attachment:" not in result
+
+
+class TestExtractReferencedAttachmentIds:
+    def test_extracts_unique_ids_in_order(self):
+        body = "Текст [a](attachment:id1) и ![b](attachment:id2) снова [c](attachment:id1)"
+        assert extract_referenced_attachment_ids(body) == ["id1", "id2"]
+
+    def test_empty_body(self):
+        assert extract_referenced_attachment_ids("") == []
 
     def test_table_cell_text_preserved(self):
         body = "| Актив | Доля |\n|---|---|\n| Акции | 60% |"
@@ -185,6 +197,8 @@ async def test_retrieve_top_k_with_pgvector():
             self.tenant_key = ""
             self.node_type = node_type
             self.file_id = file_id
+            self.chunk_text = "chunk body"
+            self.referenced_ids = []
             self.similarity = similarity
 
     rows_result = MagicMock()
@@ -209,6 +223,34 @@ async def test_retrieve_top_k_with_pgvector():
     assert "note1" in note_ids
     assert "note3" in note_ids
     assert "note2" not in note_ids  # below threshold
+    assert result[0]["chunk_text"] == "chunk body"
+    assert result[0]["referenced_ids"] == []
+
+
+@pytest.mark.asyncio
+async def test_index_text_node_persists_chunk_snapshot():
+    session = AsyncMock()
+    backend = MagicMock()
+    backend.model_key = "local:test"
+    backend.dim = 4
+    backend.embed_passages = AsyncMock(return_value=[[0.1, 0.2, 0.3, 0.4]])
+
+    await index_text_node(
+        session,
+        uuid.uuid4(),
+        "global",
+        NODE_POST_TEXT,
+        "post-1",
+        "",
+        "Snapshot chunk text",
+        backend,
+        referenced_ids=["att-1"],
+    )
+
+    insert_call = session.execute.await_args_list[-1]
+    params = insert_call.args[1]
+    assert params["ctxt"] == "Snapshot chunk text"
+    assert params["rids"] == '["att-1"]'
 
 
 @pytest.mark.asyncio
@@ -227,6 +269,8 @@ async def test_retrieve_top_k_deduplication():
             self.tenant_key = ""
             self.node_type = node_type
             self.file_id = file_id
+            self.chunk_text = f"chunk-{chunk_index}"
+            self.referenced_ids = ["ref1"]
             self.similarity = similarity
 
     rows_result = MagicMock()
@@ -272,6 +316,8 @@ async def test_retrieve_top_k_dedup_by_node_type_and_file_id():
             self.tenant_key = ""
             self.node_type = node_type
             self.file_id = file_id
+            self.chunk_text = "chunk"
+            self.referenced_ids = []
             self.similarity = similarity
 
     shared_id = "shared-id"

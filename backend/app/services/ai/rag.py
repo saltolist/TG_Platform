@@ -44,6 +44,7 @@ _CODE_FENCE_RE = re.compile(r"```[\s\S]*?```", re.MULTILINE)
 _INLINE_CODE_RE = re.compile(r"`[^`]+`")
 _HTML_TAG_RE = re.compile(r"<[^>]+>")
 _ATTACHMENT_URL_RE = re.compile(r"\(attachment:[^)]*\)")
+_REFERENCED_ATTACHMENT_RE = re.compile(r"attachment:([\w-]+)")
 # ![alt](url) → keep alt text
 _IMAGE_RE = re.compile(r"!\[([^\]]*)\]\([^)]*\)")
 # [text](url) → keep text
@@ -83,6 +84,18 @@ def markdown_to_index_text(title: str, body: str) -> str:
     if title:
         return f"{title}\n\n{text_body}" if text_body else title
     return text_body
+
+
+def extract_referenced_attachment_ids(raw_text: str) -> list[str]:
+    """Extract attachment ids from raw markdown before index-time stripping."""
+    seen: set[str] = set()
+    ordered: list[str] = []
+    for match in _REFERENCED_ATTACHMENT_RE.finditer(raw_text or ""):
+        file_id = match.group(1).strip()
+        if file_id and file_id not in seen:
+            seen.add(file_id)
+            ordered.append(file_id)
+    return ordered
 
 
 def content_hash(title: str, body: str, model_key: str) -> str:
@@ -148,6 +161,7 @@ async def index_text_node(
     post_id: str | None = None,
     max_chars: int = 4000,
     tenant_key: str = "",
+    referenced_ids: list[str] | None = None,
 ) -> int:
     """Embed and store a text node. Returns number of chunks written."""
     if node_type not in TEXT_NODE_TYPES:
@@ -159,6 +173,7 @@ async def index_text_node(
     model_key = backend.model_key
     dim = backend.dim
     file_id = file_id or ""
+    ref_ids_json = json.dumps(referenced_ids or [])
 
     await session.execute(
         text(
@@ -185,11 +200,12 @@ async def index_text_node(
             text(
                 "INSERT INTO note_embeddings "
                 "(user_id, tenant_key, scope, node_type, note_id, file_id, post_id, chunk_index, "
-                "model_key, dim, content_hash, embedding) "
-                "VALUES (:uid, :tk, :scope, :nt, :nid, :fid, :pid, :ci, :mk, :dim, :ch, :emb) "
+                "model_key, dim, content_hash, chunk_text, referenced_ids, embedding) "
+                "VALUES (:uid, :tk, :scope, :nt, :nid, :fid, :pid, :ci, :mk, :dim, :ch, :ctxt, :rids, :emb) "
                 "ON CONFLICT (user_id, tenant_key, scope, node_type, note_id, file_id, "
                 "chunk_index, model_key) DO UPDATE "
                 "SET dim = EXCLUDED.dim, content_hash = EXCLUDED.content_hash, "
+                "chunk_text = EXCLUDED.chunk_text, referenced_ids = EXCLUDED.referenced_ids, "
                 "post_id = EXCLUDED.post_id, "
                 "embedding = EXCLUDED.embedding, updated_at = now()"
             ),
@@ -205,6 +221,8 @@ async def index_text_node(
                 "mk": model_key,
                 "dim": dim,
                 "ch": chash,
+                "ctxt": chunk,
+                "rids": ref_ids_json,
                 "emb": _vec_to_pg(vec),
             },
         )
@@ -226,6 +244,7 @@ async def index_note(
 ) -> int:
     """Embed and store a note chunk. Returns number of chunks written."""
     plain = markdown_to_index_text(title, body)
+    referenced_ids = extract_referenced_attachment_ids(body)
     return await index_text_node(
         session,
         user_id,
@@ -238,6 +257,7 @@ async def index_note(
         post_id=post_id,
         max_chars=max_chars,
         tenant_key=tenant_key,
+        referenced_ids=referenced_ids,
     )
 
 
@@ -437,6 +457,7 @@ async def retrieve_top_k(
 
     sql = text(
         f"SELECT note_id, post_id, chunk_index, tenant_key, node_type, file_id, "
+        f"chunk_text, referenced_ids, "
         f"1 - (embedding::vector <=> CAST(:qvec AS vector)) AS similarity "
         f"FROM note_embeddings "
         f"WHERE user_id = :uid AND scope = :scope AND model_key = :mk {tenant_filter} {post_filter} "
@@ -469,6 +490,8 @@ async def retrieve_top_k(
             "tenant_key": row.tenant_key or "",
             "node_type": row.node_type or NODE_NOTE_CHUNK,
             "file_id": row.file_id or "",
+            "chunk_text": row.chunk_text or "",
+            "referenced_ids": _parse_referenced_ids(row.referenced_ids),
             "similarity": float(row.similarity),
         }
         for row in rows
@@ -480,6 +503,21 @@ async def retrieve_top_k(
         if key not in seen or r["similarity"] > seen[key]["similarity"]:
             seen[key] = r
     return sorted(seen.values(), key=lambda x: x["similarity"], reverse=True)[:k]
+
+
+def _parse_referenced_ids(raw: Any) -> list[str]:
+    if raw is None:
+        return []
+    if isinstance(raw, list):
+        return [str(item).strip() for item in raw if str(item).strip()]
+    if isinstance(raw, str):
+        try:
+            parsed = json.loads(raw)
+        except (json.JSONDecodeError, TypeError):
+            return []
+        if isinstance(parsed, list):
+            return [str(item).strip() for item in parsed if str(item).strip()]
+    return []
 
 
 def _post_title_from_text(text_value: str) -> str:

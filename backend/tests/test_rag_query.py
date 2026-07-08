@@ -246,6 +246,100 @@ async def test_retrieve_rag_for_reply_l0_kill_switch_runs_retrieval() -> None:
 
 
 @pytest.mark.asyncio
+async def test_retrieve_rag_for_reply_logs_tier_a_without_changing_output() -> None:
+    embedding_backend = AsyncMock()
+    embedding_backend.model_key = "test-model"
+    embedding_backend.embed_query = AsyncMock(return_value=[0.1, 0.2])
+
+    hit_results = [
+        {
+            "note_id": "n1",
+            "post_id": None,
+            "chunk_index": 0,
+            "tenant_key": "",
+            "node_type": "note_chunk",
+            "file_id": "",
+            "chunk_text": "Длинный текст чанка для Tier A сигналов и проверки.",
+            "referenced_ids": [],
+            "similarity": 0.9,
+        }
+    ]
+
+    with (
+        patch(
+            "app.services.ai.rag_query.retrieve_top_k",
+            new_callable=AsyncMock,
+            return_value=hit_results,
+        ),
+        patch(
+            "app.services.ai.rag_query.format_rag_context",
+            new_callable=AsyncMock,
+            return_value=("--- context ---", []),
+        ) as format_mock,
+        patch(
+            "app.services.ai.rag_query.evaluate_tier_a",
+        ) as tier_a_mock,
+    ):
+        context, cites = await retrieve_rag_for_reply(
+            session=AsyncMock(),
+            user_id=uuid4(),
+            scope="global",
+            user_text="Что по дедлайнам?",
+            history=None,
+            embedding_backend=embedding_backend,
+            post_data=None,
+            tenant_key=None,
+            post_id=None,
+            top_k=4,
+            min_similarity=0.38,
+            history_turns=2,
+            query_max_chars=2000,
+            rewrite_on_miss=False,
+            escalate_min_similarity=0.72,
+            escalate_on_miss=True,
+        )
+
+    assert context == "--- context ---"
+    assert cites == []
+    tier_a_mock.assert_called_once()
+    format_mock.assert_awaited_once()
+
+
+@pytest.mark.asyncio
+async def test_retrieve_rag_for_reply_tier_a_on_empty_results_global_scope() -> None:
+    embedding_backend = AsyncMock()
+    embedding_backend.model_key = "test-model"
+    embedding_backend.embed_query = AsyncMock(return_value=[0.1, 0.2])
+
+    with patch(
+        "app.services.ai.rag_query.retrieve_top_k",
+        new_callable=AsyncMock,
+        return_value=[],
+    ):
+        context, cites = await retrieve_rag_for_reply(
+            session=AsyncMock(),
+            user_id=uuid4(),
+            scope="global",
+            user_text="Что по дедлайнам?",
+            history=None,
+            embedding_backend=embedding_backend,
+            post_data=None,
+            tenant_key=None,
+            post_id=None,
+            top_k=4,
+            min_similarity=0.38,
+            history_turns=2,
+            query_max_chars=2000,
+            rewrite_on_miss=False,
+            escalate_min_similarity=0.72,
+            escalate_on_miss=True,
+        )
+
+    assert context == ""
+    assert cites == []
+
+
+@pytest.mark.asyncio
 async def test_rewrite_rag_query_llm_rejects_meta_reply() -> None:
     with patch(
         "app.services.ai.llm.complete_chat_completion",
