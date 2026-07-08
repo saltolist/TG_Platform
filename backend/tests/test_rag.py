@@ -390,7 +390,7 @@ async def test_format_rag_context_post_text_branch():
     ]
 
     with patch(
-        "app.services.ai.rag._resolve_post_data",
+        "app.services.ai.rag.resolve_post_data",
         new_callable=AsyncMock,
         return_value={"text": "Заголовок поста\nПодробности"},
     ):

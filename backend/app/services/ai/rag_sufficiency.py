@@ -4,12 +4,12 @@ from __future__ import annotations
 
 import json
 import logging
-import re
 from dataclasses import dataclass
 from typing import Any, Mapping
 
 from app.services.ai.providers import ProviderSpec
 from app.services.ai.rag_escalation import TierASignals
+from app.services.ai.rag_json import extract_json_object
 
 logger = logging.getLogger(__name__)
 
@@ -23,9 +23,6 @@ _TIER_B_SYSTEM = (
     "Если контекста достаточно — sufficient=true и open_next=[]. "
     "Если недостаточно — sufficient=false и перечисли в open_next узлы, которые стоит открыть дальше."
 )
-
-_JSON_OBJECT_RE = re.compile(r"\{[^{}]*(?:\{[^{}]*\}[^{}]*)*\}", re.DOTALL)
-
 
 @dataclass(frozen=True)
 class TierBResult:
@@ -69,17 +66,9 @@ def parse_tier_b_response(raw: str) -> TierBResult:
     if not text:
         return _fail_open("no_json")
 
-    match = _JSON_OBJECT_RE.search(text)
-    if not match:
+    payload = extract_json_object(text)
+    if payload is None:
         return _fail_open("no_json")
-
-    try:
-        payload = json.loads(match.group(0))
-    except json.JSONDecodeError:
-        return _fail_open("invalid_json")
-
-    if not isinstance(payload, dict):
-        return _fail_open("invalid_json")
 
     sufficient = _coerce_bool(payload.get("sufficient"))
     if sufficient is None:

@@ -1,5 +1,5 @@
 from functools import lru_cache
-from typing import Any
+from typing import Any, Literal
 
 from pydantic import field_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
@@ -188,6 +188,9 @@ class Settings(BaseSettings):
     rag_escalate_on_miss: bool = True
     # Tier B LLM sufficiency check (diagnostics until Step 1.5 consumes verdict).
     rag_tier_b_enabled: bool = False
+    # L2 agentic loop mode: off (default) | flat | agentic | auto
+    rag_mode: Literal["off", "flat", "agentic", "auto"] = "off"
+    rag_agent_max_steps: int = 4
 
     # Embeddings configuration
     # Local model name for fastembed (must be in TextEmbedding.list_supported_models())

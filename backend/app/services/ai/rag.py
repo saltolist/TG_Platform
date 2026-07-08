@@ -565,7 +565,50 @@ async def _resolve_note_body(
     return title, body
 
 
-async def _resolve_post_data(
+async def get_note_data(
+    session: AsyncSession,
+    user_id: uuid.UUID,
+    scope: str,
+    note_id: str,
+    tenant_key: str | None = None,
+    post_data: Any | None = None,
+    opened_posts: dict[str, dict[str, Any]] | None = None,
+) -> dict[str, Any] | None:
+    """Resolve a full note dict (including files[]) from overlay, global, or post scope."""
+    from app.db.models import GlobalNote
+    from app.services.overlay.tenant_notes import get_tenant_note
+
+    if tenant_key:
+        note_data = await get_tenant_note(session, user_id, tenant_key, scope, note_id)
+        if note_data:
+            return dict(note_data)
+
+    if scope == "global":
+        result = await session.execute(
+            select(GlobalNote).where(
+                GlobalNote.user_id == user_id,
+                GlobalNote.data["id"].astext == note_id,
+            )
+        )
+        note_row = result.scalar_one_or_none()
+        if note_row is not None:
+            return dict(note_row.data)
+
+    posts_to_search: list[dict[str, Any]] = []
+    if isinstance(post_data, dict):
+        posts_to_search.append(post_data)
+    for post in (opened_posts or {}).values():
+        if isinstance(post, dict):
+            posts_to_search.append(post)
+
+    for post in posts_to_search:
+        for note in post.get("notes") or []:
+            if isinstance(note, dict) and str(note.get("id", "")) == note_id:
+                return dict(note)
+    return None
+
+
+async def resolve_post_data(
     session: AsyncSession,
     user_id: uuid.UUID,
     post_id: str,
@@ -657,7 +700,7 @@ async def format_rag_context(
                 cite_path = f"/note/global/{note_id}/"
 
         elif node_type == NODE_POST_TEXT:
-            resolved_post = await _resolve_post_data(session, user_id, note_id)
+            resolved_post = await resolve_post_data(session, user_id, note_id)
             if not resolved_post:
                 continue
             text_value = str(resolved_post.get("text") or "").strip()
@@ -704,7 +747,7 @@ async def format_rag_context(
         elif node_type == NODE_MEDIA_META:
             post_id_for_ref = item.get("post_id") or note_id
             if file_id.startswith("idx-") or item.get("post_id"):
-                resolved_post = post_data or await _resolve_post_data(
+                resolved_post = post_data or await resolve_post_data(
                     session, user_id, post_id_for_ref
                 )
                 media_item = _find_post_media(resolved_post, file_id)

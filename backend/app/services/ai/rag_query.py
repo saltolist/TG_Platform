@@ -13,10 +13,12 @@ from app.services.ai.embeddings import EmbeddingBackend
 from app.services.ai.note_citations import NoteCite
 from app.services.ai.providers import ProviderSpec
 from app.services.ai.rag import format_rag_context, retrieve_top_k
-from app.services.ai.rag_escalation import evaluate_tier_a
+from app.services.ai.rag_agent import run_agentic_loop
+from app.services.ai.rag_escalation import TierAResult, evaluate_tier_a
 from app.services.ai.rag_gate import l0_skip_reason
 from app.services.ai.rag_manifest import filter_unopened_neighbors
-from app.services.ai.rag_sufficiency import evaluate_tier_b
+from app.services.ai.rag_sufficiency import TierBResult, evaluate_tier_b
+from app.services.ai.rag_tools import AgentState
 from app.services.ai.rolling_summary import exchanges_from_messages
 
 logger = logging.getLogger(__name__)
@@ -189,6 +191,48 @@ async def _retrieve_top_k_for_query(
     )
 
 
+def _should_escalate(
+    rag_mode: str,
+    tier_a: TierAResult,
+    tier_b: TierBResult | None,
+) -> bool:
+    if rag_mode == "off":
+        return False
+    if rag_mode == "flat":
+        return False
+    if rag_mode == "agentic":
+        return True
+    if rag_mode == "auto":
+        if tier_a.fast_path is not None:
+            return True
+        if tier_b is not None and not tier_b.sufficient:
+            return True
+    return False
+
+
+def _seed_and_hints(
+    tier_a: TierAResult,
+    tier_b: TierBResult | None,
+) -> tuple[str | None, list[str]]:
+    candidates: list[str] = []
+    if tier_a.escalate_target:
+        candidates.append(tier_a.escalate_target)
+    if tier_b and tier_b.open_next:
+        candidates.extend(tier_b.open_next)
+
+    seed_ref: str | None = None
+    hints: list[str] = []
+    for ref in candidates:
+        text = str(ref).strip()
+        if not text:
+            continue
+        if seed_ref is None and text.startswith("note:"):
+            seed_ref = text
+        else:
+            hints.append(text)
+    return seed_ref, hints
+
+
 async def retrieve_rag_for_reply(
     *,
     session: AsyncSession,
@@ -212,6 +256,8 @@ async def retrieve_rag_for_reply(
     escalate_min_similarity: float = 0.72,
     escalate_on_miss: bool = True,
     tier_b_enabled: bool = False,
+    rag_mode: str = "off",
+    rag_agent_max_steps: int = 4,
 ) -> tuple[str, list[NoteCite]]:
     """Retrieve note context using history-expanded query and optional rewrite-on-miss."""
     if l0_enabled:
@@ -285,12 +331,14 @@ async def retrieve_rag_for_reply(
         tier_a.signals,
     )
 
-    if not results:
+    if not results and rag_mode not in ("agentic", "auto"):
         return "", []
 
-    tier_b_task: asyncio.Task[Any] | None = None
+    tier_b: TierBResult | None = None
+    tier_b_task: asyncio.Task[TierBResult] | None = None
     if (
-        tier_b_enabled
+        results
+        and tier_b_enabled
         and tier_a.fast_path is None
         and rewrite_spec is not None
         and rewrite_model
@@ -308,14 +356,17 @@ async def retrieve_rag_for_reply(
             )
         )
 
-    rag_context, rag_cites = await format_rag_context(
-        session=session,
-        user_id=user_id,
-        results=results,
-        scope=scope,
-        post_data=post_data,
-        tenant_key=tenant_key,
-    )
+    if results:
+        rag_context, rag_cites = await format_rag_context(
+            session=session,
+            user_id=user_id,
+            results=results,
+            scope=scope,
+            post_data=post_data,
+            tenant_key=tenant_key,
+        )
+    else:
+        rag_context, rag_cites = "", []
 
     if tier_b_task is not None:
         tier_b = await tier_b_task
@@ -324,6 +375,50 @@ async def retrieve_rag_for_reply(
             tier_b.sufficient,
             tier_b.open_next,
             tier_b.error,
+        )
+
+    should_escalate = _should_escalate(rag_mode, tier_a, tier_b)
+    if (
+        should_escalate
+        and rewrite_spec is not None
+        and rewrite_model
+        and rewrite_api_key
+    ):
+        seed_ref, hints = _seed_and_hints(tier_a, tier_b)
+        agent_state = AgentState(
+            session=session,
+            user_id=user_id,
+            scope=scope,
+            tenant_key=tenant_key,
+            embedding_backend=embedding_backend,
+            base_post_data=post_data,
+            min_similarity=min_similarity,
+            search_k=top_k,
+        )
+        agent_result = await run_agentic_loop(
+            state=agent_state,
+            user_text=user_text,
+            seed_ref=seed_ref,
+            hints=hints,
+            spec=rewrite_spec,
+            model=rewrite_model,
+            api_key=rewrite_api_key,
+            max_steps=rag_agent_max_steps,
+        )
+        if agent_result.rag_context:
+            rag_context = (
+                f"{rag_context}\n{agent_result.rag_context}"
+                if rag_context
+                else agent_result.rag_context
+            )
+            existing_paths = {cite.path for cite in rag_cites}
+            rag_cites = rag_cites + [
+                cite for cite in agent_result.cites if cite.path not in existing_paths
+            ]
+        logger.info(
+            "RAG L2: stopped_reason=%s cites=%s",
+            agent_result.stopped_reason,
+            len(agent_result.cites),
         )
 
     if not rag_cites and rewrite_on_miss and query_used == base_query:

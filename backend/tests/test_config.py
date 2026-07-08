@@ -41,6 +41,17 @@ def test_rag_tier_b_enabled_parses_string_flags() -> None:
     assert Settings().rag_tier_b_enabled is False
 
 
+def test_rag_mode_defaults_and_accepts_valid_values() -> None:
+    assert Settings().rag_mode == "off"
+    assert Settings(rag_mode="flat").rag_mode == "flat"
+    assert Settings(rag_mode="agentic").rag_mode == "agentic"
+    assert Settings(rag_mode="auto").rag_mode == "auto"
+
+
+def test_rag_agent_max_steps_default() -> None:
+    assert Settings().rag_agent_max_steps == 4
+
+
 def test_provider_keys_default_empty() -> None:
     settings = Settings()
     assert settings.openai_api_key == ""
