@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import asyncio
 import logging
 from typing import Any, Mapping
 
@@ -14,6 +15,8 @@ from app.services.ai.providers import ProviderSpec
 from app.services.ai.rag import format_rag_context, retrieve_top_k
 from app.services.ai.rag_escalation import evaluate_tier_a
 from app.services.ai.rag_gate import l0_skip_reason
+from app.services.ai.rag_manifest import filter_unopened_neighbors
+from app.services.ai.rag_sufficiency import evaluate_tier_b
 from app.services.ai.rolling_summary import exchanges_from_messages
 
 logger = logging.getLogger(__name__)
@@ -208,6 +211,7 @@ async def retrieve_rag_for_reply(
     l0_enabled: bool = True,
     escalate_min_similarity: float = 0.72,
     escalate_on_miss: bool = True,
+    tier_b_enabled: bool = False,
 ) -> tuple[str, list[NoteCite]]:
     """Retrieve note context using history-expanded query and optional rewrite-on-miss."""
     if l0_enabled:
@@ -284,6 +288,26 @@ async def retrieve_rag_for_reply(
     if not results:
         return "", []
 
+    tier_b_task: asyncio.Task[Any] | None = None
+    if (
+        tier_b_enabled
+        and tier_a.fast_path is None
+        and rewrite_spec is not None
+        and rewrite_model
+        and rewrite_api_key
+    ):
+        tier_b_task = asyncio.create_task(
+            evaluate_tier_b(
+                user_text=user_text,
+                chunk_text=str(results[0].get("chunk_text") or ""),
+                signals=tier_a.signals,
+                neighbors=filter_unopened_neighbors(tier_a.neighbors, results),
+                spec=rewrite_spec,
+                model=rewrite_model,
+                api_key=rewrite_api_key,
+            )
+        )
+
     rag_context, rag_cites = await format_rag_context(
         session=session,
         user_id=user_id,
@@ -292,6 +316,16 @@ async def retrieve_rag_for_reply(
         post_data=post_data,
         tenant_key=tenant_key,
     )
+
+    if tier_b_task is not None:
+        tier_b = await tier_b_task
+        logger.info(
+            "RAG Tier B: sufficient=%s open_next=%s error=%s",
+            tier_b.sufficient,
+            tier_b.open_next,
+            tier_b.error,
+        )
+
     if not rag_cites and rewrite_on_miss and query_used == base_query:
         logger.debug("RAG retrieval returned rows but no note content for query")
     return rag_context, rag_cites

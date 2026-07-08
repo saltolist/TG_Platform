@@ -328,6 +328,7 @@ async def ai_reply(
                 l0_enabled=settings.rag_l0_enabled,
                 escalate_min_similarity=settings.rag_escalate_min_similarity,
                 escalate_on_miss=settings.rag_escalate_on_miss,
+                tier_b_enabled=settings.rag_tier_b_enabled,
             )
         except Exception as exc:
             import logging

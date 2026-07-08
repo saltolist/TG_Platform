@@ -186,6 +186,8 @@ class Settings(BaseSettings):
     rag_escalate_min_similarity: float = 0.72
     # Tier A fast-path: treat empty L1 as escalation trigger.
     rag_escalate_on_miss: bool = True
+    # Tier B LLM sufficiency check (diagnostics until Step 1.5 consumes verdict).
+    rag_tier_b_enabled: bool = False
 
     # Embeddings configuration
     # Local model name for fastembed (must be in TextEmbedding.list_supported_models())
@@ -201,6 +203,7 @@ class Settings(BaseSettings):
         "rag_query_rewrite_on_miss",
         "rag_l0_enabled",
         "rag_escalate_on_miss",
+        "rag_tier_b_enabled",
         "cookie_secure",
         "telegram_live_sync_enabled",
         "telegram_reconcile_enabled",
