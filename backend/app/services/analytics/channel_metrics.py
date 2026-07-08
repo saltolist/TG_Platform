@@ -5,8 +5,6 @@ from __future__ import annotations
 from datetime import date, datetime, timedelta, timezone
 from typing import Any
 
-from uuid import UUID
-
 from app.db.models import ChannelMetricSnapshot, Post, PostMetricSnapshot
 
 VALID_PERIODS = frozenset({"24h", "7d", "30d", "90d", "all"})
@@ -251,50 +249,28 @@ def _snapshot_totals(snapshot: ChannelMetricSnapshot) -> dict[str, float | int]:
     }
 
 
-def _post_snapshot_values(snapshot: PostMetricSnapshot) -> dict[str, int]:
-    return {
-        "views": int(snapshot.views or 0),
-        "reactions": int(snapshot.reactions or 0),
-        "comments": int(snapshot.comments or 0),
-        "reposts": int(snapshot.reposts or 0),
-    }
-
-
-def _group_post_snapshots_by_post(
-    post_snapshots: list[PostMetricSnapshot],
-) -> dict[UUID, list[PostMetricSnapshot]]:
-    grouped: dict[UUID, list[PostMetricSnapshot]] = {}
-    for snapshot in sorted(post_snapshots, key=lambda row: row.captured_at):
-        grouped.setdefault(snapshot.post_id, []).append(snapshot)
-    return grouped
-
-
-def _latest_post_snapshot_at_or_before(
-    snapshots: list[PostMetricSnapshot],
-    moment: datetime,
-) -> PostMetricSnapshot | None:
-    latest: PostMetricSnapshot | None = None
-    for snapshot in snapshots:
-        if snapshot.captured_at.astimezone(timezone.utc) <= moment:
-            latest = snapshot
-        else:
-            break
-    return latest
-
-
-def _post_totals_at_moment(
-    by_post: dict[UUID, list[PostMetricSnapshot]],
+def _channel_count_totals_at_or_before(
+    channel_snapshots: list[ChannelMetricSnapshot],
     moment: datetime,
 ) -> dict[str, int]:
-    totals = {"views": 0, "reactions": 0, "comments": 0, "reposts": 0}
-    for snapshots in by_post.values():
-        latest = _latest_post_snapshot_at_or_before(snapshots, moment)
-        if latest is None:
-            continue
-        values = _post_snapshot_values(latest)
-        for key in totals:
-            totals[key] += values[key]
-    return totals
+    """Channel-wide count totals from the latest channel snapshot at/before *moment*."""
+    baseline: ChannelMetricSnapshot | None = None
+    probe = moment.astimezone(timezone.utc)
+    for snap in channel_snapshots:
+        captured = snap.captured_at.astimezone(timezone.utc)
+        if captured <= probe:
+            baseline = snap
+        else:
+            break
+    if baseline is None:
+        return {"views": 0, "reactions": 0, "comments": 0, "reposts": 0}
+    totals = _snapshot_totals(baseline)
+    return {
+        "views": int(totals["views"]),
+        "reactions": int(totals["reactions"]),
+        "comments": int(totals["comments"]),
+        "reposts": int(totals["reposts"]),
+    }
 
 
 def _posts_published_on_day(published: list[Post], day: date) -> int:
@@ -327,20 +303,6 @@ def _last_subscriber_count_at_or_before(
     return last
 
 
-def _subscribers_before_moment(
-    moment: datetime,
-    channel_snapshots: list[ChannelMetricSnapshot],
-) -> int:
-    """Subscriber count as of just before *moment* — always from channel snapshots.
-
-    Subscriber count only ever comes from a Telethon call made during a
-    scheduled snapshot capture (there is no continuous live source for it,
-    unlike views/reactions), so it stays tied to snapshot cadence.
-    """
-    probe = moment.astimezone(timezone.utc) - timedelta(microseconds=1)
-    return _last_subscriber_count_at_or_before(probe, channel_snapshots) or 0
-
-
 def _live_subscriber_delta(
     subscribers_now: int | None,
     channel_snapshots: list[ChannelMetricSnapshot],
@@ -355,103 +317,7 @@ def _live_subscriber_delta(
     return subscribers_now - baseline
 
 
-def _subscriber_growth_in_window(
-    subscribers_now: int | None,
-    channel_snapshots: list[ChannelMetricSnapshot],
-    since: datetime,
-) -> int:
-    """Net subscriber change strictly inside a time window (e.g. last 24h)."""
-    if subscribers_now is None:
-        return 0
-    baseline = _last_subscriber_count_at_or_before(since, channel_snapshots)
-    if baseline is None:
-        return 0
-    return subscribers_now - baseline
-
-
-def _apply_subscriber_deltas_for_24h(
-    slot_rows: list[dict[str, Any]],
-    live_slot_row: dict[str, Any],
-    *,
-    subscribers_now: int | None,
-    channel_snapshots: list[ChannelMetricSnapshot],
-    since: datetime,
-    current_slot_start: datetime,
-    replacing_last: bool,
-) -> None:
-    """Clamp 24h subscriber bars to real in-window growth.
-
-  A subscriber refresh that only catches up a stale count must not create a
-  bar in the 24h chart when the actual subscribe event was days earlier.
-    """
-    growth_in_window = _subscriber_growth_in_window(
-        subscribers_now, channel_snapshots, since
-    )
-    recorded = sum(int(row.get("subscribers") or 0) for row in slot_rows)
-    if replacing_last and slot_rows:
-        recorded -= int(slot_rows[-1].get("subscribers") or 0)
-
-    if growth_in_window <= 0:
-        for row in slot_rows:
-            row["subscribers"] = 0
-        live_slot_row["subscribers"] = 0
-        return
-
-    live_slot_row["subscribers"] = max(0, growth_in_window - recorded)
-
-
-def _merge_subscriber_slot_deltas(
-    slot_rows: list[dict[str, Any]],
-    channel_snapshots: list[ChannelMetricSnapshot],
-    since: datetime,
-) -> None:
-    """Backfill subscriber deltas from channel snapshots into 24h slot rows.
-
-    Per-post snapshot slots always zero subscribers; channel snapshots carry the
-    real cadence-bound deltas and must be merged by slot time.
-    """
-    if not channel_snapshots or not slot_rows:
-        return
-    by_slot: dict[datetime, int] = {}
-    for row in _snapshot_slot_rows(channel_snapshots, since):
-        moment = datetime.fromisoformat(str(row["date"]))
-        if moment.tzinfo is None:
-            moment = moment.replace(tzinfo=timezone.utc)
-        by_slot[_floor_to_slot(moment)] = int(row.get("subscribers") or 0)
-
-    for row in slot_rows:
-        moment = datetime.fromisoformat(str(row["date"]))
-        if moment.tzinfo is None:
-            moment = moment.replace(tzinfo=timezone.utc)
-        delta = by_slot.get(_floor_to_slot(moment))
-        if delta is not None:
-            row["subscribers"] = delta
-
-
-def _totals_before_moment(
-    moment: datetime,
-    by_post: dict[UUID, list[PostMetricSnapshot]],
-    channel_snapshots: list[ChannelMetricSnapshot],
-) -> dict[str, int]:
-    """Baseline counts as of just before *moment* — per-post history first, legacy fallback."""
-    if by_post:
-        return _post_totals_at_moment(by_post, moment - timedelta(microseconds=1))
-    baseline: ChannelMetricSnapshot | None = None
-    for snap in channel_snapshots:
-        if snap.captured_at.astimezone(timezone.utc) < moment:
-            baseline = snap
-    if baseline is None:
-        return {"views": 0, "reactions": 0, "comments": 0, "reposts": 0}
-    totals = _snapshot_totals(baseline)
-    return {
-        "views": int(totals["views"]),
-        "reactions": int(totals["reactions"]),
-        "comments": int(totals["comments"]),
-        "reposts": int(totals["reposts"]),
-    }
-
-
-def _delta_row_from_post_totals(
+def _delta_row_from_live_totals(
     date_label: str,
     current: dict[str, int],
     previous: dict[str, int] | None,
@@ -484,7 +350,7 @@ def _delta_row(
 
     A missing *previous* snapshot means "no earlier baseline in range" (e.g. the
     first tracked day), not "no growth" — treat it as a zero baseline so counts
-    grow from 0, matching ``_delta_row_from_post_totals``. A missing *current*
+    grow from 0, matching ``_delta_row_from_live_totals``. A missing *current*
     value still means "unknown for this metric" and stays 0.
     """
 
@@ -541,32 +407,6 @@ def _snapshot_day_rows(
     return rows
 
 
-def _post_snapshot_day_rows(
-    by_post: dict[UUID, list[PostMetricSnapshot]],
-    published: list[Post],
-    start_day: date,
-    end_day: date,
-) -> dict[date, dict[str, Any]]:
-    """Daily growth from per-post snapshot deltas summed into channel totals."""
-    rows: dict[date, dict[str, Any]] = {}
-    window_start = datetime.combine(start_day, datetime.min.time(), tzinfo=timezone.utc)
-    previous_totals = _post_totals_at_moment(by_post, window_start - timedelta(microseconds=1))
-
-    day = start_day
-    while day <= end_day:
-        end_of_day = datetime.combine(day, datetime.max.time(), tzinfo=timezone.utc)
-        current_totals = _post_totals_at_moment(by_post, end_of_day)
-        rows[day] = _delta_row_from_post_totals(
-            day.isoformat(),
-            current_totals,
-            previous_totals,
-            _posts_published_on_day(published, day),
-        )
-        previous_totals = current_totals
-        day += timedelta(days=1)
-    return rows
-
-
 def _snapshot_slot_rows(
     snapshots: list[ChannelMetricSnapshot],
     since: datetime,
@@ -589,50 +429,10 @@ def _snapshot_slot_rows(
     return rows
 
 
-def _post_snapshot_slot_rows(
-    by_post: dict[UUID, list[PostMetricSnapshot]],
-    post_snapshots: list[PostMetricSnapshot],
-    since: datetime,
-) -> list[dict[str, Any]]:
-    """30-minute growth rows aggregated from per-post snapshots."""
-    slot_times = sorted(
-        {
-            snapshot.captured_at.astimezone(timezone.utc)
-            for snapshot in post_snapshots
-            if snapshot.captured_at.astimezone(timezone.utc) >= since
-        }
-    )
-    if not slot_times:
-        return []
-
-    rows: list[dict[str, Any]] = []
-    previous_totals = _post_totals_at_moment(by_post, since - timedelta(microseconds=1))
-    for slot in slot_times:
-        current_totals = _post_totals_at_moment(by_post, slot)
-        rows.append(
-            _delta_row_from_post_totals(
-                slot.isoformat(),
-                current_totals,
-                previous_totals,
-                0,
-            )
-        )
-        previous_totals = current_totals
-    return rows
-
-
-def _tracking_since(
-    channel_snapshots: list[ChannelMetricSnapshot],
-    post_snapshots: list[PostMetricSnapshot],
-) -> str | None:
-    dates: list[date] = []
-    if channel_snapshots:
-        dates.append(channel_snapshots[0].captured_at.astimezone(timezone.utc).date())
-    if post_snapshots:
-        dates.append(post_snapshots[0].captured_at.astimezone(timezone.utc).date())
-    if not dates:
+def _tracking_since(channel_snapshots: list[ChannelMetricSnapshot]) -> str | None:
+    if not channel_snapshots:
         return None
-    return min(dates).isoformat()
+    return channel_snapshots[0].captured_at.astimezone(timezone.utc).date().isoformat()
 
 
 def _snapshot_freshness(
@@ -706,27 +506,15 @@ def _zeroed_period_days(start_day: date, day_span: int) -> list[dict[str, Any]]:
     ]
 
 
-def _merge_subscriber_deltas(
-    days: list[dict[str, Any]],
-    channel_snap_rows: dict[date, dict[str, Any]],
-) -> None:
-    for row in days:
-        day = date.fromisoformat(str(row["date"])[:10])
-        channel_row = channel_snap_rows.get(day)
-        if channel_row is not None:
-            row["subscribers"] = int(channel_row.get("subscribers") or 0)
-
-
 def _compute_channel_overview(
     posts: list[Post],
     channel_snapshots: list[ChannelMetricSnapshot],
-    post_snapshots: list[PostMetricSnapshot],
     period: str,
     telegram: dict[str, Any] | None = None,
     *,
     snapshot_stale_after_seconds: float | None = None,
 ) -> dict[str, Any]:
-    """Shared core: per-post snapshot deltas with legacy channel-snapshot fallback."""
+    """Shared core: channel snapshot deltas with live overlay."""
     published = published_posts(posts)
     day_span = _period_day_span(period, published)
     today = datetime.now(timezone.utc).date()
@@ -734,9 +522,6 @@ def _compute_channel_overview(
     freshness = _snapshot_freshness(telegram, snapshot_stale_after_seconds)
 
     channel_snapshots = sorted(channel_snapshots, key=lambda snap: snap.captured_at)
-    post_snapshots = sorted(post_snapshots, key=lambda snap: snap.captured_at)
-    by_post = _group_post_snapshots_by_post(post_snapshots)
-
     subscribers_now = subscriber_count_from_profile(telegram)
     if subscribers_now is None and channel_snapshots:
         last_subs = channel_snapshots[-1].subscribers
@@ -748,9 +533,9 @@ def _compute_channel_overview(
         subscribers_fallback=subscribers_now or 0,
         subscribers_override=subscribers_now,
     )
-    tracking_since = _tracking_since(channel_snapshots, post_snapshots)
+    tracking_since = _tracking_since(channel_snapshots)
 
-    if not channel_snapshots and not post_snapshots:
+    if not channel_snapshots:
         start_totals = _start_totals_from_window(published, period, subscribers_now)
         return {
             "dayCount": day_span,
@@ -765,55 +550,35 @@ def _compute_channel_overview(
             **freshness,
         }
 
-    first_post_snap_day = (
-        post_snapshots[0].captured_at.astimezone(timezone.utc).date()
-        if post_snapshots
-        else None
-    )
     channel_snap_rows = _snapshot_day_rows(channel_snapshots, start_day, today)
-    post_snap_rows = (
-        _post_snapshot_day_rows(by_post, published, start_day, today)
-        if post_snapshots
-        else {}
-    )
 
     if period == "24h":
-        since = datetime.now(timezone.utc) - timedelta(hours=24)
-        if post_snapshots:
-            slot_rows = _post_snapshot_slot_rows(by_post, post_snapshots, since)
-            history_source = "post_snapshots"
-        else:
-            slot_rows = _snapshot_slot_rows(channel_snapshots, since)
-            history_source = "legacy_channel_snapshots"
-
-        # The most recent slot is always rebuilt from live post data so growth
-        # shows up immediately, without waiting for the next scheduled capture.
         now = datetime.now(timezone.utc)
+        since = now - timedelta(hours=24)
+        slot_rows = _snapshot_slot_rows(channel_snapshots, since)
+        history_source = "channel_snapshots"
+
         current_slot_start = _floor_to_slot(now)
-        live_slot_row = _delta_row_from_post_totals(
+        live_slot_row = _delta_row_from_live_totals(
             now.isoformat(),
-            end_post_totals,
-            _totals_before_moment(current_slot_start, by_post, channel_snapshots),
+            {
+                "views": int(end_totals["views"]),
+                "reactions": int(end_totals["reactions"]),
+                "comments": int(end_totals["comments"]),
+                "reposts": int(end_totals["reposts"]),
+            },
+            _channel_count_totals_at_or_before(
+                channel_snapshots, current_slot_start - timedelta(microseconds=1)
+            ),
             0,
         )
-        # ER stays as computed by _delta_row_from_post_totals — a delta over
-        # just this slot — matching every other post-snapshot-backed row in
-        # the same series (do not mix in the channel-wide cumulative level).
-        if post_snapshots:
-            _merge_subscriber_slot_deltas(slot_rows, channel_snapshots, since)
 
         replacing_last = bool(
             slot_rows
             and datetime.fromisoformat(str(slot_rows[-1]["date"])) >= current_slot_start
         )
-        _apply_subscriber_deltas_for_24h(
-            slot_rows,
-            live_slot_row,
-            subscribers_now=subscribers_now,
-            channel_snapshots=channel_snapshots,
-            since=since,
-            current_slot_start=current_slot_start,
-            replacing_last=replacing_last,
+        live_slot_row["subscribers"] = _live_subscriber_delta(
+            subscribers_now, channel_snapshots, current_slot_start
         )
 
         if replacing_last:
@@ -822,37 +587,26 @@ def _compute_channel_overview(
             slot_rows.append(live_slot_row)
 
         if len(slot_rows) >= 2:
-            baseline_moment = since - timedelta(microseconds=1)
             subs_at_window_start = _last_subscriber_count_at_or_before(
                 since, channel_snapshots
             )
-            if post_snapshots:
-                baseline_totals = _post_totals_at_moment(by_post, baseline_moment)
-                start_totals = _normalize_totals(
-                    baseline_totals,
-                    subscribers_fallback=0,
-                    subscribers_override=subs_at_window_start,
-                )
-            else:
-                baseline = None
-                for snap in channel_snapshots:
-                    if snap.captured_at.astimezone(timezone.utc) < since:
-                        baseline = snap
-                in_window = [
-                    snap
-                    for snap in channel_snapshots
-                    if snap.captured_at.astimezone(timezone.utc) >= since
-                ]
-                baseline_totals = (
-                    _snapshot_totals(baseline)
-                    if baseline is not None
-                    else _snapshot_totals(in_window[0])
-                )
-                start_totals = _normalize_totals(
-                    baseline_totals,
-                    subscribers_fallback=0,
-                    subscribers_override=subs_at_window_start,
-                )
+            baseline = None
+            for snap in channel_snapshots:
+                if snap.captured_at.astimezone(timezone.utc) < since:
+                    baseline = snap
+            in_window = [
+                snap for snap in channel_snapshots if snap.captured_at.astimezone(timezone.utc) >= since
+            ]
+            baseline_totals = (
+                _snapshot_totals(baseline)
+                if baseline is not None
+                else _snapshot_totals(in_window[0])
+            )
+            start_totals = _normalize_totals(
+                baseline_totals,
+                subscribers_fallback=0,
+                subscribers_override=subs_at_window_start,
+            )
 
             return {
                 "dayCount": len(slot_rows),
@@ -868,31 +622,10 @@ def _compute_channel_overview(
             }
 
     days: list[dict[str, Any]] = []
-    used_legacy = False
-    used_post = False
     for offset in range(day_span):
         day = start_day + timedelta(days=offset)
-        use_post = first_post_snap_day is not None and day >= first_post_snap_day
-        if use_post and day in post_snap_rows:
-            days.append(dict(post_snap_rows[day]))
-            used_post = True
-        elif day in channel_snap_rows:
+        if day in channel_snap_rows:
             days.append(dict(channel_snap_rows[day]))
-            used_legacy = True
-        elif use_post:
-            days.append(
-                {
-                    "date": day.isoformat(),
-                    "views": 0,
-                    "posts": 0,
-                    "subscribers": 0,
-                    "reactions": 0,
-                    "comments": 0,
-                    "reposts": 0,
-                    "er": 0.0,
-                }
-            )
-            used_post = True
         else:
             days.append(
                 {
@@ -908,15 +641,20 @@ def _compute_channel_overview(
             )
 
     # Today's bar is always rebuilt from live post data so growth shows up
-    # immediately, without waiting for the next scheduled capture. History
-    # classification (used_legacy/used_post/historySource) stays based on
-    # what actually backed the window, unaffected by this live refresh.
+    # immediately, without waiting for the next scheduled capture.
     if days:
         today_start = datetime.combine(today, datetime.min.time(), tzinfo=timezone.utc)
-        baseline_today = _totals_before_moment(today_start, by_post, channel_snapshots)
-        live_today_row = _delta_row_from_post_totals(
+        baseline_today = _channel_count_totals_at_or_before(
+            channel_snapshots, today_start - timedelta(microseconds=1)
+        )
+        live_today_row = _delta_row_from_live_totals(
             days[-1]["date"],
-            end_post_totals,
+            {
+                "views": int(end_totals["views"]),
+                "reactions": int(end_totals["reactions"]),
+                "comments": int(end_totals["comments"]),
+                "reposts": int(end_totals["reposts"]),
+            },
             baseline_today,
             _posts_published_on_day(published, today),
         )
@@ -925,38 +663,17 @@ def _compute_channel_overview(
             channel_snapshots,
             today_start,
         )
-        # ER stays as computed by _delta_row_from_post_totals — a delta over
-        # just today — matching every other post-snapshot-backed row in the
-        # same series (do not mix in the channel-wide cumulative level).
         days[-1] = live_today_row
 
-    # Backfill subscriber deltas for any earlier day still sourced from
-    # per-post history (_delta_row_from_post_totals always zeroes them there).
-    _merge_subscriber_deltas(days, channel_snap_rows)
-
     window_start = datetime.combine(start_day, datetime.min.time(), tzinfo=timezone.utc)
-    if post_snapshots:
-        baseline_totals = _post_totals_at_moment(
-            by_post,
-            window_start - timedelta(microseconds=1),
-        )
-        start_totals = _normalize_totals(baseline_totals, subscribers_fallback=0)
+    baseline = None
+    for snap in channel_snapshots:
+        if snap.captured_at.astimezone(timezone.utc) < window_start:
+            baseline = snap
+    if baseline is not None:
+        start_totals = _normalize_totals(_snapshot_totals(baseline), subscribers_fallback=0)
     else:
-        baseline = None
-        for snap in channel_snapshots:
-            if snap.captured_at.astimezone(timezone.utc) < window_start:
-                baseline = snap
-        if baseline is not None:
-            start_totals = _normalize_totals(_snapshot_totals(baseline), subscribers_fallback=0)
-        else:
-            start_totals = _start_totals_from_window(published, period, subscribers_now)
-
-    if used_legacy and used_post:
-        history_source = "mixed"
-    elif used_post:
-        history_source = "post_snapshots"
-    else:
-        history_source = "legacy_channel_snapshots"
+        start_totals = _start_totals_from_window(published, period, subscribers_now)
 
     return {
         "dayCount": day_span,
@@ -966,7 +683,7 @@ def _compute_channel_overview(
         "endTotals": end_totals,
         "subscribersAvailable": subscribers_now is not None,
         "days": days,
-        "historySource": history_source,
+        "historySource": "channel_snapshots",
         "trackingSince": tracking_since,
         **freshness,
     }
@@ -975,18 +692,23 @@ def _compute_channel_overview(
 def build_channel_summary(
     posts: list[Post],
     channel_snapshots: list[ChannelMetricSnapshot],
-    post_snapshots: list[PostMetricSnapshot],
-    period: str,
+    post_snapshots: list[PostMetricSnapshot] | str | None = None,
+    period: str | dict[str, Any] | None = None,
     telegram: dict[str, Any] | None = None,
     *,
     snapshot_stale_after_seconds: float | None = None,
 ) -> dict[str, Any]:
     """Period totals and data-freshness metadata (no time series)."""
+    if isinstance(post_snapshots, str):
+        telegram = period if isinstance(period, dict) else telegram
+        period_value = post_snapshots
+    else:
+        period_value = period if isinstance(period, str) else "30d"
+
     overview = _compute_channel_overview(
         posts,
         channel_snapshots,
-        post_snapshots,
-        period,
+        period_value,
         telegram,
         snapshot_stale_after_seconds=snapshot_stale_after_seconds,
     )
@@ -1003,16 +725,21 @@ def build_channel_summary(
 def build_channel_trend(
     posts: list[Post],
     channel_snapshots: list[ChannelMetricSnapshot],
-    post_snapshots: list[PostMetricSnapshot],
-    period: str,
+    post_snapshots: list[PostMetricSnapshot] | str | None = None,
+    period: str | dict[str, Any] | None = None,
     telegram: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
     """Time-series growth rows for the selected period (all metrics per slot/day)."""
+    if isinstance(post_snapshots, str):
+        telegram = period if isinstance(period, dict) else telegram
+        period_value = post_snapshots
+    else:
+        period_value = period if isinstance(period, str) else "30d"
+
     overview = _compute_channel_overview(
         posts,
         channel_snapshots,
-        post_snapshots,
-        period,
+        period_value,
         telegram,
     )
     return {
@@ -1020,6 +747,9 @@ def build_channel_trend(
         "granularity": overview["granularity"],
         "anchorDate": overview["anchorDate"],
         "days": overview["days"],
+        "startTotals": overview["startTotals"],
+        "endTotals": overview["endTotals"],
+        "subscribersAvailable": overview["subscribersAvailable"],
         "historySource": overview["historySource"],
         "trackingSince": overview["trackingSince"],
     }

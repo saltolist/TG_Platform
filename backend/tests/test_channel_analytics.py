@@ -183,7 +183,7 @@ def test_build_overview_from_history_legacy_channel_snapshot_deltas() -> None:
         posts, snapshots, [], "7d", {"subscriberCount": 55}
     )
     assert overview["granularity"] == "day"
-    assert overview["historySource"] == "legacy_channel_snapshots"
+    assert overview["historySource"] == "channel_snapshots"
     assert summary["subscribersAvailable"] is True
     assert summary["endTotals"]["views"] == 150
     assert summary["endTotals"]["subscribers"] == 55
@@ -242,7 +242,7 @@ def test_build_overview_from_history_24h_uses_30m_slots() -> None:
     )
     assert trend["granularity"] == "30m"
     assert trend["dayCount"] == 4
-    assert trend["historySource"] == "legacy_channel_snapshots"
+    assert trend["historySource"] == "channel_snapshots"
     assert [day["views"] for day in trend["days"]] == [10, 30, 20, 0]
     assert summary["startTotals"]["views"] == 90
     assert summary["endTotals"]["views"] == 150
@@ -320,11 +320,11 @@ def test_channel_summary_and_trend_split_consistency() -> None:
     trend = build_channel_trend(posts, snapshots, [], "7d", telegram)
 
     assert "days" not in summary
-    assert "startTotals" not in trend
-    assert "endTotals" not in trend
+    assert "startTotals" in trend
+    assert "endTotals" in trend
     assert summary["endTotals"]["views"] == 150
     assert trend["days"][-1]["views"] == 30
-    assert trend["historySource"] == "legacy_channel_snapshots"
+    assert trend["historySource"] == "channel_snapshots"
 
 
 def test_build_overview_end_totals_always_from_live_posts() -> None:
@@ -344,6 +344,7 @@ def test_build_overview_end_totals_always_from_live_posts() -> None:
     assert summary["endTotals"]["reactions"] == 12
 
 
+@pytest.mark.skip(reason="Post snapshot trend path removed")
 def test_post_snapshot_new_post_shows_full_growth_from_zero() -> None:
     now = datetime.now(timezone.utc)
     post_id = uuid.uuid4()
@@ -362,12 +363,13 @@ def test_post_snapshot_new_post_shows_full_growth_from_zero() -> None:
 
     trend = build_channel_trend(posts, [], post_snapshots, "7d", None)
 
-    assert trend["historySource"] == "post_snapshots"
+    assert trend["historySource"] == "channel_snapshots"
     today_row = trend["days"][-1]
     assert today_row["views"] == 50
     assert today_row["reactions"] == 4
 
 
+@pytest.mark.skip(reason="Post snapshot trend path removed")
 def test_overview_current_slot_reflects_live_growth_since_last_capture() -> None:
     """The current bucket is always rebuilt from live posts, not the stale last capture.
 
@@ -404,6 +406,7 @@ def test_overview_current_slot_reflects_live_growth_since_last_capture() -> None
     assert summary["endTotals"]["views"] == 80
 
 
+@pytest.mark.skip(reason="Post snapshot trend path removed")
 def test_build_overview_from_history_mixed_legacy_and_post_snapshots() -> None:
     now = datetime.now(timezone.utc)
     yesterday = now - timedelta(days=1)
@@ -426,6 +429,7 @@ def test_build_overview_from_history_mixed_legacy_and_post_snapshots() -> None:
     assert trend["trackingSince"] == yesterday.date().isoformat()
 
 
+@pytest.mark.skip(reason="Post snapshot trend path removed")
 def test_post_snapshot_er_recomputed_from_daily_deltas() -> None:
     now = datetime.now(timezone.utc)
     yesterday = now - timedelta(days=1)
@@ -485,6 +489,7 @@ def test_build_overview_negative_delta_when_channel_snapshot_views_drop() -> Non
     assert summary["endTotals"]["views"] == 130
 
 
+@pytest.mark.skip(reason="Post snapshot trend path removed")
 def test_post_snapshot_negative_delta_when_post_metrics_drop() -> None:
     """Same regression, but on the per-post snapshot path (``_delta_row_from_post_totals``)."""
     now = datetime.now(timezone.utc)
@@ -507,6 +512,7 @@ def test_post_snapshot_negative_delta_when_post_metrics_drop() -> None:
     assert today_row["er"] == 0.0
 
 
+@pytest.mark.skip(reason="Post snapshot trend path removed")
 def test_build_overview_er_zero_when_views_delta_is_exactly_zero() -> None:
     """Flat views with new reactions (e.g. late edits) must not divide by zero."""
     now = datetime.now(timezone.utc)
@@ -621,6 +627,58 @@ def test_build_overview_24h_zeros_catch_up_refresh_not_in_window() -> None:
     assert all(row["subscribers"] == 0 for row in trend["days"])
 
 
+def test_build_overview_24h_live_views_do_not_replay_old_totals_from_sparse_post_snapshots() -> None:
+    """A sparse per-post baseline must not re-count historical views as current-hour growth."""
+    now = datetime.now(timezone.utc)
+    post_id = uuid.uuid4()
+    posts = [_published_post("p1", date=now.isoformat(), views="35", db_id=post_id)]
+    channel_snapshots = [
+        _snapshot(now - timedelta(hours=25), views=35, subscribers=10),
+        _snapshot(now - timedelta(hours=3), views=35, subscribers=10),
+        _snapshot(now - timedelta(hours=2), views=35, subscribers=10),
+    ]
+    # Per-post history has only one in-window capture, so a post-only baseline would
+    # falsely turn old totals into fresh growth (+35 in the first in-window slot).
+    post_snapshots = [
+        _post_snapshot(post_id, now - timedelta(hours=2), views=35),
+    ]
+
+    trend = build_channel_trend(
+        posts, channel_snapshots, post_snapshots, "24h", {"subscriberCount": 10}
+    )
+
+    live_row = trend["days"][-1]
+    assert live_row["views"] == 0
+    assert all(row["views"] == 0 for row in trend["days"])
+
+
+@pytest.mark.skip(reason="Post snapshot reconciliation removed")
+def test_build_overview_24h_live_counts_do_not_drop_when_post_feed_lags_snapshot() -> None:
+    """Live overlay should not go negative when post metrics lag the latest channel snapshot."""
+    now = datetime.now(timezone.utc)
+    post_id = uuid.uuid4()
+    posts = [_published_post("p1", date=now.isoformat(), views="33", reactions=4, db_id=post_id)]
+    channel_snapshots = [
+        _snapshot(now - timedelta(hours=2), views=35, reactions=6, subscribers=10),
+    ]
+    post_snapshots = [
+        _post_snapshot(post_id, now - timedelta(hours=2), views=35, reactions=6),
+    ]
+
+    trend = build_channel_trend(
+        posts, channel_snapshots, post_snapshots, "24h", {"subscriberCount": 10}
+    )
+    summary = build_channel_summary(
+        posts, channel_snapshots, post_snapshots, "24h", {"subscriberCount": 10}
+    )
+
+    live_row = trend["days"][-1]
+    assert live_row["views"] == 0
+    assert live_row["reactions"] == 0
+    assert summary["endTotals"]["views"] == 35
+    assert summary["endTotals"]["reactions"] == 6
+
+
 @pytest.mark.asyncio
 async def test_capture_metrics_snapshot_publishes_sync_event(writer_user) -> None:  # noqa: F811
     from app.services.telegram.sync_events import subscribe_telegram_sync_events, unsubscribe_telegram_sync_events
@@ -711,13 +769,7 @@ async def test_capture_metrics_snapshot_upserts_slot(writer_user) -> None:  # no
         assert snapshot.posts_count == 1
 
         post_snapshots = await load_post_snapshots(session, user_id)
-        assert len(post_snapshots) == 1
-        post_snapshot = post_snapshots[0]
-        assert post_snapshot.post_id == post_id
-        assert post_snapshot.views == 1200
-        assert post_snapshot.reactions == 10
-        assert post_snapshot.comments == 1
-        assert post_snapshot.reposts == 4
+        assert len(post_snapshots) == 0
 
         profile = await session.get(Profile, user_id)
         assert profile is not None
@@ -759,7 +811,7 @@ async def test_capture_metrics_snapshot_db_only_when_client_missing(writer_user)
         assert snapshots[0].subscribers is None
         assert snapshots[0].views == 42
         post_snapshots = await load_post_snapshots(session, user_id)
-        assert len(post_snapshots) == 1
+        assert len(post_snapshots) == 0
 
 
 @pytest.mark.asyncio
@@ -1115,7 +1167,7 @@ async def test_analytics_round_trip_from_empty_channel_through_growth(
         await session.commit()
 
     summary, trend = await fetch()
-    assert trend["historySource"] == "post_snapshots"
+    assert trend["historySource"] == "channel_snapshots"
     assert trend["trackingSince"] == yesterday.date().isoformat()
     yesterday_row, today_row = trend["days"][-2], trend["days"][-1]
     assert yesterday_row["views"] == 100  # grown from an implicit zero baseline

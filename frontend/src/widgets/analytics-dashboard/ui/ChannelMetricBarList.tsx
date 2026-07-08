@@ -33,10 +33,35 @@ type BarDatum = {
 
 // Отступ сверху/снизу трека (в %), чтобы точки на краях диапазона не обрезались.
 const CHART_PADDING = 6;
+// Ненулевые значения должны быть визуально чуть выше дна, чтобы не выглядеть как 0.
+const NON_ZERO_MIN_MAGNITUDE = 0.12;
 
 /** Позиция точки снизу трека в процентах — итоговое значение на этот момент. */
 function pointOffsetPercent(bar: BarDatum): number {
   return CHART_PADDING + bar.magnitude * (100 - 2 * CHART_PADDING);
+}
+
+function normalizePlotMagnitude(value: number, plotValues: number[]): number {
+  if (!plotValues.length) return 0;
+
+  const max = Math.max(...plotValues);
+  if (max <= 0) {
+    return 0;
+  }
+
+  if (value <= 0) {
+    return 0;
+  }
+
+  const positiveValues = plotValues.filter((item) => item > 0);
+  const minPositive = positiveValues.length ? Math.min(...positiveValues) : 0;
+
+  if (max === minPositive) {
+    return 0.5;
+  }
+
+  const scaled = (value - minPositive) / (max - minPositive);
+  return NON_ZERO_MIN_MAGNITUDE + scaled * (1 - NON_ZERO_MIN_MAGNITUDE);
 }
 
 /** Координаты точек в viewBox 0..100 (ось Y снизу вверх). */
@@ -126,9 +151,6 @@ function MetricBarCard({
     // Итоговое значение метрики на каждый момент (накопленный итог / уровень ER),
     // а не поинтервальный прирост.
     const plotValues = row.yValues ?? [];
-    const min = plotValues.length ? Math.min(...plotValues) : 0;
-    const max = plotValues.length ? Math.max(...plotValues) : 0;
-    const range = max - min;
 
     return labels.map((axisLabel, index) => {
       const value = plotValues[index] ?? 0;
@@ -150,9 +172,9 @@ function MetricBarCard({
           row.values,
           prior,
         ),
-        // Авто-масштаб по видимому диапазону: min → низ, max → верх. Иначе итог
-        // (напр. 3800 просмотров) прижимался бы к потолку и линия была бы плоской.
-        magnitude: range > 0 ? (value - min) / range : 0.5,
+        // Ноль остается на самом дне, но любые положительные значения слегка
+        // приподнимаем, чтобы «малые» точки не выглядели как нулевые.
+        magnitude: normalizePlotMagnitude(value, plotValues),
       };
     });
   }, [row.id, row.values, row.yValues, prior, labels, chartPeriod, pointCount]);

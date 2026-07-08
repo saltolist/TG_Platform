@@ -53,9 +53,9 @@ export function useAnalyticsScreen() {
         version: 2,
         dayCount: trendQuery.data.dayCount,
         granularity: trendQuery.data.granularity,
-        subscribersAvailable: summaryQuery.data.subscribersAvailable,
-        startTotals: summaryQuery.data.startTotals,
-        endTotals: summaryQuery.data.endTotals,
+        subscribersAvailable: trendQuery.data.subscribersAvailable,
+        startTotals: trendQuery.data.startTotals,
+        endTotals: trendQuery.data.endTotals,
         days: trendQuery.data.days,
       });
     }

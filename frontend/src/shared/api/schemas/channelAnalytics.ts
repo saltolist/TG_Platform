@@ -28,15 +28,7 @@ export const channelHeatmapSchema = z.object({
   hasData: z.boolean().optional(),
 });
 
-const historySourceSchema = z.enum([
-  "post_snapshots",
-  "legacy_channel_snapshots",
-  "mixed",
-  "no_history",
-  // legacy values kept for cached responses during rollout
-  "publish_backfill",
-  "snapshots",
-]);
+const historySourceSchema = z.enum(["channel_snapshots", "no_history"]);
 
 export const channelAnalyticsSummarySchema = z.object({
   startTotals: channelTotalsSchema,
@@ -51,6 +43,9 @@ export const channelAnalyticsTrendSchema = z.object({
   dayCount: z.number(),
   granularity: z.enum(["day", "30m"]),
   anchorDate: z.string(),
+  startTotals: channelTotalsSchema,
+  endTotals: channelTotalsSchema,
+  subscribersAvailable: z.boolean().optional(),
   days: z.array(channelDaySchema),
   historySource: historySourceSchema.optional(),
   trackingSince: z.string().nullable().optional(),

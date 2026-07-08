@@ -599,20 +599,28 @@ export function extractChannelMetricSeriesForChart(
   const priorCumulative = priorCumulativeForMetric(metricId, priorDayIndex);
 
   if (chartPeriod === 0 && pointCount > 1) {
-    const startBaseline = priorCumulativeForMetric(metricId, -1);
-    const values = hasTimedSnapshots()
+    let values = hasTimedSnapshots()
       ? aggregate30mToLocalHours(metricId, pointCount)
       : aggregateDailyRowsToLocalHours(metricId, pointCount);
+
+    if (isChannelErMetric(metricId)) {
+      return { values, priorCumulative: priorCumulativeForMetric(metricId, -1) };
+    }
+
     if (metricId === "subscribers") {
       const growthInWindow =
         (db.endTotals.subscribers ?? 0) - (db.startTotals.subscribers ?? 0);
       if (growthInWindow <= 0) {
-        return {
-          values: Array.from({ length: pointCount }, () => 0),
-          priorCumulative: startBaseline,
-        };
+        values = Array.from({ length: pointCount }, () => 0);
       }
     }
+
+    // Итоговая линия должна заканчиваться на текущем итоге канала (endTotals), а
+    // не на сумме суточных дельт (≈0, когда бэкенд не знает базу суточного окна).
+    // Поэтому базовый уровень = endTotals − сумма дельт окна, тогда крайняя правая
+    // точка совпадает с текущим значением метрики.
+    const windowDelta = values.reduce((sum, value) => sum + (value ?? 0), 0);
+    const startBaseline = (db.endTotals[metricId] ?? 0) - windowDelta;
     return { values, priorCumulative: startBaseline };
   }
 

@@ -157,11 +157,24 @@ export function buildChannelTrendFromPosts(posts: Post[], period: string): Chann
   const daySpan = periodDaySpan(period, published);
   const today = new Date();
   today.setHours(0, 0, 0, 0);
+  const endTotals = totalsFromPosts(published);
+  const windowTotals = totalsFromPosts(postsInWindow(published, period));
+  const startTotals = {
+    subscribers: Math.max(0, endTotals.subscribers - windowTotals.subscribers),
+    reactions: Math.max(0, endTotals.reactions - windowTotals.reactions),
+    views: Math.max(0, endTotals.views - windowTotals.views),
+    comments: Math.max(0, endTotals.comments - windowTotals.comments),
+    reposts: Math.max(0, endTotals.reposts - windowTotals.reposts),
+    er: Math.max(0, Math.round((endTotals.er - windowTotals.er) * 10) / 10),
+  };
 
   return {
     dayCount: daySpan,
     granularity: "day",
     anchorDate: today.toISOString().slice(0, 10),
+    startTotals,
+    endTotals,
+    subscribersAvailable: true,
     days: buildPeriodDays(published, period),
     historySource: "no_history",
     trackingSince: null,

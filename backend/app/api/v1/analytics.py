@@ -8,7 +8,7 @@ from sqlalchemy import select
 from app.core.config import get_settings
 from app.core.deps import CurrentUser, DbSession
 from app.db.models import Post, Profile
-from app.services.analytics.analytics_snapshot import load_post_snapshots, load_snapshots
+from app.services.analytics.analytics_snapshot import load_snapshots
 from app.services.analytics.channel_metrics import (
     MISSED_SNAPSHOT_MULTIPLIER,
     VALID_PERIODS,
@@ -41,13 +41,12 @@ def _validate_period(period: str) -> str:
 async def _load_channel_context(
     session: DbSession,
     user_id: Any,
-) -> tuple[list[Post], list, list, dict[str, Any] | None]:
+) -> tuple[list[Post], list, dict[str, Any] | None]:
     posts = await _load_user_posts(session, user_id)
     profile = await session.get(Profile, user_id)
     telegram = profile.telegram if profile and profile.telegram else None
     channel_snapshots = await load_snapshots(session, user_id)
-    post_snapshots = await load_post_snapshots(session, user_id)
-    return posts, channel_snapshots, post_snapshots, telegram
+    return posts, channel_snapshots, telegram
 
 
 def _snapshot_stale_after_seconds() -> float | None:
@@ -65,13 +64,12 @@ async def get_channel_summary(
 ) -> dict[str, Any]:
     """Channel period totals and data-freshness metadata."""
     period = _validate_period(period)
-    posts, channel_snapshots, post_snapshots, telegram = await _load_channel_context(
+    posts, channel_snapshots, telegram = await _load_channel_context(
         session, user.id
     )
     return build_channel_summary(
         posts,
         channel_snapshots,
-        post_snapshots,
         period,
         telegram,
         snapshot_stale_after_seconds=_snapshot_stale_after_seconds(),
@@ -86,11 +84,11 @@ async def get_channel_trend(
 ) -> dict[str, Any]:
     """Channel metric growth time series for the selected period."""
     period = _validate_period(period)
-    posts, channel_snapshots, post_snapshots, telegram = await _load_channel_context(
+    posts, channel_snapshots, telegram = await _load_channel_context(
         session, user.id
     )
     return build_channel_trend(
-        posts, channel_snapshots, post_snapshots, period, telegram
+        posts, channel_snapshots, period, telegram
     )
 
 

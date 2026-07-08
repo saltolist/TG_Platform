@@ -148,6 +148,50 @@ describe("channelMetricsDb", () => {
     vi.useRealTimers();
   });
 
+  it("anchors the 24h cumulative line to endTotals when the window baseline is missing", () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date("2026-07-08T15:00:00.000Z"));
+
+    // Бэкенд не знает базу суточного окна → startTotals почти нулевые, хотя канал
+    // копит метрики с 4 июля (endTotals высокие).
+    loadDataset({
+      granularity: "30m",
+      startTotals: { views: 0, reactions: 0 },
+      endTotals: { views: 3868, reactions: 512 },
+      days: [
+        {
+          date: "2026-07-08T13:00:00+00:00",
+          subscribers: 0,
+          reactions: 8,
+          views: 40,
+          comments: 0,
+          reposts: 0,
+          posts: 0,
+          er: 3.1,
+        },
+        {
+          date: "2026-07-08T14:00:00+00:00",
+          subscribers: 0,
+          reactions: 6,
+          views: 28,
+          comments: 0,
+          reposts: 0,
+          posts: 0,
+          er: 3.2,
+        },
+      ],
+    });
+
+    const views = extractChannelMetricSeriesForChart("views", 0, 24);
+    const windowDelta = views.values.reduce((sum, value) => sum + value, 0);
+    expect(windowDelta).toBe(68);
+    // Линия итога должна заканчиваться на endTotals (3868), а не на сумме дельт (68).
+    expect(views.priorCumulative).toBe(3868 - 68);
+    expect(views.priorCumulative + windowDelta).toBe(3868);
+
+    vi.useRealTimers();
+  });
+
   it("anchors the newest snapshot to the rightmost column and spaces earlier rows by real date", () => {
     loadDataset({
       days: [
