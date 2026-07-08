@@ -12,6 +12,8 @@ from app.services.ai.providers import PROVIDER_SPECS, ProviderSpec, get_provider
 
 logger = logging.getLogger(__name__)
 
+_VISION_FALLBACK_PROVIDERS = frozenset({"OpenAI", "Perplexity"})
+
 
 def pick_active_vision_model(ai_profile: Mapping[str, Any]) -> dict[str, Any] | None:
     models = ai_profile.get("visionModels") or []
@@ -31,6 +33,36 @@ def pick_active_vision_model(ai_profile: Mapping[str, Any]) -> dict[str, Any] | 
     return None
 
 
+def _pick_active_model_from_group(
+    ai_profile: Mapping[str, Any],
+    group_key: str,
+) -> dict[str, Any] | None:
+    models = ai_profile.get(group_key) or []
+    if not isinstance(models, list):
+        return None
+    for model in models:
+        if not isinstance(model, Mapping):
+            continue
+        provider = str(model.get("provider") or "").strip()
+        model_name = str(model.get("model") or "").strip()
+        if not (model.get("active") and provider and model_name):
+            continue
+        if provider not in _VISION_FALLBACK_PROVIDERS:
+            continue
+        if provider not in PROVIDER_SPECS:
+            continue
+        return dict(model)
+    return None
+
+
+def pick_fallback_vision_model(ai_profile: Mapping[str, Any]) -> dict[str, Any] | None:
+    """Fallback to active chat/orchestrator models that already support images."""
+    llm_model = _pick_active_model_from_group(ai_profile, "llmModels")
+    if llm_model is not None:
+        return llm_model
+    return _pick_active_model_from_group(ai_profile, "orchestratorModels")
+
+
 def resolve_vision_llm(
     user: User,
     ai_profile: Mapping[str, Any],
@@ -38,6 +70,8 @@ def resolve_vision_llm(
 ) -> tuple[ProviderSpec, str, str] | None:
     """Active OpenAI-compatible vision model with a resolvable API key."""
     model = pick_active_vision_model(ai_profile)
+    if model is None:
+        model = pick_fallback_vision_model(ai_profile)
     if model is None:
         return None
     resolution = resolve_model_api_key(model, user, settings or get_settings())
