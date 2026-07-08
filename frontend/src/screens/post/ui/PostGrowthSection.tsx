@@ -1,0 +1,108 @@
+"use client";
+
+import { useMemo } from "react";
+import { ChartSeriesSelector } from "@/widgets/charts";
+import ChannelMetricBarList from "@/widgets/analytics-dashboard/ui/ChannelMetricBarList";
+import ModelPicker from "@/shared/ui/model-picker";
+import {
+  ANALYTICS_SCREEN_PERIOD_TO_CHART,
+  formatChannelTrackingSinceLabel,
+  formatDataAgeLabel,
+} from "@/shared/lib/channelAnalyticsTrend";
+import { useChartSeriesVisibility } from "@/shared/lib/hooks/useChartSeriesVisibility";
+import { useMobile760 } from "@/shared/lib/hooks/useMobile760";
+import type { TrendSeriesRow } from "@/shared/lib/trendChart/chartTypes";
+
+type HistorySource = "post_snapshots" | "no_history" | undefined;
+
+export default function PostGrowthSection({
+  periodIndex,
+  periods,
+  onPeriodChange,
+  labels,
+  series,
+  historySource,
+  trackingSince,
+  isStale,
+  dataAgeSeconds,
+}: {
+  periodIndex: number;
+  periods: string[];
+  onPeriodChange: (next: number) => void;
+  labels: string[];
+  series: TrendSeriesRow[];
+  historySource?: HistorySource;
+  trackingSince?: string | null;
+  isStale?: boolean;
+  dataAgeSeconds?: number | null;
+}) {
+  const isMobile = useMobile760();
+  const chartPeriod = ANALYTICS_SCREEN_PERIOD_TO_CHART[periodIndex] ?? 1;
+  const seriesIds = useMemo(() => series.map((row) => row.id), [series]);
+  const { isVisible, setVisible, filterSeries } = useChartSeriesVisibility(seriesIds);
+  const visibleSeries = useMemo(() => filterSeries(series), [filterSeries, series]);
+  const selectorItems = useMemo(
+    () => series.map((row) => ({ id: row.id, label: row.label, color: row.color })),
+    [series],
+  );
+
+  const isNoHistory = historySource === "no_history";
+  const trackingSinceLabel = trackingSince
+    ? formatChannelTrackingSinceLabel(trackingSince)
+    : null;
+  const staleLabel =
+    isStale && typeof dataAgeSeconds === "number" ? formatDataAgeLabel(dataAgeSeconds) : null;
+
+  return (
+    <div className="analytics-card analytics-chart-card platform-analytics-section profile-checkbox-scope post-analytics-section">
+      <div className="analytics-card-head">
+        <div className="profile-section-title">Динамика прироста</div>
+        <div className="analytics-channel-head-filters model-filter-stack model-filter-stack--with-series">
+          {!isMobile ? (
+            <ModelPicker
+              ariaLabel="Период"
+              className="profile-model-picker analytics-period-picker"
+              value={String(periodIndex)}
+              options={periods.map((label, index) => ({ id: String(index), label }))}
+              placement="down"
+              dropdownClassName="model-picker-dropdown--page-header"
+              onChange={(id) => onPeriodChange(Number(id))}
+            />
+          ) : null}
+          <ChartSeriesSelector
+            variant="profile"
+            label="Метрики"
+            items={selectorItems}
+            isVisible={isVisible}
+            onVisibleChange={setVisible}
+          />
+        </div>
+      </div>
+
+      {isNoHistory ? (
+        <p className="channel-analytics-history-empty">
+          Собираем историю поста — данные появятся после первого цикла сбора метрик
+        </p>
+      ) : (
+        <>
+          {!isNoHistory && trackingSinceLabel ? (
+            <p className="channel-analytics-tracking-since">
+              Отслеживаем метрики с {trackingSinceLabel}
+            </p>
+          ) : null}
+          {!isNoHistory && staleLabel ? (
+            <p className="channel-analytics-stale-warning">
+              Данные могли не обновляться {staleLabel} — проверьте подключение канала
+            </p>
+          ) : null}
+          <ChannelMetricBarList
+            labels={labels}
+            series={visibleSeries}
+            chartPeriod={chartPeriod}
+            periodIndex={periodIndex}
+          />
+        </>
+      )}
+    </div>
+  );
+}

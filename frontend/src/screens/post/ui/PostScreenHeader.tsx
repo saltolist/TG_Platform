@@ -94,7 +94,7 @@ export default function PostScreenHeader({
               postMode={postMode}
               showJump={showJump}
               showPostModeButtons={showPostModeButtons}
-              ctxItems={ctxItems}
+              overflowItems={postHeaderOverflowItems}
               onScrollToPost={scrollToPost}
               onGoToPostNotes={onGoToPostNotes}
               onGoToPostChats={onGoToPostChats}

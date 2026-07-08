@@ -40,5 +40,7 @@ export const queryKeys = {
       [...queryKeys.analytics.all(accountId), "channelReactions"] as const,
     channelTopPosts: (accountId: string, period: string) =>
       [...queryKeys.analytics.all(accountId), "channelTopPosts", period] as const,
+    postTrend: (accountId: string, postId: string, period: string) =>
+      [...queryKeys.analytics.all(accountId), "postTrend", postId, period] as const,
   },
 } as const;

@@ -103,6 +103,7 @@ import type {
   ChannelAnalyticsSummary,
   ChannelAnalyticsTrend,
 } from "@/shared/api/schemas/channelAnalytics";
+import type { PostAnalyticsTrend } from "@/shared/api/schemas/postAnalytics";
 import type { PlatformModelAnalyticsDto } from "@/shared/api/schemas/platformAnalytics";
 import type { EmojiCatalog } from "@/shared/lib/telegram/emojiCatalog";
 
@@ -147,6 +148,7 @@ export interface AnalyticsRepository {
   getChannelHeatmap(period: string): Promise<ChannelAnalyticsHeatmap>;
   getChannelReactions(): Promise<ChannelAnalyticsReactions>;
   getChannelTopPosts(period: string): Promise<AnalyticsTopPostRow[]>;
+  getPostTrend(postId: string, period: string): Promise<PostAnalyticsTrend>;
 }
 
 export interface TelegramEmojiRepository {

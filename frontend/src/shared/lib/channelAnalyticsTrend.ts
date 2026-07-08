@@ -193,7 +193,7 @@ export function buildChannelTrendSeries(
  * случайные всплески, хотя ER так себя не ведёт. Точки до появления данных
  * (накопленные просмотры = 0) остаются нулевыми — «канал ещё не был подключён».
  */
-function rebuildErSeriesAsLevel(series: TrendSeriesRow[]): void {
+export function rebuildErSeriesAsLevel(series: TrendSeriesRow[]): void {
   const erRow = series.find((row) => isErMetric(row.id));
   if (!erRow) return;
   const views = series.find((row) => row.id === "views");

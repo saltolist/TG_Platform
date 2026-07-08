@@ -6,7 +6,7 @@ import { postTitle } from "@/shared/lib/helpers";
 import { getPostListSearchPlaceholder, getPostSubPageLabel } from "@/shared/lib/post/postHeader";
 import type { CtxMenuItem } from "@/shared/ui/context-menu";
 import type { PageHeaderOverflowItem } from "@/widgets/page-header";
-import { NavIconChats, NavIconFeed, NavIconNotes } from "@/shared/ui/nav-icons";
+import { NavIconAnalytics, NavIconChats, NavIconFeed, NavIconNotes } from "@/shared/ui/nav-icons";
 import type { LocalChat, Post, PostMode } from "@/shared/types";
 
 type Args = {
@@ -24,6 +24,7 @@ type Args = {
   openPostView: () => void;
   goToPostNotes: () => void;
   goToPostChats: () => void;
+  goToPostAnalytics: () => void;
 };
 
 export function usePostScreenHeader({
@@ -41,6 +42,7 @@ export function usePostScreenHeader({
   openPostView,
   goToPostNotes,
   goToPostChats,
+  goToPostAnalytics,
 }: Args) {
   const [showJump, setShowJump] = useState(false);
 
@@ -112,6 +114,16 @@ export function usePostScreenHeader({
           active: postMode === "chats",
           icon: <NavIconChats />,
         },
+        ...(post.status === "published"
+          ? [
+              {
+                label: "Аналитика",
+                onClick: goToPostAnalytics,
+                active: postMode === "analytics",
+                icon: <NavIconAnalytics />,
+              },
+            ]
+          : []),
         ...ctxItems.map((item) => ({
           label: item.label,
           onClick: item.onClick,

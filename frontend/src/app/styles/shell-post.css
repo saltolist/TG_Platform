@@ -1116,6 +1116,58 @@
   container-name: post-subpage;
 }
 
+/* Аналитика поста — тот же контейнер и карточка, что на /analytics */
+.post-analytics-scroll .analytics-scroll-inner {
+  width: min(var(--content-w), 100%);
+  max-width: 100%;
+  flex: none;
+  padding: 14px var(--content-card-shadow-gutter) 20px;
+  box-sizing: border-box;
+}
+
+.post-analytics-scroll .analytics-scroll-inner > :last-child {
+  margin-bottom: 0;
+}
+
+.post-analytics-scroll .analytics-card::before {
+  -webkit-backdrop-filter: none;
+  backdrop-filter: none;
+  background: var(--content-card-surface);
+}
+
+.post-analytics-scroll .analytics-card {
+  box-shadow: inset 0 1px 0 var(--sidebar-glass-shine);
+  overflow: hidden;
+}
+
+.post-analytics-scroll .analytics-chart-card {
+  overflow: visible;
+}
+
+.post-analytics-scroll .analytics-chart-card .model-trend-plot,
+.post-analytics-scroll .analytics-chart-card .trend-chart-wrap {
+  overflow: visible;
+  max-width: 100%;
+}
+
+:root[data-theme="light"] .post-analytics-scroll .analytics-card {
+  box-shadow: var(--content-card-shadow);
+}
+
+@media (prefers-color-scheme: light) {
+  :root[data-theme="system"] .post-analytics-scroll .analytics-card {
+    box-shadow: var(--content-card-shadow);
+  }
+}
+
+.post-analytics-scroll .platform-analytics-section .profile-section-title,
+.post-analytics-scroll .analytics-card .profile-section-title {
+  margin-bottom: 0;
+  font-size: 17px;
+  font-weight: 600;
+  color: var(--text);
+}
+
 /* Тулбар отдельно от сетки — один отступ до карточек (как .notes-grid-page) */
 .post-subpage-scroll .notes-grid.visible,
 .post-subpage-scroll .post-chats.visible {

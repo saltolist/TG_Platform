@@ -8,7 +8,9 @@ from sqlalchemy import select
 from app.core.config import get_settings
 from app.core.deps import CurrentUser, DbSession
 from app.db.models import Post, Profile
-from app.services.analytics.analytics_snapshot import load_snapshots
+from app.db.resolve import get_owned_post
+from app.services.analytics.analytics_snapshot import load_post_snapshots, load_snapshots
+from app.services.analytics.post_metrics import build_post_trend
 from app.services.analytics.channel_metrics import (
     MISSED_SNAPSHOT_MULTIPLIER,
     VALID_PERIODS,
@@ -124,6 +126,31 @@ async def get_top_posts(
     period = _validate_period(period)
     posts = await _load_user_posts(session, user.id)
     return {"posts": build_top_posts(posts, period)}
+
+
+@router.get("/posts/{post_id}/trend/")
+async def get_post_trend(
+    post_id: str,
+    user: CurrentUser,
+    session: DbSession,
+    period: str = Query("30d"),
+) -> dict[str, Any]:
+    """Per-post metric growth time series for the selected period."""
+    period = _validate_period(period)
+    post = await get_owned_post(session, user.id, post_id)
+    if post.data.get("status") != "published":
+        raise HTTPException(status_code=422, detail="Аналитика доступна только для опубликованных постов")
+
+    profile = await session.get(Profile, user.id)
+    telegram = profile.telegram if profile and profile.telegram else None
+    post_snapshots = await load_post_snapshots(session, user.id, post.id)
+    return build_post_trend(
+        post,
+        post_snapshots,
+        period,
+        telegram,
+        snapshot_stale_after_seconds=_snapshot_stale_after_seconds(),
+    )
 
 
 @router.get("/platform-models/")

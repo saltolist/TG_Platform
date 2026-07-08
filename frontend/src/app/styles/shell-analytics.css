@@ -1310,7 +1310,7 @@
   }
 
   /* Аналитика канала (desktop): селекторы справа в одну строку */
-  #screen-analytics .analytics-chart-card .analytics-card-head {
+  :is(#screen-analytics, .channel-growth-chart-context) .analytics-chart-card .analytics-card-head {
     flex-direction: row;
     flex-wrap: nowrap;
     align-items: center;
@@ -1318,12 +1318,12 @@
     gap: 8px;
   }
 
-  #screen-analytics .analytics-chart-card .analytics-card-head .profile-section-title {
+  :is(#screen-analytics, .channel-growth-chart-context) .analytics-chart-card .analytics-card-head .profile-section-title {
     flex: 1 1 auto;
     min-width: 0;
   }
 
-  #screen-analytics
+  :is(#screen-analytics, .channel-growth-chart-context)
     .analytics-chart-card
     .analytics-card-head
     .analytics-channel-head-filters.model-filter-stack.model-filter-stack--with-series {
@@ -1335,12 +1335,12 @@
     margin-left: auto;
   }
 
-  #screen-analytics
+  :is(#screen-analytics, .channel-growth-chart-context)
     .analytics-chart-card
     .analytics-card-head
     .analytics-channel-head-filters
     .profile-model-picker,
-  #screen-analytics
+  :is(#screen-analytics, .channel-growth-chart-context)
     .analytics-chart-card
     .analytics-card-head
     .analytics-channel-head-filters
@@ -1508,14 +1508,14 @@
     grid-template-columns: repeat(2, minmax(0, 1fr));
   }
 /* Планшет: шапка графика канала в колонку — порог по content-adapt-w, не по 100vw */
-html[data-content-adapt-ge-761] #screen-analytics .analytics-chart-card .analytics-card-head {
+html[data-content-adapt-ge-761] :is(#screen-analytics, .channel-growth-chart-context) .analytics-chart-card .analytics-card-head {
     flex-direction: column;
     flex-wrap: wrap;
     align-items: stretch;
     justify-content: flex-start;
   }
 html[data-content-adapt-ge-761]
-    #screen-analytics
+    :is(#screen-analytics, .channel-growth-chart-context)
     .analytics-chart-card
     .analytics-card-head
     .analytics-channel-head-filters.model-filter-stack.model-filter-stack--with-series {
@@ -1524,13 +1524,13 @@ html[data-content-adapt-ge-761]
     margin-left: 0;
   }
 html[data-content-adapt-ge-761]
-    #screen-analytics
+    :is(#screen-analytics, .channel-growth-chart-context)
     .analytics-chart-card
     .analytics-card-head
     .analytics-channel-head-filters
     .profile-model-picker,
   html[data-content-adapt-ge-761]
-    #screen-analytics
+    :is(#screen-analytics, .channel-growth-chart-context)
     .analytics-chart-card
     .analytics-card-head
     .analytics-channel-head-filters
@@ -1618,8 +1618,8 @@ html[data-page-header-le-1130]
     line-height: 1.2;
     white-space: normal;
   }
-html[data-page-header-le-1130] #screen-analytics .analytics-chart-card .analytics-card-head,
-  html[data-page-header-le-930] #screen-analytics .analytics-chart-card .analytics-card-head {
+html[data-page-header-le-1130] :is(#screen-analytics, .channel-growth-chart-context) .analytics-chart-card .analytics-card-head,
+  html[data-page-header-le-930] :is(#screen-analytics, .channel-growth-chart-context) .analytics-chart-card .analytics-card-head {
     flex-direction: row;
     flex-wrap: nowrap;
     align-items: center;
@@ -1628,7 +1628,7 @@ html[data-page-header-le-1130] #screen-analytics .analytics-chart-card .analytic
     margin-bottom: 12px;
   }
 html[data-page-header-le-1130]
-    #screen-analytics
+    :is(#screen-analytics, .channel-growth-chart-context)
     .analytics-chart-card
     .analytics-card-head
     .profile-section-title {
@@ -1640,7 +1640,7 @@ html[data-page-header-le-1130]
     text-overflow: ellipsis;
   }
 html[data-page-header-le-1130]
-    #screen-analytics
+    :is(#screen-analytics, .channel-growth-chart-context)
     .analytics-chart-card
     .analytics-card-head
     .analytics-channel-head-filters.model-filter-stack.model-filter-stack--with-series {
@@ -1655,13 +1655,13 @@ html[data-page-header-le-1130]
     margin-left: auto;
   }
 html[data-page-header-le-1130]
-    #screen-analytics
+    :is(#screen-analytics, .channel-growth-chart-context)
     .analytics-chart-card
     .analytics-card-head
     .analytics-channel-head-filters
     .profile-model-picker,
   html[data-page-header-le-1130]
-    #screen-analytics
+    :is(#screen-analytics, .channel-growth-chart-context)
     .analytics-chart-card
     .analytics-card-head
     .analytics-channel-head-filters
@@ -1671,13 +1671,13 @@ html[data-page-header-le-1130]
     flex: 0 0 auto;
   }
 html[data-page-header-le-1130]
-    #screen-analytics
+    :is(#screen-analytics, .channel-growth-chart-context)
     .analytics-chart-card
     .analytics-card-head
     .chart-series-selector--profile
     .model-picker-btn,
   html[data-page-header-le-1130]
-    #screen-analytics
+    :is(#screen-analytics, .channel-growth-chart-context)
     .analytics-chart-card
     .analytics-card-head
     .analytics-period-picker
@@ -1790,7 +1790,7 @@ html[data-page-header-le-1130]
     width: 100%;
   }
 /* Аналитика канала: «Динамика прироста» и «Метрики» в одну строку */
-#screen-analytics .analytics-chart-card .analytics-card-head {
+:is(#screen-analytics, .channel-growth-chart-context) .analytics-chart-card .analytics-card-head {
     flex-direction: row;
     flex-wrap: nowrap;
     align-items: center;
@@ -1798,7 +1798,7 @@ html[data-page-header-le-1130]
     gap: 8px;
     margin-bottom: 10px;
   }
-#screen-analytics .analytics-chart-card .analytics-card-head .profile-section-title {
+:is(#screen-analytics, .channel-growth-chart-context) .analytics-chart-card .analytics-card-head .profile-section-title {
     flex: 1 1 auto;
     min-width: 0;
     margin-bottom: 0;
@@ -1808,7 +1808,7 @@ html[data-page-header-le-1130]
     overflow: hidden;
     text-overflow: ellipsis;
   }
-#screen-analytics
+:is(#screen-analytics, .channel-growth-chart-context)
     .analytics-chart-card
     .analytics-card-head
     .analytics-channel-head-filters.model-filter-stack.model-filter-stack--with-series {
@@ -1821,7 +1821,7 @@ html[data-page-header-le-1130]
     max-width: 48%;
     margin-left: auto;
   }
-#screen-analytics .analytics-chart-card .analytics-card-head .analytics-channel-head-filters {
+:is(#screen-analytics, .channel-growth-chart-context) .analytics-chart-card .analytics-card-head .analytics-channel-head-filters {
     display: flex;
     align-items: center;
     justify-content: flex-end;
@@ -1830,21 +1830,21 @@ html[data-page-header-le-1130]
     width: auto;
     margin-left: auto;
   }
-#screen-analytics .analytics-chart-card .analytics-card-head .analytics-channel-head-filters .profile-model-picker,
-  #screen-analytics .analytics-chart-card .analytics-card-head .analytics-channel-head-filters .chart-series-selector--profile {
+:is(#screen-analytics, .channel-growth-chart-context) .analytics-chart-card .analytics-card-head .analytics-channel-head-filters .profile-model-picker,
+  :is(#screen-analytics, .channel-growth-chart-context) .analytics-chart-card .analytics-card-head .analytics-channel-head-filters .chart-series-selector--profile {
     width: auto;
     max-width: 100%;
     flex: 0 0 auto;
   }
-#screen-analytics .analytics-chart-card .analytics-card-head .chart-series-selector,
-  #screen-analytics .analytics-chart-card .analytics-card-head .chart-series-selector--profile {
+:is(#screen-analytics, .channel-growth-chart-context) .analytics-chart-card .analytics-card-head .chart-series-selector,
+  :is(#screen-analytics, .channel-growth-chart-context) .analytics-chart-card .analytics-card-head .chart-series-selector--profile {
     flex: 0 0 auto;
     width: auto;
     max-width: 100%;
     min-width: 0;
     margin-left: 0;
   }
-#screen-analytics .analytics-chart-card .analytics-card-head .chart-series-selector--profile .model-picker-btn {
+:is(#screen-analytics, .channel-growth-chart-context) .analytics-chart-card .analytics-card-head .chart-series-selector--profile .model-picker-btn {
     width: max-content;
     max-width: 100%;
     font-size: 11px;
@@ -1854,7 +1854,7 @@ html[data-page-header-le-1130]
     justify-content: space-between;
   }
 /* Аналитика канала (desktop): период — тот же ритм текста/шеврона, что у «Метрики» */
-#screen-analytics .analytics-chart-card .analytics-card-head .analytics-period-picker .model-picker-btn {
+:is(#screen-analytics, .channel-growth-chart-context) .analytics-chart-card .analytics-card-head .analytics-period-picker .model-picker-btn {
     width: max-content;
     max-width: 100%;
     font-size: 11px;
@@ -1863,7 +1863,7 @@ html[data-page-header-le-1130]
     padding: 0 14px 0 18px;
     justify-content: space-between;
   }
-#screen-analytics
+:is(#screen-analytics, .channel-growth-chart-context)
     .analytics-chart-card
     .analytics-card-head
     .chart-series-selector--profile
@@ -1873,7 +1873,7 @@ html[data-page-header-le-1130]
     white-space: nowrap;
     text-align: left;
   }
-#screen-analytics
+:is(#screen-analytics, .channel-growth-chart-context)
     .analytics-chart-card
     .analytics-card-head
     .analytics-period-picker

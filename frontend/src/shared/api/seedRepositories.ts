@@ -327,6 +327,21 @@ export function createSeedRepositories(): RepositoryBundle {
       async getChannelTopPosts(period) {
         return buildChannelTopPostsFromPosts(posts, period);
       },
+      async getPostTrend(postId, period) {
+        const post = posts.find((item) => item.id === postId);
+        if (!post || post.status !== "published") {
+          throw new Error("Post not found");
+        }
+        const trend = buildChannelTrendFromPosts([post], period);
+        return {
+          ...trend,
+          historySource: "no_history" as const,
+          subscribersAvailable: false as const,
+          startTotals: { ...trend.startTotals, subscribers: 0 },
+          endTotals: { ...trend.endTotals, subscribers: 0 },
+          days: trend.days.map((day) => ({ ...day, subscribers: 0, posts: 0 })),
+        };
+      },
     },
     telegramEmoji: {
       async catalog() {

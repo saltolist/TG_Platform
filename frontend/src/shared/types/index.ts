@@ -147,7 +147,7 @@ export type ComposerTarget = { llmId: string; webId: string };
 export type ChatsTab = "all" | "global" | "local";
 export type NoteScope = "all" | "global" | "local";
 export type NoteListFilter = "all" | "ai" | "noai";
-export type PostMode = "chat" | "chats" | "notes" | "comments";
+export type PostMode = "chat" | "chats" | "notes" | "comments" | "analytics";
 export type NoteMode = "view" | "edit";
 export type NoteFromScreen = "notes" | "post";
 

@@ -18,6 +18,8 @@ from app.db.models import ChannelMetricSnapshot, Post, PostMetricSnapshot, Profi
 from app.services.analytics.channel_metrics import (
     published_posts,
     _totals_from_posts,
+    parse_views_value,
+    sum_reactions,
 )
 from app.services.telegram.channel_flow import fetch_channel_subscriber_count
 
@@ -32,6 +34,34 @@ def snapshot_slot(moment: datetime | None = None) -> datetime:
     moment = moment.astimezone(timezone.utc)
     minute = (moment.minute // SNAPSHOT_SLOT_MINUTES) * SNAPSHOT_SLOT_MINUTES
     return moment.replace(minute=minute, second=0, microsecond=0)
+
+
+def _post_snapshot_metrics(post: Post) -> dict[str, int]:
+    metrics = post.data.get("metrics") if isinstance(post.data.get("metrics"), dict) else {}
+    return {
+        "views": parse_views_value(metrics.get("views")),
+        "reactions": sum_reactions(metrics),
+        "reposts": int(metrics.get("reposts") or 0),
+        "comments": len(post.data.get("comments") or []),
+    }
+
+
+def _posts_for_capture(
+    posts: list[Post],
+    settings: Settings,
+    *,
+    full_pass: bool,
+) -> list[Post]:
+    """Bound frequent captures to recent posts; full catalog once per UTC day."""
+    published = published_posts(posts)
+    if full_pass:
+        return published
+    limit = max(1, settings.telegram_metrics_poll_window)
+    return sorted(
+        published,
+        key=lambda post: (post.position or 0, post.created_at),
+        reverse=True,
+    )[:limit]
 
 
 async def _load_published_posts(session: AsyncSession, user_id: UUID) -> list[Post]:
@@ -70,9 +100,34 @@ async def capture_metrics_snapshot(
 
     slot = snapshot_slot()
     now_iso = datetime.now(timezone.utc).isoformat()
+    full_pass = slot.hour == 0 and slot.minute == 0
+
     async with session_factory() as session:
         posts = await _load_published_posts(session, user_id)
+        posts_to_capture = _posts_for_capture(posts, settings, full_pass=full_pass)
         totals = _totals_from_posts(posts)
+
+        if posts_to_capture:
+            post_rows = [
+                {
+                    "post_id": post.id,
+                    "user_id": user_id,
+                    "captured_at": slot,
+                    **_post_snapshot_metrics(post),
+                }
+                for post in posts_to_capture
+            ]
+            post_stmt = pg_insert(PostMetricSnapshot).values(post_rows)
+            post_stmt = post_stmt.on_conflict_do_update(
+                constraint="uq_post_metric_snapshots_slot",
+                set_={
+                    "views": post_stmt.excluded.views,
+                    "reactions": post_stmt.excluded.reactions,
+                    "reposts": post_stmt.excluded.reposts,
+                    "comments": post_stmt.excluded.comments,
+                },
+            )
+            await session.execute(post_stmt)
 
         channel_update: dict[str, Any] = {
             "views": int(totals["views"]),
@@ -126,6 +181,12 @@ async def capture_metrics_snapshot(
                 ChannelMetricSnapshot.captured_at < cutoff,
             )
         )
+        await session.execute(
+            delete(PostMetricSnapshot).where(
+                PostMetricSnapshot.user_id == user_id,
+                PostMetricSnapshot.captured_at < cutoff,
+            )
+        )
         await session.commit()
 
     if telegram_payload is not None:
@@ -164,11 +225,14 @@ async def load_snapshots(
 async def load_post_snapshots(
     session: AsyncSession,
     user_id: UUID,
+    post_id: UUID | None = None,
     *,
     since: datetime | None = None,
 ) -> list[PostMetricSnapshot]:
-    """Compatibility shim: post snapshots are no longer used by analytics trend."""
+    """Per-post metric snapshots ordered by ``captured_at`` (oldest first)."""
     query = select(PostMetricSnapshot).where(PostMetricSnapshot.user_id == user_id)
+    if post_id is not None:
+        query = query.where(PostMetricSnapshot.post_id == post_id)
     if since is not None:
         query = query.where(PostMetricSnapshot.captured_at >= since)
     query = query.order_by(PostMetricSnapshot.captured_at)

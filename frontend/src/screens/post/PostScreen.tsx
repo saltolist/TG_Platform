@@ -7,6 +7,7 @@ import { PageHeader } from "@/widgets/page-header";
 import PostChatView from "@/screens/post/ui/PostChatView";
 import PostChatsView from "@/screens/post/ui/PostChatsView";
 import PostNotesView from "@/screens/post/ui/PostNotesView";
+import PostAnalyticsView from "@/screens/post/ui/PostAnalyticsView";
 import PostScreenHeader from "@/screens/post/ui/PostScreenHeader";
 
 export function PostScreen() {
@@ -68,6 +69,8 @@ export function PostScreen() {
             media={data.mediaItems}
             phoneFormat={ui.phoneFormat}
           />
+        ) : data.postMode === "analytics" ? (
+          <PostAnalyticsView post={post} />
         ) : (
           <PostNotesView post={post} ui={ui} actions={actions} />
         )}

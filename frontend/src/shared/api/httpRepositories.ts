@@ -31,6 +31,7 @@ import {
   channelAnalyticsTrendSchema,
   channelHeatmapSchema,
 } from "@/shared/api/schemas/channelAnalytics";
+import { postAnalyticsTrendSchema } from "@/shared/api/schemas/postAnalytics";
 import {
   platformModelAnalyticsSchema,
 } from "@/shared/api/schemas/platformAnalytics";
@@ -259,6 +260,10 @@ export function createHttpRepositories(): RepositoryBundle {
         apiRequest<unknown>(`${apiV1Path("analytics/top-posts")}?period=${period}`).then((data) =>
           channelAnalyticsTopPostsSchema.parse(data).posts,
         ),
+      getPostTrend: (postId, period) =>
+        apiRequest<unknown>(
+          `${apiV1Path(`analytics/posts/${encodeURIComponent(postId)}/trend`)}?period=${period}`,
+        ).then((data) => postAnalyticsTrendSchema.parse(data)),
     },
     telegramEmoji: {
       catalog: () => apiRequest<EmojiCatalog>(apiV1Path("telegram/emoji/catalog/")),

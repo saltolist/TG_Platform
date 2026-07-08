@@ -769,7 +769,13 @@ async def test_capture_metrics_snapshot_upserts_slot(writer_user) -> None:  # no
         assert snapshot.posts_count == 1
 
         post_snapshots = await load_post_snapshots(session, user_id)
-        assert len(post_snapshots) == 0
+        assert len(post_snapshots) == 1
+        post_snapshot = post_snapshots[0]
+        assert post_snapshot.post_id == post_id
+        assert post_snapshot.views == 1200
+        assert post_snapshot.reactions == 10
+        assert post_snapshot.comments == 1
+        assert post_snapshot.reposts == 4
 
         profile = await session.get(Profile, user_id)
         assert profile is not None
@@ -811,7 +817,8 @@ async def test_capture_metrics_snapshot_db_only_when_client_missing(writer_user)
         assert snapshots[0].subscribers is None
         assert snapshots[0].views == 42
         post_snapshots = await load_post_snapshots(session, user_id)
-        assert len(post_snapshots) == 0
+        assert len(post_snapshots) == 1
+        assert post_snapshots[0].views == 42
 
 
 @pytest.mark.asyncio

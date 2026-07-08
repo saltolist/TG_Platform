@@ -6,3 +6,4 @@ export {
   useChannelAnalyticsReactions,
   useChannelAnalyticsTopPosts,
 } from "@/entities/analytics/model/useChannelAnalytics";
+export { usePostAnalyticsTrend } from "@/entities/analytics/model/usePostAnalytics";
