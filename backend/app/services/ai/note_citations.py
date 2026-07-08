@@ -1,4 +1,4 @@
-"""Normalize and inject note citation markdown in assistant replies."""
+"""Normalize and inject citation markdown in assistant replies."""
 
 from __future__ import annotations
 
@@ -8,12 +8,15 @@ from dataclasses import dataclass
 NOTE_CITE_LINK_RE = re.compile(
     r"\s*\[([^\]]+)\]\((/note/[^)]+|note:(?:global|post)/[^)]+)\)"
 )
+POST_CITE_LINK_RE = re.compile(
+    r"\s*\[([^\]]+)\]\((/post/[^)]+)\)"
+)
 CITE_PATH_TITLE_RE = re.compile(
-    r"cite-path:\s*(/note/\S+?)\s+cite-title:\s*([^\n\[\]]+?)(?=\s*(?:\n|---|$))",
+    r"cite-path:\s*((?:/note|/post)/\S+?)\s+cite-title:\s*([^\n\[\]]+?)(?=\s*(?:\n|---|$))",
     re.IGNORECASE,
 )
 CITE_PATH_IN_LINK_RE = re.compile(
-    r"\[([^\]]+)\]\(\s*cite-path:\s*(/note/[^)\s]+)\s*\)",
+    r"\[([^\]]+)\]\(\s*cite-path:\s*((?:/note|/post)/[^)\s]+)\s*\)",
     re.IGNORECASE,
 )
 
@@ -25,7 +28,7 @@ class NoteCite:
 
 
 def _normalize_cite_path(path: str) -> str:
-    """Canonical form for comparing note citation targets."""
+    """Canonical form for comparing citation targets."""
     raw = path.strip()
     if raw.startswith("note:global/"):
         note_id = raw[len("note:global/") :].strip("/")
@@ -36,7 +39,7 @@ def _normalize_cite_path(path: str) -> str:
         if len(parts) >= 2 and parts[0] and parts[1]:
             return f"/note/post/{parts[0]}/{parts[1]}/"
         return raw
-    if raw.startswith("/note/"):
+    if raw.startswith("/note/") or raw.startswith("/post/"):
         return raw if raw.endswith("/") else f"{raw}/"
     return raw
 
@@ -56,7 +59,7 @@ def _rewrite_cite_link_titles(text: str, cites: list[NoteCite]) -> str:
     if not cites:
         return text
     path_to_title = {
-        _normalize_cite_path(cite.path): (cite.title.strip() or "Заметка") for cite in cites
+        _normalize_cite_path(cite.path): (cite.title.strip() or "Источник") for cite in cites
     }
 
     def repl(match: re.Match[str]) -> str:
@@ -66,11 +69,12 @@ def _rewrite_cite_link_titles(text: str, cites: list[NoteCite]) -> str:
             return f"[{canonical}]({href})"
         return match.group(0)
 
-    return NOTE_CITE_LINK_RE.sub(repl, text)
+    text = NOTE_CITE_LINK_RE.sub(repl, text)
+    return POST_CITE_LINK_RE.sub(repl, text)
 
 
 def strip_invalid_note_citations(text: str, cites: list[NoteCite]) -> str:
-    """Remove note citation links/metadata that are not in the RAG cite list."""
+    """Remove citation links/metadata that are not in the RAG cite list."""
     valid_paths = _valid_cite_paths(cites)
 
     def repl_link(match: re.Match[str]) -> str:
@@ -79,6 +83,7 @@ def strip_invalid_note_citations(text: str, cites: list[NoteCite]) -> str:
         return ""
 
     out = NOTE_CITE_LINK_RE.sub(repl_link, text)
+    out = POST_CITE_LINK_RE.sub(repl_link, out)
     out = CITE_PATH_IN_LINK_RE.sub(repl_link, out)
     out = CITE_PATH_TITLE_RE.sub(
         lambda match: match.group(0)
@@ -104,10 +109,12 @@ def _detach_citations_in_paragraph(paragraph: str) -> str:
 
     def repl(match: re.Match[str]) -> str:
         cites.append(f"[{match.group(1)}]({match.group(2)})")
-        return " "
+        return ""
 
     body = NOTE_CITE_LINK_RE.sub(repl, paragraph)
+    body = POST_CITE_LINK_RE.sub(repl, body)
     body = re.sub(r"[ \t]+", " ", body)
+    body = re.sub(r" ([,.!?;:])", r"\1", body)
     body = re.sub(r"\n+", " ", body).strip()
     if not cites:
         return paragraph.strip()
@@ -116,7 +123,7 @@ def _detach_citations_in_paragraph(paragraph: str) -> str:
 
 
 def detach_note_citations(text: str) -> str:
-    if not NOTE_CITE_LINK_RE.search(text):
+    if not NOTE_CITE_LINK_RE.search(text) and not POST_CITE_LINK_RE.search(text):
         return text
 
     chunks = re.split(r"(\n{2,})", text)
@@ -138,7 +145,7 @@ def inject_missing_note_citations(text: str, cites: list[NoteCite]) -> str:
     if not cites:
         return text
 
-    has_any_cite_link = bool(NOTE_CITE_LINK_RE.search(text))
+    has_any_cite_link = bool(NOTE_CITE_LINK_RE.search(text) or POST_CITE_LINK_RE.search(text))
     fallback_used = False
     is_first_paragraph = True
     chunks = re.split(r"(\n{2,})", text)
@@ -164,7 +171,7 @@ def inject_missing_note_citations(text: str, cites: list[NoteCite]) -> str:
         if not additions and not has_any_cite_link and len(cites) == 1 and not fallback_used:
             if is_first_paragraph:
                 cite = cites[0]
-                title = cite.title.strip() or "Заметка"
+                title = cite.title.strip() or "Источник"
                 additions.append(f"[{title}]({cite.path})")
                 fallback_used = True
 

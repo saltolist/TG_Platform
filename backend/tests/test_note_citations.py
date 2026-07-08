@@ -73,3 +73,24 @@ def test_prepare_note_citations_for_reply_strips_invalid_before_inject() -> None
     assert prepare_note_citations_for_reply(text, cites) == (
         "Нужно сделать отчёт. [Работа](/note/global/1/)"
     )
+
+
+def test_normalize_post_cite_path_metadata() -> None:
+    text = "Ответ cite-path: /post/abc-123/ cite-title: Пост про RAG\nдальше."
+    assert normalize_note_citation_markdown(text) == (
+        "Ответ [Пост про RAG](/post/abc-123/)\nдальше."
+    )
+
+
+def test_detach_moves_post_citation_to_paragraph_end() -> None:
+    text = "См. [Пост](/post/abc/) для деталей."
+    assert detach_note_citations(text) == "См. для деталей. [Пост](/post/abc/)"
+
+
+def test_strip_invalid_post_citations() -> None:
+    cites = [NoteCite(path="/post/real/", title="Реальный пост")]
+    text = "Факт.[Реальный пост](/post/real/) Фейк.[Другой](/post/fake/)"
+    assert strip_invalid_note_citations(text, cites) == (
+        "Факт.[Реальный пост](/post/real/) Фейк."
+    )
+

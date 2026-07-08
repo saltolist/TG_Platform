@@ -178,11 +178,13 @@ async def test_retrieve_top_k_with_pgvector():
 
     # Second call: rows with similarities
     class FakeRow:
-        def __init__(self, note_id, similarity):
+        def __init__(self, note_id, similarity, *, node_type="note_chunk", file_id=""):
             self.note_id = note_id
             self.post_id = None
             self.chunk_index = 0
             self.tenant_key = ""
+            self.node_type = node_type
+            self.file_id = file_id
             self.similarity = similarity
 
     rows_result = MagicMock()
@@ -218,11 +220,13 @@ async def test_retrieve_top_k_deduplication():
     ext_result.scalar_one_or_none.return_value = "vector"
 
     class FakeRow:
-        def __init__(self, note_id, chunk_index, similarity):
+        def __init__(self, note_id, chunk_index, similarity, *, node_type="note_chunk", file_id=""):
             self.note_id = note_id
             self.post_id = None
             self.chunk_index = chunk_index
             self.tenant_key = ""
+            self.node_type = node_type
+            self.file_id = file_id
             self.similarity = similarity
 
     rows_result = MagicMock()
@@ -249,6 +253,138 @@ async def test_retrieve_top_k_deduplication():
     assert note1_hits[0]["similarity"] == 0.90
 
 
+@pytest.mark.asyncio
+async def test_retrieve_top_k_dedup_by_node_type_and_file_id():
+    """Same note_id with different node_type/file_id should not collapse."""
+    from unittest.mock import AsyncMock, MagicMock
+
+    from app.services.ai.rag import NODE_MEDIA_META, NODE_NOTE_CHUNK, NODE_POST_TEXT, retrieve_top_k
+
+    mock_session = AsyncMock()
+    ext_result = MagicMock()
+    ext_result.fetchone.return_value = (True,)
+
+    class FakeRow:
+        def __init__(self, note_id, similarity, *, node_type=NODE_NOTE_CHUNK, file_id=""):
+            self.note_id = note_id
+            self.post_id = None
+            self.chunk_index = 0
+            self.tenant_key = ""
+            self.node_type = node_type
+            self.file_id = file_id
+            self.similarity = similarity
+
+    shared_id = "shared-id"
+    rows_result = MagicMock()
+    rows_result.fetchall.return_value = [
+        FakeRow(shared_id, 0.95, node_type=NODE_NOTE_CHUNK),
+        FakeRow(shared_id, 0.90, node_type=NODE_POST_TEXT),
+        FakeRow(shared_id, 0.85, node_type=NODE_MEDIA_META, file_id="f1"),
+        FakeRow(shared_id, 0.80, node_type=NODE_MEDIA_META, file_id="f2"),
+    ]
+
+    mock_session.execute = AsyncMock(side_effect=[ext_result, rows_result])
+
+    result = await retrieve_top_k(
+        session=mock_session,
+        user_id=uuid.uuid4(),
+        scope="global",
+        query_vec=[0.1] * 384,
+        model_key="local:multilingual-e5-small",
+        k=10,
+        min_similarity=0.72,
+    )
+    assert len(result) == 4
+
+
+@pytest.mark.asyncio
+async def test_index_text_node_writes_chunks():
+    from unittest.mock import AsyncMock, MagicMock
+
+    from app.services.ai.rag import NODE_POST_TEXT, index_text_node
+
+    session = AsyncMock()
+    backend = MagicMock()
+    backend.model_key = "local:test"
+    backend.dim = 4
+    backend.embed_passages = AsyncMock(return_value=[[0.1, 0.2, 0.3, 0.4]])
+
+    count = await index_text_node(
+        session,
+        uuid.uuid4(),
+        "global",
+        NODE_POST_TEXT,
+        "post-1",
+        "",
+        "Post body for indexing",
+        backend,
+        post_id="post-1",
+    )
+    assert count == 1
+    assert session.execute.await_count >= 2
+
+
+@pytest.mark.asyncio
+async def test_format_rag_context_post_text_branch():
+    from unittest.mock import AsyncMock, patch
+
+    from app.services.ai.rag import NODE_POST_TEXT, format_rag_context
+
+    session = AsyncMock()
+    user_id = uuid.uuid4()
+    results = [
+        {
+            "note_id": "post-1",
+            "post_id": "post-1",
+            "node_type": NODE_POST_TEXT,
+            "file_id": "",
+            "similarity": 0.9,
+            "tenant_key": "",
+        }
+    ]
+
+    with patch(
+        "app.services.ai.rag._resolve_post_data",
+        new_callable=AsyncMock,
+        return_value={"text": "Заголовок поста\nПодробности"},
+    ):
+        context, cites = await format_rag_context(session, user_id, results, scope="global")
+
+    assert "Контекст из базы знаний" in context
+    assert "/post/post-1/" in context
+    assert len(cites) == 1
+    assert cites[0].path == "/post/post-1/"
+    assert cites[0].title == "Заголовок поста"
+
+
+@pytest.mark.asyncio
+async def test_format_rag_context_media_meta_from_post_data():
+    from app.services.ai.rag import NODE_MEDIA_META, format_rag_context
+
+    session = AsyncMock()
+    user_id = uuid.uuid4()
+    post_data = {
+        "id": "post-9",
+        "media": [{"name": "chart.png", "mediaKey": "mk-1"}],
+    }
+    results = [
+        {
+            "note_id": "post-9",
+            "post_id": "post-9",
+            "node_type": NODE_MEDIA_META,
+            "file_id": "mk-1",
+            "similarity": 0.8,
+            "tenant_key": "",
+        }
+    ]
+
+    context, cites = await format_rag_context(
+        session, user_id, results, scope="global", post_data=post_data
+    )
+    assert "chart.png" in context
+    assert cites[0].path == "/post/post-9/"
+
+
 # ──────────────────────────────────────────────────────────────────────────────
 # context.assemble_reply_messages — RAG injection
 # ──────────────────────────────────────────────────────────────────────────────
@@ -260,12 +396,12 @@ def test_assemble_reply_messages_rag_injection():
     messages = assemble_reply_messages(
         ai_profile={},
         user_text="Привет",
-        rag_context="---\n**Контекст из заметок:**\n\nЗаметка 1\n---",
+        rag_context="---\n**Контекст из базы знаний:**\n\nЗаметка 1\n---",
     )
     user_msgs = [m for m in messages if m["role"] == "user"]
     assert len(user_msgs) >= 1
     last_user = user_msgs[-1]["content"]
-    assert "Контекст из заметок" in last_user
+    assert "Контекст из базы знаний" in last_user
     assert "Привет" in last_user
 
 
@@ -279,7 +415,7 @@ def test_assemble_reply_messages_no_rag():
     )
     user_msgs = [m for m in messages if m["role"] == "user"]
     last_user = user_msgs[-1]["content"]
-    assert "Контекст из заметок" not in last_user
+    assert "Контекст из базы знаний" not in last_user
 
 
 def test_assemble_reply_messages_empty_rag_no_injection():
@@ -293,4 +429,4 @@ def test_assemble_reply_messages_empty_rag_no_injection():
     )
     user_msgs = [m for m in messages if m["role"] == "user"]
     last_user = user_msgs[-1]["content"]
-    assert "Контекст из заметок" not in last_user
+    assert "Контекст из базы знаний" not in last_user

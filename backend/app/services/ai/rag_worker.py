@@ -1,13 +1,9 @@
-"""Async background worker for RAG note indexing (Phase 2, step 4).
+"""Async background worker for RAG indexing (Phase 2, step 4+).
 
 Architecture:
-- enqueue_note_job(): called at upsert/delete time (in the same DB transaction).
+- enqueue_note_job() / enqueue_post_text_job(): called at upsert/delete time.
 - embedding_worker(): long-running asyncio task started in app lifespan.
-  Uses SELECT ... FOR UPDATE SKIP LOCKED for concurrent-safe job processing.
-- enqueue_backfill(): enqueue all notes for a user (called on model change).
-
-The worker polls every POLL_INTERVAL_S seconds.  When RAG_ENABLED=0 it exits
-immediately.  Errors are logged and retried up to MAX_ATTEMPTS times.
+- enqueue_backfill(): enqueue all notes/posts for a user.
 """
 
 from __future__ import annotations
@@ -22,6 +18,26 @@ from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
 from app.core.config import get_settings
 from app.db.models import GlobalNote, Post, User
+from app.services.ai.attachment_text import (
+    bytes_content_hash,
+    decode_data_url,
+    extract_attachment_text,
+    media_meta_index_text,
+    note_file_record,
+    post_media_record,
+)
+from app.services.ai.rag import (
+    NODE_ATTACHMENT_TEXT,
+    NODE_MEDIA_META,
+    NODE_NOTE_CHUNK,
+    NODE_POST_TEXT,
+    index_note,
+    index_text_node,
+    remove_file_nodes_for_parent,
+    remove_note,
+    remove_text_node,
+    upsert_attachment_extraction,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -33,20 +49,23 @@ BATCH_SIZE = 10
 async def enqueue_note_job(
     session: AsyncSession,
     user_id: uuid.UUID,
-    op: str,        # "upsert" | "delete"
-    scope: str,     # "global" | "post"
+    op: str,
+    scope: str,
     note_id: str,
     post_id: str | None = None,
     tenant_key: str = "",
+    node_type: str = NODE_NOTE_CHUNK,
+    file_id: str = "",
 ) -> None:
-    """Insert an embedding job into the queue (fast, same transaction as note save)."""
+    """Insert an embedding job into the queue."""
     settings = get_settings()
     if not settings.rag_enabled:
         return
     await session.execute(
         text(
-            "INSERT INTO embedding_jobs (user_id, tenant_key, op, scope, note_id, post_id) "
-            "VALUES (:uid, :tk, :op, :scope, :nid, :pid)"
+            "INSERT INTO embedding_jobs "
+            "(user_id, tenant_key, op, scope, note_id, post_id, node_type, file_id) "
+            "VALUES (:uid, :tk, :op, :scope, :nid, :pid, :nt, :fid)"
         ),
         {
             "uid": str(user_id),
@@ -55,7 +74,27 @@ async def enqueue_note_job(
             "scope": scope,
             "nid": note_id,
             "pid": post_id,
+            "nt": node_type,
+            "fid": file_id or "",
         },
+    )
+
+
+async def enqueue_post_text_job(
+    session: AsyncSession,
+    user_id: uuid.UUID,
+    post_id: str,
+    op: str = "upsert",
+) -> None:
+    """Enqueue indexing for a post's text and media metadata."""
+    await enqueue_note_job(
+        session,
+        user_id,
+        op,
+        "global",
+        post_id,
+        post_id=post_id,
+        node_type=NODE_POST_TEXT,
     )
 
 
@@ -63,12 +102,11 @@ async def enqueue_backfill(
     session: AsyncSession,
     user_id: uuid.UUID,
 ) -> None:
-    """Enqueue all notes for a user for re-indexing (e.g. after model change)."""
+    """Enqueue all notes and posts for a user for re-indexing."""
     settings = get_settings()
     if not settings.rag_enabled:
         return
 
-    # Global notes
     result = await session.execute(
         select(GlobalNote).where(GlobalNote.user_id == user_id)
     )
@@ -76,7 +114,6 @@ async def enqueue_backfill(
         note_id = str(note.data.get("id") or note.id)
         await enqueue_note_job(session, user_id, "upsert", "global", note_id)
 
-    # Post notes
     result2 = await session.execute(
         select(Post).where(Post.user_id == user_id)
     )
@@ -86,6 +123,137 @@ async def enqueue_backfill(
             note_id = str(note.get("id") or "")
             if note_id:
                 await enqueue_note_job(session, user_id, "upsert", "post", note_id, post_id)
+        await enqueue_post_text_job(session, user_id, post_id)
+
+
+async def _index_note_file_nodes(
+    session: AsyncSession,
+    user_id: uuid.UUID,
+    scope: str,
+    note_id: str,
+    note_data: dict[str, Any],
+    backend: Any,
+    *,
+    post_id: str | None,
+    tenant_key: str,
+    max_chars: int,
+) -> None:
+    files = [rec for item in (note_data.get("files") or []) if (rec := note_file_record(item))]
+    keep_ids = {item["id"] for item in files}
+    await remove_file_nodes_for_parent(
+        session,
+        user_id,
+        scope,
+        note_id,
+        keep_file_ids=keep_ids,
+        tenant_key=tenant_key,
+    )
+
+    for file_item in files:
+        file_id = file_item["id"]
+        try:
+            decoded = decode_data_url(file_item["url"]) if file_item["url"] else None
+            extracted_text: str | None = None
+            content_hash_value = ""
+            mime_type = file_item["type"]
+            if decoded is not None:
+                raw_bytes, mime_type = decoded
+                content_hash_value = bytes_content_hash(raw_bytes)
+                extracted_text = extract_attachment_text(mime_type, raw_bytes)
+                await upsert_attachment_extraction(
+                    session,
+                    user_id,
+                    scope,
+                    note_id,
+                    file_id,
+                    content_hash_value,
+                    mime_type,
+                    extracted_text,
+                    tenant_key=tenant_key,
+                )
+
+            if extracted_text:
+                await index_text_node(
+                    session,
+                    user_id,
+                    scope,
+                    NODE_ATTACHMENT_TEXT,
+                    note_id,
+                    file_id,
+                    extracted_text,
+                    backend,
+                    post_id=post_id,
+                    max_chars=max_chars,
+                    tenant_key=tenant_key,
+                )
+            else:
+                meta_text = media_meta_index_text(file_item["name"])
+                await index_text_node(
+                    session,
+                    user_id,
+                    scope,
+                    NODE_MEDIA_META,
+                    note_id,
+                    file_id,
+                    meta_text,
+                    backend,
+                    post_id=post_id,
+                    max_chars=max_chars,
+                    tenant_key=tenant_key,
+                )
+        except Exception as exc:
+            logger.warning(
+                "Failed to index note file %s for note %s: %s", file_id, note_id, exc
+            )
+
+
+async def _index_post_media_nodes(
+    session: AsyncSession,
+    user_id: uuid.UUID,
+    post_id: str,
+    post_data: dict[str, Any],
+    backend: Any,
+    *,
+    max_chars: int,
+) -> None:
+    media_items = [
+        post_media_record(item, index)
+        for index, item in enumerate(post_data.get("media") or [])
+        if isinstance(item, dict)
+    ]
+    keep_ids = {item["id"] for item in media_items}
+    await remove_file_nodes_for_parent(
+        session,
+        user_id,
+        "global",
+        post_id,
+        keep_file_ids=keep_ids,
+        tenant_key="",
+    )
+
+    for media_item in media_items:
+        try:
+            meta_text = media_meta_index_text(media_item["name"])
+            await index_text_node(
+                session,
+                user_id,
+                "global",
+                NODE_MEDIA_META,
+                post_id,
+                media_item["id"],
+                meta_text,
+                backend,
+                post_id=post_id,
+                max_chars=max_chars,
+                tenant_key="",
+            )
+        except Exception as exc:
+            logger.warning(
+                "Failed to index post media %s for post %s: %s",
+                media_item["id"],
+                post_id,
+                exc,
+            )
 
 
 async def _process_job(
@@ -96,33 +264,73 @@ async def _process_job(
     note_id: str,
     post_id: str | None,
     tenant_key: str,
+    node_type: str,
+    file_id: str,
     session: AsyncSession,
 ) -> None:
-    """Process a single embedding job."""
     from app.services.ai.embeddings import resolve_embedding_backend
-    from app.services.ai.rag import index_note, remove_note
     from app.services.overlay.tenant_notes import get_tenant_note
 
     settings = get_settings()
 
     if op == "delete":
-        await remove_note(session, user_id, scope, note_id, tenant_key=tenant_key)
+        if node_type == NODE_POST_TEXT:
+            await remove_text_node(session, user_id, "global", NODE_POST_TEXT, note_id, tenant_key=tenant_key)
+            await remove_file_nodes_for_parent(
+                session, user_id, "global", note_id, keep_file_ids=set(), tenant_key=tenant_key
+            )
+        else:
+            await remove_note(session, user_id, scope, note_id, tenant_key=tenant_key)
+            await remove_file_nodes_for_parent(
+                session, user_id, scope, note_id, keep_file_ids=set(), tenant_key=tenant_key
+            )
         return
 
-    # Resolve embedding backend (global config, no per-user profile needed for local)
     user_result = await session.execute(
         text("SELECT id FROM users WHERE id = :uid"),
         {"uid": str(user_id)},
     )
     if user_result.fetchone() is None:
-        return  # user deleted
+        return
 
-    from app.db.models import User
     user = await session.get(User, user_id)
     if user is None:
         return
 
     backend = resolve_embedding_backend(user, {}, settings)
+    max_chars = settings.rag_max_note_chars
+
+    if node_type == NODE_POST_TEXT:
+        result = await session.execute(
+            select(Post).where(
+                Post.user_id == user_id,
+                Post.data["id"].astext == note_id,
+            )
+        )
+        post_row = result.scalar_one_or_none()
+        if post_row is None:
+            return
+        post_data = dict(post_row.data)
+        text_value = str(post_data.get("text") or "").strip()
+        if text_value:
+            await index_text_node(
+                session,
+                user_id,
+                "global",
+                NODE_POST_TEXT,
+                note_id,
+                "",
+                text_value,
+                backend,
+                post_id=note_id,
+                max_chars=max_chars,
+            )
+        else:
+            await remove_text_node(
+                session, user_id, "global", NODE_POST_TEXT, note_id, tenant_key=""
+            )
+        await _index_post_media_nodes(session, user_id, note_id, post_data, backend, max_chars=max_chars)
+        return
 
     if tenant_key:
         note_data = await get_tenant_note(session, user_id, tenant_key, scope, note_id)
@@ -139,8 +347,19 @@ async def _process_job(
             body,
             backend,
             post_id=post_id or note_data.get("postId"),
-            max_chars=settings.rag_max_note_chars,
+            max_chars=max_chars,
             tenant_key=tenant_key,
+        )
+        await _index_note_file_nodes(
+            session,
+            user_id,
+            scope,
+            note_id,
+            note_data,
+            backend,
+            post_id=post_id or note_data.get("postId"),
+            tenant_key=tenant_key,
+            max_chars=max_chars,
         )
         return
 
@@ -154,11 +373,27 @@ async def _process_job(
         note_row = result.scalar_one_or_none()
         if note_row is None:
             return
-        title = note_row.data.get("title", "")
-        body = note_row.data.get("body", "")
+        note_data = dict(note_row.data)
         await index_note(
-            session, user_id, scope, note_id, title, body, backend,
-            max_chars=settings.rag_max_note_chars,
+            session,
+            user_id,
+            scope,
+            note_id,
+            note_data.get("title", ""),
+            note_data.get("body", ""),
+            backend,
+            max_chars=max_chars,
+        )
+        await _index_note_file_nodes(
+            session,
+            user_id,
+            scope,
+            note_id,
+            note_data,
+            backend,
+            post_id=None,
+            tenant_key="",
+            max_chars=max_chars,
         )
 
     elif scope == "post" and post_id:
@@ -173,22 +408,34 @@ async def _process_job(
             return
         for note in (post_row.data.get("notes") or []):
             if str(note.get("id", "")) == note_id:
-                title = note.get("title", "")
-                body = note.get("body", "")
+                note_data = dict(note)
                 await index_note(
-                    session, user_id, scope, note_id, title, body, backend,
+                    session,
+                    user_id,
+                    scope,
+                    note_id,
+                    note_data.get("title", ""),
+                    note_data.get("body", ""),
+                    backend,
                     post_id=post_id,
-                    max_chars=settings.rag_max_note_chars,
+                    max_chars=max_chars,
+                )
+                await _index_note_file_nodes(
+                    session,
+                    user_id,
+                    scope,
+                    note_id,
+                    note_data,
+                    backend,
+                    post_id=post_id,
+                    tenant_key="",
+                    max_chars=max_chars,
                 )
                 break
 
 
 async def startup_backfill_all(session_factory: async_sessionmaker[AsyncSession]) -> None:
-    """Enqueue indexing jobs for all notes that have no embeddings yet.
-
-    Called once when the embedding worker starts so notes created while RAG was
-    disabled (or before first deploy) get indexed without manual intervention.
-    """
+    """Enqueue indexing jobs for notes/posts missing embeddings."""
     settings = get_settings()
     if not settings.rag_enabled:
         return
@@ -198,7 +445,6 @@ async def startup_backfill_all(session_factory: async_sessionmaker[AsyncSession]
             users = (await session.execute(select(User.id))).scalars().all()
             enqueued = 0
             for user_id in users:
-                # Global notes without any embedding row
                 gn_rows = (
                     await session.execute(
                         select(GlobalNote).where(GlobalNote.user_id == user_id)
@@ -209,15 +455,15 @@ async def startup_backfill_all(session_factory: async_sessionmaker[AsyncSession]
                     exists = await session.execute(
                         text(
                             "SELECT 1 FROM note_embeddings "
-                            "WHERE user_id = :uid AND scope = 'global' AND note_id = :nid LIMIT 1"
+                            "WHERE user_id = :uid AND scope = 'global' AND note_id = :nid "
+                            "AND node_type = :nt LIMIT 1"
                         ),
-                        {"uid": str(user_id), "nid": note_id},
+                        {"uid": str(user_id), "nid": note_id, "nt": NODE_NOTE_CHUNK},
                     )
                     if exists.fetchone() is None:
                         await enqueue_note_job(session, user_id, "upsert", "global", note_id)
                         enqueued += 1
 
-                # Post notes without embeddings
                 post_rows = (
                     await session.execute(select(Post).where(Post.user_id == user_id))
                 ).scalars().all()
@@ -230,9 +476,10 @@ async def startup_backfill_all(session_factory: async_sessionmaker[AsyncSession]
                         exists = await session.execute(
                             text(
                                 "SELECT 1 FROM note_embeddings "
-                                "WHERE user_id = :uid AND scope = 'post' AND note_id = :nid LIMIT 1"
+                                "WHERE user_id = :uid AND scope = 'post' AND note_id = :nid "
+                                "AND node_type = :nt LIMIT 1"
                             ),
-                            {"uid": str(user_id), "nid": note_id},
+                            {"uid": str(user_id), "nid": note_id, "nt": NODE_NOTE_CHUNK},
                         )
                         if exists.fetchone() is None:
                             await enqueue_note_job(
@@ -240,15 +487,27 @@ async def startup_backfill_all(session_factory: async_sessionmaker[AsyncSession]
                             )
                             enqueued += 1
 
+                    exists_post = await session.execute(
+                        text(
+                            "SELECT 1 FROM note_embeddings "
+                            "WHERE user_id = :uid AND scope = 'global' AND note_id = :pid "
+                            "AND node_type = :nt LIMIT 1"
+                        ),
+                        {"uid": str(user_id), "pid": post_id, "nt": NODE_POST_TEXT},
+                    )
+                    if exists_post.fetchone() is None:
+                        await enqueue_post_text_job(session, user_id, post_id)
+                        enqueued += 1
+
     if enqueued:
-        logger.info("RAG startup backfill: enqueued %d note(s) for indexing", enqueued)
+        logger.info("RAG startup backfill: enqueued %d job(s) for indexing", enqueued)
 
 
 async def embedding_worker(
     session_factory: async_sessionmaker[AsyncSession],
     stop_event: asyncio.Event | None = None,
 ) -> None:
-    """Long-running worker.  Exits when stop_event is set or RAG_ENABLED=0."""
+    """Long-running worker. Exits when stop_event is set or RAG_ENABLED=0."""
     settings = get_settings()
     if not settings.rag_enabled:
         logger.info("RAG disabled — embedding worker not started.")
@@ -274,7 +533,8 @@ async def _process_batch(session_factory: async_sessionmaker[AsyncSession]) -> N
             rows = (
                 await session.execute(
                     text(
-                        "SELECT id, user_id, tenant_key, op, scope, note_id, post_id, attempts "
+                        "SELECT id, user_id, tenant_key, op, scope, note_id, post_id, "
+                        "node_type, file_id, attempts "
                         "FROM embedding_jobs "
                         "WHERE status = 'pending' AND attempts < :max_att "
                         "ORDER BY enqueued_at "
@@ -288,7 +548,6 @@ async def _process_batch(session_factory: async_sessionmaker[AsyncSession]) -> N
             if not rows:
                 return
 
-            # Mark as processing
             job_ids = [str(row.id) for row in rows]
             await session.execute(
                 text(
@@ -312,6 +571,8 @@ async def _process_batch(session_factory: async_sessionmaker[AsyncSession]) -> N
                             row.note_id,
                             row.post_id,
                             row.tenant_key or "",
+                            row.node_type or NODE_NOTE_CHUNK,
+                            row.file_id or "",
                             s,
                         )
                 async with session_factory() as s:

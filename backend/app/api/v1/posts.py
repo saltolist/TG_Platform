@@ -14,7 +14,7 @@ from app.schemas.resources import PostIn
 from app.services.ai.chat_history import merge_history_stamps
 from app.services.ai.context_meta import apply_rolling_summary_reconcile_to_chat_data
 from app.services.ai.summary_catalog import catalog_from_profile, register_local_summary_version
-from app.services.ai.rag_worker import enqueue_note_job
+from app.services.ai.rag_worker import enqueue_note_job, enqueue_post_text_job
 from app.services.profile_defaults import empty_channel_profile, empty_telegram_profile
 from app.services.telegram.comments_flow import (
     comments_enabled,
@@ -99,6 +99,7 @@ async def create_post(payload: PostIn, user: CurrentWriter, session: DbSession) 
         select(func.count()).select_from(Post).where(Post.user_id == user.id)
     )
     session.add(Post(id=post_id, user_id=user.id, position=count or 0, data=data))
+    await enqueue_post_text_job(session, user.id, str(data.get("id") or post_id))
     await session.commit()
     return data
 
@@ -250,6 +251,8 @@ async def update_post(
                     session, user.id, "upsert", "post",
                     str(note["id"]), effective_post_id,
                 )
+    if text_changed or formatting_changed or "media" in patch:
+        await enqueue_post_text_job(session, user.id, effective_post_id)
     await session.commit()
 
     response = dict(merged)

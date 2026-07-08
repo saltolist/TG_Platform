@@ -17,3 +17,5 @@ telethon>=1.36,<2.0
 pysocks>=1.7,<2.0
 celery[redis]>=5.4,<6.0
 prometheus-client>=0.20,<1.0
+pypdf>=4.0,<6.0
+python-docx>=1.1,<2.0
