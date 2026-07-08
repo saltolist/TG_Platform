@@ -325,6 +325,7 @@ async def ai_reply(
                 rewrite_spec=rewrite_spec,
                 rewrite_model=rewrite_model,
                 rewrite_api_key=rewrite_api_key,
+                l0_enabled=settings.rag_l0_enabled,
             )
         except Exception as exc:
             import logging

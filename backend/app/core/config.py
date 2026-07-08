@@ -180,6 +180,8 @@ class Settings(BaseSettings):
     rag_query_max_chars: int = 2000
     # When retrieval misses, rewrite the query via a short LLM call and retry once.
     rag_query_rewrite_on_miss: bool = True
+    # L0 gate: skip RAG for non-substantive replies and style/tone edit requests.
+    rag_l0_enabled: bool = True
 
     # Embeddings configuration
     # Local model name for fastembed (must be in TextEmbedding.list_supported_models())
@@ -193,6 +195,7 @@ class Settings(BaseSettings):
         "ai_context_log",
         "ai_context_stamps",
         "rag_query_rewrite_on_miss",
+        "rag_l0_enabled",
         "cookie_secure",
         "telegram_live_sync_enabled",
         "telegram_reconcile_enabled",

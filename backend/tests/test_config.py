@@ -25,6 +25,11 @@ def test_rag_query_rewrite_on_miss_parses_string_flags() -> None:
     assert Settings(rag_query_rewrite_on_miss="0").rag_query_rewrite_on_miss is False
 
 
+def test_rag_l0_enabled_parses_string_flags() -> None:
+    assert Settings(rag_l0_enabled="1").rag_l0_enabled is True
+    assert Settings(rag_l0_enabled="0").rag_l0_enabled is False
+
+
 def test_provider_keys_default_empty() -> None:
     settings = Settings()
     assert settings.openai_api_key == ""

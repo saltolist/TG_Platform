@@ -12,6 +12,7 @@ from app.services.ai.embeddings import EmbeddingBackend
 from app.services.ai.note_citations import NoteCite
 from app.services.ai.providers import ProviderSpec
 from app.services.ai.rag import format_rag_context, retrieve_top_k
+from app.services.ai.rag_gate import l0_skip_reason
 from app.services.ai.rolling_summary import exchanges_from_messages
 
 logger = logging.getLogger(__name__)
@@ -203,8 +204,15 @@ async def retrieve_rag_for_reply(
     rewrite_spec: ProviderSpec | None = None,
     rewrite_model: str | None = None,
     rewrite_api_key: str | None = None,
+    l0_enabled: bool = True,
 ) -> tuple[str, list[NoteCite]]:
     """Retrieve note context using history-expanded query and optional rewrite-on-miss."""
+    if l0_enabled:
+        reason = l0_skip_reason(user_text)
+        if reason:
+            logger.debug("RAG L0 skip (%s): %r", reason, user_text[:80])
+            return "", []
+
     base_query = build_rag_query_from_history(
         user_text,
         history,

@@ -172,6 +172,80 @@ async def test_retrieve_rag_for_reply_skips_rewrite_when_first_hit() -> None:
 
 
 @pytest.mark.asyncio
+async def test_retrieve_rag_for_reply_l0_skips_without_embed() -> None:
+    embedding_backend = AsyncMock()
+    embedding_backend.model_key = "test-model"
+    embedding_backend.embed_query = AsyncMock(return_value=[0.1, 0.2])
+
+    with patch(
+        "app.services.ai.rag_query.retrieve_top_k",
+        new_callable=AsyncMock,
+    ) as retrieve_mock:
+        context, cites = await retrieve_rag_for_reply(
+            session=AsyncMock(),
+            user_id=uuid4(),
+            scope="global",
+            user_text="привет",
+            history=None,
+            embedding_backend=embedding_backend,
+            post_data=None,
+            tenant_key=None,
+            post_id=None,
+            top_k=4,
+            min_similarity=0.38,
+            history_turns=2,
+            query_max_chars=2000,
+            rewrite_on_miss=False,
+            l0_enabled=True,
+        )
+
+    assert context == ""
+    assert cites == []
+    embedding_backend.embed_query.assert_not_awaited()
+    retrieve_mock.assert_not_awaited()
+
+
+@pytest.mark.asyncio
+async def test_retrieve_rag_for_reply_l0_kill_switch_runs_retrieval() -> None:
+    embedding_backend = AsyncMock()
+    embedding_backend.model_key = "test-model"
+    embedding_backend.embed_query = AsyncMock(return_value=[0.1, 0.2])
+
+    with (
+        patch(
+            "app.services.ai.rag_query.retrieve_top_k",
+            new_callable=AsyncMock,
+            return_value=[],
+        ) as retrieve_mock,
+        patch(
+            "app.services.ai.rag_query.format_rag_context",
+            new_callable=AsyncMock,
+            return_value=("", []),
+        ),
+    ):
+        await retrieve_rag_for_reply(
+            session=AsyncMock(),
+            user_id=uuid4(),
+            scope="global",
+            user_text="привет",
+            history=None,
+            embedding_backend=embedding_backend,
+            post_data=None,
+            tenant_key=None,
+            post_id=None,
+            top_k=4,
+            min_similarity=0.38,
+            history_turns=2,
+            query_max_chars=2000,
+            rewrite_on_miss=False,
+            l0_enabled=False,
+        )
+
+    embedding_backend.embed_query.assert_awaited_once()
+    retrieve_mock.assert_awaited_once()
+
+
+@pytest.mark.asyncio
 async def test_rewrite_rag_query_llm_rejects_meta_reply() -> None:
     with patch(
         "app.services.ai.llm.complete_chat_completion",
