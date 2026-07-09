@@ -25,7 +25,7 @@ from app.services.ai.chat_history import (
     linearize_for_llm,
     merge_history_stamps,
 )
-from app.services.ai.note_citations import NoteCite, prepare_note_citations_for_reply
+from app.services.ai.note_citations import NoteCite, kb_cites_to_meta, prepare_note_citations_for_reply
 from app.services.ai.web_citations import prepare_web_citations_for_reply
 from app.services.ai.context import append_user_text_to_pairs, assemble_reply_messages
 from app.services.ai.web_search import WebCite, WebSearchResult, web_cites_to_meta
@@ -606,6 +606,8 @@ async def stream_reply_with_meta(ctx: ReplyContext, messages: list[dict[str, str
             )
         )
     updated_meta["assistant_text"] = assistant_text
+    if ctx.rag_cites:
+        updated_meta["kb_cites"] = kb_cites_to_meta(ctx.rag_cites)
     if web_cites:
         updated_meta["web_cites"] = web_cites_to_meta(web_cites)
     yield format_sse_meta(updated_meta)

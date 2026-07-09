@@ -259,12 +259,18 @@ def build_plan_messages(
     max_steps: int,
     tier_a: TierAResult | None = None,
     tier_b: TierBResult | None = None,
+    post_id: str | None = None,
 ) -> list[dict[str, str]]:
     lines = [
         f"Вопрос пользователя:\n{user_text.strip()}",
         f"Чат: scope={scope}",
-        l1_summary,
     ]
+    if scope == "post" and post_id:
+        lines.append(
+            f"Текущий пост: post_id={post_id} — пользователь уже в post-чате этого поста; "
+            f"текст поста в primer. Начни с OpenPost({post_id!r}), не вызывай ListPosts."
+        )
+    lines.append(l1_summary)
     if hints:
         lines.append("Подсказки эскалации:")
         lines.extend(f"- {hint}" for hint in hints)
@@ -362,6 +368,7 @@ async def compose_retrieval_plan(
     tier_b: TierBResult | None = None,
     transcript: list[str] | None = None,
     replan_trigger: str | None = None,
+    post_id: str | None = None,
 ) -> tuple[RetrievalPlan | None, str]:
     from app.services.ai.llm import complete_chat_completion
 
@@ -383,6 +390,7 @@ async def compose_retrieval_plan(
             max_steps=max_steps,
             tier_a=tier_a,
             tier_b=tier_b,
+            post_id=post_id,
         )
     try:
         raw = await complete_chat_completion(

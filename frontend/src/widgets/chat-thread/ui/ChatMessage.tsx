@@ -64,6 +64,8 @@ export default function ChatMessage({
       plainAi={chat.plainAi}
       modelTitle={chat.modelTitle}
       webCites={chat.webCites}
+      kbCites={chat.kbCites}
+      postId={ctx?.scope === "post" ? ctx.postId : undefined}
       ctx={ctx}
       showVariantNav={chat.aiVariantCount > 1}
       canGoVariantPrev={chat.aiVariantIdx > 0}

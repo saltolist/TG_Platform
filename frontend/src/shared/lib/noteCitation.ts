@@ -1,3 +1,6 @@
+import { z } from "zod";
+
+import { kbCiteSchema, type KbCite } from "@/shared/api/schemas/post";
 import { routes } from "@/shared/lib/routes";
 
 const MAX_CHIP_LABEL_LEN = 22;
@@ -92,6 +95,58 @@ export function stripInvalidNoteCitations(text: string, validPaths: ReadonlySet<
     const normalized = normalizeNoteCitationPath(href);
     if (normalized && validPaths.has(normalized)) return match;
     return "";
+  });
+}
+
+/** Parse kb_cites from SSE meta without failing the whole meta block. */
+export function parseKbCitesFromStreamMeta(meta: Record<string, unknown>): KbCite[] {
+  const raw = meta.kb_cites;
+  if (!Array.isArray(raw) || raw.length === 0) return [];
+  const parsed = z.array(kbCiteSchema).safeParse(raw);
+  return parsed.success ? parsed.data : [];
+}
+
+/** Build validation set from backend RAG cites (strict — only cited sources). */
+export function buildValidPathsFromKbCites(kbCites: readonly KbCite[]): Set<string> {
+  const paths = new Set<string>();
+  for (const cite of kbCites) {
+    const normalized = normalizeNoteCitationPath(cite.path);
+    if (normalized) paths.add(normalized);
+  }
+  return paths;
+}
+
+/** Merge kb cite titles into the account-wide title map. */
+export function mergeKbCiteTitles(
+  titleByPath: ReadonlyMap<string, string>,
+  kbCites: readonly KbCite[],
+): Map<string, string> {
+  const merged = new Map(titleByPath);
+  for (const cite of kbCites) {
+    const normalized = normalizeNoteCitationPath(cite.path);
+    const title = cite.title.trim();
+    if (normalized && title) merged.set(normalized, title);
+  }
+  return merged;
+}
+
+/** Remove citations to the post the user is already editing in post-scoped chat. */
+export function stripSelfPostCitations(text: string, postIds: readonly string[]): string {
+  if (!postIds.length) return text;
+  const selfPaths = new Set<string>();
+  for (const id of postIds) {
+    const trimmed = id.trim();
+    if (!trimmed) continue;
+    const path = normalizeNoteCitationPath(routes.post(trimmed));
+    if (path) selfPaths.add(path);
+  }
+  if (selfPaths.size === 0) return text;
+
+  NOTE_CITE_LINK_RE.lastIndex = 0;
+  return text.replace(NOTE_CITE_LINK_RE, (match, _title: string, href: string) => {
+    const normalized = normalizeNoteCitationPath(href);
+    if (normalized && selfPaths.has(normalized)) return "";
+    return match;
   });
 }
 

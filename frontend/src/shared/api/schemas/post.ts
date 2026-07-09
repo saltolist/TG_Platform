@@ -61,7 +61,13 @@ const webCiteSchema = z.object({
   domain: z.string(),
 });
 
+export const kbCiteSchema = z.object({
+  path: z.string(),
+  title: z.string(),
+});
+
 export type WebCite = z.infer<typeof webCiteSchema>;
+export type KbCite = z.infer<typeof kbCiteSchema>;
 
 export const aiVariantSchema = z.object({
   key: z.string(),
@@ -70,6 +76,7 @@ export const aiVariantSchema = z.object({
   llmCaption: z.string().optional(),
   webCaption: z.string().optional(),
   webCites: z.array(webCiteSchema).optional(),
+  kbCites: z.array(kbCiteSchema).optional(),
 });
 
 /** Legacy compound (incl. nested turns), v2 stamp from JSON, or legacy msg-ver-branch. */
@@ -127,6 +134,7 @@ export const chatMessageSchema: z.ZodType<{
   contextStamp?: z.infer<typeof contextStampSchema>;
   bundleContext?: z.infer<typeof messageBundleContextSchema>;
   webCites?: WebCite[];
+  kbCites?: KbCite[];
 }> = z.lazy(() =>
   z.object({
     role: z.enum(["user", "ai"]),
@@ -144,6 +152,7 @@ export const chatMessageSchema: z.ZodType<{
     contextStamp: contextStampSchema.optional(),
     bundleContext: messageBundleContextSchema.optional(),
     webCites: z.array(webCiteSchema).optional(),
+    kbCites: z.array(kbCiteSchema).optional(),
   }),
 );
 

@@ -284,6 +284,14 @@ async def _run_tool_step(
     return outcome
 
 
+def _chat_post_id(state: AgentState, seed_post_id: str | None = None) -> str | None:
+    value = (
+        str(seed_post_id or "").strip()
+        or str((state.base_post_data or {}).get("id") or "").strip()
+    )
+    return value or None
+
+
 async def _try_replan(
     *,
     user_text: str,
@@ -297,6 +305,7 @@ async def _try_replan(
     steps_used: int,
     plan_context: L2PlanContext | None,
     trigger: str,
+    seed_post_id: str | None = None,
 ) -> tuple[RetrievalPlan | None, str]:
     remaining = max_steps - steps_used
     if remaining <= 0 or plan_context is None:
@@ -315,6 +324,7 @@ async def _try_replan(
         tier_b=plan_context.tier_b,
         transcript=transcript,
         replan_trigger=trigger,
+        post_id=_chat_post_id(state, seed_post_id),
     )
     trace_step(
         "7. rag.L2.replan",
@@ -395,6 +405,18 @@ async def run_agentic_loop(
         if outcome.error:
             logger.warning("RAG L2 seed OpenNote failed: %s", outcome.error)
 
+    if state.scope == "post":
+        current_post_id = _chat_post_id(state, seed_post_id)
+        if current_post_id and current_post_id not in state.opened_posts:
+            outcome = await tool_open_post(state, post_id=current_post_id)
+            transcript.append(f"[seed] OpenPost post_id={current_post_id}: {outcome.summary}")
+            trace_step(
+                "7. rag.L2.step",
+                f"[seed] OpenPost({current_post_id}): {outcome.summary}",
+            )
+            if outcome.error:
+                logger.warning("RAG L2 seed OpenPost failed: %s", outcome.error)
+
     if plan_context is not None:
         decision = decide_structured_plan(
             planning_mode=plan_context.planning_mode,
@@ -425,6 +447,7 @@ async def run_agentic_loop(
                 max_steps=max_steps,
                 tier_a=plan_context.tier_a,
                 tier_b=plan_context.tier_b,
+                post_id=_chat_post_id(state, seed_post_id),
             )
             trace_step(
                 "7. rag.L2.plan",
@@ -488,6 +511,7 @@ async def run_agentic_loop(
                     steps_used=steps_used,
                     plan_context=plan_context,
                     trigger=trigger,
+                    seed_post_id=seed_post_id,
                 )
                 replans_used += 1
                 if new_plan is not None:

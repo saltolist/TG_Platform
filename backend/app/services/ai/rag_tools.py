@@ -35,7 +35,7 @@ from app.services.ai.rag import (
     upsert_attachment_extraction,
     _post_title_from_text,
 )
-from app.services.ai.rag_retrieval_policy import retrieve_for_chat
+from app.services.ai.rag_retrieval_policy import post_id_aliases, retrieve_for_chat
 from app.services.analytics.analytics_snapshot import load_post_snapshots
 from app.services.analytics.channel_metrics import VALID_PERIODS
 from app.services.analytics.post_metrics import build_post_trend
@@ -82,6 +82,17 @@ def _already_visited(state: AgentState, ref: str) -> ToolOutcome | None:
 
 def _mark_visited(state: AgentState, ref: str) -> None:
     state.visited.add(ref)
+
+
+def _is_current_chat_post(state: AgentState, canonical_post_id: str) -> bool:
+    """True when opening the post the user is already editing in a post-scoped chat."""
+    if state.scope != "post" or not state.base_post_data:
+        return False
+    post_id = str(canonical_post_id or "").strip()
+    if not post_id:
+        return False
+    aliases = post_id_aliases(state.base_post_data)
+    return post_id in aliases
 
 
 def _post_data_for(state: AgentState, post_id: str) -> dict[str, Any] | None:
@@ -160,11 +171,6 @@ async def tool_open_post(state: AgentState, *, post_id: str) -> ToolOutcome:
     if not post_id:
         return ToolOutcome(summary="post_id не указан.", error="missing_post_id")
 
-    ref = f"post:{post_id}"
-    existing = _already_visited(state, ref)
-    if existing:
-        return existing
-
     try:
         post_data = await resolve_post_data(state.session, state.user_id, post_id)
     except Exception as exc:
@@ -173,20 +179,31 @@ async def tool_open_post(state: AgentState, *, post_id: str) -> ToolOutcome:
     if not post_data:
         return ToolOutcome(summary=f"Пост {post_id} не найден.", error="not_found")
 
-    _mark_visited(state, ref)
-    state.opened_posts[post_id] = post_data
+    canonical_post_id = str(post_data.get("id") or post_id).strip() or post_id
+    ref = f"post:{canonical_post_id}"
+    existing = _already_visited(state, ref)
+    if existing:
+        return existing
 
+    _mark_visited(state, ref)
+    state.opened_posts[canonical_post_id] = post_data
+
+    skip_text = _is_current_chat_post(state, canonical_post_id)
     text_value = str(post_data.get("text") or "").strip()
-    if text_value:
-        cite = NoteCite(path=f"/post/{post_id}/", title=_post_title_from_text(text_value))
+    if text_value and not skip_text:
+        cite = NoteCite(
+            path=f"/post/{canonical_post_id}/",
+            title=_post_title_from_text(text_value),
+        )
         state.context_blocks.append((cite, text_value))
 
     notes_count = len(post_data.get("notes") or [])
     media_count = len(post_data.get("media") or [])
     comments_count = len(post_data.get("comments") or [])
+    primer_note = " (текст уже в primer)" if skip_text else ""
     return ToolOutcome(
         summary=(
-            f"Открыт пост {post_id}. "
+            f"Открыт пост {canonical_post_id}{primer_note}. "
             f"notes={notes_count}, media={media_count}, comments={comments_count}."
         )
     )

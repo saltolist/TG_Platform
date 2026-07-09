@@ -94,6 +94,60 @@ async def test_tool_open_post_caches_and_adds_context() -> None:
     assert "Мартовский" in text
 
 
+@pytest.mark.asyncio
+async def test_tool_open_post_skips_text_for_current_post_in_post_scope() -> None:
+    post = {
+        "id": "post-1",
+        "text": "Мартовский дайджест",
+        "notes": [],
+        "media": [],
+        "comments": [],
+    }
+    state = _state(scope="post", base_post_data=post)
+    with patch(
+        "app.services.ai.rag_tools.resolve_post_data",
+        new_callable=AsyncMock,
+        return_value=post,
+    ):
+        outcome = await tool_open_post(state, post_id="post-1")
+
+    assert outcome.error is None
+    assert state.opened_posts["post-1"] == post
+    assert "post:post-1" in state.visited
+    assert state.context_blocks == []
+    assert "primer" in outcome.summary
+
+
+@pytest.mark.asyncio
+async def test_tool_open_post_adds_text_for_other_post_in_post_scope() -> None:
+    current = {
+        "id": "post-1",
+        "text": "Текущий пост",
+        "notes": [],
+        "media": [],
+        "comments": [],
+    }
+    other = {
+        "id": "post-2",
+        "text": "Другой пост",
+        "notes": [],
+        "media": [],
+        "comments": [],
+    }
+    state = _state(scope="post", base_post_data=current)
+    with patch(
+        "app.services.ai.rag_tools.resolve_post_data",
+        new_callable=AsyncMock,
+        return_value=other,
+    ):
+        outcome = await tool_open_post(state, post_id="post-2")
+
+    assert outcome.error is None
+    assert len(state.context_blocks) == 1
+    assert state.context_blocks[0][1] == "Другой пост"
+    assert "primer" not in outcome.summary
+
+
 def test_tool_list_post_notes_from_base_post_data() -> None:
     state = _state()
     outcome = tool_list_post_notes(state, post_id="post-1")

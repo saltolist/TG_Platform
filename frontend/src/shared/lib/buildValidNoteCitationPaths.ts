@@ -35,6 +35,10 @@ export function buildNoteCitationTitlesByPath(
   for (const post of posts) {
     const path = normalizeNoteCitationPath(routes.post(post.id));
     if (path) titles.set(path, postCitationTitle(post));
+    if (post.telegramMessageId && post.telegramMessageId !== post.id) {
+      const aliasPath = normalizeNoteCitationPath(routes.post(post.telegramMessageId));
+      if (aliasPath) titles.set(aliasPath, postCitationTitle(post));
+    }
     for (const note of post.notes ?? []) {
       const notePath = normalizeNoteCitationPath(routes.notePost(post.id, note.id));
       if (notePath) titles.set(notePath, (note.title || "Заметка").trim() || "Заметка");

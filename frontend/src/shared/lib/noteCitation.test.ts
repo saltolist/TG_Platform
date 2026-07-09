@@ -10,6 +10,8 @@ import {
   rewriteNoteCitationLinkTitles,
   splitNoteCitationSegments,
   stripInvalidNoteCitations,
+  buildValidPathsFromKbCites,
+  stripSelfPostCitations,
 } from "./noteCitation";
 
 describe("resolveNoteCitationHref", () => {
@@ -99,6 +101,30 @@ describe("splitNoteCitationSegments", () => {
       { type: "text", text: "Текст." },
       { type: "cite", title: "Работа", href: "/note/global/1/" },
     ]);
+  });
+});
+
+describe("buildValidPathsFromKbCites", () => {
+  it("normalizes backend kb cite paths", () => {
+    const paths = buildValidPathsFromKbCites([
+      { path: "/post/721c63fe/", title: "Draft" },
+    ]);
+    expect(paths.has("/post/721c63fe/")).toBe(true);
+    expect(paths.has("/post/3/")).toBe(false);
+  });
+});
+
+describe("stripSelfPostCitations", () => {
+  it("removes citation to the post being edited", () => {
+    expect(
+      stripSelfPostCitations("Заголовки. [Draft](/post/uuid-1/)", ["uuid-1"]),
+    ).toBe("Заголовки.");
+  });
+
+  it("keeps citations to other posts", () => {
+    expect(
+      stripSelfPostCitations("См. [Welcome](/post/3/)", ["uuid-1"]),
+    ).toBe("См. [Welcome](/post/3/)");
   });
 });
 

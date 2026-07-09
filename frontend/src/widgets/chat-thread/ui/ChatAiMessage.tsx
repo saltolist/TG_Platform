@@ -8,13 +8,21 @@ import type { ChatMessageCtx } from "@/entities/message";
 import { useGlobalNotes } from "@/entities/note";
 import { usePosts } from "@/entities/post";
 import { buildNoteCitationTitlesByPath, buildValidNoteCitationPaths } from "@/shared/lib/buildValidNoteCitationPaths";
+import {
+  buildValidPathsFromKbCites,
+  mergeKbCiteTitles,
+  prepareNoteCitationsForDisplay,
+  stripSelfPostCitations,
+} from "@/shared/lib/noteCitation";
 import { useMemo } from "react";
-import type { WebCite } from "@/shared/api/schemas/post";
+import type { KbCite, WebCite } from "@/shared/api/schemas/post";
 
 type Props = {
   plainAi: string;
   modelTitle: string;
   webCites?: WebCite[];
+  kbCites?: KbCite[];
+  postId?: string;
   ctx?: ChatMessageCtx;
   showVariantNav: boolean;
   canGoVariantPrev: boolean;
@@ -28,6 +36,8 @@ export default function ChatAiMessage({
   plainAi,
   modelTitle,
   webCites,
+  kbCites,
+  postId,
   ctx,
   showVariantNav,
   canGoVariantPrev,
@@ -42,10 +52,23 @@ export default function ChatAiMessage({
     () => buildNoteCitationTitlesByPath(globalNotes, posts),
     [globalNotes, posts],
   );
-  const validNotePaths = useMemo(
-    () => new Set(noteTitleByPath.keys()),
-    [noteTitleByPath],
+  const validNotePaths = useMemo(() => {
+    if (kbCites?.length) return buildValidPathsFromKbCites(kbCites);
+    return buildValidNoteCitationPaths(globalNotes, posts);
+  }, [globalNotes, posts, kbCites]);
+  const displayTitleByPath = useMemo(
+    () => (kbCites?.length ? mergeKbCiteTitles(noteTitleByPath, kbCites) : noteTitleByPath),
+    [noteTitleByPath, kbCites],
   );
+  const displayAi = useMemo(() => {
+    let text = prepareNoteCitationsForDisplay(plainAi, validNotePaths, displayTitleByPath);
+    if (postId) {
+      const post = posts.find((item) => item.id === postId);
+      const selfIds = [postId, post?.telegramMessageId].filter(Boolean) as string[];
+      text = stripSelfPostCitations(text, selfIds);
+    }
+    return text;
+  }, [plainAi, validNotePaths, displayTitleByPath, postId, posts]);
   const showTyping = isStreaming && !plainAi.trim();
   const showMultiStreamingNav = isStreaming && showVariantNav && !!ctx;
   const showFooter = !isStreaming || showMultiStreamingNav;
@@ -58,9 +81,9 @@ export default function ChatAiMessage({
         ) : (
           <div className="msg-text">
             <ChatMarkdown
-              text={plainAi}
+              text={displayAi}
               validNotePaths={validNotePaths}
-              noteTitleByPath={noteTitleByPath}
+              noteTitleByPath={displayTitleByPath}
               webCites={webCites}
             />
           </div>

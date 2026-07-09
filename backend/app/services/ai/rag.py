@@ -667,16 +667,11 @@ async def resolve_post_data(
     user_id: uuid.UUID,
     post_id: str,
 ) -> dict[str, Any] | None:
-    from app.db.models import Post
+    from app.db.resolve import get_owned_post
 
-    result = await session.execute(
-        select(Post).where(
-            Post.user_id == user_id,
-            Post.data["id"].astext == post_id,
-        )
-    )
-    post_row = result.scalar_one_or_none()
-    if post_row is None:
+    try:
+        post_row = await get_owned_post(session, user_id, post_id)
+    except Exception:
         return None
     return dict(post_row.data)
 

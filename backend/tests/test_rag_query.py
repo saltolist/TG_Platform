@@ -1084,6 +1084,19 @@ async def test_retrieve_rag_for_reply_rag_mode_auto_skips_l2_without_reasoner() 
     loop_mock.assert_not_awaited()
 
 
+def test_seed_and_hints_post_scope_opens_current_post() -> None:
+    from app.services.ai.rag_query import _seed_and_hints
+
+    _, seed_post_id, hints = _seed_and_hints(
+        TierAResult(None, None, None, TierASignals(False, False, False, False), {}),
+        None,
+        scope="post",
+        chat_post_id="721c63fe-draft",
+    )
+    assert seed_post_id == "721c63fe-draft"
+    assert any("721c63fe-draft" in hint for hint in hints)
+
+
 def test_seed_and_hints_post_analytics_global() -> None:
     from app.services.ai.rag_query import _seed_and_hints
 

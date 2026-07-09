@@ -217,6 +217,11 @@ def rewrite_numeric_rag_citations(text: str, cites: list[NoteCite]) -> str:
     return NUMERIC_RAG_CITE_RE.sub(repl, text)
 
 
+def kb_cites_to_meta(cites: list[NoteCite]) -> list[dict[str, str]]:
+    """Serialize RAG cite list for SSE meta (frontend chip validation)."""
+    return [{"path": cite.path, "title": cite.title} for cite in cites]
+
+
 def prepare_note_citations_for_reply(
     text: str,
     cites: list[NoteCite] | None = None,

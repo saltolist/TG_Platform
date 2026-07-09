@@ -233,6 +233,7 @@ def _seed_and_hints(
     *,
     user_text: str = "",
     scope: str = "global",
+    chat_post_id: str | None = None,
     intent_routing_enabled: bool = False,
 ) -> tuple[str | None, str | None, list[str]]:
     candidates: list[str] = []
@@ -244,6 +245,9 @@ def _seed_and_hints(
     seed_ref: str | None = None
     seed_post_id: str | None = tier_a.escalate_post_id
     hints: list[str] = []
+    if scope == "post" and chat_post_id:
+        seed_post_id = seed_post_id or chat_post_id
+        hints.append(f"OpenPost post_id={chat_post_id} — пользователь уже в post-чате этого поста")
     for ref in candidates:
         text = str(ref).strip()
         if not text:
@@ -520,6 +524,7 @@ async def retrieve_rag_for_reply(
             tier_b,
             user_text=user_text,
             scope=scope,
+            chat_post_id=rag_post_id,
             intent_routing_enabled=intent_routing_enabled,
         )
         trace_step(
