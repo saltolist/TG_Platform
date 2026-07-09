@@ -13,6 +13,7 @@ from __future__ import annotations
 import asyncio
 import functools
 import logging
+import threading
 from abc import ABC, abstractmethod
 from typing import Any, Mapping
 
@@ -76,15 +77,29 @@ def _uses_e5_prefixes(model_name: str) -> bool:
     return "e5" in model_name.lower()
 
 
-@functools.lru_cache(maxsize=4)
+_fastembed_models: dict[str, Any] = {}
+_fastembed_models_lock = threading.Lock()
+
+
 def _get_fastembed_model(model_name: str):  # type: ignore[return]
     """Lazy-load and cache fastembed TextEmbedding model (thread-safe singleton)."""
-    try:
-        from fastembed import TextEmbedding  # type: ignore[import-untyped]
-        return TextEmbedding(model_name=model_name)
-    except Exception as exc:
-        logger.warning("Failed to load fastembed model %r: %s", model_name, exc)
-        return None
+    cached = _fastembed_models.get(model_name)
+    if cached is not None:
+        return cached
+
+    with _fastembed_models_lock:
+        cached = _fastembed_models.get(model_name)
+        if cached is not None:
+            return cached
+        try:
+            from fastembed import TextEmbedding  # type: ignore[import-untyped]
+
+            model = TextEmbedding(model_name=model_name)
+        except Exception as exc:
+            logger.warning("Failed to load fastembed model %r: %s", model_name, exc)
+            return None
+        _fastembed_models[model_name] = model
+        return model
 
 
 class LocalEmbeddingBackend(EmbeddingBackend):

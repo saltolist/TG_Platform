@@ -12,6 +12,7 @@ from app.services.ai.rag_escalation import (
     _NUMERIC_QUERY_MARKERS,
     _VISUAL_QUERY_MARKERS,
 )
+from app.services.ai.rag_retrieval_plan import POST_QUERY_MARKERS
 from app.services.ai.rag_tools import AgentState
 
 _WHY_PERFORM_MARKERS = (
@@ -43,13 +44,30 @@ def _visited_matches(state: AgentState, predicate) -> bool:
 
 
 def _has_note_context(context_blocks: list[tuple[NoteCite, str]]) -> bool:
-    return any(plain.strip() for _, plain in context_blocks)
+    return any(plain.strip() for cite, plain in context_blocks if cite.path.startswith("/note/"))
+
+
+def _has_post_context(
+    state: AgentState,
+    context_blocks: list[tuple[NoteCite, str]],
+) -> bool:
+    if _visited_matches(
+        state,
+        lambda ref: ref.startswith("post:") and ref.count(":") == 1,
+    ):
+        return True
+    return any(
+        cite.path.startswith("/post/") and plain.strip()
+        for cite, plain in context_blocks
+    )
 
 
 def evaluate_stop(
     user_text: str,
     state: AgentState,
     context_blocks: list[tuple[NoteCite, str]],
+    *,
+    scope: str = "global",
 ) -> StopVerdict:
     """Reject planner Stop when required evidence has not been opened."""
     query = (user_text or "").strip()
@@ -80,11 +98,26 @@ def evaluate_stop(
             context_blocks
         ):
             return StopVerdict(allowed=True, reason="note_opened")
+        if _visited_matches(state, lambda ref: ref.startswith("post:")) or _has_post_context(
+            state, context_blocks
+        ):
+            return StopVerdict(allowed=True, reason="post_opened")
         if _visited_matches(state, lambda ref: ":analytics:" in ref):
             return StopVerdict(allowed=True, reason="analytics_opened")
         return StopVerdict(allowed=False, reason="missing_note_for_why_question")
 
-    if _has_note_context(context_blocks) or state.context_blocks:
+    if scope == "global" and _query_markers(query, POST_QUERY_MARKERS):
+        if _has_post_context(state, context_blocks):
+            return StopVerdict(allowed=True, reason="post_opened")
+        return StopVerdict(allowed=False, reason="missing_open_post")
+
+    if _has_post_context(state, context_blocks):
+        return StopVerdict(allowed=True, reason="post_context_present")
+
+    if _has_note_context(context_blocks):
+        return StopVerdict(allowed=True, reason="note_context_present")
+
+    if state.context_blocks:
         return StopVerdict(allowed=True, reason="context_present")
 
     if state.visited - {ref for ref in state.visited if ref.startswith("search:")}:

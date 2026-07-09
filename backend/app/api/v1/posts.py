@@ -19,6 +19,7 @@ from app.services.ai.rag_worker import (
     enqueue_post_rag_delete_jobs,
     enqueue_post_rag_restore_jobs,
     enqueue_post_text_job,
+    is_post_deleted,
 )
 from app.services.profile_defaults import empty_channel_profile, empty_telegram_profile
 from app.services.telegram.comments_flow import (
@@ -250,8 +251,13 @@ async def update_post(
     # Enqueue RAG indexing for any notes present in the patch
     effective_post_id = str(merged.get("id") or post_id)
     restored_from_deleted = previous_status == "deleted" and merged.get("status") == "draft"
+    status_changed = merged.get("status") != previous_status
     if restored_from_deleted:
         await enqueue_post_rag_restore_jobs(session, user.id, merged)
+    elif status_changed and not is_post_deleted(merged):
+        await enqueue_post_text_job(
+            session, user.id, effective_post_id, post_data=merged
+        )
     if isinstance(patch.get("notes"), list):
         for note in patch["notes"]:
             if isinstance(note, Mapping) and note.get("id"):
@@ -458,6 +464,8 @@ async def delete_post(
                     raise HTTPException(status_code=exc.status_code, detail=exc.detail) from exc
 
         await mark_post_deleted(post)
-        await enqueue_post_rag_delete_jobs(session, user.id, dict(post.data))
+        await enqueue_post_rag_delete_jobs(
+            session, user.id, dict(post.data), db_row_id=str(post.id)
+        )
         await session.commit()
     return Response(status_code=status.HTTP_204_NO_CONTENT)

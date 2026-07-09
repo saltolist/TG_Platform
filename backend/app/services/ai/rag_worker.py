@@ -18,6 +18,7 @@ from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
 from app.core.config import get_settings
 from app.db.models import GlobalNote, Post, User
+from app.services.ai.rag_retrieval_policy import post_id_aliases
 from app.services.ai.attachment_text import (
     bytes_content_hash,
     decode_data_url,
@@ -46,6 +47,64 @@ POLL_INTERVAL_S = 5
 
 def is_post_deleted(post_data: Mapping[str, Any]) -> bool:
     return str(post_data.get("status") or "").strip() == "deleted"
+
+
+async def resolve_post_row(
+    session: AsyncSession,
+    user_id: uuid.UUID,
+    post_key: str,
+) -> Post | None:
+    """Resolve a post by DB UUID or JSONB data.id."""
+    key = str(post_key or "").strip()
+    if not key:
+        return None
+    try:
+        eid = uuid.UUID(key)
+        row = await session.get(Post, eid)
+        if row is not None and row.user_id == user_id:
+            return row
+    except ValueError:
+        pass
+    result = await session.execute(
+        select(Post).where(
+            Post.user_id == user_id,
+            Post.data["id"].astext == key,
+        )
+    )
+    return result.scalar_one_or_none()
+
+
+def canonical_post_content_id(post_row: Post) -> str:
+    return str(post_row.data.get("id") or post_row.id)
+
+
+def post_embedding_aliases(post_row: Post) -> frozenset[str]:
+    return post_id_aliases(dict(post_row.data), row_post_id=str(post_row.id))
+
+
+async def purge_post_text_embeddings(
+    session: AsyncSession,
+    user_id: uuid.UUID,
+    aliases: set[str] | frozenset[str],
+) -> None:
+    """Remove global post_text and media_meta nodes for all known post identifiers."""
+    for alias in aliases:
+        value = str(alias or "").strip()
+        if not value:
+            continue
+        await remove_text_node(
+            session, user_id, "global", NODE_POST_TEXT, value, tenant_key=""
+        )
+        await remove_file_nodes_for_parent(
+            session,
+            user_id,
+            "global",
+            value,
+            keep_file_ids=set(),
+            tenant_key="",
+        )
+
+
 MAX_ATTEMPTS = 3
 BATCH_SIZE = 10
 
@@ -110,6 +169,8 @@ async def enqueue_post_rag_delete_jobs(
     session: AsyncSession,
     user_id: uuid.UUID,
     post_data: Mapping[str, Any],
+    *,
+    db_row_id: str | None = None,
 ) -> None:
     """Remove all RAG nodes for a post (post_text + post-scoped notes)."""
     settings = get_settings()
@@ -117,10 +178,11 @@ async def enqueue_post_rag_delete_jobs(
         return
 
     effective_post_id = str(post_data.get("id") or "").strip()
-    if not effective_post_id:
+    delete_key = str(db_row_id or effective_post_id).strip()
+    if not delete_key:
         return
 
-    await enqueue_post_text_job(session, user_id, effective_post_id, op="delete")
+    await enqueue_post_text_job(session, user_id, delete_key, op="delete")
     notes = post_data.get("notes")
     if isinstance(notes, list):
         for note in notes:
@@ -134,7 +196,7 @@ async def enqueue_post_rag_delete_jobs(
                     "delete",
                     "post",
                     note_id,
-                    effective_post_id,
+                    effective_post_id or delete_key,
                 )
 
 
@@ -349,10 +411,13 @@ async def _process_job(
 
     if op == "delete":
         if node_type == NODE_POST_TEXT:
-            await remove_text_node(session, user_id, "global", NODE_POST_TEXT, note_id, tenant_key=tenant_key)
-            await remove_file_nodes_for_parent(
-                session, user_id, "global", note_id, keep_file_ids=set(), tenant_key=tenant_key
-            )
+            post_row = await resolve_post_row(session, user_id, note_id)
+            if post_row is not None:
+                await purge_post_text_embeddings(
+                    session, user_id, post_embedding_aliases(post_row)
+                )
+            else:
+                await purge_post_text_embeddings(session, user_id, {note_id})
         else:
             await remove_note(session, user_id, scope, note_id, tenant_key=tenant_key)
             await remove_file_nodes_for_parent(
@@ -375,24 +440,21 @@ async def _process_job(
     max_chars = settings.rag_max_note_chars
 
     if node_type == NODE_POST_TEXT:
-        result = await session.execute(
-            select(Post).where(
-                Post.user_id == user_id,
-                Post.data["id"].astext == note_id,
-            )
-        )
-        post_row = result.scalar_one_or_none()
+        post_row = await resolve_post_row(session, user_id, note_id)
         if post_row is None:
+            await purge_post_text_embeddings(session, user_id, {note_id})
+            logger.debug(
+                "post_text upsert: no post for key %s, purged orphan embedding(s)",
+                note_id,
+            )
             return
+        aliases = post_embedding_aliases(post_row)
         post_data = dict(post_row.data)
         if is_post_deleted(post_data):
-            await remove_text_node(
-                session, user_id, "global", NODE_POST_TEXT, note_id, tenant_key=""
-            )
-            await remove_file_nodes_for_parent(
-                session, user_id, "global", note_id, keep_file_ids=set(), tenant_key=""
-            )
+            await purge_post_text_embeddings(session, user_id, aliases)
             return
+        canonical_id = canonical_post_content_id(post_row)
+        await purge_post_text_embeddings(session, user_id, aliases)
         text_value = str(post_data.get("text") or "").strip()
         if text_value:
             await index_text_node(
@@ -400,18 +462,20 @@ async def _process_job(
                 user_id,
                 "global",
                 NODE_POST_TEXT,
-                note_id,
+                canonical_id,
                 "",
                 text_value,
                 backend,
-                post_id=note_id,
+                post_id=canonical_id,
                 max_chars=max_chars,
             )
         else:
             await remove_text_node(
-                session, user_id, "global", NODE_POST_TEXT, note_id, tenant_key=""
+                session, user_id, "global", NODE_POST_TEXT, canonical_id, tenant_key=""
             )
-        await _index_post_media_nodes(session, user_id, note_id, post_data, backend, max_chars=max_chars)
+        await _index_post_media_nodes(
+            session, user_id, canonical_id, post_data, backend, max_chars=max_chars
+        )
         return
 
     if tenant_key:
@@ -559,7 +623,8 @@ async def startup_backfill_all(session_factory: async_sessionmaker[AsyncSession]
                     post_data = dict(post.data)
                     if is_post_deleted(post_data):
                         continue
-                    post_id = str(post_data.get("id") or post.id)
+                    canonical_id = canonical_post_content_id(post)
+                    aliases = post_embedding_aliases(post)
                     for note in (post_data.get("notes") or []):
                         note_id = str(note.get("id") or "")
                         if not note_id:
@@ -574,21 +639,44 @@ async def startup_backfill_all(session_factory: async_sessionmaker[AsyncSession]
                         )
                         if exists.fetchone() is None:
                             await enqueue_note_job(
-                                session, user_id, "upsert", "post", note_id, post_id
+                                session, user_id, "upsert", "post", note_id, canonical_id
                             )
                             enqueued += 1
 
-                    exists_post = await session.execute(
+                    exists_canonical = await session.execute(
                         text(
                             "SELECT 1 FROM note_embeddings "
                             "WHERE user_id = :uid AND scope = 'global' AND note_id = :pid "
                             "AND node_type = :nt LIMIT 1"
                         ),
-                        {"uid": str(user_id), "pid": post_id, "nt": NODE_POST_TEXT},
+                        {"uid": str(user_id), "pid": canonical_id, "nt": NODE_POST_TEXT},
                     )
-                    if exists_post.fetchone() is None:
+                    canonical_exists = exists_canonical.fetchone() is not None
+                    has_stale_alias = False
+                    if canonical_exists:
+                        for alias in aliases:
+                            if alias == canonical_id:
+                                continue
+                            stale = await session.execute(
+                                text(
+                                    "SELECT 1 FROM note_embeddings "
+                                    "WHERE user_id = :uid AND scope = 'global' AND note_id = :nid "
+                                    "AND node_type IN (:pt, :mm) LIMIT 1"
+                                ),
+                                {
+                                    "uid": str(user_id),
+                                    "nid": alias,
+                                    "pt": NODE_POST_TEXT,
+                                    "mm": NODE_MEDIA_META,
+                                },
+                            )
+                            if stale.fetchone() is not None:
+                                has_stale_alias = True
+                                break
+
+                    if not canonical_exists or has_stale_alias:
                         await enqueue_post_text_job(
-                            session, user_id, post_id, post_data=post_data
+                            session, user_id, canonical_id, post_data=post_data
                         )
                         enqueued += 1
 

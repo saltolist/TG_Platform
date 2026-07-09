@@ -8,14 +8,17 @@ from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
+from app.db.models import Post, User
 from app.services.ai.rag import NODE_ATTACHMENT_TEXT, NODE_MEDIA_META, NODE_POST_TEXT
 from app.services.ai.rag_worker import (
     _index_note_file_nodes,
     _index_post_media_nodes,
+    _process_job,
     enqueue_post_rag_delete_jobs,
     enqueue_post_text_job,
     is_post_deleted,
 )
+from tests.conftest import TestSessionLocal
 
 
 @pytest.mark.asyncio
@@ -239,3 +242,154 @@ async def test_enqueue_post_rag_delete_jobs_enqueues_post_and_notes() -> None:
             },
         )
     assert session.execute.await_count == 2
+
+
+@pytest.mark.asyncio
+async def test_process_post_text_upsert_indexes_canonical_id_from_stale_job_key(
+    writer_user: User,
+) -> None:
+    row_id = uuid.uuid4()
+    async with TestSessionLocal() as session:
+        session.add(
+            Post(
+                id=row_id,
+                user_id=writer_user.id,
+                position=0,
+                data={
+                    "id": "3",
+                    "status": "published",
+                    "text": "Canonical body",
+                    "telegramMessageId": "3",
+                },
+            )
+        )
+        await session.commit()
+
+    async with TestSessionLocal() as session:
+        backend = MagicMock()
+        backend.model_key = "local:test"
+        backend.dim = 4
+        backend.embed_passages = AsyncMock(return_value=[[0.1, 0.2, 0.3, 0.4]])
+
+        with (
+            patch("app.services.ai.rag_worker.get_settings") as mock_settings,
+            patch(
+                "app.services.ai.embeddings.resolve_embedding_backend",
+                return_value=backend,
+            ),
+            patch(
+                "app.services.ai.rag_worker.purge_post_text_embeddings",
+                new_callable=AsyncMock,
+            ) as mock_purge,
+            patch(
+                "app.services.ai.rag_worker.index_text_node",
+                new_callable=AsyncMock,
+            ) as mock_index,
+            patch(
+                "app.services.ai.rag_worker._index_post_media_nodes",
+                new_callable=AsyncMock,
+            ),
+        ):
+            mock_settings.return_value.rag_max_note_chars = 4000
+            await _process_job(
+                "job-1",
+                writer_user.id,
+                "upsert",
+                "global",
+                str(row_id),
+                str(row_id),
+                "",
+                NODE_POST_TEXT,
+                "",
+                session,
+            )
+
+        mock_purge.assert_awaited_once()
+        purge_aliases = mock_purge.await_args.args[2]
+        assert "3" in purge_aliases
+        assert str(row_id) in purge_aliases
+
+        mock_index.assert_awaited_once()
+        assert mock_index.await_args.args[4] == "3"
+        assert mock_index.await_args.kwargs["post_id"] == "3"
+
+
+@pytest.mark.asyncio
+async def test_process_post_text_delete_purges_all_aliases(writer_user: User) -> None:
+    row_id = uuid.uuid4()
+    async with TestSessionLocal() as session:
+        session.add(
+            Post(
+                id=row_id,
+                user_id=writer_user.id,
+                position=0,
+                data={"id": "2", "status": "deleted", "text": "Gone"},
+            )
+        )
+        await session.commit()
+
+    async with TestSessionLocal() as session:
+        with patch(
+            "app.services.ai.rag_worker.purge_post_text_embeddings",
+            new_callable=AsyncMock,
+        ) as mock_purge:
+            await _process_job(
+                "job-2",
+                writer_user.id,
+                "delete",
+                "global",
+                "2",
+                "2",
+                "",
+                NODE_POST_TEXT,
+                "",
+                session,
+            )
+
+        mock_purge.assert_awaited_once()
+        aliases = mock_purge.await_args.args[2]
+        assert "2" in aliases
+        assert str(row_id) in aliases
+
+
+@pytest.mark.asyncio
+async def test_process_post_text_upsert_purges_orphan_when_post_missing(
+    writer_user: User,
+) -> None:
+    async with TestSessionLocal() as session:
+        with patch(
+            "app.services.ai.rag_worker.purge_post_text_embeddings",
+            new_callable=AsyncMock,
+        ) as mock_purge:
+            await _process_job(
+                "job-3",
+                writer_user.id,
+                "upsert",
+                "global",
+                "missing-post",
+                "missing-post",
+                "",
+                NODE_POST_TEXT,
+                "",
+                session,
+            )
+
+        mock_purge.assert_awaited_once_with(
+            session, writer_user.id, {"missing-post"}
+        )
+
+
+@pytest.mark.asyncio
+async def test_enqueue_post_rag_delete_jobs_uses_db_row_id_when_given() -> None:
+    session = AsyncMock()
+    user_id = uuid.uuid4()
+    with patch("app.services.ai.rag_worker.get_settings") as mock_settings:
+        mock_settings.return_value.rag_enabled = True
+        await enqueue_post_rag_delete_jobs(
+            session,
+            user_id,
+            {"id": "post-1", "notes": []},
+            db_row_id="db-uuid-1",
+        )
+    params = session.execute.await_args.args[1]
+    assert params["nid"] == "db-uuid-1"

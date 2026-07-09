@@ -15,6 +15,7 @@ from app.services.ai.rag_tools import (
     tool_list_note_attachments,
     tool_list_post_comments,
     tool_list_post_notes,
+    tool_list_posts,
     tool_open_note,
     tool_open_post,
     tool_search_nodes,
@@ -98,6 +99,29 @@ def test_tool_list_post_notes_from_base_post_data() -> None:
     outcome = tool_list_post_notes(state, post_id="post-1")
     assert "note:n1" in outcome.summary
     assert "Note 1" in outcome.summary
+
+
+@pytest.mark.asyncio
+async def test_tool_list_posts_filters_status() -> None:
+    state = _state(scope="global", base_post_data=None)
+    row_published = MagicMock()
+    row_published.data = {
+        "id": "1",
+        "status": "published",
+        "text": "Приветственный пост",
+        "notes": [],
+    }
+    row_draft = MagicMock()
+    row_draft.data = {"id": "2", "status": "draft", "text": "Черновик", "notes": []}
+    mock_result = MagicMock()
+    mock_result.scalars.return_value.all.return_value = [row_published, row_draft]
+    state.session.execute = AsyncMock(return_value=mock_result)
+
+    outcome = await tool_list_posts(state, status="published")
+
+    assert outcome.error is None
+    assert "id=1" in outcome.summary
+    assert "id=2" not in outcome.summary
 
 
 @pytest.mark.asyncio

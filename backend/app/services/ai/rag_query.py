@@ -23,6 +23,7 @@ from app.services.ai.rag_escalation import TierAResult, evaluate_tier_a
 from app.services.ai.rag_gate import l0_skip_reason
 from app.services.ai.intent_router import classify_intent
 from app.services.ai.rag_manifest import filter_unopened_neighbors
+from app.services.ai.rag_retrieval_plan import L2PlanContext
 from app.services.ai.rag_sufficiency import TierBResult, evaluate_tier_b
 from app.services.ai.rag_tools import AgentState
 from app.services.ai.reply_pipeline_log import format_retrieval_hits, trace_step
@@ -299,6 +300,7 @@ async def retrieve_rag_for_reply(
     tier_b_enabled: bool = False,
     rag_mode: str = "off",
     rag_agent_max_steps: int = 4,
+    rag_agent_planning_mode: str = "auto",
     user: Any | None = None,
     ai_profile: Mapping[str, Any] | None = None,
     intent_routing_enabled: bool = False,
@@ -446,7 +448,7 @@ async def retrieve_rag_for_reply(
     if (
         results
         and tier_b_enabled
-        and tier_a.fast_path is None
+        and tier_a.fast_path in (None, "miss")
         and rewrite_spec is not None
         and rewrite_model
         and rewrite_api_key
@@ -463,17 +465,7 @@ async def retrieve_rag_for_reply(
             )
         )
 
-    if results:
-        rag_context, rag_cites = await format_rag_context(
-            session=session,
-            user_id=user_id,
-            results=results,
-            scope=scope,
-            post_data=post_data,
-            tenant_key=tenant_key,
-        )
-    else:
-        rag_context, rag_cites = "", []
+    rag_context, rag_cites = "", []
 
     if tier_b_task is not None:
         tier_b = await tier_b_task
@@ -492,17 +484,37 @@ async def retrieve_rag_for_reply(
             ],
         )
     elif tier_b_enabled:
-        trace_step("6. rag.tier_b", "skipped — no reasoner model or fast-path")
+        if not results:
+            tier_b_skip = "no L1 hits"
+        elif tier_a.fast_path not in (None, "miss"):
+            tier_b_skip = f"fast_path={tier_a.fast_path}"
+        elif not (rewrite_spec and rewrite_model and rewrite_api_key):
+            tier_b_skip = "no reasoner LLM"
+        else:
+            tier_b_skip = "unknown"
+        trace_step("6. rag.tier_b", f"skipped — {tier_b_skip}")
     else:
         trace_step("6. rag.tier_b", "disabled (RAG_TIER_B_ENABLED=0)")
 
     should_escalate = _should_escalate(rag_mode, tier_a, tier_b)
-    if (
+    l2_will_run = (
         should_escalate
         and rewrite_spec is not None
         and rewrite_model
         and rewrite_api_key
-    ):
+    )
+
+    if results and not l2_will_run:
+        rag_context, rag_cites = await format_rag_context(
+            session=session,
+            user_id=user_id,
+            results=results,
+            scope=scope,
+            post_data=post_data,
+            tenant_key=tenant_key,
+        )
+
+    if l2_will_run:
         seed_ref, seed_post_id, hints = _seed_and_hints(
             tier_a,
             tier_b,
@@ -519,6 +531,7 @@ async def retrieve_rag_for_reply(
                 f"seed_post_id={seed_post_id or '—'}",
                 f"hints={hints}",
                 f"max_steps={rag_agent_max_steps}",
+                f"planning_mode={rag_agent_planning_mode}",
             ],
         )
         from app.core.config import get_settings
@@ -547,17 +560,25 @@ async def retrieve_rag_for_reply(
             model=rewrite_model,
             api_key=rewrite_api_key,
             max_steps=rag_agent_max_steps,
+            plan_context=L2PlanContext(
+                planning_mode=rag_agent_planning_mode,
+                l1_results=results,
+                tier_a=tier_a,
+                tier_b=tier_b,
+            ),
         )
         if agent_result.rag_context:
-            rag_context = (
-                f"{rag_context}\n{agent_result.rag_context}"
-                if rag_context
-                else agent_result.rag_context
+            rag_context = agent_result.rag_context
+            rag_cites = list(agent_result.cites)
+        elif results and not rag_context:
+            rag_context, rag_cites = await format_rag_context(
+                session=session,
+                user_id=user_id,
+                results=results,
+                scope=scope,
+                post_data=post_data,
+                tenant_key=tenant_key,
             )
-            existing_paths = {cite.path for cite in rag_cites}
-            rag_cites = rag_cites + [
-                cite for cite in agent_result.cites if cite.path not in existing_paths
-            ]
         logger.info(
             "RAG L2: stopped_reason=%s cites=%s",
             agent_result.stopped_reason,

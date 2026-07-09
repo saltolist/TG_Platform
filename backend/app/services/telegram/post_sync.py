@@ -184,6 +184,10 @@ async def upsert_telegram_post(
             data=post_data,
         )
     )
+    from app.services.ai.rag_worker import enqueue_post_text_job
+
+    effective_id = str(post_data.get("id") or msg_id)
+    await enqueue_post_text_job(session, user_id, effective_id, post_data=post_data)
     telegram = dict(profile.telegram or {})
     telegram["importedPosts"] = int(telegram.get("importedPosts") or 0) + 1
     profile.telegram = telegram
@@ -316,6 +320,7 @@ async def update_telegram_post(
     if _incoming_telegram_edit_is_stale(existing.data, post_data):
         return
 
+    previous_data = dict(existing.data)
     merged = _merge_telegram_post_payload(existing.data, post_data)
     if post_data.get("date"):
         merged["date"] = post_data["date"]
@@ -328,6 +333,24 @@ async def update_telegram_post(
     metrics_only = _is_metrics_only_change(existing.data, merged)
     existing.data = merged
     flag_modified(existing, "data")
+
+    previous_id = str(previous_data.get("id") or "")
+    new_id = str(merged.get("id") or "")
+    id_changed = previous_id != new_id
+    became_telegram_published = merged.get("status") == "published" and merged.get(
+        "source"
+    ) == "telegram" and (
+        previous_data.get("status") != "published"
+        or previous_data.get("source") != "telegram"
+    )
+    if id_changed or became_telegram_published:
+        from app.services.ai.rag_worker import enqueue_post_text_job
+
+        canonical_id = str(merged.get("id") or existing.id)
+        await enqueue_post_text_job(
+            session, user_id, canonical_id, post_data=merged
+        )
+
     await touch_telegram_profile(
         session, profile, last_message_id=msg_id, metrics_only=metrics_only
     )
@@ -355,6 +378,10 @@ async def mark_post_published(
         await touch_telegram_profile(
             session, profile, last_message_id=telegram_message_id
         )
+    from app.services.ai.rag_worker import enqueue_post_text_job
+
+    effective_id = str(data.get("id") or post_id)
+    await enqueue_post_text_job(session, user_id, effective_id, post_data=data)
     await session.commit()
     return data
 
@@ -390,6 +417,10 @@ async def finalize_published_from_telegram(
         await touch_telegram_profile(
             session, profile, last_message_id=merged.get("telegramMessageId")
         )
+    from app.services.ai.rag_worker import enqueue_post_text_job
+
+    effective_id = str(merged.get("id") or post_id)
+    await enqueue_post_text_job(session, user_id, effective_id, post_data=merged)
     await session.commit()
     return merged
 
@@ -487,7 +518,9 @@ async def delete_telegram_post(
     await mark_post_deleted(existing)
     from app.services.ai.rag_worker import enqueue_post_rag_delete_jobs
 
-    await enqueue_post_rag_delete_jobs(session, user_id, dict(existing.data))
+    await enqueue_post_rag_delete_jobs(
+        session, user_id, dict(existing.data), db_row_id=str(existing.id)
+    )
     await touch_telegram_profile(session, profile, last_message_id=telegram_message_id)
 
 async def set_sync_error(user_id: UUID, error: str, session_factory: Any) -> None:

@@ -192,6 +192,58 @@ async def tool_open_post(state: AgentState, *, post_id: str) -> ToolOutcome:
     )
 
 
+async def tool_list_posts(
+    state: AgentState,
+    *,
+    status: str | None = None,
+) -> ToolOutcome:
+    from sqlalchemy import select
+
+    from app.db.models import Post
+    from app.services.ai.rag import _post_title_from_text
+
+    status_filter = str(status or "all").strip().lower() or "all"
+    ref = f"list_posts:{status_filter}"
+    existing = _already_visited(state, ref)
+    if existing:
+        return existing
+    _mark_visited(state, ref)
+
+    try:
+        result = await state.session.execute(
+            select(Post)
+            .where(Post.user_id == state.user_id)
+            .order_by(Post.position, Post.created_at)
+        )
+        rows = list(result.scalars().all())
+    except Exception as exc:
+        return ToolOutcome(summary="Не удалось получить список постов.", error=str(exc))
+
+    lines = [f"Посты пользователя (status={status_filter}):"]
+    matched = 0
+    for row in rows:
+        data = dict(row.data) if isinstance(row.data, dict) else {}
+        post_id = str(data.get("id") or "").strip()
+        if not post_id:
+            continue
+        post_status = str(data.get("status") or "draft").strip().lower()
+        if status_filter != "all" and post_status != status_filter:
+            continue
+        matched += 1
+        text_value = str(data.get("text") or "").strip()
+        title = _post_title_from_text(text_value) if text_value else f"Пост {post_id}"
+        preview = text_value[:80] + ("…" if len(text_value) > 80 else "")
+        notes_count = len(data.get("notes") or [])
+        lines.append(
+            f"- id={post_id} status={post_status} title={title!r} "
+            f"notes={notes_count} preview={preview!r}"
+        )
+
+    if matched == 0:
+        return ToolOutcome(summary=f"Постов со статусом {status_filter!r} не найдено.")
+    return ToolOutcome(summary="\n".join(lines))
+
+
 def tool_list_post_notes(state: AgentState, *, post_id: str) -> ToolOutcome:
     post_id = str(post_id or "").strip()
     if not post_id:

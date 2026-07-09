@@ -192,6 +192,8 @@ class Settings(BaseSettings):
     rag_mode: Literal["off", "flat", "agentic", "auto"] = "off"
     rag_agent_max_steps: int = 4
     rag_agent_max_vision: int = 2
+    # L2 structured planning: off | auto (heuristics) | always
+    rag_agent_planning_mode: Literal["off", "auto", "always"] = "auto"
     rag_scope_bias: float = 0.04
     rag_intent_routing_enabled: bool = False
 

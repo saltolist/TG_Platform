@@ -51,6 +51,9 @@ def post_id_aliases(
         effective = str(post_data.get("id") or "").strip()
         if effective:
             aliases.add(effective)
+        telegram_id = str(post_data.get("telegramMessageId") or "").strip()
+        if telegram_id:
+            aliases.add(telegram_id)
     return frozenset(aliases)
 
 

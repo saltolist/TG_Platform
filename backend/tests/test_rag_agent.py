@@ -10,10 +10,18 @@ import pytest
 from app.services.ai.note_citations import NoteCite
 from app.services.ai.rag_agent import (
     build_agent_messages,
+    format_planner_trace_lines,
     parse_planner_action,
     render_agent_context,
     run_agentic_loop,
 )
+from app.services.ai.rag_retrieval_plan import (
+    L2PlanContext,
+    RetrievalPlan,
+    RetrievalPlanStep,
+    StructuredPlanDecision,
+)
+from app.services.ai.rag_stop_evaluator import StopVerdict
 from app.services.ai.rag_tools import AgentState, ToolOutcome
 
 
@@ -46,6 +54,69 @@ def test_parse_planner_action_code_fence() -> None:
 
 def test_parse_planner_action_garbage() -> None:
     assert parse_planner_action("not json") is None
+
+
+def test_format_planner_trace_lines_includes_raw_and_parsed() -> None:
+    raw = '{"tool": "OpenPost", "args": {"post_id": "3"}}'
+    action = parse_planner_action(raw)
+    lines = format_planner_trace_lines(
+        step_index=2,
+        max_steps=4,
+        raw=raw,
+        action=action,
+    )
+    assert lines[0] == "step=2/4"
+    assert "OpenPost" in lines[1]
+    assert lines[2] == "parsed_tool=OpenPost"
+    assert "'post_id': '3'" in lines[3]
+
+
+def test_format_planner_trace_lines_truncates_long_raw() -> None:
+    raw = '{"tool": "SearchNodes", "args": {"query": "' + ("x" * 900) + '"}}'
+    lines = format_planner_trace_lines(step_index=1, max_steps=4, raw=raw, action=None)
+    assert lines[1].startswith("raw: ")
+    assert lines[1].endswith("…")
+    assert len(lines[1]) < 900
+
+
+@pytest.mark.asyncio
+async def test_run_agentic_loop_traces_planner_raw() -> None:
+    state = _state()
+    planner_raw = '{"tool": "SearchNodes", "args": {"query": "приветственный пост"}}'
+    with (
+        patch(
+            "app.services.ai.llm.complete_chat_completion",
+            new_callable=AsyncMock,
+            return_value=planner_raw,
+        ),
+        patch(
+            "app.services.ai.rag_agent.tool_search_nodes",
+            new_callable=AsyncMock,
+            return_value=ToolOutcome(summary="hits"),
+        ),
+        patch("app.services.ai.rag_agent.trace_step") as trace_mock,
+    ):
+        await run_agentic_loop(
+            state=state,
+            user_text="Вопрос",
+            seed_ref=None,
+            hints=[],
+            spec=object(),  # type: ignore[arg-type]
+            model="gpt-test",
+            api_key="key",
+            max_steps=1,
+        )
+
+    planner_calls = [
+        call
+        for call in trace_mock.call_args_list
+        if call.args[0] == "7. rag.L2.planner"
+    ]
+    assert len(planner_calls) == 1
+    body = planner_calls[0].args[1]
+    assert isinstance(body, list)
+    assert any("приветственный пост" in line for line in body)
+    assert any(line.startswith("parsed_tool=SearchNodes") for line in body)
 
 
 def test_build_agent_messages_includes_hints() -> None:
@@ -252,4 +323,75 @@ async def test_run_agentic_loop_keeps_context_after_hydration_failure() -> None:
 
     assert "Existing context" in result.rag_context
     assert result.stopped_reason == "sufficient"
+
+
+@pytest.mark.asyncio
+async def test_run_agentic_loop_replans_after_discovery() -> None:
+    state = _state()
+    initial_plan = RetrievalPlan(
+        goal="discover posts",
+        steps=[
+            RetrievalPlanStep(
+                tool="ListPosts",
+                args={"status": "all"},
+                purpose="каталог",
+            ),
+        ],
+    )
+    replan_plan = RetrievalPlan(
+        goal="open welcome post",
+        steps=[
+            RetrievalPlanStep(
+                tool="OpenPost",
+                args={"post_id": "3"},
+                purpose="прочитать пост",
+            ),
+        ],
+    )
+
+    async def _compose_side_effect(**kwargs: object) -> tuple[RetrievalPlan, str]:
+        if kwargs.get("transcript"):
+            return replan_plan, '{"goal": "open welcome post"}'
+        return initial_plan, '{"goal": "discover posts"}'
+
+    with (
+        patch(
+            "app.services.ai.rag_agent.decide_structured_plan",
+            return_value=StructuredPlanDecision(use_plan=True, reason="test"),
+        ),
+        patch(
+            "app.services.ai.rag_agent.compose_retrieval_plan",
+            side_effect=_compose_side_effect,
+        ),
+        patch(
+            "app.services.ai.rag_agent.tool_list_posts",
+            new_callable=AsyncMock,
+            return_value=ToolOutcome(summary="id=3 status=published"),
+        ),
+        patch(
+            "app.services.ai.rag_agent.tool_open_post",
+            new_callable=AsyncMock,
+            return_value=ToolOutcome(summary="opened post 3"),
+        ) as open_mock,
+        patch(
+            "app.services.ai.rag_stop_evaluator.evaluate_stop",
+            return_value=StopVerdict(allowed=True, reason="context_present"),
+        ),
+        patch("app.services.ai.llm.complete_chat_completion", new_callable=AsyncMock) as llm_mock,
+    ):
+        result = await run_agentic_loop(
+            state=state,
+            user_text="есть приветственный пост?",
+            seed_ref=None,
+            hints=[],
+            spec=object(),  # type: ignore[arg-type]
+            model="gpt-test",
+            api_key="key",
+            max_steps=4,
+            plan_context=L2PlanContext(planning_mode="auto", l1_results=[]),
+        )
+
+    open_mock.assert_awaited_once_with(state, post_id="3")
+    llm_mock.assert_not_awaited()
+    assert result.stopped_reason == "plan_complete"
 

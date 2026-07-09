@@ -46,6 +46,14 @@ def test_post_id_aliases_include_row_and_data_ids() -> None:
     assert aliases == frozenset({"119", "d7ecd734-87f9-40a6-87c8-ef0957dcc56a"})
 
 
+def test_post_id_aliases_include_telegram_message_id() -> None:
+    aliases = post_id_aliases(
+        {"id": "3", "telegramMessageId": "99"},
+        row_post_id="d7ecd734-87f9-40a6-87c8-ef0957dcc56a",
+    )
+    assert aliases == frozenset({"3", "99", "d7ecd734-87f9-40a6-87c8-ef0957dcc56a"})
+
+
 def test_merge_hits_prefers_home_scope_with_bias() -> None:
     home_pass = RetrievalPass(scope="post", post_id="p1", is_home=True)
     other_pass = RetrievalPass(scope="global", is_home=False)

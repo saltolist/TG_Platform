@@ -412,6 +412,7 @@ async def ai_reply(
                     tier_b_enabled=settings.rag_tier_b_enabled,
                     rag_mode=settings.rag_mode,
                     rag_agent_max_steps=settings.rag_agent_max_steps,
+                    rag_agent_planning_mode=settings.rag_agent_planning_mode,
                     user=user,
                     ai_profile=ai_profile,
                     intent_routing_enabled=settings.rag_intent_routing_enabled,

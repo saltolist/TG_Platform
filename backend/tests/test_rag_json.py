@@ -16,3 +16,13 @@ def test_extract_json_object_from_fence() -> None:
 
 def test_extract_json_object_garbage() -> None:
     assert extract_json_object("no json here") is None
+
+
+def test_extract_json_object_nested_steps() -> None:
+    raw = (
+        '{"goal": "x", "steps": [{"tool": "OpenPost", "args": {"post_id": "3"}}]}'
+    )
+    assert extract_json_object(raw) == {
+        "goal": "x",
+        "steps": [{"tool": "OpenPost", "args": {"post_id": "3"}}],
+    }
