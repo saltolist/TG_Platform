@@ -458,6 +458,10 @@ async def retrieve_top_k(
     min_similarity: float = 0.72,
     post_id: str | None = None,
     tenant_key: str | None = None,
+    node_types: frozenset[str] | None = None,
+    post_id_eq: str | None = None,
+    post_id_neq: str | None = None,
+    exclude_deleted_posts: bool = True,
 ) -> list[dict[str, Any]]:
     """Return top-k text nodes by cosine similarity."""
     try:
@@ -471,17 +475,38 @@ async def retrieve_top_k(
 
     query_str = _vec_to_pg(query_vec)
     post_filter = "AND post_id = :pid" if (scope == "post" and post_id) else ""
+    if post_id_eq:
+        post_filter += " AND post_id = :pid_eq"
+    if post_id_neq:
+        post_filter += " AND post_id != :pid_neq AND post_id != ''"
     if tenant_key:
         tenant_filter = "AND (tenant_key = :tk OR tenant_key = '')"
     else:
         tenant_filter = "AND tenant_key = ''"
 
+    node_type_filter = ""
+    if node_types:
+        placeholders = ", ".join(f":nt_{i}" for i in range(len(node_types)))
+        node_type_filter = f" AND node_type IN ({placeholders})"
+
+    deleted_filter = ""
+    if exclude_deleted_posts:
+        deleted_filter = (
+            " AND (post_id = '' OR post_id IS NULL OR NOT EXISTS ("
+            "SELECT 1 FROM posts p "
+            "WHERE p.user_id = :uid "
+            "AND p.data->>'id' = note_embeddings.post_id "
+            "AND p.data->>'status' = 'deleted'"
+            "))"
+        )
+
     sql = text(
         f"SELECT note_id, post_id, chunk_index, tenant_key, node_type, file_id, "
-        f"chunk_text, referenced_ids, "
+        f"chunk_text, referenced_ids, scope, "
         f"1 - (embedding::vector <=> CAST(:qvec AS vector)) AS similarity "
         f"FROM note_embeddings "
-        f"WHERE user_id = :uid AND scope = :scope AND model_key = :mk {tenant_filter} {post_filter} "
+        f"WHERE user_id = :uid AND scope = :scope AND model_key = :mk "
+        f"{tenant_filter} {post_filter} {node_type_filter} {deleted_filter} "
         f"ORDER BY embedding::vector <=> CAST(:qvec AS vector) "
         f"LIMIT :k"
     )
@@ -496,6 +521,13 @@ async def retrieve_top_k(
         params["tk"] = tenant_key
     if scope == "post" and post_id:
         params["pid"] = post_id
+    if post_id_eq:
+        params["pid_eq"] = post_id_eq
+    if post_id_neq:
+        params["pid_neq"] = post_id_neq
+    if node_types:
+        for index, node_type in enumerate(sorted(node_types)):
+            params[f"nt_{index}"] = node_type
 
     try:
         rows = (await session.execute(sql, params)).fetchall()
@@ -513,6 +545,7 @@ async def retrieve_top_k(
             "file_id": row.file_id or "",
             "chunk_text": row.chunk_text or "",
             "referenced_ids": _parse_referenced_ids(row.referenced_ids),
+            "scope": getattr(row, "scope", None) or scope,
             "similarity": float(row.similarity),
         }
         for row in rows
@@ -696,21 +729,26 @@ async def format_rag_context(
         node_type = item.get("node_type") or NODE_NOTE_CHUNK
         note_id = item["note_id"]
         file_id = item.get("file_id") or ""
-        item_scope = scope
+        item_scope = str(item.get("scope") or scope)
         item_tenant_key = item.get("tenant_key") or ""
+        item_post_id = str(item.get("post_id") or "").strip()
+        item_post_data = post_data
+        if item_scope == "post" and item_post_id:
+            if not isinstance(post_data, dict) or str(post_data.get("id") or "") != item_post_id:
+                item_post_data = await resolve_post_data(session, user_id, item_post_id)
         plain = ""
         cite_path = ""
         cite_title = ""
 
         if node_type == NODE_NOTE_CHUNK:
             title, body = await _resolve_note_body(
-                session, user_id, item_scope, note_id, item_tenant_key, post_data
+                session, user_id, item_scope, note_id, item_tenant_key, item_post_data
             )
             if not body and not title:
                 continue
             plain = markdown_to_index_text(title, body)
             cite_title = title.strip() if title else "Заметка"
-            post_id_for_ref = item.get("post_id") or (
+            post_id_for_ref = item_post_id or (
                 str(post_data.get("id") or "") if post_data else ""
             )
             if item_scope == "global":
@@ -744,18 +782,18 @@ async def format_rag_context(
                 continue
             plain = extracted.strip()
             title, body = await _resolve_note_body(
-                session, user_id, item_scope, note_id, item_tenant_key, post_data
+                session, user_id, item_scope, note_id, item_tenant_key, item_post_data
             )
             note_data = {"title": title, "body": body, "files": []}
-            if item_scope == "post" and post_data:
-                for n in post_data.get("notes") or []:
+            if item_scope == "post" and item_post_data:
+                for n in item_post_data.get("notes") or []:
                     if str(n.get("id", "")) == note_id:
                         note_data = n
                         break
             file_item = _find_note_file(note_data if isinstance(note_data, dict) else None, file_id)
             file_name = str((file_item or {}).get("name") or file_id)
             cite_title = file_name
-            post_id_for_ref = item.get("post_id") or (
+            post_id_for_ref = item_post_id or (
                 str(post_data.get("id") or "") if post_data else ""
             )
             if item_scope == "global":
@@ -779,11 +817,11 @@ async def format_rag_context(
                 cite_path = f"/post/{post_id_for_ref}/"
             else:
                 title, body = await _resolve_note_body(
-                    session, user_id, item_scope, note_id, item_tenant_key, post_data
+                    session, user_id, item_scope, note_id, item_tenant_key, item_post_data
                 )
                 note_data = {"title": title, "body": body, "files": []}
-                if item_scope == "post" and post_data:
-                    for n in post_data.get("notes") or []:
+                if item_scope == "post" and item_post_data:
+                    for n in item_post_data.get("notes") or []:
                         if str(n.get("id", "")) == note_id:
                             note_data = n
                             break

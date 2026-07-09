@@ -47,7 +47,7 @@ def _state(**kwargs) -> AgentState:
 async def test_tool_search_nodes_summary_shape() -> None:
     state = _state()
     with patch(
-        "app.services.ai.rag_tools.retrieve_top_k",
+        "app.services.ai.rag_tools.retrieve_for_chat",
         new_callable=AsyncMock,
         return_value=[
             {

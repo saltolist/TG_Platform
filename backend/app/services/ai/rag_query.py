@@ -12,7 +12,12 @@ from app.services.ai.chat_history import filter_alternating_roles, linearize_for
 from app.services.ai.embeddings import EmbeddingBackend
 from app.services.ai.note_citations import NoteCite
 from app.services.ai.providers import ProviderSpec
-from app.services.ai.rag import format_rag_context, retrieve_top_k
+from app.services.ai.rag import format_rag_context
+from app.services.ai.rag_retrieval_policy import (
+    effective_post_id,
+    post_id_aliases,
+    retrieve_for_chat,
+)
 from app.services.ai.rag_agent import run_agentic_loop
 from app.services.ai.rag_escalation import TierAResult, evaluate_tier_a
 from app.services.ai.rag_gate import l0_skip_reason
@@ -175,20 +180,22 @@ async def _retrieve_top_k_for_query(
     min_similarity: float,
     post_id: str | None,
     tenant_key: str | None,
+    scope_bias: float = 0.04,
 ) -> list[dict[str, Any]]:
     if not query_text.strip():
         return []
     query_vec = await embedding_backend.embed_query(query_text)
-    return await retrieve_top_k(
+    return await retrieve_for_chat(
         session=session,
         user_id=user_id,
-        scope=scope,
+        chat_scope=scope,
         query_vec=query_vec,
-        model_key=embedding_backend.model_key,
+        embedding_backend=embedding_backend,
         k=k,
         min_similarity=min_similarity,
         post_id=post_id,
         tenant_key=tenant_key,
+        scope_bias=scope_bias,
     )
 
 
@@ -218,7 +225,7 @@ def _seed_and_hints(
     user_text: str = "",
     scope: str = "global",
     intent_routing_enabled: bool = False,
-) -> tuple[str | None, list[str]]:
+) -> tuple[str | None, str | None, list[str]]:
     candidates: list[str] = []
     if tier_a.escalate_target:
         candidates.append(tier_a.escalate_target)
@@ -226,6 +233,7 @@ def _seed_and_hints(
         candidates.extend(tier_b.open_next)
 
     seed_ref: str | None = None
+    seed_post_id: str | None = tier_a.escalate_post_id
     hints: list[str] = []
     for ref in candidates:
         text = str(ref).strip()
@@ -233,6 +241,10 @@ def _seed_and_hints(
             continue
         if seed_ref is None and text.startswith("note:"):
             seed_ref = text
+        elif text.startswith("post:"):
+            post_id = text[len("post:") :].strip()
+            if post_id:
+                hints.append(f"OpenPost post_id={post_id}")
         else:
             hints.append(text)
 
@@ -251,7 +263,7 @@ def _seed_and_hints(
         lowered = hint.lower()
         if "comment" in lowered or "комментар" in lowered:
             hints[index] = f"{hint} (используй ListPostComments)"
-    return seed_ref, hints
+    return seed_ref, seed_post_id, hints
 
 
 async def retrieve_rag_for_reply(
@@ -282,8 +294,15 @@ async def retrieve_rag_for_reply(
     user: Any | None = None,
     ai_profile: Mapping[str, Any] | None = None,
     intent_routing_enabled: bool = False,
+    scope_bias: float = 0.04,
 ) -> tuple[str, list[NoteCite]]:
     """Retrieve note context using history-expanded query and optional rewrite-on-miss."""
+    row_post_id = post_id
+    rag_post_id = effective_post_id(post_data, post_id) if scope == "post" else post_id
+    rag_post_aliases = (
+        post_id_aliases(post_data, row_post_id=row_post_id) if scope == "post" else frozenset()
+    )
+
     if l0_enabled:
         reason = l0_skip_reason(user_text)
         if reason:
@@ -304,8 +323,9 @@ async def retrieve_rag_for_reply(
         embedding_backend=embedding_backend,
         k=top_k,
         min_similarity=min_similarity,
-        post_id=post_id,
+        post_id=rag_post_id,
         tenant_key=tenant_key,
+        scope_bias=scope_bias,
     )
 
     query_used = base_query
@@ -333,8 +353,9 @@ async def retrieve_rag_for_reply(
                 embedding_backend=embedding_backend,
                 k=top_k,
                 min_similarity=min_similarity,
-                post_id=post_id,
+                post_id=rag_post_id,
                 tenant_key=tenant_key,
+                scope_bias=scope_bias,
             )
             if retry_results:
                 results = retry_results
@@ -347,6 +368,9 @@ async def retrieve_rag_for_reply(
         post_data=post_data,
         min_similarity_escalate=escalate_min_similarity,
         escalate_on_miss=escalate_on_miss,
+        chat_scope=scope,
+        chat_post_id=rag_post_id,
+        chat_post_id_aliases=rag_post_aliases,
     )
     logger.info(
         "RAG Tier A: fast_path=%s target=%s signals=%s",
@@ -408,7 +432,7 @@ async def retrieve_rag_for_reply(
         and rewrite_model
         and rewrite_api_key
     ):
-        seed_ref, hints = _seed_and_hints(
+        seed_ref, seed_post_id, hints = _seed_and_hints(
             tier_a,
             tier_b,
             user_text=user_text,
@@ -429,11 +453,13 @@ async def retrieve_rag_for_reply(
             user=user,
             ai_profile=ai_profile or {},
             settings=get_settings(),
+            scope_bias=scope_bias,
         )
         agent_result = await run_agentic_loop(
             state=agent_state,
             user_text=user_text,
             seed_ref=seed_ref,
+            seed_post_id=seed_post_id,
             hints=hints,
             spec=rewrite_spec,
             model=rewrite_model,

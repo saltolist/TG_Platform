@@ -192,6 +192,7 @@ class Settings(BaseSettings):
     rag_mode: Literal["off", "flat", "agentic", "auto"] = "off"
     rag_agent_max_steps: int = 4
     rag_agent_max_vision: int = 2
+    rag_scope_bias: float = 0.04
     rag_intent_routing_enabled: bool = False
 
     # Embeddings configuration

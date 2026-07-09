@@ -485,6 +485,9 @@ async def delete_telegram_post(
         return
 
     await mark_post_deleted(existing)
+    from app.services.ai.rag_worker import enqueue_post_rag_delete_jobs
+
+    await enqueue_post_rag_delete_jobs(session, user_id, dict(existing.data))
     await touch_telegram_profile(session, profile, last_message_id=telegram_message_id)
 
 async def set_sync_error(user_id: UUID, error: str, session_factory: Any) -> None:

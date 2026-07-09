@@ -11,7 +11,7 @@ from __future__ import annotations
 import asyncio
 import logging
 import uuid
-from typing import Any
+from typing import Any, Mapping
 
 from sqlalchemy import select, text
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
@@ -42,6 +42,10 @@ from app.services.ai.rag import (
 logger = logging.getLogger(__name__)
 
 POLL_INTERVAL_S = 5
+
+
+def is_post_deleted(post_data: Mapping[str, Any]) -> bool:
+    return str(post_data.get("status") or "").strip() == "deleted"
 MAX_ATTEMPTS = 3
 BATCH_SIZE = 10
 
@@ -85,8 +89,12 @@ async def enqueue_post_text_job(
     user_id: uuid.UUID,
     post_id: str,
     op: str = "upsert",
+    *,
+    post_data: Mapping[str, Any] | None = None,
 ) -> None:
     """Enqueue indexing for a post's text and media metadata."""
+    if op == "upsert" and post_data is not None and is_post_deleted(post_data):
+        return
     await enqueue_note_job(
         session,
         user_id,
@@ -96,6 +104,69 @@ async def enqueue_post_text_job(
         post_id=post_id,
         node_type=NODE_POST_TEXT,
     )
+
+
+async def enqueue_post_rag_delete_jobs(
+    session: AsyncSession,
+    user_id: uuid.UUID,
+    post_data: Mapping[str, Any],
+) -> None:
+    """Remove all RAG nodes for a post (post_text + post-scoped notes)."""
+    settings = get_settings()
+    if not settings.rag_enabled:
+        return
+
+    effective_post_id = str(post_data.get("id") or "").strip()
+    if not effective_post_id:
+        return
+
+    await enqueue_post_text_job(session, user_id, effective_post_id, op="delete")
+    notes = post_data.get("notes")
+    if isinstance(notes, list):
+        for note in notes:
+            if not isinstance(note, Mapping):
+                continue
+            note_id = str(note.get("id") or "").strip()
+            if note_id:
+                await enqueue_note_job(
+                    session,
+                    user_id,
+                    "delete",
+                    "post",
+                    note_id,
+                    effective_post_id,
+                )
+
+
+async def enqueue_post_rag_restore_jobs(
+    session: AsyncSession,
+    user_id: uuid.UUID,
+    post_data: Mapping[str, Any],
+) -> None:
+    """Re-index a restored post's text and notes."""
+    if is_post_deleted(post_data):
+        return
+
+    effective_post_id = str(post_data.get("id") or "").strip()
+    if not effective_post_id:
+        return
+
+    await enqueue_post_text_job(session, user_id, effective_post_id)
+    notes = post_data.get("notes")
+    if isinstance(notes, list):
+        for note in notes:
+            if not isinstance(note, Mapping):
+                continue
+            note_id = str(note.get("id") or "").strip()
+            if note_id:
+                await enqueue_note_job(
+                    session,
+                    user_id,
+                    "upsert",
+                    "post",
+                    note_id,
+                    effective_post_id,
+                )
 
 
 async def enqueue_backfill(
@@ -118,12 +189,15 @@ async def enqueue_backfill(
         select(Post).where(Post.user_id == user_id)
     )
     for post in result2.scalars().all():
-        post_id = str(post.data.get("id") or post.id)
-        for note in (post.data.get("notes") or []):
+        post_data = dict(post.data)
+        if is_post_deleted(post_data):
+            continue
+        post_id = str(post_data.get("id") or post.id)
+        for note in (post_data.get("notes") or []):
             note_id = str(note.get("id") or "")
             if note_id:
                 await enqueue_note_job(session, user_id, "upsert", "post", note_id, post_id)
-        await enqueue_post_text_job(session, user_id, post_id)
+        await enqueue_post_text_job(session, user_id, post_id, post_data=post_data)
 
 
 async def _index_note_file_nodes(
@@ -311,6 +385,14 @@ async def _process_job(
         if post_row is None:
             return
         post_data = dict(post_row.data)
+        if is_post_deleted(post_data):
+            await remove_text_node(
+                session, user_id, "global", NODE_POST_TEXT, note_id, tenant_key=""
+            )
+            await remove_file_nodes_for_parent(
+                session, user_id, "global", note_id, keep_file_ids=set(), tenant_key=""
+            )
+            return
         text_value = str(post_data.get("text") or "").strip()
         if text_value:
             await index_text_node(
@@ -406,6 +488,12 @@ async def _process_job(
         post_row = result2.scalar_one_or_none()
         if post_row is None:
             return
+        if is_post_deleted(dict(post_row.data)):
+            await remove_note(session, user_id, scope, note_id, tenant_key=tenant_key)
+            await remove_file_nodes_for_parent(
+                session, user_id, scope, note_id, keep_file_ids=set(), tenant_key=tenant_key
+            )
+            return
         for note in (post_row.data.get("notes") or []):
             if str(note.get("id", "")) == note_id:
                 note_data = dict(note)
@@ -468,8 +556,11 @@ async def startup_backfill_all(session_factory: async_sessionmaker[AsyncSession]
                     await session.execute(select(Post).where(Post.user_id == user_id))
                 ).scalars().all()
                 for post in post_rows:
-                    post_id = str(post.data.get("id") or post.id)
-                    for note in (post.data.get("notes") or []):
+                    post_data = dict(post.data)
+                    if is_post_deleted(post_data):
+                        continue
+                    post_id = str(post_data.get("id") or post.id)
+                    for note in (post_data.get("notes") or []):
                         note_id = str(note.get("id") or "")
                         if not note_id:
                             continue
@@ -496,11 +587,52 @@ async def startup_backfill_all(session_factory: async_sessionmaker[AsyncSession]
                         {"uid": str(user_id), "pid": post_id, "nt": NODE_POST_TEXT},
                     )
                     if exists_post.fetchone() is None:
-                        await enqueue_post_text_job(session, user_id, post_id)
+                        await enqueue_post_text_job(
+                            session, user_id, post_id, post_data=post_data
+                        )
                         enqueued += 1
 
     if enqueued:
         logger.info("RAG startup backfill: enqueued %d job(s) for indexing", enqueued)
+
+
+async def cleanup_deleted_post_embeddings(
+    session_factory: async_sessionmaker[AsyncSession],
+) -> int:
+    """Enqueue delete jobs for embeddings tied to soft-deleted posts."""
+    settings = get_settings()
+    if not settings.rag_enabled:
+        return 0
+
+    enqueued = 0
+    async with session_factory() as session:
+        async with session.begin():
+            rows = (
+                await session.execute(
+                    text(
+                        "SELECT DISTINCT p.user_id, p.data "
+                        "FROM posts p "
+                        "WHERE p.data->>'status' = 'deleted'"
+                    )
+                )
+            ).fetchall()
+            for row in rows:
+                post_data = row.data if isinstance(row.data, dict) else {}
+                if not post_data.get("id"):
+                    continue
+                await enqueue_post_rag_delete_jobs(
+                    session,
+                    uuid.UUID(str(row.user_id)),
+                    post_data,
+                )
+                enqueued += 1
+
+    if enqueued:
+        logger.info(
+            "RAG deleted-post cleanup: enqueued delete jobs for %d post(s)",
+            enqueued,
+        )
+    return enqueued
 
 
 async def embedding_worker(
@@ -514,6 +646,7 @@ async def embedding_worker(
         return
 
     logger.info("Embedding worker started.")
+    await cleanup_deleted_post_embeddings(session_factory)
     await startup_backfill_all(session_factory)
     while True:
         if stop_event and stop_event.is_set():

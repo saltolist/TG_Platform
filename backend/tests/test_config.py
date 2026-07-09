@@ -61,6 +61,10 @@ def test_rag_intent_routing_enabled_parses_string_flags() -> None:
     assert Settings(rag_intent_routing_enabled="0").rag_intent_routing_enabled is False
 
 
+def test_rag_scope_bias_default() -> None:
+    assert Settings().rag_scope_bias == 0.04
+
+
 def test_provider_keys_default_empty() -> None:
     settings = Settings()
     assert settings.openai_api_key == ""

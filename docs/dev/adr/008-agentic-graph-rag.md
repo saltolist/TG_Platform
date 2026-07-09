@@ -153,6 +153,42 @@ post (один JSONB-объект)
 откладывает саму возможность чтения — только избавляет от отдельного
 embedding-индекса под комментарии.
 
+**Инвариант deleted-постов:** посты со `status: deleted` **не индексируются** и
+**не участвуют в retrieval**. При soft-delete embeddings удаляются; при
+восстановлении (`deleted` → `draft`) — переиндексируются. Draft / scheduled /
+published индексируются как раньше.
+
+### Cross-scope retrieval и bias
+
+L1 и L2 `SearchNodes` используют единую политику пулов (`rag_retrieval_policy.py`):
+
+| Чат | Пулы | Bias |
+|-----|------|------|
+| **global** | `scope=global` (заметки + `post_text`) + `scope=post` (`note_chunk`) | +boost к global |
+| **post (X)** | локальные заметки поста X + global `note_chunk` + `post_text` любых постов | +boost к локальным заметкам поста X |
+
+Заметки **других** постов в post-chat L1 **не ищутся** — только через L2
+(`OpenPost` → `ListPostNotes`).
+
+Параметр `RAG_SCOPE_BIAS` (по умолчанию `0.04`) — поправка к similarity для home
+scope при merge результатов.
+
+### Дополнительные fast-path эскалации L1 → L2
+
+| Сигнал | Чат | Условие |
+|--------|-----|---------|
+| `cross_post` | post | L1 нашёл `post_text` **другого** поста |
+| `post_note` | global | L1 нашёл `note_chunk` с `scope=post` |
+
+Оба пропускают Tier B (цель известна) и сразу запускают L2 с seed/hint.
+
+### Stop-evaluator в L2
+
+Planner не может завершить цикл через `Stop`, пока детерминированный evaluator
+(`rag_stop_evaluator.py`) не подтвердит, что открыт минимально нужный контекст
+(заметка для «почему зашёл», комментарии для «что пишут», и т.д.). Паттерн
+goal-based loop: проверяемый критерий завершения, а не слова planner'а.
+
 ### Когда запускается (жизненный цикл запроса)
 
 Это не отдельный сервис и не фоновая задача — весь каскад выполняется

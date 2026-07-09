@@ -14,7 +14,12 @@ from app.schemas.resources import PostIn
 from app.services.ai.chat_history import merge_history_stamps
 from app.services.ai.context_meta import apply_rolling_summary_reconcile_to_chat_data
 from app.services.ai.summary_catalog import catalog_from_profile, register_local_summary_version
-from app.services.ai.rag_worker import enqueue_note_job, enqueue_post_text_job
+from app.services.ai.rag_worker import (
+    enqueue_note_job,
+    enqueue_post_rag_delete_jobs,
+    enqueue_post_rag_restore_jobs,
+    enqueue_post_text_job,
+)
 from app.services.profile_defaults import empty_channel_profile, empty_telegram_profile
 from app.services.telegram.comments_flow import (
     comments_enabled,
@@ -244,6 +249,9 @@ async def update_post(
     post.data = merged
     # Enqueue RAG indexing for any notes present in the patch
     effective_post_id = str(merged.get("id") or post_id)
+    restored_from_deleted = previous_status == "deleted" and merged.get("status") == "draft"
+    if restored_from_deleted:
+        await enqueue_post_rag_restore_jobs(session, user.id, merged)
     if isinstance(patch.get("notes"), list):
         for note in patch["notes"]:
             if isinstance(note, Mapping) and note.get("id"):
@@ -252,7 +260,9 @@ async def update_post(
                     str(note["id"]), effective_post_id,
                 )
     if text_changed or formatting_changed or "media" in patch:
-        await enqueue_post_text_job(session, user.id, effective_post_id)
+        await enqueue_post_text_job(
+            session, user.id, effective_post_id, post_data=merged
+        )
     await session.commit()
 
     response = dict(merged)
@@ -448,5 +458,6 @@ async def delete_post(
                     raise HTTPException(status_code=exc.status_code, detail=exc.detail) from exc
 
         await mark_post_deleted(post)
+        await enqueue_post_rag_delete_jobs(session, user.id, dict(post.data))
         await session.commit()
     return Response(status_code=status.HTTP_204_NO_CONTENT)

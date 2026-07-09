@@ -72,11 +72,18 @@ def test_render_agent_context_shape() -> None:
 @pytest.mark.asyncio
 async def test_run_agentic_loop_seed_note_auto_executed() -> None:
     state = _state()
+    async def _open_note_side_effect(state: AgentState, *, note_id: str, post_id: str | None = None):
+        state.visited.add(f"note:{note_id}")
+        state.context_blocks.append(
+            (NoteCite(path=f"/note/global/{note_id}/", title="N"), "Текст заметки")
+        )
+        return ToolOutcome(summary="opened note")
+
     with (
         patch(
             "app.services.ai.rag_agent.tool_open_note",
             new_callable=AsyncMock,
-            return_value=ToolOutcome(summary="opened note"),
+            side_effect=_open_note_side_effect,
         ) as open_note_mock,
         patch(
             "app.services.ai.llm.complete_chat_completion",

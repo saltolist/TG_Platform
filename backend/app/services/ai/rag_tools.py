@@ -32,10 +32,10 @@ from app.services.ai.rag import (
     get_note_data,
     markdown_to_index_text,
     resolve_post_data,
-    retrieve_top_k,
     upsert_attachment_extraction,
     _post_title_from_text,
 )
+from app.services.ai.rag_retrieval_policy import retrieve_for_chat
 from app.services.analytics.analytics_snapshot import load_post_snapshots
 from app.services.analytics.channel_metrics import VALID_PERIODS
 from app.services.analytics.post_metrics import build_post_trend
@@ -62,6 +62,7 @@ class AgentState:
     opened_posts: dict[str, dict[str, Any]] = field(default_factory=dict)
     vision_calls_used: int = 0
     hydrated_text_files: set[str] = field(default_factory=set)
+    scope_bias: float = 0.04
     ai_profile: Mapping[str, Any] = field(default_factory=dict)
     user: User | None = None
     settings: Settings | None = None
@@ -124,23 +125,22 @@ async def tool_search_nodes(
 
     try:
         query_vec = await state.embedding_backend.embed_query(query_text)
-        results = await retrieve_top_k(
+        allowed_filter = frozenset(str(nt) for nt in node_types) if node_types else None
+        results = await retrieve_for_chat(
             session=state.session,
             user_id=state.user_id,
-            scope=state.scope,
+            chat_scope=state.scope,
             query_vec=query_vec,
-            model_key=state.embedding_backend.model_key,
+            embedding_backend=state.embedding_backend,
             k=k or state.search_k,
             min_similarity=state.min_similarity,
             post_id=str((state.base_post_data or {}).get("id") or "") or None,
             tenant_key=state.tenant_key,
+            scope_bias=state.scope_bias,
+            node_types_filter=allowed_filter,
         )
     except Exception as exc:
         return ToolOutcome(summary="Поиск не выполнен.", error=str(exc))
-
-    if node_types:
-        allowed = {str(nt) for nt in node_types}
-        results = [item for item in results if str(item.get("node_type") or "") in allowed]
 
     if not results:
         return ToolOutcome(summary="Поиск не дал результатов.")

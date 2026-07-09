@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from app.services.ai.rag import NODE_ATTACHMENT_TEXT, NODE_NOTE_CHUNK
+from app.services.ai.rag import NODE_ATTACHMENT_TEXT, NODE_NOTE_CHUNK, NODE_POST_TEXT
 from app.services.ai.rag_escalation import (
     TierASignals,
     answer_type_mismatch,
@@ -156,3 +156,84 @@ def test_neighbors_empty_without_post_data() -> None:
         escalate_on_miss=True,
     )
     assert result.neighbors == {}
+
+
+def test_fast_path_cross_post_in_post_chat() -> None:
+    result = evaluate_tier_a(
+        user_text="вопрос",
+        history=None,
+        results=[
+            {
+                "note_id": "other",
+                "post_id": "other",
+                "similarity": 0.9,
+                "chunk_text": "Текст другого поста достаточной длины для прохождения порога.",
+                "referenced_ids": [],
+                "node_type": NODE_POST_TEXT,
+                "file_id": "",
+                "scope": "global",
+            }
+        ],
+        post_data={"id": "current"},
+        min_similarity_escalate=0.72,
+        escalate_on_miss=True,
+        chat_scope="post",
+        chat_post_id="current",
+    )
+    assert result.fast_path == "cross_post"
+    assert result.escalate_target == "post:other"
+
+
+def test_cross_post_skips_own_post_with_uuid_alias() -> None:
+    result = evaluate_tier_a(
+        user_text="вопрос",
+        history=None,
+        results=[
+            {
+                "note_id": "119",
+                "post_id": "119",
+                "similarity": 0.9,
+                "chunk_text": "Пост про пластиковые бутылки с достаточно длинным текстом для порога.",
+                "referenced_ids": [],
+                "node_type": NODE_POST_TEXT,
+                "file_id": "",
+                "scope": "global",
+            }
+        ],
+        post_data={"id": "119"},
+        min_similarity_escalate=0.72,
+        escalate_on_miss=True,
+        chat_scope="post",
+        chat_post_id="119",
+        chat_post_id_aliases=frozenset(
+            {"119", "d7ecd734-87f9-40a6-87c8-ef0957dcc56a"}
+        ),
+    )
+    assert result.fast_path is None
+
+
+def test_fast_path_post_note_in_global_chat() -> None:
+    result = evaluate_tier_a(
+        user_text="вопрос",
+        history=None,
+        results=[
+            {
+                "note_id": "note-1",
+                "post_id": "119",
+                "similarity": 0.9,
+                "chunk_text": "Почему этот пост зашел. У поста отличная душевная составляющая.",
+                "referenced_ids": [],
+                "node_type": NODE_NOTE_CHUNK,
+                "file_id": "",
+                "scope": "post",
+            }
+        ],
+        post_data=None,
+        min_similarity_escalate=0.72,
+        escalate_on_miss=True,
+        chat_scope="global",
+        chat_post_id=None,
+    )
+    assert result.fast_path == "post_note"
+    assert result.escalate_target == "note:note-1"
+    assert result.escalate_post_id == "119"

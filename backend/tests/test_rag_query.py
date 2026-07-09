@@ -82,7 +82,7 @@ async def test_retrieve_rag_for_reply_rewrites_on_miss() -> None:
 
     with (
         patch(
-            "app.services.ai.rag_query.retrieve_top_k",
+            "app.services.ai.rag_query.retrieve_for_chat",
             new_callable=AsyncMock,
             side_effect=[empty_results, hit_results],
         ) as retrieve_mock,
@@ -134,7 +134,7 @@ async def test_retrieve_rag_for_reply_skips_rewrite_when_first_hit() -> None:
 
     with (
         patch(
-            "app.services.ai.rag_query.retrieve_top_k",
+            "app.services.ai.rag_query.retrieve_for_chat",
             new_callable=AsyncMock,
             return_value=hit_results,
         ) as retrieve_mock,
@@ -179,7 +179,7 @@ async def test_retrieve_rag_for_reply_l0_skips_without_embed() -> None:
     embedding_backend.embed_query = AsyncMock(return_value=[0.1, 0.2])
 
     with patch(
-        "app.services.ai.rag_query.retrieve_top_k",
+        "app.services.ai.rag_query.retrieve_for_chat",
         new_callable=AsyncMock,
     ) as retrieve_mock:
         context, cites = await retrieve_rag_for_reply(
@@ -214,7 +214,7 @@ async def test_retrieve_rag_for_reply_l0_kill_switch_runs_retrieval() -> None:
 
     with (
         patch(
-            "app.services.ai.rag_query.retrieve_top_k",
+            "app.services.ai.rag_query.retrieve_for_chat",
             new_callable=AsyncMock,
             return_value=[],
         ) as retrieve_mock,
@@ -268,7 +268,7 @@ async def test_retrieve_rag_for_reply_logs_tier_a_without_changing_output() -> N
 
     with (
         patch(
-            "app.services.ai.rag_query.retrieve_top_k",
+            "app.services.ai.rag_query.retrieve_for_chat",
             new_callable=AsyncMock,
             return_value=hit_results,
         ),
@@ -313,7 +313,7 @@ async def test_retrieve_rag_for_reply_tier_a_on_empty_results_global_scope() -> 
     embedding_backend.embed_query = AsyncMock(return_value=[0.1, 0.2])
 
     with patch(
-        "app.services.ai.rag_query.retrieve_top_k",
+        "app.services.ai.rag_query.retrieve_for_chat",
         new_callable=AsyncMock,
         return_value=[],
     ):
@@ -377,6 +377,7 @@ def _tier_a_no_fast_path() -> TierAResult:
     return TierAResult(
         fast_path=None,
         escalate_target=None,
+        escalate_post_id=None,
         signals=TierASignals(
             pointer_phrase=False,
             answer_type_mismatch=False,
@@ -395,7 +396,7 @@ async def test_retrieve_rag_for_reply_tier_b_disabled_by_default() -> None:
 
     with (
         patch(
-            "app.services.ai.rag_query.retrieve_top_k",
+            "app.services.ai.rag_query.retrieve_for_chat",
             new_callable=AsyncMock,
             return_value=_hit_results(),
         ),
@@ -446,7 +447,7 @@ async def test_retrieve_rag_for_reply_tier_b_skipped_on_fast_path() -> None:
 
     with (
         patch(
-            "app.services.ai.rag_query.retrieve_top_k",
+            "app.services.ai.rag_query.retrieve_for_chat",
             new_callable=AsyncMock,
             return_value=_hit_results(),
         ),
@@ -460,6 +461,7 @@ async def test_retrieve_rag_for_reply_tier_b_skipped_on_fast_path() -> None:
             return_value=TierAResult(
                 fast_path="miss",
                 escalate_target=None,
+                escalate_post_id=None,
                 signals=TierASignals(False, False, False, False),
                 neighbors={},
             ),
@@ -501,7 +503,7 @@ async def test_retrieve_rag_for_reply_tier_b_skipped_without_reasoner() -> None:
 
     with (
         patch(
-            "app.services.ai.rag_query.retrieve_top_k",
+            "app.services.ai.rag_query.retrieve_for_chat",
             new_callable=AsyncMock,
             return_value=_hit_results(),
         ),
@@ -548,7 +550,7 @@ async def test_retrieve_rag_for_reply_tier_b_enabled_logs_without_changing_outpu
 
     with (
         patch(
-            "app.services.ai.rag_query.retrieve_top_k",
+            "app.services.ai.rag_query.retrieve_for_chat",
             new_callable=AsyncMock,
             return_value=_hit_results(),
         ),
@@ -602,7 +604,7 @@ async def test_retrieve_rag_for_reply_rag_mode_off_skips_l2() -> None:
 
     with (
         patch(
-            "app.services.ai.rag_query.retrieve_top_k",
+            "app.services.ai.rag_query.retrieve_for_chat",
             new_callable=AsyncMock,
             return_value=_hit_results(),
         ),
@@ -616,6 +618,7 @@ async def test_retrieve_rag_for_reply_rag_mode_off_skips_l2() -> None:
             return_value=TierAResult(
                 fast_path="miss",
                 escalate_target=None,
+                escalate_post_id=None,
                 signals=TierASignals(False, False, False, False),
                 neighbors={},
             ),
@@ -658,7 +661,7 @@ async def test_retrieve_rag_for_reply_rag_mode_flat_skips_l2_on_miss() -> None:
 
     with (
         patch(
-            "app.services.ai.rag_query.retrieve_top_k",
+            "app.services.ai.rag_query.retrieve_for_chat",
             new_callable=AsyncMock,
             return_value=[],
         ),
@@ -667,6 +670,7 @@ async def test_retrieve_rag_for_reply_rag_mode_flat_skips_l2_on_miss() -> None:
             return_value=TierAResult(
                 fast_path="miss",
                 escalate_target=None,
+                escalate_post_id=None,
                 signals=TierASignals(False, False, False, False),
                 neighbors={},
             ),
@@ -720,7 +724,7 @@ async def test_retrieve_rag_for_reply_rag_mode_agentic_runs_l2() -> None:
 
     with (
         patch(
-            "app.services.ai.rag_query.retrieve_top_k",
+            "app.services.ai.rag_query.retrieve_for_chat",
             new_callable=AsyncMock,
             return_value=_hit_results(),
         ),
@@ -779,7 +783,7 @@ async def test_retrieve_rag_for_reply_rag_mode_auto_miss_bypasses_empty_early_re
 
     with (
         patch(
-            "app.services.ai.rag_query.retrieve_top_k",
+            "app.services.ai.rag_query.retrieve_for_chat",
             new_callable=AsyncMock,
             return_value=[],
         ),
@@ -788,6 +792,7 @@ async def test_retrieve_rag_for_reply_rag_mode_auto_miss_bypasses_empty_early_re
             return_value=TierAResult(
                 fast_path="miss",
                 escalate_target=None,
+                escalate_post_id=None,
                 signals=TierASignals(False, False, False, False),
                 neighbors={},
             ),
@@ -842,7 +847,7 @@ async def test_retrieve_rag_for_reply_rag_mode_auto_tier_b_insufficient_runs_l2(
 
     with (
         patch(
-            "app.services.ai.rag_query.retrieve_top_k",
+            "app.services.ai.rag_query.retrieve_for_chat",
             new_callable=AsyncMock,
             return_value=_hit_results(),
         ),
@@ -901,7 +906,7 @@ async def test_retrieve_rag_for_reply_rag_mode_auto_skips_l2_without_reasoner() 
 
     with (
         patch(
-            "app.services.ai.rag_query.retrieve_top_k",
+            "app.services.ai.rag_query.retrieve_for_chat",
             new_callable=AsyncMock,
             return_value=[],
         ),
@@ -910,6 +915,7 @@ async def test_retrieve_rag_for_reply_rag_mode_auto_skips_l2_without_reasoner() 
             return_value=TierAResult(
                 fast_path="miss",
                 escalate_target=None,
+                escalate_post_id=None,
                 signals=TierASignals(False, False, False, False),
                 neighbors={},
             ),
@@ -944,22 +950,24 @@ async def test_retrieve_rag_for_reply_rag_mode_auto_skips_l2_without_reasoner() 
 def test_seed_and_hints_post_analytics_global() -> None:
     from app.services.ai.rag_query import _seed_and_hints
 
-    seed, hints = _seed_and_hints(
-        TierAResult(None, None, TierASignals(False, False, False, False), {}),
+    seed, seed_post_id, hints = _seed_and_hints(
+        TierAResult(None, None, None, TierASignals(False, False, False, False), {}),
         None,
         user_text="Сколько просмотров у поста про скидки?",
         scope="global",
         intent_routing_enabled=True,
     )
     assert seed is None
+    assert seed_post_id is None
     assert any("GetPostAnalytics" in hint for hint in hints)
 
 
 def test_seed_and_hints_comments_hint_names_tool() -> None:
     from app.services.ai.rag_query import _seed_and_hints
 
-    _, hints = _seed_and_hints(
-        TierAResult(None, "comments", TierASignals(False, False, False, False), {}),
+    _, seed_post_id, hints = _seed_and_hints(
+        TierAResult(None, "comments", None, TierASignals(False, False, False, False), {}),
         None,
     )
+    assert seed_post_id is None
     assert any("ListPostComments" in hint for hint in hints)

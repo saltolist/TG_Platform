@@ -373,6 +373,7 @@ async def ai_reply(
                     user=user,
                     ai_profile=ai_profile,
                     intent_routing_enabled=settings.rag_intent_routing_enabled,
+                    scope_bias=settings.rag_scope_bias,
                 )
         except Exception as exc:
             import logging

@@ -6,7 +6,7 @@ import re
 from dataclasses import dataclass
 from typing import Any, Mapping
 
-from app.services.ai.rag import NODE_ATTACHMENT_TEXT, NODE_MEDIA_META
+from app.services.ai.rag import NODE_ATTACHMENT_TEXT, NODE_MEDIA_META, NODE_NOTE_CHUNK, NODE_POST_TEXT
 from app.services.ai.rag_manifest import build_post_manifest
 
 _POINTER_PATTERNS: tuple[re.Pattern[str], ...] = (
@@ -81,6 +81,7 @@ class TierASignals:
 class TierAResult:
     fast_path: str | None
     escalate_target: str | None
+    escalate_post_id: str | None
     signals: TierASignals
     neighbors: dict[str, Any]
 
@@ -176,6 +177,44 @@ def _known_ref_fast_path(
     return None, None
 
 
+def _cross_post_fast_path(
+    results: list[dict[str, Any]],
+    chat_post_id: str | None,
+    chat_post_id_aliases: frozenset[str] | None = None,
+) -> tuple[str | None, str | None]:
+    aliases = set(chat_post_id_aliases or ())
+    if chat_post_id:
+        aliases.add(str(chat_post_id).strip())
+    aliases.discard("")
+    if not aliases:
+        return None, None
+    for item in results:
+        if str(item.get("node_type") or "") != NODE_POST_TEXT:
+            continue
+        found_post_id = str(item.get("post_id") or item.get("note_id") or "").strip()
+        if found_post_id and found_post_id not in aliases:
+            return "cross_post", f"post:{found_post_id}"
+    return None, None
+
+
+def _post_note_fast_path(
+    results: list[dict[str, Any]],
+    chat_scope: str,
+) -> tuple[str | None, str | None, str | None]:
+    if chat_scope != "global":
+        return None, None, None
+    for item in results:
+        if str(item.get("node_type") or "") != NODE_NOTE_CHUNK:
+            continue
+        if str(item.get("scope") or "") != "post":
+            continue
+        note_id = str(item.get("note_id") or "").strip()
+        post_id = str(item.get("post_id") or "").strip()
+        if note_id:
+            return "post_note", f"note:{note_id}", post_id or None
+    return None, None, None
+
+
 def evaluate_tier_a(
     *,
     user_text: str,
@@ -184,6 +223,9 @@ def evaluate_tier_a(
     post_data: Mapping[str, Any] | None,
     min_similarity_escalate: float,
     escalate_on_miss: bool,
+    chat_scope: str = "global",
+    chat_post_id: str | None = None,
+    chat_post_id_aliases: frozenset[str] | None = None,
 ) -> TierAResult:
     neighbors = build_post_manifest(post_data) if post_data else {}
 
@@ -192,6 +234,7 @@ def evaluate_tier_a(
         return TierAResult(
             fast_path=fast_path,
             escalate_target=None,
+            escalate_post_id=None,
             signals=_empty_signals(),
             neighbors=neighbors,
         )
@@ -203,6 +246,7 @@ def evaluate_tier_a(
         return TierAResult(
             fast_path=fast_path,
             escalate_target=None,
+            escalate_post_id=None,
             signals=_empty_signals(),
             neighbors=neighbors,
         )
@@ -212,6 +256,33 @@ def evaluate_tier_a(
         return TierAResult(
             fast_path=known_ref_path,
             escalate_target=known_ref_target,
+            escalate_post_id=None,
+            signals=_empty_signals(),
+            neighbors=neighbors,
+        )
+
+    cross_post_path, cross_post_target = _cross_post_fast_path(
+        results,
+        chat_post_id,
+        chat_post_id_aliases,
+    )
+    if cross_post_path:
+        return TierAResult(
+            fast_path=cross_post_path,
+            escalate_target=cross_post_target,
+            escalate_post_id=None,
+            signals=_empty_signals(),
+            neighbors=neighbors,
+        )
+
+    post_note_path, post_note_target, post_note_post_id = _post_note_fast_path(
+        results, chat_scope
+    )
+    if post_note_path:
+        return TierAResult(
+            fast_path=post_note_path,
+            escalate_target=post_note_target,
+            escalate_post_id=post_note_post_id,
             signals=_empty_signals(),
             neighbors=neighbors,
         )
@@ -226,6 +297,7 @@ def evaluate_tier_a(
     return TierAResult(
         fast_path=None,
         escalate_target=None,
+        escalate_post_id=None,
         signals=signals,
         neighbors=neighbors,
     )

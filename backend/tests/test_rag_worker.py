@@ -12,7 +12,9 @@ from app.services.ai.rag import NODE_ATTACHMENT_TEXT, NODE_MEDIA_META, NODE_POST
 from app.services.ai.rag_worker import (
     _index_note_file_nodes,
     _index_post_media_nodes,
+    enqueue_post_rag_delete_jobs,
     enqueue_post_text_job,
+    is_post_deleted,
 )
 
 
@@ -201,3 +203,39 @@ async def test_index_note_file_nodes_isolates_per_file_failures() -> None:
     node_types = {call.args[3] for call in mock_index.await_args_list}
     assert NODE_MEDIA_META in node_types
     assert NODE_ATTACHMENT_TEXT in node_types
+
+
+def test_is_post_deleted() -> None:
+    assert is_post_deleted({"status": "deleted"})
+    assert not is_post_deleted({"status": "published"})
+
+
+@pytest.mark.asyncio
+async def test_enqueue_post_text_job_skips_deleted_post_data() -> None:
+    session = AsyncMock()
+    with patch("app.services.ai.rag_worker.get_settings") as mock_settings:
+        mock_settings.return_value.rag_enabled = True
+        await enqueue_post_text_job(
+            session,
+            uuid.uuid4(),
+            "p1",
+            post_data={"status": "deleted"},
+        )
+    session.execute.assert_not_awaited()
+
+
+@pytest.mark.asyncio
+async def test_enqueue_post_rag_delete_jobs_enqueues_post_and_notes() -> None:
+    session = AsyncMock()
+    user_id = uuid.uuid4()
+    with patch("app.services.ai.rag_worker.get_settings") as mock_settings:
+        mock_settings.return_value.rag_enabled = True
+        await enqueue_post_rag_delete_jobs(
+            session,
+            user_id,
+            {
+                "id": "post-1",
+                "notes": [{"id": "note-1"}],
+            },
+        )
+    assert session.execute.await_count == 2
