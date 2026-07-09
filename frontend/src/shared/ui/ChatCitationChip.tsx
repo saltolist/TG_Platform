@@ -2,7 +2,8 @@
 
 import Link from "next/link";
 
-import { NavIconNotes } from "@/shared/ui/nav-icons";
+import { isPostCitationHref } from "@/shared/lib/noteCitation";
+import { NavIconFeed, NavIconNotes } from "@/shared/ui/nav-icons";
 
 type Props = {
   href: string;
@@ -12,9 +13,10 @@ type Props = {
 
 /** Inline source chip at the end of an AI reply paragraph. */
 export default function ChatCitationChip({ href, label, title }: Props) {
-  const display = label.trim() || "Заметка";
+  const isPost = isPostCitationHref(href);
+  const display = label.trim() || (isPost ? "Пост" : "Заметка");
   const fullTitle = title?.trim() || display;
-  const tooltip = fullTitle !== display ? fullTitle : "Источник: заметка";
+  const tooltip = fullTitle !== display ? fullTitle : `Источник: ${isPost ? "пост" : "заметка"}`;
   return (
     <Link
       href={href}
@@ -23,7 +25,11 @@ export default function ChatCitationChip({ href, label, title }: Props) {
       aria-label={`Источник: ${fullTitle}`}
     >
       <span className="chat-citation-chip-icon" aria-hidden="true">
-        <NavIconNotes width={12} height={12} />
+        {isPost ? (
+          <NavIconFeed width={12} height={12} outerStrokeWidth={1.5} strokeWidth={1.5} />
+        ) : (
+          <NavIconNotes width={12} height={12} />
+        )}
       </span>
       <span className="chat-citation-chip-label">{display}</span>
     </Link>

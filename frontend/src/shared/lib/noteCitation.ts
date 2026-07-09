@@ -3,21 +3,31 @@ import { routes } from "@/shared/lib/routes";
 const MAX_CHIP_LABEL_LEN = 22;
 
 export const NOTE_CITE_LINK_RE =
-  /\s*\[([^\]]+)\]\((\/note\/[^)]+|note:(?:global|post)\/[^)]+)\)/g;
+  /\s*\[([^\]]+)\]\((\/(?:note|post)\/[^)]+|note:(?:global|post)\/[^)]+)\)/g;
 
 export type NoteCitationSegment =
   | { type: "text"; text: string }
   | { type: "cite"; title: string; href: string };
 
-/** True if href points to a note page (internal citation target). */
+/** True if href points to a knowledge-base citation target (note or post). */
 export function isNoteCitationHref(href: string): boolean {
   if (href.startsWith("/note/")) return true;
+  if (href.startsWith("/post/")) return true;
   if (href.startsWith("note:global/") || href.startsWith("note:post/")) return true;
   return false;
 }
 
-/** Resolve note citation href to an app route. */
+export function isPostCitationHref(href: string): boolean {
+  return href.startsWith("/post/");
+}
+
+/** Resolve citation href to an app route. */
 export function resolveNoteCitationHref(href: string): string | null {
+  if (href.startsWith("/post/")) {
+    const id = decodeURIComponent(href.slice("/post/".length).replace(/\/$/, ""));
+    if (!id) return null;
+    return routes.post(id);
+  }
   if (href.startsWith("/note/")) {
     return href.endsWith("/") ? href : `${href}/`;
   }
@@ -38,10 +48,10 @@ export function resolveNoteCitationHref(href: string): string | null {
   return null;
 }
 
-/** Truncate long note titles for inline chip display. */
-export function citationChipLabel(text: string): string {
+/** Truncate long titles for inline chip display. */
+export function citationChipLabel(text: string, fallback = "Источник"): string {
   const trimmed = text.trim();
-  if (!trimmed) return "Заметка";
+  if (!trimmed) return fallback;
   if (trimmed.length <= MAX_CHIP_LABEL_LEN) return trimmed;
   return `${trimmed.slice(0, MAX_CHIP_LABEL_LEN - 1)}…`;
 }
@@ -51,26 +61,26 @@ export function normalizeNoteCitationMarkdown(text: string): string {
   let out = text;
 
   out = out.replace(
-    /\[([^\]]+)\]\(\s*cite-path:\s*(\/note\/[^)\s]+)\s*\)/gi,
+    /\[([^\]]+)\]\(\s*cite-path:\s*((?:\/note|\/post)\/[^)\s]+)\s*\)/gi,
     "[$1]($2)",
   );
 
   out = out.replace(
-    /cite-path:\s*(\/note\/\S+?)\s+cite-title:\s*([^\n\[\]]+?)(?=\s*(?:\n|---|$))/gi,
+    /cite-path:\s*((?:\/note|\/post)\/\S+?)\s+cite-title:\s*([^\n\[\]]+?)(?=\s*(?:\n|---|$))/gi,
     (_match, path: string, title: string) => `[${title.trim()}](${path})`,
   );
 
   return out;
 }
 
-/** Canonical path for comparing note citation targets. */
+/** Canonical path for comparing citation targets. */
 export function normalizeNoteCitationPath(href: string): string | null {
   const resolved = resolveNoteCitationHref(href);
   if (!resolved) return null;
   return resolved.endsWith("/") ? resolved : `${resolved}/`;
 }
 
-/** Remove note citation links that do not point to known notes. */
+/** Remove citation links that do not point to known notes/posts. */
 export function stripInvalidNoteCitations(text: string, validPaths: ReadonlySet<string>): string {
   if (validPaths.size === 0) {
     NOTE_CITE_LINK_RE.lastIndex = 0;
@@ -85,7 +95,7 @@ export function stripInvalidNoteCitations(text: string, validPaths: ReadonlySet<
   });
 }
 
-/** Replace wrong LLM link labels with canonical note titles when path is known. */
+/** Replace wrong LLM link labels with canonical titles when path is known. */
 export function rewriteNoteCitationLinkTitles(
   text: string,
   titleByPath: ReadonlyMap<string, string>,
@@ -109,8 +119,9 @@ export function resolveNoteCitationChipLabel(
   const normalized = normalizeNoteCitationPath(href);
   const canonical = normalized ? titleByPath?.get(normalized) : undefined;
   const fullTitle = (canonical || linkTitle).trim() || undefined;
+  const fallback = isPostCitationHref(href) ? "Пост" : "Заметка";
   return {
-    label: citationChipLabel(canonical || linkTitle),
+    label: citationChipLabel(canonical || linkTitle, fallback),
     fullTitle,
   };
 }
@@ -132,7 +143,7 @@ function detachCitationsInParagraph(paragraph: string): string {
 }
 
 /**
- * Pull note citation links out of paragraph text and append them at the paragraph end.
+ * Pull citation links out of paragraph text and append them at the paragraph end.
  * "В [Работа](/note/…) заметке …" → "В заметке сказано. [Работа](/note/…)"
  */
 export function detachNoteCitations(text: string): string {

@@ -555,7 +555,11 @@ async def stream_reply_with_meta(ctx: ReplyContext, messages: list[dict[str, str
         web_cites = list(ctx.web_cites)
 
     assistant_text = "".join(accumulated)
-    assistant_text = prepare_note_citations_for_reply(assistant_text, ctx.rag_cites)
+    assistant_text = prepare_note_citations_for_reply(
+        assistant_text,
+        ctx.rag_cites,
+        rewrite_numeric=not web_cites,
+    )
     assistant_text = prepare_web_citations_for_reply(assistant_text, web_cites)
     latency_ms = max(0, int((time.perf_counter() - started) * 1000))
     await _record_reply_usage(ctx, messages=messages, assistant_text=assistant_text, latency_ms=latency_ms)

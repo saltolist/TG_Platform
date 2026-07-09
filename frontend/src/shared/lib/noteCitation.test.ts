@@ -18,6 +18,11 @@ describe("resolveNoteCitationHref", () => {
     expect(resolveNoteCitationHref("/note/global/gn1")).toBe("/note/global/gn1/");
   });
 
+  it("resolves path-based post citation", () => {
+    expect(resolveNoteCitationHref("/post/p5/")).toBe("/post/p5/");
+    expect(resolveNoteCitationHref("/post/p5")).toBe("/post/p5/");
+  });
+
   it("resolves path-based post note citation", () => {
     expect(resolveNoteCitationHref("/note/post/p5/n7/")).toBe("/note/post/p5/n7/");
   });
@@ -34,8 +39,9 @@ describe("resolveNoteCitationHref", () => {
 });
 
 describe("isNoteCitationHref", () => {
-  it("detects note paths and legacy protocol", () => {
+  it("detects note paths, post paths, and legacy protocol", () => {
     expect(isNoteCitationHref("/note/global/x/")).toBe(true);
+    expect(isNoteCitationHref("/post/x/")).toBe(true);
     expect(isNoteCitationHref("note:global/x")).toBe(true);
     expect(isNoteCitationHref("https://example.com")).toBe(false);
   });
@@ -76,6 +82,14 @@ describe("normalizeNoteCitationMarkdown", () => {
         "Ответ cite-path: /note/global/1/ cite-title: Работа\nдальше.",
       ),
     ).toBe("Ответ [Работа](/note/global/1/)\nдальше.");
+  });
+
+  it("converts post cite-path metadata to markdown links", () => {
+    expect(
+      normalizeNoteCitationMarkdown(
+        "Ответ cite-path: /post/3/ cite-title: Привет\nдальше.",
+      ),
+    ).toBe("Ответ [Привет](/post/3/)\nдальше.");
   });
 });
 
@@ -148,6 +162,7 @@ describe("citationChipLabel", () => {
   });
 
   it("falls back for empty label", () => {
-    expect(citationChipLabel("")).toBe("Заметка");
+    expect(citationChipLabel("")).toBe("Источник");
+    expect(citationChipLabel("", "Пост")).toBe("Пост");
   });
 });
