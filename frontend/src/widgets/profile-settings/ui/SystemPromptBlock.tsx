@@ -1,8 +1,11 @@
 "use client";
 
-import { useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
+import { useUpdateAiProfile } from "@/entities/channel";
 import { useProfileTextareaAutoResize } from "@/shared/lib/use-profile-textarea-auto-resize";
 import { useModSaveUndo } from "@/shared/lib/hooks/useModSaveUndo";
+import { normalizeAiProfileConfig } from "@/shared/lib/profile/aiModelsSnapshot";
+import { reportMutationError, showToast } from "@/shared/ui/toast";
 import {
   domainActions,
   selectAiProfileConfig,
@@ -13,6 +16,7 @@ import {
   useUi,
   useUiStore,
 } from "@/app/model/store";
+import { useProfileDraftStore } from "@/app/model/store/profile-draft-store";
 
 export default function SystemPromptBlock({ active = true }: { active?: boolean }) {
   const scopeRef = useRef<HTMLDivElement | null>(null);
@@ -21,6 +25,7 @@ export default function SystemPromptBlock({ active = true }: { active?: boolean 
   const dispatch = useDomainDispatch();
   const { applyPatch } = useDomainActions();
   const { setDirty } = useUi();
+  const updateAiProfile = useUpdateAiProfile();
   const profilePromptDirty = useUiStore((s) => s.dirtyMap["profile-prompt"]);
   const [draft, setDraft] = useState(aiProfileConfig.systemPrompt);
   const dirty = draft !== systemPromptSavedSnapshot;
@@ -44,11 +49,39 @@ export default function SystemPromptBlock({ active = true }: { active?: boolean 
     setDraft(aiProfileConfig.systemPrompt);
   }, [aiProfileConfig.systemPrompt, systemPromptSavedSnapshot]);
 
-  const save = () => {
+  const save = useCallback(async () => {
     if (!dirty) return;
-    dispatch(domainActions.updateAiConfig({ ...aiProfileConfig, systemPrompt: draft }));
+
+    const state = useProfileDraftStore.getState();
+    if (!state.hydrated) return;
+
+    const nextCfg = normalizeAiProfileConfig({
+      ...state.aiProfileConfig,
+      systemPrompt: draft,
+    });
+    const previousSnapshot = state.systemPromptSavedSnapshot;
+
+    dispatch(domainActions.updateAiConfig(nextCfg));
     applyPatch({ systemPromptSavedSnapshot: draft });
-  };
+
+    try {
+      const saved = await updateAiProfile.mutateAsync(nextCfg);
+      const savedPrompt = normalizeAiProfileConfig(saved).systemPrompt;
+      applyPatch({ systemPromptSavedSnapshot: savedPrompt });
+      dispatch(domainActions.updateAiConfig(normalizeAiProfileConfig(saved)));
+      showToast({ message: "Системный промпт сохранён", variant: "info" });
+    } catch (error) {
+      applyPatch({ systemPromptSavedSnapshot: previousSnapshot });
+      dispatch(
+        domainActions.updateAiConfig({
+          ...state.aiProfileConfig,
+          systemPrompt: previousSnapshot,
+        }),
+      );
+      setDraft(previousSnapshot);
+      reportMutationError(error, "Не удалось сохранить системный промпт");
+    }
+  }, [applyPatch, dirty, dispatch, draft, updateAiProfile]);
 
   const cancel = () => {
     if (!dirty) return;
@@ -72,7 +105,12 @@ export default function SystemPromptBlock({ active = true }: { active?: boolean 
         />
       </div>
       <div className="profile-action-buttons profile-action-buttons--ai">
-        <button className="btn btn-primary" disabled={!dirty} onClick={save} type="button">
+        <button
+          className="btn btn-primary"
+          disabled={!dirty || updateAiProfile.isPending}
+          onClick={() => void save()}
+          type="button"
+        >
           Сохранить
         </button>
         {dirty ? (
