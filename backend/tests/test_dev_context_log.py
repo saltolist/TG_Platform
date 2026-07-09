@@ -32,3 +32,33 @@ async def test_dev_context_log_set_and_read(client: AsyncClient, monkeypatch: py
     clear = await client.put("/api/v1/dev/ai-context-log/", json={"chatId": ""})
     assert clear.status_code == 200
     assert clear.json()["chatId"] == ""
+
+
+@pytest.mark.asyncio
+async def test_dev_context_log_traces_endpoint(client: AsyncClient, monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setattr("app.api.v1.dev_context_log.get_settings", lambda: type("S", (), {"ai_context_log": True})())
+
+    from app.services.ai.ai_context_trace_buffer import clear_context_exchanges, make_stored_exchange, store_context_exchange
+
+    clear_context_exchanges()
+    store_context_exchange(
+        make_stored_exchange(
+            scope="post",
+            chat_id=None,
+            post_id="p1",
+            post_chat_id="c1",
+            user_text="hello",
+            provider="x",
+            model="y",
+            pipeline="pipe",
+            request="req",
+            response="resp",
+        )
+    )
+
+    response = await client.get("/api/v1/dev/ai-context-log/traces/", params={"chatId": "c1"})
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["count"] == 1
+    assert payload["traces"][0]["userText"] == "hello"
+    assert payload["traces"][0]["pipeline"] == "pipe"

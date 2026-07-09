@@ -9,6 +9,7 @@ from typing import Any
 from app.services.ai.note_citations import NoteCite
 from app.services.ai.providers import ProviderSpec
 from app.services.ai.rag_json import extract_json_object
+from app.services.ai.reply_pipeline_log import trace_step
 from app.services.ai.rag_tools import (
     AgentState,
     ToolOutcome,
@@ -207,6 +208,7 @@ async def run_agentic_loop(
         )
         outcome = await tool_open_note(state, note_id=note_id, post_id=post_id)
         transcript.append(f"[seed] OpenNote note_id={note_id}: {outcome.summary}")
+        trace_step("7. rag.L2.step", f"[seed] OpenNote({note_id}): {outcome.summary}")
         if outcome.error:
             logger.warning("RAG L2 seed OpenNote failed: %s", outcome.error)
 
@@ -241,6 +243,10 @@ async def run_agentic_loop(
             if verdict.allowed:
                 stopped_reason = str(action.args.get("reason") or "sufficient")
                 logger.info("RAG L2: Stop accepted reason=%s", verdict.reason)
+                trace_step(
+                    "7. rag.L2.step",
+                    f"Stop({stopped_reason}) accepted — {verdict.reason}",
+                )
                 break
             logger.info(
                 "RAG L2: Stop rejected reason=%s steps_left=%s",
@@ -248,6 +254,7 @@ async def run_agentic_loop(
                 max_steps - steps_used,
             )
             transcript.append(f"Stop отклонён: {verdict.reason}")
+            trace_step("7. rag.L2.step", f"Stop rejected — {verdict.reason}")
             steps_used += 1
             if steps_used >= max_steps:
                 stopped_reason = "budget_exhausted"
@@ -256,6 +263,11 @@ async def run_agentic_loop(
 
         outcome = await _dispatch_tool(state, action)
         transcript.append(f"{action.tool}({action.args}): {outcome.summary}")
+        trace_step(
+            "7. rag.L2.step",
+            f"{action.tool}({action.args}): {outcome.summary}"
+            + (f" [error={outcome.error}]" if outcome.error else ""),
+        )
         if outcome.error:
             logger.warning("RAG L2 tool %s error: %s", action.tool, outcome.error)
         steps_used += 1

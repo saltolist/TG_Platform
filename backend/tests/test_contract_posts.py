@@ -55,6 +55,31 @@ async def test_posts_create_patch_delete_contract(
 
 
 @pytest.mark.asyncio
+async def test_posts_patch_can_clear_media(client: AsyncClient, writer_auth_headers: dict) -> None:
+    post_id = str(uuid.uuid4())
+    payload = {
+        **sample_post(post_id, text="With media"),
+        "media": [{"name": "a.jpg", "url": "/media/a.jpg", "type": "image/jpeg"}],
+    }
+
+    create = await client.post("/api/v1/posts/", headers=writer_auth_headers, json=payload)
+    assert create.status_code == 201
+    assert len(create.json().get("media") or []) == 1
+
+    patch = await client.patch(
+        f"/api/v1/posts/{post_id}/",
+        headers=writer_auth_headers,
+        json={"media": []},
+    )
+    assert patch.status_code == 200
+    assert patch.json().get("media") == []
+
+    fetched = await client.get(f"/api/v1/posts/{post_id}/", headers=writer_auth_headers)
+    assert fetched.status_code == 200
+    assert fetched.json().get("media") == []
+
+
+@pytest.mark.asyncio
 async def test_posts_reorder_contract(client: AsyncClient, writer_auth_headers: dict) -> None:
     first_id = str(uuid.uuid4())
     second_id = str(uuid.uuid4())

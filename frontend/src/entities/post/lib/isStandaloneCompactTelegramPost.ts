@@ -16,6 +16,12 @@ export function isStandaloneCompactTelegramPost(post: Post): boolean {
 
 /** Whether copy/edit toolbar and platform text edits are allowed for this post. */
 export function postSupportsPlatformEdit(post: Post): boolean {
-  if (post.status === "draft" || post.status === "scheduled") return true;
+  if (
+    post.status === "draft" ||
+    post.status === "scheduled" ||
+    post.status === "deleted"
+  ) {
+    return true;
+  }
   return !isStandaloneCompactTelegramPost(post);
 }

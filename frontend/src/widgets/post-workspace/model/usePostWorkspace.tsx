@@ -181,7 +181,7 @@ export function usePostWorkspace() {
         const patch: PostPatch = {
           text: content.text,
           textHtml: content.textHtml ?? null,
-          media: media.length > 0 ? [...media] : undefined,
+          media: [...media],
         };
         await updatePost.mutateAsync({
           id: post.id,

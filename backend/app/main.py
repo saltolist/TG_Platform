@@ -74,7 +74,9 @@ async def lifespan(app: FastAPI):
             _context_logger.info("AI context log ON → chat %s (from env)", chat_id)
         else:
             _context_logger.info(
-                "AI context log ON — set chat: ./scripts/ai-log-chat.sh <chat-id>"
+                "AI context log ON — traces buffered for all chats; "
+                "terminal filter: ./scripts/ai-log-chat.sh <chat-id>; "
+                "fetch: GET /api/v1/dev/ai-context-log/traces?chatId=…"
             )
 
     stop_event = asyncio.Event()

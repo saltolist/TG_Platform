@@ -25,6 +25,7 @@ from app.services.ai.intent_router import classify_intent
 from app.services.ai.rag_manifest import filter_unopened_neighbors
 from app.services.ai.rag_sufficiency import TierBResult, evaluate_tier_b
 from app.services.ai.rag_tools import AgentState
+from app.services.ai.reply_pipeline_log import format_retrieval_hits, trace_step
 from app.services.ai.rolling_summary import exchanges_from_messages
 
 logger = logging.getLogger(__name__)
@@ -43,6 +44,13 @@ _META_REWRITE_MARKERS = (
     "контекст диалога",
     "последний запрос",
 )
+
+
+def _preview_query(text: str, limit: int = 200) -> str:
+    cleaned = " ".join((text or "").split())
+    if len(cleaned) <= limit:
+        return cleaned
+    return f"{cleaned[: limit - 1]}…"
 
 
 def _is_invalid_rag_rewrite_response(text: str) -> bool:
@@ -307,7 +315,17 @@ async def retrieve_rag_for_reply(
         reason = l0_skip_reason(user_text)
         if reason:
             logger.debug("RAG L0 skip (%s): %r", reason, user_text[:80])
+            trace_step(
+                "3. rag.L0",
+                [
+                    f"skip reason={reason}",
+                    "→ no embed, no vector search, no L2",
+                ],
+            )
+            trace_step("8. rag.result", "context_chars=0 cites=0")
             return "", []
+
+    trace_step("3. rag.L0", "pass — running L1 retrieval")
 
     base_query = build_rag_query_from_history(
         user_text,
@@ -327,6 +345,16 @@ async def retrieve_rag_for_reply(
         tenant_key=tenant_key,
         scope_bias=scope_bias,
     )
+
+    trace_step(
+        "4. rag.L1.query",
+        [
+            f"effective_post_id={rag_post_id or '—'}",
+            f"query_chars={len(base_query)}",
+            f"query_preview: {_preview_query(base_query)}",
+        ],
+    )
+    trace_step("4. rag.L1.hits", format_retrieval_hits(results))
 
     query_used = base_query
     if (
@@ -360,6 +388,14 @@ async def retrieve_rag_for_reply(
             if retry_results:
                 results = retry_results
                 query_used = rewritten
+                trace_step(
+                    "4. rag.L1.rewrite",
+                    [
+                        f"rewritten_query_chars={len(rewritten)}",
+                        f"rewritten_preview: {_preview_query(rewritten)}",
+                        f"retry_hits={len(retry_results)}",
+                    ],
+                )
 
     tier_a = evaluate_tier_a(
         user_text=user_text,
@@ -378,8 +414,31 @@ async def retrieve_rag_for_reply(
         tier_a.escalate_target,
         tier_a.signals,
     )
+    trace_step(
+        "5. rag.tier_a",
+        [
+            f"fast_path={tier_a.fast_path}",
+            f"escalate_target={tier_a.escalate_target or '—'}",
+            f"escalate_post_id={tier_a.escalate_post_id or '—'}",
+            (
+                "signals: "
+                f"pointer_phrase={tier_a.signals.pointer_phrase} "
+                f"answer_type_mismatch={tier_a.signals.answer_type_mismatch} "
+                f"chunk_too_short={tier_a.signals.chunk_too_short} "
+                f"is_followup={tier_a.signals.is_followup}"
+            ),
+            f"manifest_neighbors={tier_a.neighbors or {}}",
+        ],
+    )
 
     if not results and rag_mode not in ("agentic", "auto"):
+        trace_step(
+            "8. rag.result",
+            [
+                f"rag_mode={rag_mode} — early exit on empty L1",
+                "context_chars=0 cites=0",
+            ],
+        )
         return "", []
 
     tier_b: TierBResult | None = None
@@ -424,6 +483,18 @@ async def retrieve_rag_for_reply(
             tier_b.open_next,
             tier_b.error,
         )
+        trace_step(
+            "6. rag.tier_b",
+            [
+                f"sufficient={tier_b.sufficient}",
+                f"open_next={tier_b.open_next or []}",
+                f"error={tier_b.error or '—'}",
+            ],
+        )
+    elif tier_b_enabled:
+        trace_step("6. rag.tier_b", "skipped — no reasoner model or fast-path")
+    else:
+        trace_step("6. rag.tier_b", "disabled (RAG_TIER_B_ENABLED=0)")
 
     should_escalate = _should_escalate(rag_mode, tier_a, tier_b)
     if (
@@ -438,6 +509,17 @@ async def retrieve_rag_for_reply(
             user_text=user_text,
             scope=scope,
             intent_routing_enabled=intent_routing_enabled,
+        )
+        trace_step(
+            "7. rag.L2",
+            [
+                f"rag_mode={rag_mode}",
+                "should_escalate=True — starting agentic loop",
+                f"seed_ref={seed_ref or '—'}",
+                f"seed_post_id={seed_post_id or '—'}",
+                f"hints={hints}",
+                f"max_steps={rag_agent_max_steps}",
+            ],
         )
         from app.core.config import get_settings
 
@@ -481,7 +563,36 @@ async def retrieve_rag_for_reply(
             agent_result.stopped_reason,
             len(agent_result.cites),
         )
+        trace_step(
+            "7. rag.L2.result",
+            [
+                f"stopped_reason={agent_result.stopped_reason}",
+                f"agent_cites={len(agent_result.cites)}",
+                f"agent_context_chars={len(agent_result.rag_context)}",
+            ],
+        )
+    elif should_escalate:
+        trace_step(
+            "7. rag.L2",
+            f"should_escalate=True but no reasoner LLM — L2 skipped (rag_mode={rag_mode})",
+        )
+    else:
+        trace_step(
+            "7. rag.L2",
+            f"skipped — should_escalate=False (rag_mode={rag_mode})",
+        )
 
     if not rag_cites and rewrite_on_miss and query_used == base_query:
         logger.debug("RAG retrieval returned rows but no note content for query")
+    cite_paths = [cite.path for cite in rag_cites]
+    trace_step(
+        "8. rag.result",
+        [
+            f"context_chars={len(rag_context)}",
+            f"cites={len(rag_cites)}",
+            *(f"  - {path}" for path in cite_paths[:8]),
+            *(["  …"] if len(cite_paths) > 8 else []),
+            f"context_preview: {_preview_query(rag_context, 240)}" if rag_context else "context_preview: (empty)",
+        ],
+    )
     return rag_context, rag_cites
