@@ -274,3 +274,25 @@ def test_bundle_fingerprint_changes_when_telegram_changes() -> None:
     assert bundle_fingerprint(CHANNEL, telegram={"channelTitle": "A"}) != bundle_fingerprint(
         CHANNEL, telegram={"channelTitle": "B"}
     )
+
+
+def test_bundle_fingerprint_ignores_telegram_sync_noise() -> None:
+    base = {
+        "channelTitle": "My Channel",
+        "channel": "@mychannel",
+        "syncRevision": 1,
+    }
+    noisy = {
+        **base,
+        "syncRevision": 99,
+        "metricsRevision": 5,
+        "lastSync": "2026-07-10T12:00:00Z",
+        "subscriberCount": 12345,
+    }
+    assert bundle_fingerprint(CHANNEL, telegram=base) == bundle_fingerprint(CHANNEL, telegram=noisy)
+
+
+def test_bundle_fingerprint_changes_when_channel_handle_changes() -> None:
+    assert bundle_fingerprint(CHANNEL, telegram={"channel": "@a"}) != bundle_fingerprint(
+        CHANNEL, telegram={"channel": "@b"}
+    )
