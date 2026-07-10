@@ -38,14 +38,46 @@ async def test_ensure_writer_session_returns_existing_without_export(
 
 
 @pytest.mark.asyncio
+async def test_resolve_writer_export_dc_picks_different_dc() -> None:
+    settings = get_settings()
+
+    class FakeSession:
+        dc_id = 2
+
+    class FakeReaderClient:
+        session = FakeSession()
+
+        async def __call__(self, request: Any) -> Any:
+            assert type(request).__name__ == "GetConfigRequest"
+            return SimpleNamespace(
+                dc_options=[
+                    SimpleNamespace(id=2, ip_address="1.2.3.4", port=443, cdn=False),
+                    SimpleNamespace(id=4, ip_address="5.6.7.8", port=443, cdn=False),
+                ]
+            )
+
+    dc_id, ip, port = await writer_session._resolve_writer_export_dc(
+        FakeReaderClient(), settings
+    )
+    assert dc_id == 4
+    assert ip == "5.6.7.8"
+    assert port == 443
+
+
+@pytest.mark.asyncio
 async def test_export_writer_session_saves_imported_session(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     settings = get_settings()
     saved: list[str] = []
+    set_dc_calls: list[tuple[int, str, int]] = []
 
     class FakeSession:
         dc_id = 2
+
+        def set_dc(self, dc_id: int, ip: str, port: int) -> None:
+            set_dc_calls.append((dc_id, ip, port))
+            self.dc_id = dc_id
 
         def save(self) -> str:
             saved.append("writer-session-bytes")
@@ -60,6 +92,9 @@ async def test_export_writer_session_saves_imported_session(
         async def disconnect(self) -> None:
             return None
 
+        async def get_me(self) -> SimpleNamespace:
+            return SimpleNamespace(id=1)
+
         async def __call__(self, request: Any) -> Any:
             assert type(request).__name__ == "ImportAuthorizationRequest"
             return None
@@ -68,7 +103,16 @@ async def test_export_writer_session_saves_imported_session(
         session = FakeSession()
 
         async def __call__(self, request: Any) -> Any:
-            assert type(request).__name__ == "ExportAuthorizationRequest"
+            name = type(request).__name__
+            if name == "GetConfigRequest":
+                return SimpleNamespace(
+                    dc_options=[
+                        SimpleNamespace(id=2, ip_address="1.2.3.4", port=443, cdn=False),
+                        SimpleNamespace(id=4, ip_address="5.6.7.8", port=443, cdn=False),
+                    ]
+                )
+            assert name == "ExportAuthorizationRequest"
+            assert request.dc_id == 4
             return SimpleNamespace(id=1, bytes=b"auth-bytes")
 
     monkeypatch.setattr(
@@ -85,6 +129,7 @@ async def test_export_writer_session_saves_imported_session(
     )
     assert result == "writer-session-bytes"
     assert saved == ["writer-session-bytes"]
+    assert set_dc_calls == [(4, "5.6.7.8", 443)]
 
 
 @pytest.mark.asyncio

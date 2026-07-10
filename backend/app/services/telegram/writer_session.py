@@ -58,6 +58,24 @@ async def persist_writer_session_string(
         await session.commit()
 
 
+async def _resolve_writer_export_dc(
+    reader_client: Any, settings: Settings
+) -> tuple[int, str, int]:
+    """Pick a non-CDN DC different from the reader for auth export/import."""
+    from telethon.tl.functions.help import GetConfigRequest
+
+    reader_dc = int(getattr(reader_client.session, "dc_id", 0) or 0)
+    if reader_dc <= 0:
+        raise TelegramAuthError("Не удалось определить DC для writer-сессии", 502)
+
+    config = await with_timeout(reader_client(GetConfigRequest()), settings)
+    for option in config.dc_options:
+        if option.id != reader_dc and not getattr(option, "cdn", False):
+            return option.id, option.ip_address, option.port
+
+    raise TelegramAuthError("Не удалось выбрать DC для writer-сессии", 502)
+
+
 async def export_writer_session(
     reader_client: Any,
     api_id: int,
@@ -67,23 +85,25 @@ async def export_writer_session(
     """Clone reader authorization into a fresh StringSession (new auth key)."""
     from telethon.tl.functions.auth import ExportAuthorizationRequest, ImportAuthorizationRequest
 
-    dc_id = int(getattr(reader_client.session, "dc_id", 0) or 0)
-    if dc_id <= 0:
-        raise TelegramAuthError("Не удалось определить DC для writer-сессии", 502)
-
-    exported = await with_timeout(
-        reader_client(ExportAuthorizationRequest(dc_id)),
-        settings,
+    target_dc_id, target_ip, target_port = await _resolve_writer_export_dc(
+        reader_client, settings
     )
+
     writer_client = build_client(api_id, api_hash, "")
+    writer_client.session.set_dc(target_dc_id, target_ip, target_port)
     try:
         await connect_telegram_client(writer_client, settings)
+        exported = await with_timeout(
+            reader_client(ExportAuthorizationRequest(target_dc_id)),
+            settings,
+        )
         await with_timeout(
             writer_client(
                 ImportAuthorizationRequest(id=exported.id, bytes=exported.bytes)
             ),
             settings,
         )
+        await with_timeout(writer_client.get_me(), settings)
         return save_session(writer_client)
     finally:
         await disconnect_safely(writer_client)
