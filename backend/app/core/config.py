@@ -194,6 +194,8 @@ class Settings(BaseSettings):
     rag_agent_max_vision: int = 2
     # L2 structured planning: off | auto (heuristics) | always
     rag_agent_planning_mode: Literal["off", "auto", "always"] = "auto"
+    # L2 plan alignment: optional LLM auditor after deterministic pre-flight gate
+    rag_agent_plan_alignment_llm: bool = False
     rag_scope_bias: float = 0.04
     rag_intent_routing_enabled: bool = False
 
@@ -213,6 +215,7 @@ class Settings(BaseSettings):
         "rag_escalate_on_miss",
         "rag_tier_b_enabled",
         "rag_intent_routing_enabled",
+        "rag_agent_plan_alignment_llm",
         "cookie_secure",
         "telegram_live_sync_enabled",
         "telegram_reconcile_enabled",

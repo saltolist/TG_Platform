@@ -133,6 +133,74 @@ def test_evaluate_stop_accepts_post_query_after_open_post() -> None:
     assert verdict.reason == "post_opened"
 
 
+def test_evaluate_stop_requires_target_binding_for_named_post_query() -> None:
+    from app.services.ai.rag_retrieval_brief import build_retrieval_brief
+
+    state = _state()
+    query = "Расскажи про мой приветственный пост"
+    state.retrieval_brief = build_retrieval_brief(user_text=query, scope="global")
+    state.visited.add("post:721c63fe")
+    blocks = [(NoteCite(path="/post/721c63fe/", title="Draft"), "Черновик")]
+    verdict = evaluate_stop(query, state, blocks, scope="global")
+    assert not verdict.allowed
+    assert verdict.reason == "missing_target_post_binding"
+
+
+def test_evaluate_stop_accepts_named_post_query_with_target_binding() -> None:
+    from app.services.ai.rag_retrieval_brief import build_retrieval_brief
+
+    state = _state()
+    query = "Расскажи про мой приветственный пост"
+    state.retrieval_brief = build_retrieval_brief(user_text=query, scope="global")
+    state.resolved_target_post_id = "3"
+    state.visited.add("post:3")
+    blocks = [(NoteCite(path="/post/3/", title="Welcome"), "Приветствую")]
+    verdict = evaluate_stop(query, state, blocks, scope="global")
+    assert verdict.allowed
+    assert verdict.reason == "target_post_bound"
+
+
+def test_evaluate_stop_rejects_visual_follow_up_without_open_note() -> None:
+    from app.services.ai.rag_retrieval_brief import build_retrieval_brief
+
+    state = _state()
+    dialog = "Пользователь: Какое изображение подойдет моему приветственному посту?"
+    query = "А для поста про больше никаких переключений?"
+    state.retrieval_brief = build_retrieval_brief(
+        user_text=query,
+        scope="global",
+        dialog_context=dialog,
+    )
+    state.resolved_target_post_id = "721c63fe-f7c6-4183-9a8d-da1979180467"
+    state.visited.add("post:721c63fe-f7c6-4183-9a8d-da1979180467")
+    state.visited.add("post:721c63fe-f7c6-4183-9a8d-da1979180467:notes")
+    blocks = [
+        (
+            NoteCite(path="/post/721c63fe-f7c6-4183-9a8d-da1979180467/", title="Post"),
+            "Текст поста",
+        )
+    ]
+    verdict = evaluate_stop(query, state, blocks, scope="global")
+    assert not verdict.allowed
+    assert verdict.reason == "missing_open_note"
+
+
+def test_evaluate_stop_accepts_evidence_gap_on_target() -> None:
+    from app.services.ai.rag_retrieval_brief import build_retrieval_brief
+
+    state = _state()
+    query = "Какое изображение подойдет моему приветственному посту?"
+    state.retrieval_brief = build_retrieval_brief(user_text=query, scope="global")
+    state.resolved_target_post_id = "3"
+    state.target_evidence_gap = "no_notes_on_target"
+    state.visited.add("post:3")
+    state.visited.add("post:3:notes")
+    blocks = [(NoteCite(path="/post/3/", title="Приветствую 👋"), "Текст поста")]
+    verdict = evaluate_stop(query, state, blocks, scope="global")
+    assert verdict.allowed
+    assert verdict.reason == "evidence_gap_on_target"
+
+
 def test_evaluate_stop_requires_comments_tool() -> None:
     state = _state()
     verdict = evaluate_stop("Что пишут в комментариях?", state, [])

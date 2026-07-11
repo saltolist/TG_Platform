@@ -189,6 +189,24 @@ Planner не может завершить цикл через `Stop`, пока 
 (заметка для «почему зашёл», комментарии для «что пишут», и т.д.). Паттерн
 goal-based loop: проверяемый критерий завершения, а не слова planner'а.
 
+### Plan alignment gate и decision ledger (pre-retrieval)
+
+Перед выполнением structured plan L2 строит **RetrievalBrief** (task, referents,
+evidence_needed, constraints) и прогоняет **Plan Alignment Gate**
+(`rag_plan_alignment.py`):
+
+- **Deterministic rules** — named post без discovery, binding только из L1
+  `note_chunk`, premature hydrate, cross-post media без approval.
+- **Optional LLM auditor** (`RAG_AGENT_PLAN_ALIGNMENT_LLM=1`) — короткая проверка
+  «ответит ли plan на referent»; narrative `reasoning` попадает в trace.
+- **Decision ledger** — цепочка мыслей в фазах `7. rag.L2.brief`,
+  `7. rag.L2.plan_align`, `7. rag.L2.ledger` (при `AI_CONTEXT_LOG=1`).
+
+При `aligned=false` plan **не выполняется** — replan с `plan_alignment:<reason>`
+и fix hint. Entity bindings (`resolved_target_post_id`) ставятся только после
+discovery/seed/post-scope; stop-evaluator отклоняет Stop с
+`missing_target_post_binding` для named post query в global chat.
+
 ### Когда запускается (жизненный цикл запроса)
 
 Это не отдельный сервис и не фоновая задача — весь каскад выполняется

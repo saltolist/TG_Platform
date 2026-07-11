@@ -258,6 +258,25 @@ System prompt ответной модели требует не придумыв
 
 ---
 
+## Сценарий 12 — Plan alignment: named post vs L1 note media
+
+**Запрос (global chat):** «Какое изображение подойдёт моему **приветственному** посту?»
+
+**Данные:** L1 top hit — `note_chunk` поста-черновика с PNG-вариантами; `post_text` welcome-поста в top-k нет.
+
+| Шаг | Действие |
+|-----|----------|
+| L2 brief | `named_post_query=true`, referent «приветственный пост», `cross_post=deny` |
+| L2 plan (initial) | Planner предлагает `OpenPost(721c63fe…)` из L1 note — **misaligned** |
+| Plan alignment | `aligned=false`, reason=`l1_note_binding_only`; narrative ledger в trace |
+| L2 replan | `SearchNodes(post_text, "приветственный пост")` → `OpenPost(3)` |
+| Bindings | `resolved_target_post_id=3` после discovery + OpenPost |
+| Stop-evaluator | Не принимает Stop без `resolved_target_post_id` при named post query |
+
+**Trace (фазы):** `7. rag.L2.brief` → `7. rag.L2.plan_align` → `7. rag.L2.replan` → `7. rag.L2.ledger`
+
+---
+
 ## 3. Сводная таблица
 
 | № | Запрос (суть) | Уровень, на котором закрылось | Ключевой сигнал |
@@ -273,6 +292,7 @@ System prompt ответной модели требует не придумыв
 | 9 | Команда «опубликуй» | Вне agentic RAG | Императив → write-tool с подтверждением (Приоритет 2) |
 | 10 | «Почему зашёл пост» в global | L2 (seed) | `post_note` fast-path |
 | 11 | Чужой пост в post chat | L2 | `cross_post` fast-path |
+| 12 | Named post vs L1 note media | L2 (plan align + replan) | `l1_note_binding_only` → discovery first |
 
 ---
 

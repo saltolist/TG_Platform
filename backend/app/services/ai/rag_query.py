@@ -77,6 +77,39 @@ def _history_pairs_excluding_current(
     return pairs
 
 
+def build_planner_dialog_context(
+    user_text: str,
+    history: list[Mapping[str, Any]] | None,
+    *,
+    history_turns: int = 2,
+    max_chars: int = 1500,
+) -> str:
+    """Recent dialogue for L2 brief/planner (excludes duplicate current user turn)."""
+    pairs = _history_pairs_excluding_current(history, user_text)
+    if not pairs or history_turns <= 0:
+        return ""
+
+    exchanges = exchanges_from_messages(pairs)
+    recent = exchanges[-history_turns:] if history_turns > 0 else []
+    if not recent:
+        return ""
+
+    lines: list[str] = []
+    for user_msg, assistant_msg in recent:
+        if user_msg.strip():
+            lines.append(f"Пользователь: {user_msg.strip()}")
+        if assistant_msg.strip():
+            snippet = assistant_msg.strip()
+            if len(snippet) > 400:
+                snippet = f"{snippet[:399]}…"
+            lines.append(f"Ассистент: {snippet}")
+
+    text = "\n".join(lines)
+    if len(text) <= max_chars:
+        return text
+    return text[-max_chars:]
+
+
 def build_rag_query_from_history(
     user_text: str,
     history: list[Mapping[str, Any]] | None,
@@ -570,6 +603,11 @@ async def retrieve_rag_for_reply(
                 l1_results=results,
                 tier_a=tier_a,
                 tier_b=tier_b,
+            ),
+            dialog_context=build_planner_dialog_context(
+                user_text,
+                history,
+                history_turns=history_turns,
             ),
         )
         if agent_result.rag_context:

@@ -74,7 +74,11 @@ def _required_image_attachment_refs(state: AgentState) -> list[str]:
 
 
 def _evaluate_visual_stop(user_text: str, state: AgentState) -> StopVerdict:
-    if _is_comparative_visual_query(user_text) and state.listed_image_attachment_refs:
+    brief = state.retrieval_brief
+    comparative = _is_comparative_visual_query(user_text) or (
+        brief is not None and brief.task == "comparative_visual"
+    )
+    if comparative and state.listed_image_attachment_refs:
         required = _required_image_attachment_refs(state)
         if required and not all(_is_attachment_hydrated(state, ref) for ref in required):
             return StopVerdict(allowed=False, reason="missing_hydrate_attachment")
@@ -84,6 +88,39 @@ def _evaluate_visual_stop(user_text: str, state: AgentState) -> StopVerdict:
     if _visited_matches(state, lambda ref: ref.startswith("hydrate:")):
         return StopVerdict(allowed=True, reason="attachment_hydrated")
     return StopVerdict(allowed=False, reason="missing_hydrate_attachment")
+
+
+def _evaluate_brief_attachment_stop(state: AgentState) -> StopVerdict | None:
+    brief = state.retrieval_brief
+    if brief is None:
+        return None
+    evidence = set(brief.evidence_needed)
+    if not evidence.intersection({"attachments", "vision"}):
+        return None
+
+    if state.target_evidence_gap:
+        return StopVerdict(allowed=True, reason="evidence_gap_on_target")
+
+    listed_notes = _visited_matches(state, lambda ref: ref.endswith(":notes"))
+    opened_note = _visited_matches(
+        state,
+        lambda ref: ref.startswith("note:") and not ref.endswith(":comments"),
+    )
+    if listed_notes and not opened_note:
+        return StopVerdict(allowed=False, reason="missing_open_note")
+
+    if "vision" in evidence:
+        return _evaluate_visual_stop("", state)
+
+    if state.listed_image_attachment_refs:
+        return StopVerdict(allowed=True, reason="attachments_listed")
+    if _visited_matches(state, lambda ref: "attachments" in ref):
+        return StopVerdict(allowed=True, reason="attachments_listed")
+    if opened_note:
+        return StopVerdict(allowed=False, reason="missing_list_attachments")
+    if listed_notes:
+        return StopVerdict(allowed=False, reason="missing_open_note")
+    return None
 
 
 def _has_note_context(context_blocks: list[tuple[NoteCite, str]]) -> bool:
@@ -105,6 +142,21 @@ def _has_post_context(
     )
 
 
+def _has_post_context_for_id(
+    state: AgentState,
+    context_blocks: list[tuple[NoteCite, str]],
+    post_id: str,
+) -> bool:
+    ref = f"post:{post_id}"
+    if ref in state.visited:
+        return True
+    path_prefix = f"/post/{post_id}/"
+    return any(
+        cite.path.startswith(path_prefix) and plain.strip()
+        for cite, plain in context_blocks
+    )
+
+
 def evaluate_stop(
     user_text: str,
     state: AgentState,
@@ -117,22 +169,37 @@ def evaluate_stop(
     if not query:
         return StopVerdict(allowed=True, reason="empty_query")
 
-    if _query_markers(query, _COMMENTS_QUERY_MARKERS):
+    brief = state.retrieval_brief
+    evidence = set(brief.evidence_needed) if brief else set()
+
+    if brief and brief.named_post_query and scope == "global":
+        if not state.resolved_target_post_id:
+            return StopVerdict(allowed=False, reason="missing_target_post_binding")
+        target_id = state.resolved_target_post_id
+        if not _has_post_context_for_id(state, context_blocks, target_id):
+            return StopVerdict(allowed=False, reason="missing_open_post")
+
+    brief_attachment = _evaluate_brief_attachment_stop(state)
+    if brief_attachment is not None:
+        return brief_attachment
+
+    if _query_markers(query, _COMMENTS_QUERY_MARKERS) or "comments" in evidence:
         if _visited_matches(state, lambda ref: ref.endswith(":comments")):
             return StopVerdict(allowed=True, reason="comments_opened")
         return StopVerdict(allowed=False, reason="missing_list_post_comments")
 
-    if _query_markers(query, _VISUAL_QUERY_MARKERS):
+    if _query_markers(query, _VISUAL_QUERY_MARKERS) or evidence.intersection({"attachments", "vision"}):
         return _evaluate_visual_stop(query, state)
 
-    if _query_markers(query, _NUMERIC_QUERY_MARKERS):
+    if _query_markers(query, _NUMERIC_QUERY_MARKERS) or "analytics" in evidence:
         if _visited_matches(state, lambda ref: ":analytics:" in ref):
             return StopVerdict(allowed=True, reason="analytics_opened")
         if _has_note_context(context_blocks) and any(
             re.search(r"\d", plain) for _, plain in context_blocks
         ):
             return StopVerdict(allowed=True, reason="numeric_note_context")
-        return StopVerdict(allowed=False, reason="missing_analytics_or_numeric_note")
+        if "analytics" in evidence or _query_markers(query, _NUMERIC_QUERY_MARKERS):
+            return StopVerdict(allowed=False, reason="missing_analytics_or_numeric_note")
 
     if _query_markers(query, _WHY_PERFORM_MARKERS):
         if _visited_matches(state, lambda ref: ref.startswith("note:")) or _has_note_context(
@@ -148,6 +215,8 @@ def evaluate_stop(
         return StopVerdict(allowed=False, reason="missing_note_for_why_question")
 
     if scope == "global" and _query_markers(query, POST_QUERY_MARKERS):
+        if brief and brief.named_post_query and state.resolved_target_post_id:
+            return StopVerdict(allowed=True, reason="target_post_bound")
         if _has_post_context(state, context_blocks):
             return StopVerdict(allowed=True, reason="post_opened")
         return StopVerdict(allowed=False, reason="missing_open_post")

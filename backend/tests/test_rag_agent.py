@@ -431,3 +431,99 @@ async def test_run_agentic_loop_replans_after_discovery() -> None:
     llm_mock.assert_not_awaited()
     assert result.stopped_reason == "plan_complete"
 
+
+@pytest.mark.asyncio
+async def test_run_agentic_loop_replans_on_plan_alignment() -> None:
+    from app.services.ai.rag import NODE_NOTE_CHUNK
+
+    state = _state()
+    l1_results = [
+        {
+            "node_type": NODE_NOTE_CHUNK,
+            "post_id": "721c63fe",
+            "note_id": "n1",
+            "chunk_text": "Варианты изображений",
+            "similarity": 0.55,
+        }
+    ]
+    misaligned_plan = RetrievalPlan(
+        goal="найти приветственный пост",
+        steps=[
+            RetrievalPlanStep(
+                tool="OpenPost",
+                args={"post_id": "721c63fe"},
+                purpose="из L1 note",
+            ),
+        ],
+    )
+    aligned_plan = RetrievalPlan(
+        goal="найти приветственный пост",
+        steps=[
+            RetrievalPlanStep(
+                tool="SearchNodes",
+                args={"query": "приветственный пост", "node_types": ["post_text"]},
+                purpose="discovery",
+            ),
+            RetrievalPlanStep(
+                tool="OpenPost",
+                args={"post_id": "3"},
+                purpose="открыть welcome",
+            ),
+        ],
+    )
+
+    async def _compose_side_effect(**kwargs: object) -> tuple[RetrievalPlan, str]:
+        if kwargs.get("transcript"):
+            return aligned_plan, '{"goal": "aligned"}'
+        return misaligned_plan, '{"goal": "misaligned"}'
+
+    open_mock = AsyncMock(return_value=ToolOutcome(summary="opened post 3"))
+    search_mock = AsyncMock(return_value=ToolOutcome(summary="found post 3"))
+
+    with (
+        patch(
+            "app.services.ai.rag_agent.decide_structured_plan",
+            return_value=StructuredPlanDecision(use_plan=True, reason="test"),
+        ),
+        patch(
+            "app.services.ai.rag_agent.compose_retrieval_plan",
+            side_effect=_compose_side_effect,
+        ),
+        patch(
+            "app.services.ai.rag_agent.tool_open_post",
+            open_mock,
+        ),
+        patch(
+            "app.services.ai.rag_agent.tool_search_nodes",
+            search_mock,
+        ),
+        patch(
+            "app.services.ai.rag_stop_evaluator.evaluate_stop",
+            return_value=StopVerdict(allowed=True, reason="target_post_bound"),
+        ),
+        patch("app.services.ai.llm.complete_chat_completion", new_callable=AsyncMock) as llm_mock,
+        patch("app.services.ai.rag_agent.trace_step") as trace_mock,
+    ):
+        result = await run_agentic_loop(
+            state=state,
+            user_text="есть приветственный пост в серии?",
+            seed_ref=None,
+            hints=[],
+            spec=object(),  # type: ignore[arg-type]
+            model="gpt-test",
+            api_key="key",
+            max_steps=4,
+            plan_context=L2PlanContext(planning_mode="auto", l1_results=l1_results),
+        )
+
+    open_mock.assert_awaited_once_with(state, post_id="3")
+    assert search_mock.await_count >= 1
+    llm_mock.assert_not_awaited()
+    assert result.stopped_reason == "plan_complete"
+    assert state.resolved_target_post_id == "3"
+    align_calls = [
+        call for call in trace_mock.call_args_list if call.args[0] == "7. rag.L2.plan_align"
+    ]
+    assert align_calls
+    assert any("aligned=False" in str(call.args[1]) for call in align_calls)
+

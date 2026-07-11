@@ -60,6 +60,12 @@ def test_rag_agent_planning_mode_default() -> None:
     assert Settings().rag_agent_planning_mode == "auto"
 
 
+def test_rag_agent_plan_alignment_llm_parses_string_flags() -> None:
+    assert Settings(rag_agent_plan_alignment_llm="1").rag_agent_plan_alignment_llm is True
+    assert Settings(rag_agent_plan_alignment_llm="0").rag_agent_plan_alignment_llm is False
+    assert Settings().rag_agent_plan_alignment_llm is False
+
+
 def test_rag_intent_routing_enabled_parses_string_flags() -> None:
     assert Settings(rag_intent_routing_enabled="1").rag_intent_routing_enabled is True
     assert Settings(rag_intent_routing_enabled="0").rag_intent_routing_enabled is False

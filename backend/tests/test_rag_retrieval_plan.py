@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from app.services.ai.rag_escalation import TierAResult, TierASignals
+from app.services.ai.rag_retrieval_brief import build_retrieval_brief
 from app.services.ai.rag_retrieval_plan import (
     build_plan_messages,
     decide_structured_plan,
@@ -114,7 +115,7 @@ def test_build_plan_messages_handles_json_braces_in_prompt() -> None:
     system = messages[0]["content"]
     assert '"goal"' in system
     assert "1–4 шагов" in system
-    assert "пересоставит план" in system
+    assert "target resolution" in system or "каталог постов" in system
 
 
 def test_build_replan_messages_includes_transcript() -> None:
@@ -132,3 +133,27 @@ def test_build_replan_messages_includes_transcript() -> None:
     assert "after_ListPosts" in user_content
     assert "id=3" in user_content
     assert "Ход выполнения" in user_content
+
+
+def test_build_plan_messages_includes_brief_and_dialog() -> None:
+    brief = build_retrieval_brief(
+        user_text="А для поста про больше никаких переключений?",
+        scope="global",
+        dialog_context=(
+            "Пользователь: Какое изображение подойдет моему приветственному посту?"
+        ),
+    )
+    messages = build_plan_messages(
+        user_text="А для поста про больше никаких переключений?",
+        l1_summary=format_l1_hits_for_plan([]),
+        hints=[],
+        scope="global",
+        max_steps=4,
+        brief=brief,
+        dialog_context="Пользователь: Какое изображение подойдет…",
+    )
+    user_content = messages[1]["content"]
+    assert "Retrieval brief" in user_content
+    assert "comparative_visual" in user_content
+    assert "evidence_needed" in user_content
+    assert "Контекст диалога" in user_content

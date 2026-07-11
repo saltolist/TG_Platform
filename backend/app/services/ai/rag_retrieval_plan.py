@@ -4,13 +4,16 @@ from __future__ import annotations
 
 import logging
 from dataclasses import dataclass, field
-from typing import Any, Mapping
+from typing import TYPE_CHECKING, Any, Mapping
 
 from app.services.ai.providers import ProviderSpec
 from app.services.ai.rag import NODE_POST_TEXT
 from app.services.ai.rag_escalation import TierAResult
 from app.services.ai.rag_json import extract_json_object
 from app.services.ai.rag_sufficiency import TierBResult
+
+if TYPE_CHECKING:
+    from app.services.ai.rag_retrieval_brief import RetrievalBrief
 
 logger = logging.getLogger(__name__)
 
@@ -44,11 +47,15 @@ _PLAN_SYSTEM_PREFIX = (
 
 _PLAN_SYSTEM_SUFFIX = (
     "- SearchNodes даёт только кандидатов — для текста вызывай OpenPost/OpenNote.\n"
-    "- Если post_id/note_id ещё неизвестны из L1 или подсказок — начни с ListPosts "
-    "и/или SearchNodes; после discovery executor автоматически пересоставит план.\n"
+    "- Если post_id неизвестен — в user-сообщении есть каталог постов и target resolution; "
+    "сначала OpenPost для resolved post_id, иначе ListPosts/SearchNodes(post_text).\n"
+    "- L1 id из note_chunk — кандидаты на media, не target post; не открывай их вместо referent.\n"
+    "- Не выбирай пост только потому, что у него есть заметки с картинками.\n"
+    "- Перед шагами проверь: если выполнить план, ответишь ли на referent из вопроса.\n"
     "- Не указывай выдуманные id и плейсхолдеры — только реальные id из известного контекста.\n"
     "- Учитывай подсказки эскалации и результаты L1.\n"
-    "- HydrateAttachment mode=vision — только для вопросов про содержимое изображения."
+    "- HydrateAttachment mode=vision — только для вопросов про содержимое изображения.\n"
+    "- Retrieval brief в user-сообщении обязателен: plan должен собрать все evidence_needed."
 )
 
 
@@ -74,7 +81,8 @@ def _replan_system_prompt(max_steps: int) -> str:
         "- Не повторяй уже успешно выполненные шаги, если их результат достаточен.\n"
         "- Если вопрос про пост(ы), а пост ещё не открыт — приоритет OpenPost над OpenNote.\n"
         "- SearchNodes даёт только кандидатов — для текста вызывай OpenPost/OpenNote.\n"
-        "- HydrateAttachment mode=vision — только для вопросов про содержимое изображения."
+        "- HydrateAttachment mode=vision — только для вопросов про содержимое изображения.\n"
+        "- Retrieval brief обязателен: plan должен собрать все evidence_needed."
     )
 
 _KNOWN_PLAN_TOOLS = frozenset(
@@ -260,11 +268,25 @@ def build_plan_messages(
     tier_a: TierAResult | None = None,
     tier_b: TierBResult | None = None,
     post_id: str | None = None,
+    brief: RetrievalBrief | None = None,
+    dialog_context: str = "",
+    catalog_summary: str = "",
+    target_resolution_summary: str = "",
 ) -> list[dict[str, str]]:
     lines = [
         f"Вопрос пользователя:\n{user_text.strip()}",
         f"Чат: scope={scope}",
     ]
+    if dialog_context.strip():
+        lines.append(f"Контекст диалога:\n{dialog_context.strip()}")
+    if brief is not None:
+        from app.services.ai.rag_retrieval_brief import format_brief_for_planner
+
+        lines.append(format_brief_for_planner(brief))
+    if catalog_summary.strip():
+        lines.append(catalog_summary.strip())
+    if target_resolution_summary.strip():
+        lines.append(target_resolution_summary.strip())
     if scope == "post" and post_id:
         lines.append(
             f"Текущий пост: post_id={post_id} — пользователь уже в post-чате этого поста; "
@@ -301,13 +323,30 @@ def build_replan_messages(
     scope: str,
     max_steps: int,
     trigger: str,
+    alignment_feedback: str | None = None,
+    brief: RetrievalBrief | None = None,
+    dialog_context: str = "",
+    catalog_summary: str = "",
+    target_resolution_summary: str = "",
 ) -> list[dict[str, str]]:
     lines = [
         f"Вопрос пользователя:\n{user_text.strip()}",
         f"Чат: scope={scope}",
         f"Причина replan: {trigger}",
-        "Ход выполнения:",
     ]
+    if dialog_context.strip():
+        lines.append(f"Контекст диалога:\n{dialog_context.strip()}")
+    if brief is not None:
+        from app.services.ai.rag_retrieval_brief import format_brief_for_planner
+
+        lines.append(format_brief_for_planner(brief))
+    if catalog_summary.strip():
+        lines.append(catalog_summary.strip())
+    if target_resolution_summary.strip():
+        lines.append(target_resolution_summary.strip())
+    if alignment_feedback:
+        lines.append(f"Plan alignment feedback: {alignment_feedback}")
+    lines.append("Ход выполнения:")
     if transcript:
         lines.extend(transcript)
     else:
@@ -369,6 +408,11 @@ async def compose_retrieval_plan(
     transcript: list[str] | None = None,
     replan_trigger: str | None = None,
     post_id: str | None = None,
+    alignment_feedback: str | None = None,
+    brief: RetrievalBrief | None = None,
+    dialog_context: str = "",
+    catalog_summary: str = "",
+    target_resolution_summary: str = "",
 ) -> tuple[RetrievalPlan | None, str]:
     from app.services.ai.llm import complete_chat_completion
 
@@ -380,6 +424,11 @@ async def compose_retrieval_plan(
             scope=scope,
             max_steps=max_steps,
             trigger=replan_trigger or "continue",
+            alignment_feedback=alignment_feedback,
+            brief=brief,
+            dialog_context=dialog_context,
+            catalog_summary=catalog_summary,
+            target_resolution_summary=target_resolution_summary,
         )
     else:
         messages = build_plan_messages(
@@ -391,6 +440,10 @@ async def compose_retrieval_plan(
             tier_a=tier_a,
             tier_b=tier_b,
             post_id=post_id,
+            brief=brief,
+            dialog_context=dialog_context,
+            catalog_summary=catalog_summary,
+            target_resolution_summary=target_resolution_summary,
         )
     try:
         raw = await complete_chat_completion(

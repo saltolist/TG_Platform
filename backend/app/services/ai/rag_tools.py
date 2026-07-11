@@ -35,6 +35,7 @@ from app.services.ai.rag import (
     upsert_attachment_extraction,
     _post_title_from_text,
 )
+from app.services.ai.rag_retrieval_brief import RetrievalBrief
 from app.services.ai.rag_retrieval_policy import post_id_aliases, retrieve_for_chat
 from app.services.analytics.analytics_snapshot import load_post_snapshots
 from app.services.analytics.channel_metrics import VALID_PERIODS
@@ -63,6 +64,15 @@ class AgentState:
     vision_calls_used: int = 0
     hydrated_text_files: set[str] = field(default_factory=set)
     listed_image_attachment_refs: list[str] = field(default_factory=list)
+    retrieval_brief: RetrievalBrief | None = None
+    decision_ledger: list[str] = field(default_factory=list)
+    resolved_target_post_id: str | None = None
+    discovery_completed: bool = False
+    target_evidence_gap: str | None = None
+    catalog_posts: list[dict[str, Any]] = field(default_factory=list)
+    target_resolution_post_id: str | None = None
+    target_resolution_rationale: str = ""
+    target_resolution_confidence: str = ""
     scope_bias: float = 0.04
     ai_profile: Mapping[str, Any] = field(default_factory=dict)
     user: User | None = None
@@ -239,6 +249,7 @@ async def tool_list_posts(
 
     lines = [f"Посты пользователя (status={status_filter}):"]
     matched = 0
+    state.catalog_posts = []
     for row in rows:
         data = dict(row.data) if isinstance(row.data, dict) else {}
         post_id = str(data.get("id") or "").strip()
@@ -252,6 +263,15 @@ async def tool_list_posts(
         title = _post_title_from_text(text_value) if text_value else f"Пост {post_id}"
         preview = text_value[:80] + ("…" if len(text_value) > 80 else "")
         notes_count = len(data.get("notes") or [])
+        state.catalog_posts.append(
+            {
+                "id": post_id,
+                "text": text_value,
+                "status": post_status,
+                "notes_count": notes_count,
+                "notes": data.get("notes") or [],
+            }
+        )
         lines.append(
             f"- id={post_id} status={post_status} title={title!r} "
             f"notes={notes_count} preview={preview!r}"
