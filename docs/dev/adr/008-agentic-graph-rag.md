@@ -207,6 +207,9 @@ evidence_needed, constraints) и прогоняет **Plan Alignment Gate**
 discovery/seed/post-scope; stop-evaluator отклоняет Stop с
 `missing_target_post_binding` для named post query в global chat.
 
+Multi-turn referents на артеfacts из истории чата («та картинка», «второй вариант»)
+— отдельная модель в [ADR-009: Dialog Evidence Ledger](009-dialog-evidence-ledger.md).
+
 ### Когда запускается (жизненный цикл запроса)
 
 Это не отдельный сервис и не фоновая задача — весь каскад выполняется
