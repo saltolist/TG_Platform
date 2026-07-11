@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from uuid import uuid4
 
+from app.core.config import Settings
 from app.services.ai.note_citations import NoteCite
 from app.services.ai.rag_stop_evaluator import evaluate_stop
 from app.services.ai.rag_tools import AgentState
@@ -17,6 +18,62 @@ def _state() -> AgentState:
         tenant_key=None,
         embedding_backend=None,  # type: ignore[arg-type]
     )
+
+
+def _comparative_query() -> str:
+    return (
+        "Как считаешь, какое изображение подойдет моему посту про "
+        "больше никаких переключений между сервисами?"
+    )
+
+
+def test_evaluate_stop_comparative_visual_rejects_partial_hydrate() -> None:
+    state = _state()
+    state.settings = Settings(rag_agent_max_vision=2)
+    state.listed_image_attachment_refs = [
+        "attachment:img1",
+        "attachment:img2",
+    ]
+    state.visited.add("hydrate:vision:attachment:img1")
+    verdict = evaluate_stop(_comparative_query(), state, [])
+    assert not verdict.allowed
+    assert verdict.reason == "missing_hydrate_attachment"
+
+
+def test_evaluate_stop_comparative_visual_accepts_all_listed_hydrated() -> None:
+    state = _state()
+    state.settings = Settings(rag_agent_max_vision=2)
+    state.listed_image_attachment_refs = [
+        "attachment:img1",
+        "attachment:img2",
+    ]
+    state.visited.add("hydrate:vision:attachment:img1")
+    state.visited.add("hydrate:vision:attachment:img2")
+    verdict = evaluate_stop(_comparative_query(), state, [])
+    assert verdict.allowed
+    assert verdict.reason == "attachments_hydrated"
+
+
+def test_evaluate_stop_comparative_visual_accepts_single_listed_hydrated() -> None:
+    state = _state()
+    state.settings = Settings(rag_agent_max_vision=2)
+    state.listed_image_attachment_refs = ["attachment:img1"]
+    state.visited.add("hydrate:vision:attachment:img1")
+    verdict = evaluate_stop(_comparative_query(), state, [])
+    assert verdict.allowed
+    assert verdict.reason == "attachments_hydrated"
+
+
+def test_evaluate_stop_non_comparative_visual_accepts_one_hydrate() -> None:
+    state = _state()
+    state.listed_image_attachment_refs = [
+        "attachment:img1",
+        "attachment:img2",
+    ]
+    state.visited.add("hydrate:vision:attachment:img1")
+    verdict = evaluate_stop("Что изображено на скриншоте?", state, [])
+    assert verdict.allowed
+    assert verdict.reason == "attachment_hydrated"
 
 
 def test_evaluate_stop_rejects_why_question_without_note() -> None:

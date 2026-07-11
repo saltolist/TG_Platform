@@ -7,8 +7,11 @@ from uuid import uuid4
 
 import pytest
 
+from app.core.config import Settings
 from app.services.ai.note_citations import NoteCite
 from app.services.ai.rag_agent import (
+    _finalize_plan_phase,
+    _is_valid_hydrate_ref,
     build_agent_messages,
     format_planner_trace_lines,
     parse_planner_action,
@@ -138,6 +141,39 @@ def test_render_agent_context_shape() -> None:
     assert "**Контекст из базы знаний:**" in context
     assert "cite-path: /note/global/n1/" in context
     assert cites[0].title == "N1"
+
+
+def test_is_valid_hydrate_ref_rejects_placeholder() -> None:
+    assert not _is_valid_hydrate_ref("attachment:<id>")
+    assert not _is_valid_hydrate_ref("")
+    assert _is_valid_hydrate_ref("attachment:704a2ddd-f969-46d1-8a04-04efd02abfde")
+    assert _is_valid_hydrate_ref("file:media-1")
+
+
+@pytest.mark.asyncio
+async def test_finalize_plan_phase_rejects_comparative_stop_until_all_images() -> None:
+    state = _state()
+    state.settings = Settings(rag_agent_max_vision=2)
+    state.listed_image_attachment_refs = [
+        "attachment:img1",
+        "attachment:img2",
+    ]
+    state.visited.add("hydrate:vision:attachment:img1")
+    state.context_blocks.append(
+        (NoteCite(path="/note/global/n1/attachment/img1/", title="A"), "caption a")
+    )
+    query = (
+        "Как считаешь, какое изображение подойдет моему посту про "
+        "больше никаких переключений между сервисами?"
+    )
+    stopped_reason, should_break = await _finalize_plan_phase(
+        user_text=query,
+        state=state,
+        transcript=[],
+        stopped_reason="plan_complete",
+    )
+    assert not should_break
+    assert stopped_reason == "plan_complete"
 
 
 @pytest.mark.asyncio

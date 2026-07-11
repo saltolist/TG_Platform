@@ -213,6 +213,33 @@ async def test_tool_list_note_attachments_manifest() -> None:
     assert outcome.error is None
     assert "attachment:f1" in outcome.summary
     assert "report.pdf" in outcome.summary
+    assert state.listed_image_attachment_refs == []
+
+
+@pytest.mark.asyncio
+async def test_tool_list_note_attachments_populates_image_refs() -> None:
+    state = _state()
+    with patch(
+        "app.services.ai.rag_tools.get_note_data",
+        new_callable=AsyncMock,
+        return_value={
+            "id": "n1",
+            "title": "Note 1",
+            "body": "",
+            "files": [
+                {"id": "img1", "name": "a.png", "type": "image/png"},
+                {"id": "doc1", "name": "report.pdf", "type": "application/pdf"},
+                {"id": "img2", "name": "b.png", "type": "image/png"},
+            ],
+        },
+    ):
+        outcome = await tool_list_note_attachments(state, note_id="n1", post_id="post-1")
+
+    assert outcome.error is None
+    assert state.listed_image_attachment_refs == [
+        "attachment:img1",
+        "attachment:img2",
+    ]
 
 
 @pytest.mark.asyncio

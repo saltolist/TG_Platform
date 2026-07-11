@@ -62,6 +62,7 @@ class AgentState:
     opened_posts: dict[str, dict[str, Any]] = field(default_factory=dict)
     vision_calls_used: int = 0
     hydrated_text_files: set[str] = field(default_factory=set)
+    listed_image_attachment_refs: list[str] = field(default_factory=list)
     scope_bias: float = 0.04
     ai_profile: Mapping[str, Any] = field(default_factory=dict)
     user: User | None = None
@@ -402,12 +403,17 @@ async def tool_list_note_attachments(
     if not files:
         return ToolOutcome(summary=f"У заметки {note_id} нет вложений.")
 
+    image_refs: list[str] = []
     lines = [f"Вложения заметки {note_id}:"]
     for item in files:
         file_id = str(item.get("id") or "").strip()
         name = str(item.get("name") or file_id).strip() or file_id
         mime = str(item.get("type") or item.get("mimeType") or "").strip()
-        lines.append(f"- attachment:{file_id} name={name!r} type={mime!r}")
+        ref = f"attachment:{file_id}"
+        if mime.startswith("image/"):
+            image_refs.append(ref)
+        lines.append(f"- {ref} name={name!r} type={mime!r}")
+    state.listed_image_attachment_refs = image_refs
     return ToolOutcome(summary="\n".join(lines))
 
 

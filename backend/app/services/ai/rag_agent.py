@@ -292,6 +292,17 @@ def _chat_post_id(state: AgentState, seed_post_id: str | None = None) -> str | N
     return value or None
 
 
+def _is_valid_hydrate_ref(ref: str) -> bool:
+    cleaned = str(ref or "").strip()
+    if not cleaned or "<" in cleaned:
+        return False
+    if cleaned.startswith("attachment:"):
+        return bool(cleaned[len("attachment:") :].strip())
+    if cleaned.startswith("file:"):
+        return bool(cleaned[len("file:") :].strip())
+    return False
+
+
 async def _try_replan(
     *,
     user_text: str,
@@ -482,6 +493,53 @@ async def run_agentic_loop(
             if step.purpose:
                 trace_lines.append(f"purpose={step.purpose!r}")
             trace_step("7. rag.L2.plan_exec", trace_lines)
+
+            if action.tool == "HydrateAttachment":
+                hydrate_ref = str(action.args.get("ref") or "").strip()
+                if not _is_valid_hydrate_ref(hydrate_ref):
+                    skip_summary = (
+                        f"{action.tool}({action.args}): skipped invalid ref {hydrate_ref!r}"
+                    )
+                    transcript.append(skip_summary)
+                    trace_step("7. rag.L2.step", skip_summary)
+                    outcome = ToolOutcome(summary=skip_summary, error="invalid_ref")
+                    should_replan = replans_used < MAX_PLAN_REPLANS and steps_used < max_steps
+                    if should_replan:
+                        trigger = f"after_error:{outcome.error}"
+                        new_plan, _ = await _try_replan(
+                            user_text=user_text,
+                            state=state,
+                            transcript=transcript,
+                            hints=hints,
+                            spec=spec,
+                            model=model,
+                            api_key=api_key,
+                            max_steps=max_steps,
+                            steps_used=steps_used,
+                            plan_context=plan_context,
+                            trigger=trigger,
+                            seed_post_id=seed_post_id,
+                        )
+                        replans_used += 1
+                        if new_plan is not None:
+                            plan = new_plan
+                            plan_step_index = 0
+                            transcript.append(
+                                f"[replan] goal={plan.goal} steps={len(plan.steps)} trigger={trigger}"
+                            )
+                            for index, replan_step in enumerate(plan.steps, start=1):
+                                purpose = (
+                                    f" — {replan_step.purpose}" if replan_step.purpose else ""
+                                )
+                                transcript.append(
+                                    f"[replan] {index}. {replan_step.tool}({replan_step.args}){purpose}"
+                                )
+                            continue
+                        transcript.append("[replan] failed — reactive fallback")
+                        plan = None
+                        plan_step_index = 0
+                    continue
+
             outcome = await _run_tool_step(
                 state=state,
                 action=action,
