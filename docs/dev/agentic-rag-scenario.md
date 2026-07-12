@@ -277,6 +277,51 @@ System prompt ответной модели требует не придумыв
 
 ---
 
+## Сценарий 13 — Dialog follow-up: artifact из prior turn (ADR-009 v1)
+
+**Контекст (3 turn'а, chat `da4841f9`):**
+
+| Turn | Запрос | Результат |
+|------|--------|-----------|
+| 1 | «Какое изображение welcome-посту?» | post 3, evidence gap |
+| 2 | «А для поста про переключений?» | post 721, vision по PNG → snapshot в ledger |
+| 3 | «А как же картинка с девушками?» | artifact resolver → anime PNG из ledger (dialog_artifact) |
+
+| Шаг | Действие |
+|-----|----------|
+| Ledger load | `load_ledger(chat_id)` — hydrated attachment из turn 2 |
+| Referent router | `dialog_artifact` (deixis «а как же» + ledger; post resolver не запускается) |
+| L2 brief | `referent_type=dialog_artifact`, `cross_post_allow_refs=[attachment:…]` |
+| Artifact resolver | «девушки» → ref из ledger, `compare_with_post_id=null` |
+| L2 plan | `dialog_seed` → пустой plan (prior hydrated) |
+| Stop | `dialog_ledger_hydrated` → `plan_complete` |
+| Ledger append | snapshot turn 3 после L2 |
+
+**Trace (фазы):** `7. rag.L2.referent_router` → `7. rag.L2.artifact_resolver` → `7. rag.L2.dialog_seed` → `7. rag.L2.plan` → `7. rag.L2.ledger_snapshot`
+
+**Acceptance (v1, чат `0671925c`):** turn 3 «картинка с dевушками» → `dialog_artifact`, `dialog_seed`, `plan_complete` без re-hydrate.
+
+---
+
+## Сценарий 13b — Dialog compare: artifact vs один post (ADR-009 v1.5)
+
+**Контекст (turn после сценария 13, ledger с PNG из post 721):**
+
+| Turn | Запрос | Ожидание |
+|------|--------|----------|
+| N | «Подойдёт ли она welcome-посту?» | seed PNG + `OpenPost(3)` для текста compare post |
+
+| Шаг | Действие |
+|-----|----------|
+| Referent router | `dialog_compare` (compare cue + deixis «она»; named_post gate не блокирует artifact) |
+| Artifact resolver | ref из ledger + `compare_with_post_id=3` |
+| L2 plan | `dialog_seed` + `OpenPost(3)` (hydrate пропущен — ref уже seeded) |
+| Stop | vision seeded + текст post 3 → `plan_complete` |
+
+**Trace:** `7. rag.L2.referent_router` → `7. rag.L2.artifact_resolver` → `7. rag.L2.dialog_seed` → `7. rag.L2.plan_exec`
+
+---
+
 ## 3. Сводная таблица
 
 | № | Запрос (суть) | Уровень, на котором закрылось | Ключевой сигнал |
@@ -293,6 +338,8 @@ System prompt ответной модели требует не придумыв
 | 10 | «Почему зашёл пост» в global | L2 (seed) | `post_note` fast-path |
 | 11 | Чужой пост в post chat | L2 | `cross_post` fast-path |
 | 12 | Named post vs L1 note media | L2 (plan align + replan) | `l1_note_binding_only` → discovery first |
+| 13 | Dialog artifact follow-up (turn 3) | L2 (referent router + artifact resolver + seed) | `dialog_artifact` + ledger seed |
+| 13b | Dialog compare one-post | L2 (referent router + seed + OpenPost compare) | `dialog_compare` + `OpenPost(3)` |
 
 ---
 

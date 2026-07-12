@@ -1,7 +1,8 @@
 # ADR-009: Dialog Evidence Ledger — multi-turn referents в agentic RAG
 
 ## Статус
-📝 Предложено (план; реализация — после target post resolver, см. ADR-008)
+✅ **Принято — v1 + v1.5** (PostgreSQL ledger, artifact resolver, referent router,
+dialog_seed, deterministic dialog plan; turn 3 fast-path на чате `0671925c`)
 
 > Дополняет [ADR-008: Agentic Graph RAG](008-agentic-graph-rag.md) (каскад L0→L2,
 > post resolver, plan alignment). Здесь — **второй класс referent'ов**: ссылки на
@@ -75,8 +76,8 @@ L2 executor и tools (`OpenPost`, `HydrateAttachment`, …).
 **Где хранить ledger**
 
 - A. Только in-memory trace buffer — теряется при restart; достаточно для v1 dev.
-- B. **(v1)** In-memory per `chatId` + восстановление из последнего trace при miss.
-- C. **(v4)** Persist в БД (`chat_evidence_snapshots`) для долгих сессий.
+- B. In-memory per `chatId` + восстановление из последнего trace при miss.
+- C. **(v1, реализовано)** Persist в БД (`dialog_evidence_turns`) для долгих сессий и restart-safe dev.
 
 **Cross-post для dialog artifact**
 
@@ -251,21 +252,19 @@ POST /ai/reply/
 
 ## Roadmap реализации
 
-| Версия | Scope | Ключевые модули |
-|--------|-------|-----------------|
-| **v1** | Dialog artifact ref(s) из **prior hydrated** turn; compare с одним post | `rag_dialog_ledger.py`, `rag_artifact_resolver.py`, brief/binding/alignment/stop |
-| **v1.5** | Taxonomy referent types в router; N refs + multi-hydrate stop | `rag_referent_router.py` |
-| **v2** | Weak ledger + recovery search если ref не hydrate в чате | recovery ladder в agent |
-| **v2.5** | Deixis: «второй», «тот что рекомендовал», exclude | rank/recommended в ledger |
-| **v3** | Multi-entity: несколько post + несколько media в одном вопросе | `brief.entities[]` |
-| **v3.5** | `confidence=low` → clarification, не silent wrong bind | stop `needs_clarification` |
-| **v4** | Persist ledger в БД, restore после restart | `chat_evidence_snapshots` |
-| **v5** | Non-visual: analytics, comments, pdf text | entity_type расширения |
-| **v6** | Tier A/B fast path при ledger hit (без full L2) | escalation policy |
-| **v7+** | Input для write-actions (ADR-008 приоритет 2) | action planner |
+| Версия | Scope | Статус |
+|--------|-------|--------|
+| **v1** | Ledger persist, artifact resolver, dialog_seed, dialog plan, turn 3 fast-path | ✅ |
+| **v1 acceptance** | Turn 3 стабилен после restart; тесты agent/ledger/resolver/binding | ✅ |
+| **v1.5** | Referent router (non-exclusive gates); `dialog_compare` one post | ✅ |
+| **v2** | Weak ledger + recovery search если ref не hydrate в чате | ☐ |
+| **v2.5** | Deixis: «второй», «тот что рекомендовал», exclude | ☐ |
+| **v3** | Multi-entity в одном вопросе | ☐ |
+| **v3.5** | `confidence=low` → clarification | ☐ |
+| **v4** | ~~Persist ledger в БД~~ → done in v1 | ✅ |
+| **v5–v7+** | Non-visual entities; Tier A fast path; write-actions | ☐ |
 
-v1 закрывает регрессию turn 3 (`da4841f9`); v1.5 — «сравни оба PNG для welcome»
-без отдельной архитектуры.
+v1 закрывает регрессию turn 3; v1.5 — «сравни artifact с одним welcome post».
 
 ## Принципы (не нарушать)
 
@@ -294,12 +293,17 @@ v1 закрывает регрессию turn 3 (`da4841f9`); v1.5 — «сра�
 - Target post resolver и plan alignment (ADR-008) должны быть стабильны.
 - `AI_CONTEXT_LOG` и trace buffer — для отладки ledger/resolver.
 
-**Тесты (минимум для v1)**
+**Тесты (минимум для v1 + v1.5)**
 
-1. Turn 3 scenario: dialog artifact → hydrate known ref + open compare post.
-2. Cross-post blocked без resolution; allowed с resolved ref.
-3. Planner misbind (note on empty post) → alignment reject.
-4. Stop без hydrate всех refs → reject.
+| # | Требование | Покрытие |
+|---|------------|----------|
+| 1 | Turn 3 dialog artifact (seed, без re-hydrate) | `test_run_agentic_loop_turn3_dialog_artifact_resolver` |
+| 1b | `dialog_compare` one-post (seed + OpenPost compare) | `test_run_agentic_loop_dialog_compare_seeded_opens_compare_post` |
+| 2 | Cross-post blocked/allowed | `test_rag_binding_policy.py`, `test_rag_plan_alignment.py` |
+| 3 | Planner misbind → alignment reject | `test_rag_plan_alignment.py` |
+| 4 | Stop без hydrate → reject | `test_rag_stop_evaluator.py` |
+| — | Ledger persist/restart | `test_ledger_survives_session_reopen` |
+| — | Referent router gates | `test_rag_referent_router.py` |
 
 ## Ссылки
 
@@ -308,4 +312,5 @@ v1 закрывает регрессию turn 3 (`da4841f9`); v1.5 — «сра�
 - [Роадмап: Agentic Graph RAG](../roadmap-agentic-rag.md)
 - Код (ADR-008, реализовано): `rag_target_resolver.py`, `rag_retrieval_brief.py`,
   `rag_plan_alignment.py`, `rag_binding_policy.py`
-- Код (ADR-009, план): `rag_dialog_ledger.py`, `rag_artifact_resolver.py`
+- Код (ADR-009, v1 + v1.5): `rag_dialog_ledger.py`, `rag_artifact_resolver.py`,
+  `rag_referent_router.py`, `build_dialog_evidence_plan`, `seed_hydrated_dialog_artifacts_from_ledger`
