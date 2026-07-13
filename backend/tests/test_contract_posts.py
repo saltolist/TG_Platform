@@ -51,7 +51,10 @@ async def test_posts_create_patch_delete_contract(
     assert delete.status_code == 204
 
     after_delete = await client.get("/api/v1/posts/", headers=writer_auth_headers)
-    assert all(post.id != post_id for post in parse_posts_list(after_delete.json()))
+    posts_after_delete = parse_posts_list(after_delete.json())
+    deleted_post = next((post for post in posts_after_delete if post.id == post_id), None)
+    assert deleted_post is not None
+    assert deleted_post.status == "deleted"
 
 
 @pytest.mark.asyncio

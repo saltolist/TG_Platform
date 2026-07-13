@@ -36,7 +36,7 @@ class GlobalNoteContract(ApiModel):
 
 class PostContract(ApiModel):
     id: str
-    status: Literal["published", "scheduled", "draft"]
+    status: Literal["published", "scheduled", "draft", "deleted"]
     rubric: str | None
     text: str
     notes: list[Any] = Field(default_factory=list)

@@ -2,6 +2,9 @@ import os
 import uuid
 from urllib.parse import urlparse
 
+# Keep pytest deterministic even when host `.env` enables experimental flags.
+os.environ["AI_CONTEXT_STAMPS"] = "0"
+
 import pytest
 from httpx import ASGITransport, AsyncClient
 from sqlalchemy import delete, select
@@ -26,6 +29,9 @@ from app.db.models import (
     User,
 )
 from app.db.session import get_session
+from app.core.config import get_settings
+
+get_settings.cache_clear()
 from app.main import app
 
 DEFAULT_TEST_DATABASE_URL = "postgresql+asyncpg://tg:tg@localhost:5432/tg_test"

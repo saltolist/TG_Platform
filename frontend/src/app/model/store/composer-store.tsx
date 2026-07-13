@@ -852,18 +852,31 @@ export function ComposerProvider({ children }: { children: ReactNode }) {
               multi.webCitesByVariant,
             );
           } else {
-            const { text: baseReply, webCites } = await completeStreamedAssistantReply(
+            const baseReply = await completeAssistantReply(
               () =>
-                streamGlobalAssistantReply({
-                  queryClient,
-                  accountId,
-                  chatId: ctx.entityId,
-                  assistant,
-                  userText: text,
-                  llmTarget: resolveLlmTarget(cfg, target.llmId),
-                  webTarget: resolveWebTarget(cfg, target.webId) ?? undefined,
-                  signal,
-                }),
+                runAgentWithLegacyFallback(
+                  () =>
+                    runAgentAssistantTurn({
+                      composerScope: "gchat",
+                      threadId: ctx.entityId,
+                      chatId: ctx.entityId,
+                      userText: text,
+                      signal,
+                      onAnswer: (answer) =>
+                        patchGlobalChatStreamingText(queryClient, ctx.entityId, answer, accountId),
+                    }),
+                  () =>
+                    streamGlobalAssistantReply({
+                      queryClient,
+                      accountId,
+                      chatId: ctx.entityId,
+                      assistant,
+                      userText: text,
+                      llmTarget: resolveLlmTarget(cfg, target.llmId),
+                      webTarget: resolveWebTarget(cfg, target.webId) ?? undefined,
+                      signal,
+                    }),
+                ),
               onStreamError,
               { allowEmpty: true },
             );
@@ -872,7 +885,7 @@ export function ComposerProvider({ children }: { children: ReactNode }) {
               "gchat",
               resolveFinalAssistantReply(baseReply, signal),
               undefined,
-              webCites,
+              undefined,
             );
           }
         } finally {
@@ -913,19 +926,39 @@ export function ComposerProvider({ children }: { children: ReactNode }) {
               multi.webCitesByVariant,
             );
           } else {
-            const { text: baseReply, webCites } = await completeStreamedAssistantReply(
+            const baseReply = await completeAssistantReply(
               () =>
-                streamPostAssistantReply({
-                  queryClient,
-                  accountId,
-                  postId: ctx.postId,
-                  chatId: ctx.entityId,
-                  assistant,
-                  userText: text,
-                  llmTarget: resolveLlmTarget(cfg, target.llmId),
-                  webTarget: resolveWebTarget(cfg, target.webId) ?? undefined,
-                  signal,
-                }),
+                runAgentWithLegacyFallback(
+                  () =>
+                    runAgentAssistantTurn({
+                      composerScope: "post",
+                      threadId: ctx.entityId,
+                      postId: ctx.postId,
+                      chatId: ctx.entityId,
+                      userText: text,
+                      signal,
+                      onAnswer: (answer) =>
+                        patchPostChatStreamingText(
+                          queryClient,
+                          ctx.postId,
+                          ctx.entityId,
+                          answer,
+                          accountId,
+                        ),
+                    }),
+                  () =>
+                    streamPostAssistantReply({
+                      queryClient,
+                      accountId,
+                      postId: ctx.postId,
+                      chatId: ctx.entityId,
+                      assistant,
+                      userText: text,
+                      llmTarget: resolveLlmTarget(cfg, target.llmId),
+                      webTarget: resolveWebTarget(cfg, target.webId) ?? undefined,
+                      signal,
+                    }),
+                ),
               onStreamError,
               { allowEmpty: true },
             );
@@ -934,7 +967,7 @@ export function ComposerProvider({ children }: { children: ReactNode }) {
               ctx.entityId,
               resolveFinalAssistantReply(baseReply, signal),
               undefined,
-              webCites,
+              undefined,
             );
           }
         } finally {

@@ -134,12 +134,13 @@ def test_assemble_reply_messages_includes_rolling_summary_in_primer() -> None:
         history.append({"role": "ai", "text": f"ответ {i}"})
 
     # В label-пути rolling_summary хранится внутри label_context (THREAD_LABEL_STATE_KEY).
+    # idx = число пар вне PROMPT_WINDOW (здесь 6 пар истории → 1 пара вне окна).
     chat_meta = {
         "active_thread_key": "",
         "label_context": {
             "": {
                 "rolling_summary": "Ранее мы обсуждали ETF и риски.",
-                "rolling_summary_idx": PROMPT_WINDOW,
+                "rolling_summary_idx": 1,
             }
         },
     }

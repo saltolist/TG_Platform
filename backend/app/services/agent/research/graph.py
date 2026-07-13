@@ -435,18 +435,9 @@ async def run_research_graph(
         "research_transcript": [],
         "research_hints": research_hints,
     }
-    snapshot = await compiled.aget_state(config)
-    final_state = dict(snapshot.values or {}) or initial
-    graph_input: AgentGraphState | None = initial
-    if snapshot.values:
-        graph_input = None if snapshot.next else None
-    if not snapshot.values or snapshot.next:
-        async for value in compiled.astream(
-            graph_input,
-            config,
-            stream_mode="values",
-        ):
-            final_state = value
+    final_state = initial
+    async for value in compiled.astream(initial, config, stream_mode="values"):
+        final_state = value
     records = {
         key: EvidenceRecord.from_dict(value)
         for key, value in (final_state.get("evidence_records") or {}).items()

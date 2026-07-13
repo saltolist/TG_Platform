@@ -30,7 +30,18 @@
 
 ## Canary gates (фаза 7)
 
-- Golden 01–16 green on `RAG_L2_ENGINE=langgraph`
+- Golden 01–19 green on `RAG_L2_ENGINE=langgraph`
 - No regression: retrieval coverage, cite paths, ledger entities
 - Security: cross-tenant asset/post access = 0
 - SSE reconnect with `Last-Event-ID` within 1 s of snapshot
+
+### Rollout flags (docker-compose / env)
+
+| Flag | Default | Enable for |
+|------|---------|------------|
+| `AGENT_RUNTIME_ENGINE=langgraph` | on | durable WorkspaceAgent runs |
+| `RAG_L2_ENGINE=langgraph` | on | research subgraph in RAG |
+| `AGENT_ACTIONS_ENABLED=1` | off | post mutation HITL proposals |
+| `AGENT_MEDIA_ENABLED=1` | off | image/video generation jobs |
+
+After enabling actions/media, restart `backend`, `celery-worker`, and ensure `minio` is up for private asset storage.

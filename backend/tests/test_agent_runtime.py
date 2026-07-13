@@ -46,9 +46,9 @@ async def test_agent_run_executes_with_postgres_checkpoint(
         created = await client.post(
             "/api/v1/ai/runs/",
             json={
-                "thread_id": "durable-test",
+                "threadId": "durable-test",
                 "scope": "global",
-                "chat_id": "gc1",
+                "chatId": "gc1",
             },
             headers=writer_auth_headers,
         )
