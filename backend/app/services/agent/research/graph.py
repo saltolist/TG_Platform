@@ -145,6 +145,7 @@ async def _execute_tool(state: AgentState, action: ToolAction) -> ToolOutcome:
     if tool == "ListPosts":
         return await tool_list_posts(
             state,
+            status=str(args.get("status") or "") or None,
             query=str(args.get("query") or "") or None,
             limit=int(args.get("limit") or 8),
         )

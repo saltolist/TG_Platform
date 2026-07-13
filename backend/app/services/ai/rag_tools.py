@@ -217,6 +217,8 @@ async def tool_list_posts(
     state: AgentState,
     *,
     status: str | None = None,
+    query: str | None = None,
+    limit: int | None = None,
 ) -> ToolOutcome:
     from sqlalchemy import select
 
@@ -224,7 +226,9 @@ async def tool_list_posts(
     from app.services.ai.rag import _post_title_from_text
 
     status_filter = str(status or "all").strip().lower() or "all"
-    ref = f"list_posts:{status_filter}"
+    query_filter = str(query or "").strip().lower()
+    result_limit = max(1, int(limit)) if limit is not None else None
+    ref = f"list_posts:{status_filter}:{query_filter}:{result_limit or 'all'}"
     existing = _already_visited(state, ref)
     if existing:
         return existing
@@ -251,9 +255,11 @@ async def tool_list_posts(
         post_status = str(data.get("status") or "draft").strip().lower()
         if status_filter != "all" and post_status != status_filter:
             continue
-        matched += 1
         text_value = str(data.get("text") or "").strip()
         title = _post_title_from_text(text_value) if text_value else f"Пост {post_id}"
+        if query_filter and query_filter not in f"{title} {text_value}".lower():
+            continue
+        matched += 1
         preview = text_value[:80] + ("…" if len(text_value) > 80 else "")
         notes_count = len(data.get("notes") or [])
         state.catalog_posts.append(
@@ -269,8 +275,12 @@ async def tool_list_posts(
             f"- id={post_id} status={post_status} title={title!r} "
             f"notes={notes_count} preview={preview!r}"
         )
+        if result_limit is not None and matched >= result_limit:
+            break
 
     if matched == 0:
+        if query_filter:
+            return ToolOutcome(summary=f"Постов по запросу {query_filter!r} не найдено.")
         return ToolOutcome(summary=f"Постов со статусом {status_filter!r} не найдено.")
     return ToolOutcome(summary="\n".join(lines))
 

@@ -92,6 +92,8 @@ async def complete_chat_completion(
     api_key: str,
     messages: list[dict[str, str]],
     client: httpx.AsyncClient | None = None,
+    temperature: float | None = None,
+    max_tokens: int | None = None,
 ) -> str:
     """Non-streaming chat completion (rolling summary, etc.)."""
     url = chat_completions_url(spec)
@@ -99,11 +101,15 @@ async def complete_chat_completion(
         "Authorization": f"Bearer {api_key}",
         "Content-Type": "application/json",
     }
-    body = {
+    body: dict[str, object] = {
         "model": model,
         "messages": messages,
         "stream": False,
     }
+    if temperature is not None:
+        body["temperature"] = temperature
+    if max_tokens is not None:
+        body["max_tokens"] = max_tokens
 
     owns_client = client is None
     if client is None:

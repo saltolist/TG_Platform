@@ -111,8 +111,6 @@ services:
 
   sync-worker:
     image: tg-platform-backend:local
-    build:
-      context: ./backend
     entrypoint: ./scripts/entrypoint-sync-worker.sh
     restart: unless-stopped
     environment:
@@ -129,8 +127,6 @@ services:
 
   celery-worker:
     image: tg-platform-backend:local
-    build:
-      context: ./backend
     entrypoint: ./scripts/entrypoint-celery.sh
     command: worker
     restart: unless-stopped
@@ -199,8 +195,6 @@ services:
 
   celery-beat:
     image: tg-platform-backend:local
-    build:
-      context: ./backend
     entrypoint: ./scripts/entrypoint-celery.sh
     command: beat
     restart: unless-stopped
