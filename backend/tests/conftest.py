@@ -10,7 +10,21 @@ from sqlalchemy.pool import NullPool
 
 from app.core.constants import PRESENTATION_EMAIL, PRESENTATION_GUEST_TOKEN
 from app.core.security import create_access_token, hash_password
-from app.db.models import EmailCode, GlobalChat, GlobalNote, Post, Profile, User
+from app.db.models import (
+    ActionProposal,
+    AgentAuditEvent,
+    AgentEvent,
+    AgentRun,
+    DialogEvidenceTurn,
+    EmailCode,
+    GlobalChat,
+    GlobalNote,
+    MediaAsset,
+    MediaJob,
+    Post,
+    Profile,
+    User,
+)
 from app.db.session import get_session
 from app.main import app
 
@@ -53,11 +67,23 @@ async def _clean_db() -> None:
     async with TestSessionLocal() as session:
         from sqlalchemy import text
 
-        for table in ("ai_model_usage_events", "embedding_jobs", "note_embeddings", "tenant_overlay_notes"):
+        for table in (
+            "agent_audit_events",
+            "media_assets",
+            "media_jobs",
+            "action_proposals",
+            "agent_events",
+            "agent_runs",
+            "ai_model_usage_events",
+            "embedding_jobs",
+            "note_embeddings",
+            "tenant_overlay_notes",
+        ):
             try:
                 await session.execute(text(f"DELETE FROM {table}"))
             except Exception:
                 await session.rollback()
+        await session.execute(delete(DialogEvidenceTurn))
         await session.execute(delete(Post))
         await session.execute(delete(GlobalChat))
         await session.execute(delete(GlobalNote))

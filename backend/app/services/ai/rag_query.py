@@ -18,14 +18,18 @@ from app.services.ai.rag_retrieval_policy import (
     post_id_aliases,
     retrieve_for_chat,
 )
-from app.services.ai.rag_agent import run_agentic_loop
+from app.services.ai.rag_dialog_ledger import (
+    append_turn,
+    build_snapshot_from_agent_state,
+    chat_ledger_key,
+    ledger_chat_id,
+    load_ledger,
+)
 from app.services.ai.rag_escalation import TierAResult, evaluate_tier_a
 from app.services.ai.rag_gate import l0_skip_reason
 from app.services.ai.intent_router import classify_intent
 from app.services.ai.rag_manifest import filter_unopened_neighbors
-from app.services.ai.rag_retrieval_plan import L2PlanContext
 from app.services.ai.rag_sufficiency import TierBResult, evaluate_tier_b
-from app.services.ai.rag_tools import AgentState
 from app.services.ai.reply_pipeline_log import format_retrieval_hits, trace_step
 from app.services.ai.rolling_summary import exchanges_from_messages
 
@@ -226,6 +230,24 @@ async def _retrieve_top_k_for_query(
 ) -> list[dict[str, Any]]:
     if not query_text.strip():
         return []
+    from app.core.config import get_settings
+
+    settings = get_settings()
+    if settings.rag_l2_engine == "langgraph":
+        from app.services.agent.research.prefetch import hybrid_prefetch
+
+        return await hybrid_prefetch(
+            session,
+            user_id=user_id,
+            scope=scope,
+            query_text=query_text,
+            embedding_backend=embedding_backend,
+            tenant_key=tenant_key,
+            post_id=post_id,
+            top_k=k,
+            min_similarity=min_similarity,
+            scope_bias=scope_bias,
+        )
     query_vec = await embedding_backend.embed_query(query_text)
     return await retrieve_for_chat(
         session=session,
@@ -342,6 +364,8 @@ async def retrieve_rag_for_reply(
     ai_profile: Mapping[str, Any] | None = None,
     intent_routing_enabled: bool = False,
     scope_bias: float = 0.04,
+    chat_id: str | None = None,
+    post_chat_id: str | None = None,
 ) -> tuple[str, list[NoteCite]]:
     """Retrieve note context using history-expanded query and optional rewrite-on-miss."""
     row_post_id = post_id
@@ -560,59 +584,97 @@ async def retrieve_rag_for_reply(
             chat_post_id=rag_post_id,
             intent_routing_enabled=intent_routing_enabled,
         )
+        from app.core.config import get_settings
+        from app.db.session import async_session_factory
+        from app.services.agent.research.graph import run_research_graph
+        from app.services.agent.runtime.context import RuntimeContext
+
+        settings = get_settings()
+        ledger_key = chat_ledger_key(
+            scope=scope,
+            chat_id=ledger_chat_id(
+                scope=scope,
+                chat_id=chat_id,
+                post_chat_id=post_chat_id,
+            ),
+            post_id=rag_post_id,
+        )
+        dialog_ledger = await load_ledger(
+            session,
+            user_id=user_id,
+            chat_key=ledger_key,
+        )
+
         trace_step(
             "7. rag.L2",
             [
                 f"rag_mode={rag_mode}",
-                "should_escalate=True — starting agentic loop",
+                f"engine={settings.rag_l2_engine}",
+                "should_escalate=True — starting research graph",
                 f"seed_ref={seed_ref or '—'}",
                 f"seed_post_id={seed_post_id or '—'}",
                 f"hints={hints}",
                 f"max_steps={rag_agent_max_steps}",
-                f"planning_mode={rag_agent_planning_mode}",
             ],
         )
-        from app.core.config import get_settings
 
-        agent_state = AgentState(
-            session=session,
+        runtime_ctx = RuntimeContext(
+            session_factory=async_session_factory,
             user_id=user_id,
-            scope=scope,
+            user=user,
             tenant_key=tenant_key,
+            settings=settings,
             embedding_backend=embedding_backend,
-            base_post_data=post_data,
+            scope=scope,
+            post_data=post_data,
+            ai_profile=ai_profile or {},
+            reasoner_spec=rewrite_spec,
+            reasoner_model=rewrite_model or "",
+            reasoner_api_key=rewrite_api_key or "",
             min_similarity=min_similarity,
             search_k=top_k,
-            user=user,
-            ai_profile=ai_profile or {},
-            settings=get_settings(),
             scope_bias=scope_bias,
         )
-        agent_result = await run_agentic_loop(
-            state=agent_state,
+        research = await run_research_graph(
+            runtime_ctx,
             user_text=user_text,
             seed_ref=seed_ref,
             seed_post_id=seed_post_id,
             hints=hints,
-            spec=rewrite_spec,
-            model=rewrite_model,
-            api_key=rewrite_api_key,
-            max_steps=rag_agent_max_steps,
-            plan_context=L2PlanContext(
-                planning_mode=rag_agent_planning_mode,
-                l1_results=results,
-                tier_a=tier_a,
-                tier_b=tier_b,
-            ),
             dialog_context=build_planner_dialog_context(
                 user_text,
                 history,
                 history_turns=history_turns,
             ),
+            dialog_ledger=dialog_ledger,
+            l1_results=results,
+            max_steps=rag_agent_max_steps,
+            spec=rewrite_spec,
+            model=rewrite_model or "",
+            api_key=rewrite_api_key or "",
         )
-        if agent_result.rag_context:
-            rag_context = agent_result.rag_context
-            rag_cites = list(agent_result.cites)
+
+        agent_state = runtime_ctx.agent_tool_state
+        if agent_state is not None:
+            snapshot = build_snapshot_from_agent_state(agent_state, user_text=user_text)
+            await append_turn(
+                session,
+                user_id=user_id,
+                chat_key=ledger_key,
+                snapshot=snapshot,
+            )
+            trace_step(
+                "7. rag.L2.ledger_snapshot",
+                [
+                    f"chat_key={ledger_key or '—'}",
+                    f"entities={len(snapshot.entities)}",
+                    f"target_post_id={snapshot.target_post_id or '—'}",
+                ],
+            )
+
+        if research.rag_context:
+            rag_context = research.rag_context
+            rag_cites = list(research.cites)
         elif results and not rag_context:
             rag_context, rag_cites = await format_rag_context(
                 session=session,
@@ -623,16 +685,18 @@ async def retrieve_rag_for_reply(
                 tenant_key=tenant_key,
             )
         logger.info(
-            "RAG L2: stopped_reason=%s cites=%s",
-            agent_result.stopped_reason,
-            len(agent_result.cites),
+            "RAG L2: stopped_reason=%s cites=%s steps=%s",
+            research.stopped_reason,
+            len(research.cites),
+            research.step_count,
         )
         trace_step(
             "7. rag.L2.result",
             [
-                f"stopped_reason={agent_result.stopped_reason}",
-                f"agent_cites={len(agent_result.cites)}",
-                f"agent_context_chars={len(agent_result.rag_context)}",
+                f"stopped_reason={research.stopped_reason}",
+                f"agent_cites={len(research.cites)}",
+                f"agent_context_chars={len(research.rag_context)}",
+                f"steps={research.step_count}",
             ],
         )
     elif should_escalate:

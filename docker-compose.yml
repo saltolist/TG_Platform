@@ -44,6 +44,7 @@ services:
       retries: 10
 
   backend:
+    image: tg-platform-backend:local
     build:
       context: ./backend
     environment: &backend-env
@@ -54,6 +55,7 @@ services:
       COOKIE_SAMESITE: ${COOKIE_SAMESITE:-lax}
       COOKIE_DOMAIN: ${COOKIE_DOMAIN:-}
       S3_ENDPOINT: http://minio:9000
+      S3_PUBLIC_ENDPOINT: ${S3_PUBLIC_ENDPOINT:-http://localhost:9000}
       S3_ACCESS_KEY: ${MINIO_ROOT_USER:-minioadmin}
       S3_SECRET_KEY: ${MINIO_ROOT_PASSWORD:-minioadmin}
       OPENAI_API_KEY: ${OPENAI_API_KEY:-}
@@ -66,6 +68,10 @@ services:
       RAG_TIER_B_ENABLED: ${RAG_TIER_B_ENABLED:-0}
       RAG_INTENT_ROUTING_ENABLED: ${RAG_INTENT_ROUTING_ENABLED:-0}
       RAG_AGENT_MAX_STEPS: ${RAG_AGENT_MAX_STEPS:-4}
+      AGENT_RUNTIME_ENGINE: ${AGENT_RUNTIME_ENGINE:-langgraph}
+      RAG_L2_ENGINE: ${RAG_L2_ENGINE:-langgraph}
+      AGENT_ACTIONS_ENABLED: ${AGENT_ACTIONS_ENABLED:-0}
+      AGENT_MEDIA_ENABLED: ${AGENT_MEDIA_ENABLED:-0}
       FASTEMBED_CACHE_PATH: /app/.cache/fastembed
       EMBEDDING_MODEL_LOCAL: ${EMBEDDING_MODEL_LOCAL:-sentence-transformers/paraphrase-multilingual-MiniLM-L12-v2}
       AI_CONTEXT_LOG: ${AI_CONTEXT_LOG:-0}
@@ -104,6 +110,7 @@ services:
       - /etc/localtime:/etc/localtime:ro
 
   sync-worker:
+    image: tg-platform-backend:local
     build:
       context: ./backend
     entrypoint: ./scripts/entrypoint-sync-worker.sh
@@ -121,6 +128,7 @@ services:
       - /etc/localtime:/etc/localtime:ro
 
   celery-worker:
+    image: tg-platform-backend:local
     build:
       context: ./backend
     entrypoint: ./scripts/entrypoint-celery.sh
@@ -190,6 +198,7 @@ services:
       - prometheus
 
   celery-beat:
+    image: tg-platform-backend:local
     build:
       context: ./backend
     entrypoint: ./scripts/entrypoint-celery.sh

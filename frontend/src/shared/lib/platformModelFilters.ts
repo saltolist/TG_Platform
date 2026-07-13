@@ -3,6 +3,7 @@ export type ModelTypeId =
   | "web"
   | "vision"
   | "imageGeneration"
+  | "videoGeneration"
   | "orchestrator"
   | "webReasoner"
   | "ragReasoner";
@@ -13,6 +14,7 @@ export const PLATFORM_MODEL_TYPE_OPTIONS: { id: ModelTypeId; label: string; hint
   { id: "web", label: "Web Search", hint: "поиск и сбор источников" },
   { id: "vision", label: "Компьютерное зрение", hint: "анализ изображений и видео" },
   { id: "imageGeneration", label: "Генерация изображений", hint: "создание иллюстраций и обложек" },
+  { id: "videoGeneration", label: "Генерация видео", hint: "создание видеоклипов" },
   { id: "orchestrator", label: "Оркестратор", hint: "маршрутизация сценариев" },
   { id: "webReasoner", label: "Web Reasoner", hint: "рассуждения поверх web-источников" },
   { id: "ragReasoner", label: "RAG Reasoner", hint: "рассуждения поверх базы знаний" },

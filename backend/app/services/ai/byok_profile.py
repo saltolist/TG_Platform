@@ -33,6 +33,7 @@ _LIST_FIELDS = (
     "ragReasonerModels",
     "visionModels",
     "imageGenerationModels",
+    "videoGenerationModels",
 )
 _SINGLE_FIELDS = ("embeddingsModel",)
 

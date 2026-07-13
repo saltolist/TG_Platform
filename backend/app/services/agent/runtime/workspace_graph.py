@@ -1,0 +1,474 @@
+"""Compiled WorkspaceAgent graph with durable checkpointing."""
+
+from __future__ import annotations
+
+import logging
+import asyncio
+import uuid
+from typing import Any, Literal
+
+from langchain_core.runnables import RunnableConfig
+from langgraph.graph import END, StateGraph
+from langgraph.types import interrupt
+
+from app.db.models import AgentRun, User
+from app.services.agent.actions.proposals import create_proposal
+from app.services.agent.media.jobs import create_media_job, enqueue_media_job
+from app.services.agent.media.registry import lookup_capability, resolve_profile_media_model
+from app.services.agent.research.graph import run_research_graph
+from app.services.agent.runtime.checkpoint import ensure_checkpointer_ready, get_checkpointer
+from app.services.agent.runtime.context import RuntimeContext
+from app.services.agent.runtime.state import AgentGraphState
+
+logger = logging.getLogger(__name__)
+_compiled_graphs: dict[int, tuple[object, Any]] = {}
+
+WORKSPACE_SYSTEM = """Ты единственный WorkspaceAgent платформы.
+Верни один JSON tool call:
+- {"type":"read"} — нужен поиск по workspace;
+- {"type":"finish"} — ответ не требует данных workspace;
+- {"type":"post_proposal","command":"create_post|edit_post|schedule_post|publish_post|cancel_schedule|delete_post|restore_post","payload":{...}};
+- {"type":"media_proposal","kind":"image|video","prompt":"...","options":{},"cost_ceiling":number}.
+Не выполняй мутации напрямую. Выбирай только тип вызова, без keyword routing."""
+
+
+async def bootstrap_node(state: AgentGraphState, config: RunnableConfig) -> dict[str, Any]:
+    return {
+        **state,
+        "status": "running",
+        "step_count": 0,
+        "repair_count": state.get("repair_count", 0),
+    }
+
+
+async def workspace_agent_node(
+    state: AgentGraphState,
+    config: RunnableConfig,
+) -> dict[str, Any]:
+    from app.services.ai.llm import complete_chat_completion
+    from app.services.ai.rag_json import extract_json_object
+
+    ctx: RuntimeContext = config["configurable"]["runtime_context"]
+    if not ctx.reasoner_spec or not ctx.reasoner_model or not ctx.reasoner_api_key:
+        call: dict[str, Any] = {"type": "read"}
+    else:
+        raw = await complete_chat_completion(
+            messages=[
+                {"role": "system", "content": WORKSPACE_SYSTEM},
+                {"role": "user", "content": str(state.get("user_text") or "")},
+            ],
+            spec=ctx.reasoner_spec,
+            model=ctx.reasoner_model,
+            api_key=ctx.reasoner_api_key,
+            temperature=0.0,
+            max_tokens=600,
+        )
+        call = extract_json_object(raw) or {"type": "read"}
+    call_type = str(call.get("type") or "read")
+    if call_type not in {"read", "finish", "post_proposal", "media_proposal"}:
+        call = {"type": "read"}
+        call_type = "read"
+    return {**state, "current_tool": call_type, "tool_call": call}
+
+
+def route_workspace_call(
+    state: AgentGraphState,
+) -> Literal["research", "answer", "build_action_proposal", "build_media_proposal"]:
+    call_type = str((state.get("tool_call") or {}).get("type") or "read")
+    return {
+        "read": "research",
+        "finish": "answer",
+        "post_proposal": "build_action_proposal",
+        "media_proposal": "build_media_proposal",
+    }.get(call_type, "research")  # type: ignore[return-value]
+
+
+async def research_node(state: AgentGraphState, config: RunnableConfig) -> dict[str, Any]:
+    ctx: RuntimeContext = config["configurable"]["runtime_context"]
+    research = await run_research_graph(
+        ctx,
+        user_text=str(state.get("user_text") or ""),
+        max_steps=int(state.get("max_steps") or 4),
+        spec=ctx.reasoner_spec,
+        model=ctx.reasoner_model,
+        api_key=ctx.reasoner_api_key,
+        l1_results=config["configurable"].get("l1_results"),
+        dialog_context=config["configurable"].get("dialog_context", ""),
+        dialog_ledger=config["configurable"].get("dialog_ledger", ()),
+        hints=config["configurable"].get("hints", []),
+        seed_ref=config["configurable"].get("seed_ref"),
+        seed_post_id=config["configurable"].get("seed_post_id"),
+        checkpoint_id=str(state.get("run_id") or ""),
+    )
+    records = {
+        eid: {
+            "id": eid,
+            "kind": "search_hit",
+            "source_ref": cite.path,
+            "content": "",
+            "citation_path": cite.path,
+            "citation_title": cite.title,
+        }
+        for eid, cite in zip(research.evidence_ids, research.cites)
+    }
+    return {
+        **state,
+        "rag_context": research.rag_context,
+        "evidence_ids": research.evidence_ids,
+        "evidence_records": records,
+        "stopped_reason": research.stopped_reason,
+        "step_count": research.step_count,
+        "status": "running",
+    }
+
+
+async def answer_node(state: AgentGraphState, config: RunnableConfig) -> dict[str, Any]:
+    from app.services.ai.llm import complete_chat_completion
+    from app.services.ai.rag_json import extract_json_object
+
+    ctx: RuntimeContext = config["configurable"]["runtime_context"]
+    evidence_ids = state.get("evidence_ids") or []
+    prompt = (
+        f"Вопрос:\n{state.get('user_text', '')}\n\n"
+        f"Evidence IDs: {evidence_ids}\n"
+        f"Evidence:\n{state.get('rag_context', '')}\n\n"
+        "Верни JSON {\"answer\":\"...\",\"claims\":[{\"text\":\"...\",\"evidence_ids\":[...]}]}."
+    )
+    if not ctx.reasoner_spec or not ctx.reasoner_model or not ctx.reasoner_api_key:
+        answer = str(state.get("rag_context") or "")
+        if not answer:
+            answer = "Для ответа не требуется дополнительный контекст."
+        return {**state, "answer_text": answer, "claims": []}
+
+    raw = await complete_chat_completion(
+        messages=[
+            {
+                "role": "system",
+                "content": "Отвечай только по evidence. Не выдумывай отсутствующие факты.",
+            },
+            {"role": "user", "content": prompt},
+        ],
+        spec=ctx.reasoner_spec,
+        model=ctx.reasoner_model,
+        api_key=ctx.reasoner_api_key,
+        temperature=0.1,
+        max_tokens=1200,
+    )
+    parsed = extract_json_object(raw) or {}
+    claims = parsed.get("claims") if isinstance(parsed.get("claims"), list) else []
+    return {
+        **state,
+        "answer_text": str(parsed.get("answer") or raw),
+        "claims": claims,
+    }
+
+
+async def build_action_proposal_node(
+    state: AgentGraphState,
+    config: RunnableConfig,
+) -> dict[str, Any]:
+    from app.db.session import async_session_factory
+
+    ctx: RuntimeContext = config["configurable"]["runtime_context"]
+    if not ctx.settings.agent_actions_enabled:
+        return {
+            **state,
+            "errors": [*(state.get("errors") or []), "agent_actions_disabled"],
+            "answer_text": "Действия агента отключены feature flag.",
+        }
+    call = state.get("tool_call") or {}
+    command = str(call.get("command") or "")
+    payload = dict(call.get("payload") or {})
+    async with async_session_factory() as session:
+        run = await session.get(AgentRun, uuid.UUID(state["run_id"]))
+        if run is None:
+            raise RuntimeError("agent_run_not_found")
+        proposal = await create_proposal(
+            session,
+            run=run,
+            user_id=uuid.UUID(state["user_id"]),
+            command=command,
+            payload=payload,
+            resource_version=str(call.get("resource_version") or "") or None,
+            warnings=[str(item) for item in call.get("warnings") or []],
+        )
+        await session.commit()
+    pending = {
+        "type": "action_proposal",
+        "proposal": {
+            "id": str(proposal.id),
+            "command": proposal.command,
+            "payload_hash": proposal.payload_hash,
+            "payload": proposal.payload,
+            "warnings": proposal.warnings,
+            "resource_version": proposal.resource_version,
+        },
+    }
+    return {
+        **state,
+        "proposal_ids": [*(state.get("proposal_ids") or []), str(proposal.id)],
+        "interrupt": pending,
+    }
+
+
+async def build_media_proposal_node(
+    state: AgentGraphState,
+    config: RunnableConfig,
+) -> dict[str, Any]:
+    ctx: RuntimeContext = config["configurable"]["runtime_context"]
+    if not ctx.settings.agent_media_enabled:
+        return {
+            **state,
+            "errors": [*(state.get("errors") or []), "agent_media_disabled"],
+            "answer_text": "Генерация медиа отключена feature flag.",
+        }
+    call = state.get("tool_call") or {}
+    kind = str(call.get("kind") or "image")
+    model = resolve_profile_media_model(ctx.ai_profile, kind=kind)  # type: ignore[arg-type]
+    if model is None:
+        return {
+            **state,
+            "errors": [*(state.get("errors") or []), f"no_active_{kind}_model"],
+            "answer_text": f"В профиле не выбрана активная {kind}-модель.",
+        }
+    capability = lookup_capability(
+        str(model.get("provider") or ""),
+        str(model.get("model") or ""),
+    )
+    if capability is None or capability.kind != kind:
+        return {
+            **state,
+            "errors": [*(state.get("errors") or []), "unsupported_media_model"],
+            "answer_text": "Выбранная media-модель пока не поддерживается runtime.",
+        }
+    pending = {
+        "type": "media_cost",
+        "proposal": {
+            "kind": kind,
+            "provider": model.get("provider"),
+            "model": model.get("model"),
+            "model_id": model.get("id"),
+            "prompt": str(call.get("prompt") or ""),
+            "options": dict(call.get("options") or {}),
+            "cost_ceiling": call.get("cost_ceiling"),
+        },
+    }
+    return {**state, "interrupt": pending}
+
+
+async def action_hitl_node(state: AgentGraphState, config: RunnableConfig) -> dict[str, Any]:
+    pending = state.get("interrupt")
+    if pending and pending.get("type") == "action_proposal":
+        decision = interrupt(pending)
+        return {
+            **state,
+            "interrupt": None,
+            "status": "running",
+            "answer_text": (
+                "Действие подтверждено и выполнено."
+                if decision.get("decision") == "approve"
+                else "Предложенное действие отклонено."
+            ),
+        }
+    return state
+
+
+async def media_hitl_node(state: AgentGraphState, config: RunnableConfig) -> dict[str, Any]:
+    pending = state.get("interrupt")
+    if pending and pending.get("type") in {"media_cost", "media_attach"}:
+        decision = interrupt(pending)
+        return {
+            **state,
+            "interrupt": None,
+            "status": "running",
+            "media_decision": {
+                **decision,
+                "proposal": dict(pending.get("proposal") or {}),
+            },
+        }
+    return state
+
+
+def route_media_decision(state: AgentGraphState) -> Literal["submit_media", "complete"]:
+    decision = state.get("media_decision") or {}
+    return "submit_media" if decision.get("decision") == "approve" else "complete"
+
+
+async def submit_media_node(
+    state: AgentGraphState,
+    config: RunnableConfig,
+) -> dict[str, Any]:
+    from app.db.session import async_session_factory
+
+    proposal = dict((state.get("interrupt") or {}).get("proposal") or {})
+    # On resume the interrupt payload was cleared; retain the original proposal
+    # in the resume value when provided by the API.
+    decision = state.get("media_decision") or {}
+    proposal = dict(decision.get("proposal") or proposal)
+    async with async_session_factory() as session:
+        job = await create_media_job(
+            session,
+            user_id=uuid.UUID(state["user_id"]),
+            run_id=uuid.UUID(state["run_id"]),
+            job_type=str(proposal.get("kind") or "image"),
+            provider=str(proposal.get("provider") or ""),
+            model=str(proposal.get("model") or ""),
+            brief={
+                "prompt": str(proposal.get("prompt") or ""),
+                "options": dict(proposal.get("options") or {}),
+                "model_id": proposal.get("model_id"),
+            },
+            reserved_cost=proposal.get("cost_ceiling"),
+        )
+        await enqueue_media_job(session, job)
+        await session.commit()
+    return {
+        **state,
+        "job_ids": [*(state.get("job_ids") or []), str(job.id)],
+        "interrupt": {"type": "awaiting_job", "job_id": str(job.id)},
+    }
+
+
+async def media_wait_node(state: AgentGraphState, config: RunnableConfig) -> dict[str, Any]:
+    pending = state.get("interrupt") or {}
+    result = interrupt(pending)
+    return {
+        **state,
+        "interrupt": None,
+        "media_result": result,
+    }
+
+
+async def build_media_attach_proposal_node(
+    state: AgentGraphState,
+    config: RunnableConfig,
+) -> dict[str, Any]:
+    from app.db.models import MediaAsset
+    from app.db.session import async_session_factory
+    from app.services.agent.media.storage import MediaStorage
+    from app.core.config import get_settings
+
+    result = state.get("media_result") or {}
+    post_id = str(state.get("post_id") or "")
+    asset_id = str(result.get("asset_id") or "")
+    if not post_id or not asset_id:
+        return state
+    async with async_session_factory() as session:
+        run = await session.get(AgentRun, uuid.UUID(state["run_id"]))
+        asset = await session.get(MediaAsset, uuid.UUID(asset_id))
+        if run is None or asset is None or asset.user_id != uuid.UUID(state["user_id"]):
+            raise RuntimeError("media_attach_target_not_found")
+        payload = {
+            "post_id": post_id,
+            "asset_id": asset_id,
+            "mime_type": asset.mime_type,
+            "name": "generated",
+            "preview_url": MediaStorage(get_settings()).signed_preview_url(asset.object_key),
+        }
+        proposal = await create_proposal(
+            session,
+            run=run,
+            user_id=uuid.UUID(state["user_id"]),
+            command="attach_media",
+            payload=payload,
+            warnings=["Медиа будет прикреплено к посту только после подтверждения."],
+        )
+        await session.commit()
+    pending = {
+        "type": "action_proposal",
+        "proposal": {
+            "id": str(proposal.id),
+            "command": proposal.command,
+            "payload_hash": proposal.payload_hash,
+            "payload": proposal.payload,
+            "warnings": proposal.warnings,
+        },
+    }
+    return {
+        **state,
+        "proposal_ids": [*(state.get("proposal_ids") or []), str(proposal.id)],
+        "interrupt": pending,
+    }
+
+
+async def complete_node(state: AgentGraphState, config: RunnableConfig) -> dict[str, Any]:
+    return {**state, "status": "completed"}
+
+
+def build_workspace_graph() -> StateGraph:
+    graph = StateGraph(AgentGraphState)
+    graph.add_node("bootstrap", bootstrap_node)
+    graph.add_node("workspace_agent", workspace_agent_node)
+    graph.add_node("research", research_node)
+    graph.add_node("answer", answer_node)
+    graph.add_node("build_action_proposal", build_action_proposal_node)
+    graph.add_node("build_media_proposal", build_media_proposal_node)
+    graph.add_node("action_hitl", action_hitl_node)
+    graph.add_node("media_hitl", media_hitl_node)
+    graph.add_node("submit_media", submit_media_node)
+    graph.add_node("media_wait", media_wait_node)
+    graph.add_node("build_media_attach_proposal", build_media_attach_proposal_node)
+    graph.add_node("complete", complete_node)
+    graph.set_entry_point("bootstrap")
+    graph.add_edge("bootstrap", "workspace_agent")
+    graph.add_conditional_edges("workspace_agent", route_workspace_call)
+    graph.add_edge("research", "answer")
+    graph.add_edge("answer", "complete")
+    graph.add_edge("build_action_proposal", "action_hitl")
+    graph.add_edge("build_media_proposal", "media_hitl")
+    graph.add_edge("action_hitl", "complete")
+    graph.add_conditional_edges("media_hitl", route_media_decision)
+    graph.add_edge("submit_media", "media_wait")
+    graph.add_edge("media_wait", "build_media_attach_proposal")
+    graph.add_edge("build_media_attach_proposal", "action_hitl")
+    graph.add_edge("complete", END)
+    return graph
+
+
+def get_compiled_workspace_graph():
+    try:
+        loop_key = id(asyncio.get_running_loop())
+    except RuntimeError:
+        return build_workspace_graph().compile(checkpointer=get_checkpointer())
+    saver = get_checkpointer()
+    cached = _compiled_graphs.get(loop_key)
+    if cached is None or cached[0] is not saver:
+        compiled = build_workspace_graph().compile(checkpointer=saver)
+        _compiled_graphs[loop_key] = (saver, compiled)
+        return compiled
+    return cached[1]
+
+
+async def run_workspace_graph(
+    *,
+    run_id: uuid.UUID,
+    user_text: str,
+    runtime_context: RuntimeContext,
+    configurable: dict[str, Any] | None = None,
+) -> AgentGraphState:
+    await ensure_checkpointer_ready()
+    graph = get_compiled_workspace_graph()
+    initial: AgentGraphState = {
+        "run_id": str(run_id),
+        "user_id": str(runtime_context.user_id),
+        "user_text": user_text,
+        "scope": runtime_context.scope,
+        "post_id": str((runtime_context.post_data or {}).get("id") or "") or None,
+        "status": "running",
+        "evidence_records": {},
+        "evidence_ids": [],
+        "repair_count": 0,
+        "max_steps": runtime_context.settings.rag_agent_max_steps,
+    }
+    cfg = {
+        "configurable": {
+            "thread_id": str(run_id),
+            "runtime_context": runtime_context,
+            **(configurable or {}),
+        }
+    }
+    final_state: AgentGraphState = initial
+    async for chunk in graph.astream(initial, cfg, stream_mode="values"):
+        if isinstance(chunk, dict):
+            final_state = chunk
+    return final_state

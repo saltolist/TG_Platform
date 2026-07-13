@@ -1,13 +1,13 @@
 # ADR-011: LangGraph RAG — замена L2 orchestration
 
 ## Статус
-📝 **Предложено** — целевая архитектура и план миграции; реализация не начата.
+✅ **Принято** — research subgraph спецификация; orchestration реализован в [ADR-012](012-unified-agent-runtime.md).
 
 > Заменяет **orchestration shell** L2 из [ADR-008](008-agentic-graph-rag.md) и
 > **отменяет дальнейшее наращивание** intent-routing слоёв legacy L2
 > (`referent router`, resolvers, structured plan, plan alignment).
 > **Сохраняет:** каскад L0→L1, tools, indexing, dialog ledger (ADR-009),
-> Tier A fast-path. Сценарии — [agentic-rag-scenario.md](../agentic-rag-scenario.md).
+> Tier A fast-path. Сценарии — [rag-pipeline/README.md](../rag-pipeline/README.md).
 
 ## Контекст
 
@@ -295,7 +295,7 @@ human-in-the-loop или pause/resume mid-loop.
 
 | Фаза | Scope | Критерий готовности |
 |------|-------|---------------------|
-| **0** | Golden scenarios: ADR-009 turn 3, сценарии 1–7, 13b из [agentic-rag-scenario.md](../agentic-rag-scenario.md) | Test fixtures + trace snapshots |
+| **0** | Golden scenarios: ADR-009 turn 3, примеры 01–07, 13b из [rag-pipeline/README.md](../rag-pipeline/README.md) | Test fixtures + trace snapshots |
 | **1** | Agent subgraph only (`apply_seed` → agent ⟷ tools), feature flag | Unit tests subgraph; 4 basic scenarios |
 | **2** | Top-level graph (L0→L1→Tier A→subgraph→ledger) | Integration via `retrieve_rag_for_reply` |
 | **3** | Tool-level binding refactor; remove target lock | Multi-evidence queries без exclusive gates |
@@ -355,7 +355,8 @@ human-in-the-loop или pause/resume mid-loop.
 
 - [ADR-008: Agentic Graph RAG](008-agentic-graph-rag.md) — каскад L0→L2, tools
 - [ADR-009: Dialog Evidence Ledger](009-dialog-evidence-ledger.md) — ledger сохраняется
-- [Сценарий: Agentic Graph RAG](../agentic-rag-scenario.md)
+- [Сценарий: Agentic Graph RAG (ADR-011)](../rag-pipeline/README.md)
+- [Сценарий: Agentic Graph RAG (legacy, deprecated)](../agentic-rag-scenario.md)
 - Код (target): `rag_graph.py`, `rag_query.py` (integration)
 - Код (deprecated): `rag_agent.py`, `rag_*_resolver.py`, `rag_retrieval_plan.py`,
   `rag_plan_alignment.py`, `rag_referent_router.py`, `rag_retrieval_brief.py`,

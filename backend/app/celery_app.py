@@ -24,7 +24,12 @@ celery_app = Celery(
     "tg_platform",
     broker=settings.redis_url,
     backend=settings.redis_url,
-    include=["app.tasks.publish", "app.tasks.analytics_snapshot"],
+    include=[
+        "app.tasks.publish",
+        "app.tasks.analytics_snapshot",
+        "app.tasks.media_generation",
+        "app.tasks.agent_runs",
+    ],
 )
 
 celery_app.conf.update(

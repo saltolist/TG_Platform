@@ -93,6 +93,7 @@ export type AiProfileConfig = {
   webSearchModels: WebSearchModel[];
   visionModels: LlmModel[];
   imageGenerationModels: LlmModel[];
+  videoGenerationModels: LlmModel[];
   orchestratorModels: LlmModel[];
   webReasonerModels: LlmModel[];
   ragReasonerModels: LlmModel[];

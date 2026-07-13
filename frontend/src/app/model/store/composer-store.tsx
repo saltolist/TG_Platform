@@ -4,6 +4,7 @@ import {
   createContext,
   useCallback,
   useContext,
+  useEffect,
   useMemo,
   useRef,
   type ReactNode,
@@ -51,6 +52,8 @@ import { updateLastVisibleAiMessage, findLastVisibleAiMessage } from "@/shared/l
 import { parseWebCitesFromStreamMeta } from "@/shared/lib/webCitation";
 import type { WebCite } from "@/shared/api/schemas/post";
 import { queryKeys } from "@/shared/api/queryKeys";
+import { startAgentRun, streamAgentRun } from "@/shared/api/agentRuns";
+import { ApiError } from "@/shared/api/httpClient";
 import type { ChatMessageCtx } from "@/entities/message";
 import type { AssistantRepository } from "@/shared/api/repositories";
 import type {
@@ -125,6 +128,61 @@ function readPostChatHistory(
   chatId: string,
 ): ChatMessage[] {
   return readPostChat(queryClient, accountId, postId, chatId)?.history ?? [];
+}
+
+async function runAgentAssistantTurn(params: {
+  composerScope: ComposerScope;
+  threadId: string;
+  chatId: string;
+  postId?: string;
+  userText: string;
+  signal: AbortSignal;
+  onAnswer: (text: string) => void;
+}): Promise<string> {
+  const { composerScope, threadId, chatId, postId, userText, signal, onAnswer } = params;
+  const created = await startAgentRun(
+    {
+      threadId,
+      scope: postId ? "post" : "global",
+      chatId,
+      postId,
+      userText,
+    },
+    signal,
+  );
+  useComposerReplyStore.getState().setRunId(composerScope, created.id);
+  if (composerScope === "home") {
+    useComposerReplyStore.getState().setRunId("gchat", created.id);
+  }
+  let answer = "";
+  await streamAgentRun(
+    created.id,
+    (event) => {
+      if (event.agent?.type === "answer") {
+        answer = String(event.agent.payload.text ?? "");
+        onAnswer(answer);
+      }
+      if (event.agent?.type === "run_failed") {
+        throw new Error(String(event.agent.payload.error ?? "Agent run failed"));
+      }
+    },
+    signal,
+  );
+  return answer;
+}
+
+async function runAgentWithLegacyFallback(
+  runAgent: () => Promise<string>,
+  runLegacy: () => Promise<{ text: string }>,
+): Promise<string> {
+  try {
+    return await runAgent();
+  } catch (error) {
+    if (error instanceof ApiError && error.status === 501) {
+      return (await runLegacy()).text;
+    }
+    throw error;
+  }
 }
 
 async function streamGlobalAssistantReply(params: {
@@ -363,7 +421,9 @@ export function ComposerProvider({ children }: { children: ReactNode }) {
 
   const navBridgeRef = useRef<ComposerNavBridge | null>(null);
   const aiProfileRef = useRef(aiProfile);
-  aiProfileRef.current = aiProfile;
+  useEffect(() => {
+    aiProfileRef.current = aiProfile;
+  }, [aiProfile]);
 
   const registerNavBridge = useCallback((bridge: ComposerNavBridge) => {
     navBridgeRef.current = bridge;
@@ -508,18 +568,31 @@ export function ComposerProvider({ children }: { children: ReactNode }) {
             const variantTexts = resolveFinalMultiAssistantReply(multi.texts, signal);
             await finalizeGlobalReply(id, "home", "", variantTexts, undefined, multi.webCitesByVariant);
           } else {
-            const { text: baseReply, webCites } = await completeStreamedAssistantReply(
+            const baseReply = await completeAssistantReply(
               () =>
-                streamGlobalAssistantReply({
-                  queryClient,
-                  accountId,
-                  chatId: id,
-                  assistant,
-                  userText: text,
-                  llmTarget: resolveLlmTarget(cfg, target.llmId),
-                  webTarget: resolveWebTarget(cfg, target.webId) ?? undefined,
-                  signal,
-                }),
+                runAgentWithLegacyFallback(
+                  () =>
+                    runAgentAssistantTurn({
+                      composerScope: "home",
+                      threadId: id,
+                      chatId: id,
+                      userText: text,
+                      signal,
+                      onAnswer: (answer) =>
+                        patchGlobalChatStreamingText(queryClient, id, answer, accountId),
+                    }),
+                  () =>
+                    streamGlobalAssistantReply({
+                      queryClient,
+                      accountId,
+                      chatId: id,
+                      assistant,
+                      userText: text,
+                      llmTarget: resolveLlmTarget(cfg, target.llmId),
+                      webTarget: resolveWebTarget(cfg, target.webId) ?? undefined,
+                      signal,
+                    }),
+                ),
               onStreamError,
               { allowEmpty: true },
             );
@@ -528,7 +601,7 @@ export function ComposerProvider({ children }: { children: ReactNode }) {
               "home",
               resolveFinalAssistantReply(baseReply, signal),
               undefined,
-              webCites,
+              undefined,
             );
           }
         } finally {
@@ -581,18 +654,31 @@ export function ComposerProvider({ children }: { children: ReactNode }) {
             const variantTexts = resolveFinalMultiAssistantReply(multi.texts, signal);
             await finalizeGlobalReply(chatId, "gchat", "", variantTexts, undefined, multi.webCitesByVariant);
           } else {
-            const { text: baseReply, webCites } = await completeStreamedAssistantReply(
+            const baseReply = await completeAssistantReply(
               () =>
-                streamGlobalAssistantReply({
-                  queryClient,
-                  accountId,
-                  chatId,
-                  assistant,
-                  userText: text,
-                  llmTarget: resolveLlmTarget(cfg, target.llmId),
-                  webTarget: resolveWebTarget(cfg, target.webId) ?? undefined,
-                  signal,
-                }),
+                runAgentWithLegacyFallback(
+                  () =>
+                    runAgentAssistantTurn({
+                      composerScope: "gchat",
+                      threadId: chatId,
+                      chatId,
+                      userText: text,
+                      signal,
+                      onAnswer: (answer) =>
+                        patchGlobalChatStreamingText(queryClient, chatId, answer, accountId),
+                    }),
+                  () =>
+                    streamGlobalAssistantReply({
+                      queryClient,
+                      accountId,
+                      chatId,
+                      assistant,
+                      userText: text,
+                      llmTarget: resolveLlmTarget(cfg, target.llmId),
+                      webTarget: resolveWebTarget(cfg, target.webId) ?? undefined,
+                      signal,
+                    }),
+                ),
               onStreamError,
               { allowEmpty: true },
             );
@@ -601,7 +687,7 @@ export function ComposerProvider({ children }: { children: ReactNode }) {
               "gchat",
               resolveFinalAssistantReply(baseReply, signal),
               undefined,
-              webCites,
+              undefined,
             );
           }
         } finally {
@@ -674,19 +760,39 @@ export function ComposerProvider({ children }: { children: ReactNode }) {
               multi.webCitesByVariant,
             );
           } else {
-            const { text: baseReply, webCites } = await completeStreamedAssistantReply(
+            const baseReply = await completeAssistantReply(
               () =>
-                streamPostAssistantReply({
-                  queryClient,
-                  accountId,
-                  postId,
-                  chatId: replyChatId,
-                  assistant,
-                  userText: text,
-                  llmTarget: resolveLlmTarget(cfg, target.llmId),
-                  webTarget: resolveWebTarget(cfg, target.webId) ?? undefined,
-                  signal,
-                }),
+                runAgentWithLegacyFallback(
+                  () =>
+                    runAgentAssistantTurn({
+                      composerScope: "post",
+                      threadId: replyChatId,
+                      postId,
+                      chatId: replyChatId,
+                      userText: text,
+                      signal,
+                      onAnswer: (answer) =>
+                        patchPostChatStreamingText(
+                          queryClient,
+                          postId,
+                          replyChatId,
+                          answer,
+                          accountId,
+                        ),
+                    }),
+                  () =>
+                    streamPostAssistantReply({
+                      queryClient,
+                      accountId,
+                      postId,
+                      chatId: replyChatId,
+                      assistant,
+                      userText: text,
+                      llmTarget: resolveLlmTarget(cfg, target.llmId),
+                      webTarget: resolveWebTarget(cfg, target.webId) ?? undefined,
+                      signal,
+                    }),
+                ),
               onStreamError,
               { allowEmpty: true },
             );
@@ -695,7 +801,7 @@ export function ComposerProvider({ children }: { children: ReactNode }) {
               replyChatId,
               resolveFinalAssistantReply(baseReply, signal),
               undefined,
-              webCites,
+              undefined,
             );
           }
         } finally {

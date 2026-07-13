@@ -35,7 +35,6 @@ from app.services.ai.rag import (
     upsert_attachment_extraction,
     _post_title_from_text,
 )
-from app.services.ai.rag_retrieval_brief import RetrievalBrief
 from app.services.ai.rag_retrieval_policy import post_id_aliases, retrieve_for_chat
 from app.services.analytics.analytics_snapshot import load_post_snapshots
 from app.services.analytics.channel_metrics import VALID_PERIODS
@@ -64,15 +63,9 @@ class AgentState:
     vision_calls_used: int = 0
     hydrated_text_files: set[str] = field(default_factory=set)
     listed_image_attachment_refs: list[str] = field(default_factory=list)
-    retrieval_brief: RetrievalBrief | None = None
     decision_ledger: list[str] = field(default_factory=list)
     resolved_target_post_id: str | None = None
-    discovery_completed: bool = False
     target_evidence_gap: str | None = None
-    catalog_posts: list[dict[str, Any]] = field(default_factory=list)
-    target_resolution_post_id: str | None = None
-    target_resolution_rationale: str = ""
-    target_resolution_confidence: str = ""
     scope_bias: float = 0.04
     ai_profile: Mapping[str, Any] = field(default_factory=dict)
     user: User | None = None
@@ -691,7 +684,6 @@ async def tool_hydrate_attachment(
     existing = _already_visited(state, visit_ref)
     if existing:
         return existing
-    _mark_visited(state, visit_ref)
 
     try:
         resolved = await _resolve_attachment_record(
@@ -773,6 +765,7 @@ async def tool_hydrate_attachment(
             record=record,
             text_value=text_value,
         )
+        _mark_visited(state, visit_ref)
         return ToolOutcome(summary=f"Гидратировано {ref} (text), символов={len(text_value)}.")
     except Exception as exc:
         logger.warning("HydrateAttachment text failed for %s: %s", ref, exc)
@@ -800,8 +793,6 @@ async def _tool_hydrate_attachment_vision(
     settings = _settings_for(state)
     if state.vision_calls_used >= settings.rag_agent_max_vision:
         return ToolOutcome(summary="Лимит vision-вызовов исчерпан.", error="vision_budget_exhausted")
-
-    _mark_visited(state, visit_ref)
 
     try:
         resolved = await _resolve_attachment_record(
@@ -875,6 +866,7 @@ async def _tool_hydrate_attachment_vision(
             record=record,
             text_value=caption,
         )
+        _mark_visited(state, visit_ref)
         return ToolOutcome(summary=f"Гидратировано {ref} (vision), символов={len(caption)}.")
     except Exception as exc:
         logger.warning("HydrateAttachment vision failed for %s: %s", ref, exc)

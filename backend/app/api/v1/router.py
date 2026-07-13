@@ -1,6 +1,7 @@
 from fastapi import APIRouter
 
 from app.api.v1 import (
+    agent_runs,
     ai,
     analytics,
     auth,
@@ -27,6 +28,7 @@ api_router.include_router(telegram_auth.router)
 api_router.include_router(telegram_channel.router)
 api_router.include_router(telegram_emoji.router)
 api_router.include_router(ai.router)
+api_router.include_router(agent_runs.router)
 api_router.include_router(analytics.router)
 api_router.include_router(csp_report.router)
 api_router.include_router(dev_context_log.router)

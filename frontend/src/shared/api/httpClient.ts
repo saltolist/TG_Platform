@@ -101,13 +101,14 @@ export async function apiRequest<T>(path: string, options: RequestOptions = {}):
 type SseSubscribeOptions = {
   signal?: AbortSignal;
   onMeta?: (meta: Record<string, unknown>) => void;
+  onData?: (data: unknown) => void;
 };
 
 export async function apiSseSubscribe(
   path: string,
   options: SseSubscribeOptions = {},
 ): Promise<void> {
-  const { signal, onMeta } = options;
+  const { signal, onMeta, onData } = options;
   const { headers, url } = await prepareApiFetch(path, { method: "GET", signal });
 
   const res = await fetch(url, {
@@ -138,6 +139,7 @@ export async function apiSseSubscribe(
   const { consumeSseTextStream } = await import("@/shared/api/sse");
   await consumeSseTextStream(res.body, () => undefined, {
     onMeta,
+    onData,
     paintBetweenChunks: false,
   });
 }

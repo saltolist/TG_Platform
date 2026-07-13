@@ -10,6 +10,7 @@ import { postSupportsComments } from "@/entities/post/lib/postSupportsComments";
 import { postSupportsPlatformEdit } from "@/entities/post/lib/isStandaloneCompactTelegramPost";
 import { isStreamingChatMessage } from "@/shared/lib/streaming/streamingMessage";
 import { firstUserFlatIndex, userMessageHasBranches } from "@/shared/lib/chatPaths";
+import { AgentRunInterrupts } from "@/widgets/agent/ui/AgentRunInterrupts";
 import type { Post } from "@/shared/types";
 
 type Props = {
@@ -106,6 +107,7 @@ export default function PostChatView({ post, data, ui, actions }: Props) {
           </div>
         </div>
       </div>
+      <AgentRunInterrupts scope="post" />
       <Composer scope="post" onSubmit={sendPost} />
     </>
   );

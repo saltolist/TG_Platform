@@ -7,6 +7,7 @@ While background comment push or discussion delete runs, the post id is stored s
 from __future__ import annotations
 
 import logging
+import asyncio
 import time
 from typing import Any
 from uuid import UUID
@@ -16,8 +17,8 @@ from app.core.config import get_settings
 logger = logging.getLogger(__name__)
 
 _TTL_SECONDS = 180
-_redis_client: Any | None = None
-_redis_unavailable = False
+_redis_clients: dict[asyncio.AbstractEventLoop, Any] = {}
+_redis_unavailable: set[asyncio.AbstractEventLoop] = set()
 _memory_store: dict[str, dict[str, float]] = {}
 
 
@@ -34,23 +35,24 @@ def _set_key(user_id: UUID) -> str:
 
 
 async def _get_redis() -> Any | None:
-    global _redis_client, _redis_unavailable
-    if _redis_unavailable:
+    loop_key = asyncio.get_running_loop()
+    if loop_key in _redis_unavailable:
         return None
-    if _redis_client is not None:
-        return _redis_client
+    if loop_key in _redis_clients:
+        return _redis_clients[loop_key]
     try:
         from redis.asyncio import Redis
 
         settings = get_settings()
-        _redis_client = Redis.from_url(settings.redis_url, decode_responses=True)
-        await _redis_client.ping()
-        return _redis_client
+        client = Redis.from_url(settings.redis_url, decode_responses=True)
+        await client.ping()
+        _redis_clients[loop_key] = client
+        return client
     except Exception:  # noqa: BLE001
         logger.warning(
             "Redis unavailable for comment sync-pending — using in-memory fallback"
         )
-        _redis_unavailable = True
+        _redis_unavailable.add(loop_key)
         return None
 
 

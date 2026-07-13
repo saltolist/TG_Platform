@@ -8,6 +8,7 @@ import { ScreenShell } from "@/screens/_ui/screen-shell";
 import { useGChatScreen } from "@/screens/gchat/model/useGChatScreen";
 import { GChatScreenHeader } from "@/screens/gchat/ui/GChatScreenHeader";
 import { GlobalChatMessages } from "@/screens/gchat/ui/GlobalChatMessages";
+import { AgentRunInterrupts } from "@/widgets/agent/ui/AgentRunInterrupts";
 
 export function GChatScreen() {
   const {
@@ -75,6 +76,7 @@ export function GChatScreen() {
           lastAssistantFlat={lastAssistantFlat}
           messagesRef={messagesRef}
         />
+        <AgentRunInterrupts scope="gchat" />
         <Composer scope="gchat" onSubmit={sendGChat} />
       </div>
     </>

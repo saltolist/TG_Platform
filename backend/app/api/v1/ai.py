@@ -417,6 +417,8 @@ async def ai_reply(
                     ai_profile=ai_profile,
                     intent_routing_enabled=settings.rag_intent_routing_enabled,
                     scope_bias=settings.rag_scope_bias,
+                    chat_id=payload.chat_id,
+                    post_chat_id=payload.post_chat_id,
                 )
         except Exception as exc:
             import logging

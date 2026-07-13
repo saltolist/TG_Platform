@@ -404,22 +404,39 @@ async def test_tool_hydrate_attachment_unsupported_mime() -> None:
 
 
 @pytest.mark.asyncio
-async def test_tool_hydrate_attachment_visited_dedup() -> None:
+async def test_tool_hydrate_attachment_retry_after_note_lookup_failure() -> None:
     state = _state()
-    with patch(
-        "app.services.ai.rag_tools.get_note_data",
-        new_callable=AsyncMock,
-        return_value=None,
+    note_data = {
+        "id": "n1",
+        "files": [{"id": "f1", "name": "a.png", "type": "image/png", "url": "http://x/a.png"}],
+    }
+    with (
+        patch(
+            "app.services.ai.rag_tools.get_note_data",
+            new_callable=AsyncMock,
+            side_effect=[None, note_data],
+        ),
+        patch(
+            "app.services.ai.rag_tools.resolve_attachment_bytes",
+            new_callable=AsyncMock,
+            return_value=(b"png-bytes", "image/png"),
+        ),
+        patch(
+            "app.services.ai.rag_tools.get_attachment_extraction_by_hash",
+            new_callable=AsyncMock,
+            return_value="cached caption",
+        ),
     ):
         first = await tool_hydrate_attachment(
-            state, ref="attachment:f1", mode="text", note_id="n1", post_id="post-1"
+            state, ref="attachment:f1", mode="vision", note_id="n1", post_id="post-1"
         )
         second = await tool_hydrate_attachment(
-            state, ref="attachment:f1", mode="text", note_id="n1", post_id="post-1"
+            state, ref="attachment:f1", mode="vision", note_id="n1", post_id="post-1"
         )
 
     assert first.error == "note_not_found"
-    assert "уже" in second.summary.lower()
+    assert second.error is None
+    assert "hydrate:vision:attachment:f1" in state.visited
 
 
 @pytest.mark.asyncio

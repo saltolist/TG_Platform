@@ -7,6 +7,7 @@ import { BrainIcon, ImageGenIcon, SearchIcon, VisionIcon } from "@/shared/ui/mod
 import {
   IMAGE_GENERATION_PROVIDER_MODELS,
   LLM_PROVIDER_MODELS,
+  VIDEO_GENERATION_PROVIDER_MODELS,
   VISION_PROVIDER_MODELS,
   WEB_SEARCH_PROVIDER_MODELS,
 } from "@/shared/config/composer";
@@ -129,13 +130,32 @@ export default function AiModelsBlock() {
         showMultiToggle={false}
         onModelChange={(idx, patch) =>
           ai.setImageGenerationModels(
-            cfg.imageGenerationModels.map((row, i) => (i === idx ? { ...row, ...patch } : row)),
+            ai.updateExclusiveModel(cfg.imageGenerationModels, idx, patch),
           )
         }
         onModelRemove={(idx) =>
           ai.setImageGenerationModels(cfg.imageGenerationModels.filter((_, i) => i !== idx))
         }
         onAdd={ai.addImageGeneration}
+      />
+
+      <AiModelListSection
+        modelField="videoGenerationModels"
+        icon={<ImageGenIcon />}
+        title="Модели генерации видео"
+        models={cfg.videoGenerationModels}
+        providerMap={VIDEO_GENERATION_PROVIDER_MODELS}
+        addLabel="Добавить модель генерации видео"
+        showMultiToggle={false}
+        onModelChange={(idx, patch) =>
+          ai.setVideoGenerationModels(
+            ai.updateExclusiveModel(cfg.videoGenerationModels, idx, patch),
+          )
+        }
+        onModelRemove={(idx) =>
+          ai.setVideoGenerationModels(cfg.videoGenerationModels.filter((_, i) => i !== idx))
+        }
+        onAdd={ai.addVideoGeneration}
       />
 
       <div className="profile-ai-divider" />

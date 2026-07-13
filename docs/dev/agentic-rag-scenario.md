@@ -1,5 +1,9 @@
 # Сценарий: Agentic Graph RAG на разных типах запросов
 
+> **Deprecated** — описывает **legacy** L2 (resolvers, plan alignment, referent
+> router). Целевое поведение: [rag-pipeline/README.md](rag-pipeline/README.md)
+> (ADR-011). Сохранён для regression до миграции на LangGraph.
+
 > **Статус:** эталонное поведение (спецификация), иллюстрирует модель из
 > [ADR-008](adr/008-agentic-graph-rag.md) и приоритеты из
 > [Роадмап: Agentic Graph RAG](roadmap-agentic-rag.md). Реализации пока нет —

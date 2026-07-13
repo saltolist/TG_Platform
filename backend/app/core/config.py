@@ -50,6 +50,7 @@ class Settings(BaseSettings):
 
     # Object storage (Phase 2)
     s3_endpoint: str = ""
+    s3_public_endpoint: str = ""
     s3_access_key: str = ""
     s3_secret_key: str = ""
     s3_bucket: str = "tg-media"
@@ -199,6 +200,13 @@ class Settings(BaseSettings):
     rag_scope_bias: float = 0.04
     rag_intent_routing_enabled: bool = False
 
+    # Unified agent runtime (ADR-012)
+    agent_runtime_engine: Literal["legacy", "langgraph"] = "langgraph"
+    rag_l2_engine: Literal["legacy", "langgraph"] = "langgraph"
+    agent_actions_enabled: bool = False
+    agent_media_enabled: bool = False
+    agent_checkpoint_retention_days: int = 14
+
     # Embeddings configuration
     # Local model name for fastembed (must be in TextEmbedding.list_supported_models())
     embedding_model_local: str = "sentence-transformers/paraphrase-multilingual-MiniLM-L12-v2"
@@ -216,6 +224,8 @@ class Settings(BaseSettings):
         "rag_tier_b_enabled",
         "rag_intent_routing_enabled",
         "rag_agent_plan_alignment_llm",
+        "agent_actions_enabled",
+        "agent_media_enabled",
         "cookie_secure",
         "telegram_live_sync_enabled",
         "telegram_reconcile_enabled",

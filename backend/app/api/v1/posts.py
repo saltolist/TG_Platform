@@ -39,6 +39,7 @@ from app.services.telegram.post_sync import mark_post_deleted, restore_deleted_p
 from app.services.telegram.publish_flow import parse_scheduled_at
 from app.services.telegram.publish_flow import publish_post as run_telegram_publish
 from app.services.posts_payload import normalize_post_for_api
+from app.services.posts.commands import execute_post_command
 from app.services.telegram.text_formatting import (
     apply_platform_text_fields,
     post_formatting_entities_from_payload,
@@ -100,14 +101,15 @@ async def create_post(payload: PostIn, user: CurrentWriter, session: DbSession) 
         raise HTTPException(status_code=400, detail="Невалидный id поста")
 
     data = payload.model_dump()
-    apply_platform_text_fields(data)
-    count = await session.scalar(
-        select(func.count()).select_from(Post).where(Post.user_id == user.id)
+    result = await execute_post_command(
+        session,
+        user=user,
+        command="create_post",
+        payload={"id": str(post_id), "data": data},
+        enqueue_post_text=enqueue_post_text_job,
     )
-    session.add(Post(id=post_id, user_id=user.id, position=count or 0, data=data))
-    await enqueue_post_text_job(session, user.id, str(data.get("id") or post_id))
     await session.commit()
-    return data
+    return dict(result["post"])
 
 
 @router.put("/reorder/")
@@ -368,11 +370,15 @@ async def publish_post_endpoint(
     post_id: str, user: CurrentWriter, session: DbSession
 ) -> dict[str, Any]:
     """Send a draft post to the connected Telegram channel now (Phase 3 / Step 4a)."""
+    await execute_post_command(
+        session,
+        user=user,
+        command="publish_post",
+        payload={"post_id": post_id},
+    )
     post = await get_owned_post(session, user.id, post_id)
-    try:
-        return await run_telegram_publish(user.id, post.id)
-    except TelegramAuthError as exc:
-        raise HTTPException(status_code=exc.status_code, detail=exc.detail) from exc
+    await session.commit()
+    return post.data
 
 
 @router.post("/{post_id}/schedule/")
@@ -380,36 +386,13 @@ async def schedule_post_endpoint(
     post_id: str, payload: PostScheduleRequest, user: CurrentWriter, session: DbSession
 ) -> dict[str, Any]:
     """Queue a draft post for publication at ``scheduledAt`` (Phase 3 / Step 4b)."""
-    post = await get_owned_post(session, user.id, post_id)
-    data = dict(post.data)
-    if data.get("telegramMessageId"):
-        raise HTTPException(status_code=400, detail="Пост уже опубликован")
-
-    profile = await session.get(Profile, user.id)
-    telegram = profile.telegram if profile and profile.telegram else empty_telegram_profile()
-    if telegram.get("channelStatus") != "connected":
-        raise HTTPException(status_code=400, detail="Сначала подключите канал")
-    if telegram.get("authStatus") not in ("authorized", "connected"):
-        raise HTTPException(status_code=400, detail="Сначала авторизуйтесь в Telegram")
-
-    try:
-        scheduled_dt = parse_scheduled_at(payload.scheduled_at)
-    except ValueError:
-        raise HTTPException(status_code=400, detail="Некорректная дата публикации") from None
-
-    old_task_id = data.get("_celeryTaskId")
-    if old_task_id:
-        celery_app.control.revoke(old_task_id)
-
-    async_result = publish_scheduled_post.apply_async(
-        args=[str(post.id), str(user.id)], eta=scheduled_dt
+    await execute_post_command(
+        session,
+        user=user,
+        command="schedule_post",
+        payload={"post_id": post_id, "scheduled_at": payload.scheduled_at},
     )
-
-    data["status"] = "scheduled"
-    data["date"] = payload.scheduled_at
-    data["_celeryTaskId"] = async_result.id
-    data.pop("publishError", None)
-    post.data = data
+    post = await get_owned_post(session, user.id, post_id)
     await session.commit()
     return post.data
 
@@ -448,24 +431,11 @@ async def delete_post(
 
     if post.data.get("status") == "deleted":
         return Response(status_code=status.HTTP_204_NO_CONTENT)
-
-    async with telegram_sync_pending(user.id, post_id):
-        # Step 4c (delete): a Telegram-linked post is a mirror of the channel — remove
-        # the channel message first and abort (keep the platform post) if that fails.
-        telegram_message_id = post.data.get("telegramMessageId")
-        if telegram_message_id:
-            profile = await session.get(Profile, user.id)
-            if profile is not None:
-                try:
-                    await delete_message_in_telegram(
-                        profile, str(telegram_message_id), user.id
-                    )
-                except TelegramAuthError as exc:
-                    raise HTTPException(status_code=exc.status_code, detail=exc.detail) from exc
-
-        await mark_post_deleted(post)
-        await enqueue_post_rag_delete_jobs(
-            session, user.id, dict(post.data), db_row_id=str(post.id)
-        )
-        await session.commit()
+    await execute_post_command(
+        session,
+        user=user,
+        command="delete_post",
+        payload={"post_id": post_id},
+    )
+    await session.commit()
     return Response(status_code=status.HTTP_204_NO_CONTENT)
