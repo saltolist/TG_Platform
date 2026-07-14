@@ -38,7 +38,8 @@ WORKSPACE_SYSTEM = """Ты единственный WorkspaceAgent платфо�
 - {"type":"finish"} — ответ не требует данных workspace;
 - {"type":"post_proposal","command":"create_post|edit_post|schedule_post|publish_post|cancel_schedule|delete_post|restore_post","payload":{...}};
 - {"type":"media_proposal","kind":"image|video","prompt":"...","options":{},"cost_ceiling":number}.
-Не выполняй мутации напрямую. Выбирай только тип вызова, без keyword routing."""
+Не выполняй мутации напрямую. Выбирай только тип вызова, без keyword routing.
+При любой неоднозначности выбирай "read": если запрос ссылается на посты, заметки, метрики, охваты или любые факты workspace — это "read". "finish" — только для явно общих/не-фактических запросов (приветствие, объяснение возможностей, вопрос не про данные workspace)."""
 
 
 async def bootstrap_node(state: AgentGraphState, config: RunnableConfig) -> dict[str, Any]:
