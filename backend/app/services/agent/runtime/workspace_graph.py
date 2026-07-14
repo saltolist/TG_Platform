@@ -15,7 +15,16 @@ from app.db.models import AgentRun, User
 from app.services.agent.actions.proposals import create_proposal
 from app.services.agent.media.jobs import create_media_job, enqueue_media_job
 from app.services.agent.media.registry import lookup_capability, resolve_profile_media_model
-from app.services.agent.research.graph import run_research_graph
+from app.services.agent.research.graph import (
+    research_seed_node,
+    research_planner_node,
+    research_tool_node,
+    research_verify_node,
+    research_pack_node,
+    route_research_plan,
+    route_research_after_tool,
+    route_research_verify,
+)
 from app.services.agent.runtime.checkpoint import ensure_checkpointer_ready, get_checkpointer
 from app.services.agent.runtime.context import RuntimeContext
 from app.services.agent.runtime.state import AgentGraphState
@@ -73,53 +82,18 @@ async def workspace_agent_node(
 
 def route_workspace_call(
     state: AgentGraphState,
-) -> Literal["research", "answer", "build_action_proposal", "build_media_proposal"]:
+) -> Literal["seed", "answer", "build_action_proposal", "build_media_proposal"]:
+    # "read" enters the research loop directly at its first node (seed). The
+    # research nodes (seed/planner/tool/verify/pack) are first-class members of
+    # this single graph — no nested subgraph, no separate checkpointer, and no
+    # lossy repackaging of evidence_records (ADR-012 §1.0).
     call_type = str((state.get("tool_call") or {}).get("type") or "read")
     return {
-        "read": "research",
+        "read": "seed",
         "finish": "answer",
         "post_proposal": "build_action_proposal",
         "media_proposal": "build_media_proposal",
-    }.get(call_type, "research")  # type: ignore[return-value]
-
-
-async def research_node(state: AgentGraphState, config: RunnableConfig) -> dict[str, Any]:
-    ctx: RuntimeContext = config["configurable"]["runtime_context"]
-    research = await run_research_graph(
-        ctx,
-        user_text=str(state.get("user_text") or ""),
-        max_steps=int(state.get("max_steps") or 4),
-        spec=ctx.reasoner_spec,
-        model=ctx.reasoner_model,
-        api_key=ctx.reasoner_api_key,
-        l1_results=config["configurable"].get("l1_results"),
-        dialog_context=config["configurable"].get("dialog_context", ""),
-        dialog_ledger=config["configurable"].get("dialog_ledger", ()),
-        hints=config["configurable"].get("hints", []),
-        seed_ref=config["configurable"].get("seed_ref"),
-        seed_post_id=config["configurable"].get("seed_post_id"),
-        checkpoint_id=str(state.get("run_id") or ""),
-    )
-    records = {
-        eid: {
-            "id": eid,
-            "kind": "search_hit",
-            "source_ref": cite.path,
-            "content": "",
-            "citation_path": cite.path,
-            "citation_title": cite.title,
-        }
-        for eid, cite in zip(research.evidence_ids, research.cites)
-    }
-    return {
-        **state,
-        "rag_context": research.rag_context,
-        "evidence_ids": research.evidence_ids,
-        "evidence_records": records,
-        "stopped_reason": research.stopped_reason,
-        "step_count": research.step_count,
-        "status": "running",
-    }
+    }.get(call_type, "seed")  # type: ignore[return-value]
 
 
 async def answer_node(state: AgentGraphState, config: RunnableConfig) -> dict[str, Any]:
@@ -399,7 +373,13 @@ def build_workspace_graph() -> StateGraph:
     graph = StateGraph(AgentGraphState)
     graph.add_node("bootstrap", bootstrap_node)
     graph.add_node("workspace_agent", workspace_agent_node)
-    graph.add_node("research", research_node)
+    # Research nodes are first-class in the single graph (ADR-012 §1.0), not a
+    # nested subgraph. One checkpointer, one state, no content="" repackaging.
+    graph.add_node("seed", research_seed_node)
+    graph.add_node("planner", research_planner_node)
+    graph.add_node("tool", research_tool_node)
+    graph.add_node("verify", research_verify_node)
+    graph.add_node("pack", research_pack_node)
     graph.add_node("answer", answer_node)
     graph.add_node("build_action_proposal", build_action_proposal_node)
     graph.add_node("build_media_proposal", build_media_proposal_node)
@@ -412,7 +392,12 @@ def build_workspace_graph() -> StateGraph:
     graph.set_entry_point("bootstrap")
     graph.add_edge("bootstrap", "workspace_agent")
     graph.add_conditional_edges("workspace_agent", route_workspace_call)
-    graph.add_edge("research", "answer")
+    # read → research loop (seed → planner ⇄ tool → verify → pack) → answer
+    graph.add_edge("seed", "planner")
+    graph.add_conditional_edges("planner", route_research_plan)
+    graph.add_conditional_edges("tool", route_research_after_tool)
+    graph.add_conditional_edges("verify", route_research_verify)
+    graph.add_edge("pack", "answer")
     graph.add_edge("answer", "complete")
     graph.add_edge("build_action_proposal", "action_hitl")
     graph.add_edge("build_media_proposal", "media_hitl")

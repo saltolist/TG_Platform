@@ -40,7 +40,15 @@ async def test_agent_run_not_found(writer_auth_headers: dict[str, str]) -> None:
 @pytest.mark.asyncio
 async def test_agent_run_executes_with_postgres_checkpoint(
     writer_auth_headers: dict[str, str],
+    monkeypatch: pytest.MonkeyPatch,
 ) -> None:
+    # The API writes the run to the test DB, so the durable executor must read
+    # from the same session factory. Without this it silently uses the prod
+    # factory, never finds the run, and returns early leaving status="running".
+    from tests.conftest import TestSessionLocal
+
+    monkeypatch.setattr("app.tasks.agent_runs.async_session_factory", TestSessionLocal)
+    monkeypatch.setattr("app.db.session.async_session_factory", TestSessionLocal)
     transport = ASGITransport(app=app)
     async with AsyncClient(transport=transport, base_url="http://test") as client:
         created = await client.post(

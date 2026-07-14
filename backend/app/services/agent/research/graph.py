@@ -170,6 +170,254 @@ async def _execute_tool(state: AgentState, action: ToolAction) -> ToolOutcome:
     return ToolOutcome(summary=f"Неизвестный tool: {tool}", error="unknown_tool")
 
 
+# ---------------------------------------------------------------------------
+# Module-level research nodes (ADR-012 §1.0 single-graph).
+#
+# Lifted out of run_research_graph's closures so the SAME nodes power both the
+# legacy run_research_graph entrypoint and the unified workspace graph. Each
+# node reads the RuntimeContext + planner inputs from config["configurable"]
+# instead of capturing them, so there is one graph, one checkpointer, one state.
+# ---------------------------------------------------------------------------
+
+
+def _planner_inputs(config: RunnableConfig) -> dict[str, Any]:
+    conf = (config or {}).get("configurable", {}) if config else {}
+    return {
+        "dialog_context": str(conf.get("dialog_context") or ""),
+        "dialog_ledger": tuple(conf.get("dialog_ledger") or ()),
+        "l1_results": conf.get("l1_results"),
+        "seed_ref": conf.get("seed_ref"),
+        "seed_post_id": conf.get("seed_post_id"),
+    }
+
+
+def _l1_summary(l1_results: list[dict[str, Any]] | None) -> str:
+    if not l1_results:
+        return ""
+    previews = [
+        f"- {item.get('node_type')}:{item.get('note_id')} sim={item.get('similarity', 0):.2f}"
+        for item in l1_results[:6]
+    ]
+    return "L1 hits:\n" + "\n".join(previews)
+
+
+async def research_seed_node(state: AgentGraphState, config: RunnableConfig) -> dict[str, Any]:
+    ctx: RuntimeContext = config["configurable"]["runtime_context"]
+    inp = _planner_inputs(config)
+    seed_ref = inp["seed_ref"]
+    seed_post_id = inp["seed_post_id"]
+    user_text = str(state.get("user_text") or "")
+    transcript = list(state.get("research_transcript") or [])
+    async with ctx.session_factory() as session:
+        agent_state = ctx.bind_agent_state(session)
+        if seed_ref and str(seed_ref).startswith("note:"):
+            note_id = str(seed_ref)[len("note:") :].strip()
+            outcome = await tool_open_note(agent_state, note_id=note_id, post_id=seed_post_id)
+            transcript.append(f"[seed] OpenNote: {outcome.summary}")
+        if ctx.scope == "post":
+            post_id = (
+                str(seed_post_id or "").strip()
+                or str((ctx.post_data or {}).get("id") or "").strip()
+            )
+            if post_id:
+                outcome = await tool_open_post(agent_state, post_id=post_id)
+                transcript.append(f"[seed] OpenPost: {outcome.summary}")
+                agent_state.resolved_target_post_id = post_id
+        seeded = seed_hydrated_attachments_from_ledger(
+            agent_state,
+            user_text=user_text,
+            ledger=inp["dialog_ledger"],
+        )
+        if seeded:
+            transcript.append(f"[seed] ledger attachments: {', '.join(seeded)}")
+        records = records_from_agent_state(agent_state)
+        await session.commit()
+    return {
+        **state,
+        "research_transcript": transcript,
+        "evidence_records": {key: rec.to_dict() for key, rec in records.items()},
+        "step_count": 0,
+        "repair_count": 0,
+        "status": "running",
+    }
+
+
+async def research_planner_node(state: AgentGraphState, config: RunnableConfig) -> dict[str, Any]:
+    from app.services.ai.llm import complete_chat_completion
+
+    ctx: RuntimeContext = config["configurable"]["runtime_context"]
+    inp = _planner_inputs(config)
+    spec = ctx.reasoner_spec
+    model = ctx.reasoner_model
+    api_key = ctx.reasoner_api_key
+    max_steps = int(state.get("max_steps") or 4)
+    records = {
+        key: EvidenceRecord.from_dict(value)
+        for key, value in (state.get("evidence_records") or {}).items()
+    }
+    if spec is None or not model or not api_key:
+        action = ToolAction(
+            tool="FinishRetrieval",
+            args={
+                "status": "partial" if records else "ready",
+                "evidence_ids": list(records),
+                "unresolved": ["no_reasoner_llm"],
+            },
+        )
+    else:
+        ledger_text = (
+            format_ledger_for_planner(inp["dialog_ledger"]) if inp["dialog_ledger"] else ""
+        )
+        messages = _build_messages(
+            user_text=str(state.get("user_text") or ""),
+            transcript=list(state.get("research_transcript") or []),
+            hints=list(state.get("research_hints") or []),
+            dialog_context=inp["dialog_context"],
+            ledger_text=ledger_text,
+            l1_summary=_l1_summary(inp["l1_results"]),
+        )
+        evidence_text, _ = build_evidence_pack(records=records, evidence_ids=list(records))
+        messages[-1]["content"] += "\n\nСобранный context:\n" + evidence_text
+        raw = await complete_chat_completion(
+            messages=messages,
+            spec=spec,
+            model=model,
+            api_key=api_key,
+            temperature=0.1,
+            max_tokens=700,
+        )
+        action = parse_tool_action(raw) or ToolAction(tool="Invalid", args={})
+    steps = int(state.get("step_count") or 0) + 1
+    trace_step("7. rag.L2.langgraph", [f"step={steps}/{max_steps}", f"tool={action.tool}"])
+    return {
+        **state,
+        "step_count": steps,
+        "tool_action": {"tool": action.tool, "args": action.args},
+    }
+
+
+async def research_tool_node(state: AgentGraphState, config: RunnableConfig) -> dict[str, Any]:
+    ctx: RuntimeContext = config["configurable"]["runtime_context"]
+    raw_action = state.get("tool_action") or {}
+    action = ToolAction(
+        tool=str(raw_action.get("tool") or ""),
+        args=dict(raw_action.get("args") or {}),
+    )
+    transcript = list(state.get("research_transcript") or [])
+    existing_records = dict(state.get("evidence_records") or {})
+    async with ctx.session_factory() as session:
+        agent_state = ctx.bind_agent_state(session)
+        outcome = await _execute_tool(agent_state, action)
+        records = records_from_agent_state(agent_state)
+        await session.commit()
+    transcript.append(f"step {state.get('step_count', 0)}: {action.tool} → {outcome.summary}")
+    if outcome.error:
+        transcript.append(f"  error={outcome.error}")
+    return {
+        **state,
+        "research_transcript": transcript,
+        "evidence_records": {
+            **existing_records,
+            **{key: rec.to_dict() for key, rec in records.items()},
+        },
+    }
+
+
+async def research_verify_node(state: AgentGraphState, config: RunnableConfig) -> dict[str, Any]:
+    records = {
+        key: EvidenceRecord.from_dict(value)
+        for key, value in (state.get("evidence_records") or {}).items()
+    }
+    candidate = dict((state.get("tool_action") or {}).get("args") or {})
+    if not candidate.get("evidence_ids"):
+        candidate["evidence_ids"] = list(records)
+    verdict = verify_evidence(
+        finish=candidate,
+        records=records,
+        repair_count=int(state.get("repair_count") or 0),
+    )
+    if verdict.ok or not verdict.repair_allowed:
+        return {**state, "finish_retrieval": candidate, "verification_ok": True}
+    return {
+        **state,
+        "repair_count": int(state.get("repair_count") or 0) + 1,
+        "research_hints": [
+            *(state.get("research_hints") or []),
+            f"repair: {', '.join(verdict.errors)}",
+        ],
+        "verification_ok": False,
+    }
+
+
+async def research_pack_node(state: AgentGraphState, config: RunnableConfig) -> dict[str, Any]:
+    records = {
+        key: EvidenceRecord.from_dict(value)
+        for key, value in (state.get("evidence_records") or {}).items()
+    }
+    finish = dict(state.get("finish_retrieval") or {})
+    if not finish:
+        finish = {
+            "status": "partial" if records else "ready",
+            "evidence_ids": list(records),
+            "unresolved": [],
+        }
+    evidence_ids = [str(item) for item in finish.get("evidence_ids") or list(records)]
+    unresolved_items = [str(item) for item in finish.get("unresolved") or []]
+    packed, _ = build_evidence_pack(
+        records=records,
+        evidence_ids=evidence_ids,
+        unresolved=unresolved_items,
+    )
+    return {
+        **state,
+        "rag_context": packed,
+        "evidence_ids": evidence_ids,
+        "unresolved": unresolved_items,
+        "stopped_reason": str(finish.get("status") or "ready"),
+        "status": "completed",
+    }
+
+
+def route_research_plan(state: AgentGraphState) -> Literal["planner", "tool", "verify", "pack"]:
+    action = state.get("tool_action") or {}
+    tool = str(action.get("tool") or "")
+    if tool == "FinishRetrieval":
+        return "verify"
+    if int(state.get("step_count") or 0) >= int(state.get("max_steps") or 4):
+        return "pack"
+    return "tool" if tool in READ_TOOLS else "planner"
+
+
+def route_research_after_tool(state: AgentGraphState) -> Literal["planner", "pack"]:
+    return "pack" if int(state.get("step_count") or 0) >= int(state.get("max_steps") or 4) else "planner"
+
+
+def route_research_verify(state: AgentGraphState) -> Literal["planner", "pack"]:
+    return "pack" if state.get("verification_ok") else "planner"
+
+
+def build_research_graph() -> StateGraph:
+    """Assemble the research loop from the shared module-level nodes.
+
+    Single source of truth: the same nodes power both this standalone graph
+    (legacy run_research_graph / contract tests) and the unified workspace
+    graph (ADR-012 §1.0), so behaviour cannot drift between the two paths.
+    """
+    graph = StateGraph(AgentGraphState)
+    graph.add_node("seed", research_seed_node)
+    graph.add_node("planner", research_planner_node)
+    graph.add_node("tool", research_tool_node)
+    graph.add_node("verify", research_verify_node)
+    graph.add_node("pack", research_pack_node)
+    graph.set_entry_point("seed")
+    graph.add_edge("seed", "planner")
+    graph.add_conditional_edges("planner", route_research_plan)
+    graph.add_conditional_edges("tool", route_research_after_tool)
+    graph.add_conditional_edges("verify", route_research_verify)
+    graph.add_edge("pack", END)
+    return graph
+
+
 async def run_research_graph(
     ctx: RuntimeContext,
     *,
@@ -190,238 +438,20 @@ async def run_research_graph(
     from app.services.agent.runtime.checkpoint import ensure_checkpointer_ready, get_checkpointer
 
     research_hints = list(hints or [])
-    l1_summary = ""
-    if l1_results:
-        previews = [
-            f"- {item.get('node_type')}:{item.get('note_id')} sim={item.get('similarity', 0):.2f}"
-            for item in l1_results[:6]
-        ]
-        l1_summary = "L1 hits:\n" + "\n".join(previews)
 
-    ledger_text = format_ledger_for_planner(dialog_ledger) if dialog_ledger else ""
-
-    async def seed_node(
-        state: AgentGraphState,
-        config: RunnableConfig,
-    ) -> dict[str, Any]:
-        transcript = list(state.get("research_transcript") or [])
-        async with ctx.session_factory() as session:
-            agent_state = ctx.bind_agent_state(session)
-            if seed_ref and seed_ref.startswith("note:"):
-                note_id = seed_ref[len("note:") :].strip()
-                outcome = await tool_open_note(
-                    agent_state,
-                    note_id=note_id,
-                    post_id=seed_post_id,
-                )
-                transcript.append(f"[seed] OpenNote: {outcome.summary}")
-
-            if ctx.scope == "post":
-                post_id = (
-                    str(seed_post_id or "").strip()
-                    or str((ctx.post_data or {}).get("id") or "").strip()
-                )
-                if post_id:
-                    outcome = await tool_open_post(agent_state, post_id=post_id)
-                    transcript.append(f"[seed] OpenPost: {outcome.summary}")
-                    agent_state.resolved_target_post_id = post_id
-
-            seeded = seed_hydrated_attachments_from_ledger(
-                agent_state,
-                user_text=user_text,
-                ledger=dialog_ledger,
-            )
-            if seeded:
-                transcript.append(f"[seed] ledger attachments: {', '.join(seeded)}")
-            records = records_from_agent_state(agent_state)
-            await session.commit()
-        return {
-            **state,
-            "research_transcript": transcript,
-            "evidence_records": {key: rec.to_dict() for key, rec in records.items()},
-            "step_count": 0,
-            "repair_count": 0,
-            "status": "running",
-        }
-
-    async def planner_node(
-        state: AgentGraphState,
-        config: RunnableConfig,
-    ) -> dict[str, Any]:
-        from app.services.ai.llm import complete_chat_completion
-
-        records = {
-            key: EvidenceRecord.from_dict(value)
-            for key, value in (state.get("evidence_records") or {}).items()
-        }
-        if spec is None or not model or not api_key:
-            action = ToolAction(
-                tool="FinishRetrieval",
-                args={
-                    "status": "partial" if records else "ready",
-                    "evidence_ids": list(records),
-                    "unresolved": ["no_reasoner_llm"],
-                },
-            )
-        else:
-            messages = _build_messages(
-                user_text=user_text,
-                transcript=list(state.get("research_transcript") or []),
-                hints=list(state.get("research_hints") or []),
-                dialog_context=dialog_context,
-                ledger_text=ledger_text,
-                l1_summary=l1_summary,
-            )
-            evidence_text, _ = build_evidence_pack(
-                records=records,
-                evidence_ids=list(records),
-            )
-            messages[-1]["content"] += "\n\nСобранный context:\n" + evidence_text
-            raw = await complete_chat_completion(
-                messages=messages,
-                spec=spec,
-                model=model,
-                api_key=api_key,
-                temperature=0.1,
-                max_tokens=700,
-            )
-            action = parse_tool_action(raw) or ToolAction(tool="Invalid", args={})
-        steps = int(state.get("step_count") or 0) + 1
-        trace_step(
-            "7. rag.L2.langgraph",
-            [f"step={steps}/{max_steps}", f"tool={action.tool}"],
-        )
-        return {
-            **state,
-            "step_count": steps,
-            "tool_action": {"tool": action.tool, "args": action.args},
-        }
-
-    async def tool_node(
-        state: AgentGraphState,
-        config: RunnableConfig,
-    ) -> dict[str, Any]:
-        raw_action = state.get("tool_action") or {}
-        action = ToolAction(
-            tool=str(raw_action.get("tool") or ""),
-            args=dict(raw_action.get("args") or {}),
-        )
-        transcript = list(state.get("research_transcript") or [])
-        existing_records = dict(state.get("evidence_records") or {})
-        async with ctx.session_factory() as session:
-            agent_state = ctx.bind_agent_state(session)
-            outcome = await _execute_tool(agent_state, action)
-            records = records_from_agent_state(agent_state)
-            await session.commit()
-        transcript.append(f"step {state.get('step_count', 0)}: {action.tool} → {outcome.summary}")
-        if outcome.error:
-            transcript.append(f"  error={outcome.error}")
-        return {
-            **state,
-            "research_transcript": transcript,
-            "evidence_records": {
-                **existing_records,
-                **{key: rec.to_dict() for key, rec in records.items()},
-            },
-        }
-
-    async def verify_node(
-        state: AgentGraphState,
-        config: RunnableConfig,
-    ) -> dict[str, Any]:
-        records = {
-            key: EvidenceRecord.from_dict(value)
-            for key, value in (state.get("evidence_records") or {}).items()
-        }
-        candidate = dict((state.get("tool_action") or {}).get("args") or {})
-        if not candidate.get("evidence_ids"):
-            candidate["evidence_ids"] = list(records)
-        verdict = verify_evidence(
-            finish=candidate,
-            records=records,
-            repair_count=int(state.get("repair_count") or 0),
-        )
-        if verdict.ok or not verdict.repair_allowed:
-            return {
-                **state,
-                "finish_retrieval": candidate,
-                "verification_ok": True,
-            }
-        return {
-            **state,
-            "repair_count": int(state.get("repair_count") or 0) + 1,
-            "research_hints": [
-                *(state.get("research_hints") or []),
-                f"repair: {', '.join(verdict.errors)}",
-            ],
-            "verification_ok": False,
-        }
-
-    async def pack_node(
-        state: AgentGraphState,
-        config: RunnableConfig,
-    ) -> dict[str, Any]:
-        records = {
-            key: EvidenceRecord.from_dict(value)
-            for key, value in (state.get("evidence_records") or {}).items()
-        }
-        finish = dict(state.get("finish_retrieval") or {})
-        if not finish:
-            finish = {
-                "status": "partial" if records else "ready",
-                "evidence_ids": list(records),
-                "unresolved": [],
-            }
-        evidence_ids = [str(item) for item in finish.get("evidence_ids") or list(records)]
-        unresolved_items = [str(item) for item in finish.get("unresolved") or []]
-        packed, _ = build_evidence_pack(
-            records=records,
-            evidence_ids=evidence_ids,
-            unresolved=unresolved_items,
-        )
-        return {
-            **state,
-            "rag_context": packed,
-            "evidence_ids": evidence_ids,
-            "unresolved": unresolved_items,
-            "stopped_reason": str(finish.get("status") or "ready"),
-            "status": "completed",
-        }
-
-    def route_plan(state: AgentGraphState) -> Literal["planner", "tool", "verify", "pack"]:
-        action = state.get("tool_action") or {}
-        tool = str(action.get("tool") or "")
-        if tool == "FinishRetrieval":
-            return "verify"
-        if int(state.get("step_count") or 0) >= max_steps:
-            return "pack"
-        return "tool" if tool in READ_TOOLS else "planner"
-
-    def route_after_tool(state: AgentGraphState) -> Literal["planner", "pack"]:
-        return "pack" if int(state.get("step_count") or 0) >= max_steps else "planner"
-
-    def route_verify(state: AgentGraphState) -> Literal["planner", "pack"]:
-        return "pack" if state.get("verification_ok") else "planner"
-
-    graph = StateGraph(AgentGraphState)
-    graph.add_node("seed", seed_node)
-    graph.add_node("planner", planner_node)
-    graph.add_node("tool", tool_node)
-    graph.add_node("verify", verify_node)
-    graph.add_node("pack", pack_node)
-    graph.set_entry_point("seed")
-    graph.add_edge("seed", "planner")
-    graph.add_conditional_edges("planner", route_plan)
-    graph.add_conditional_edges("tool", route_after_tool)
-    graph.add_conditional_edges("verify", route_verify)
-    graph.add_edge("pack", END)
-
+    graph = build_research_graph()
     await ensure_checkpointer_ready()
     compiled = graph.compile(checkpointer=get_checkpointer())
     config = {
         "configurable": {
             "thread_id": str(ctx.user_id),
             "checkpoint_ns": f"research:{checkpoint_id or uuid.uuid4()}",
+            "runtime_context": ctx,
+            "dialog_context": dialog_context,
+            "dialog_ledger": dialog_ledger,
+            "l1_results": l1_results,
+            "seed_ref": seed_ref,
+            "seed_post_id": seed_post_id,
         }
     }
     initial: AgentGraphState = {
