@@ -51,7 +51,15 @@ class EvidenceRecord:
 
 
 def records_from_agent_state(agent_state) -> dict[str, EvidenceRecord]:
-    """Build evidence map from legacy AgentState context blocks."""
+    """Build evidence map from legacy AgentState context blocks.
+
+    Records are keyed by their natural, stable citation path (``/post/3/``,
+    ``/note/global/n1/``) — the same identifier the planner sees in the pack,
+    cites in FinishRetrieval, and the answer model renders. No hash indirection,
+    so a planner-returned id can never dangle against the record map
+    (agent-runtime-sprints §1.2). First occurrence of a path wins, matching the
+    pack's dedup-by-path behaviour.
+    """
     from app.services.ai.note_citations import NoteCite
 
     records: dict[str, EvidenceRecord] = {}
@@ -59,14 +67,15 @@ def records_from_agent_state(agent_state) -> dict[str, EvidenceRecord]:
         if not isinstance(cite, NoteCite):
             continue
         path = str(cite.path or "")
-        rec_id = str(uuid.uuid5(uuid.NAMESPACE_URL, f"{path}\n{plain or ''}"))
+        if not path or path in records:
+            continue
         kind: EvidenceKind = "note_chunk"
         if "/attachment/" in path:
             kind = "attachment_text"
         elif path.endswith("/post/") or "/post/" in path and "/note/" not in path:
             kind = "post_text"
-        records[rec_id] = EvidenceRecord(
-            id=rec_id,
+        records[path] = EvidenceRecord(
+            id=path,
             kind=kind,
             source_ref=path,
             content=str(plain or ""),

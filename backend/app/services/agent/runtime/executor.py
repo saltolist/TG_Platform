@@ -200,10 +200,23 @@ async def resume_agent_graph(
     *,
     run: AgentRun,
     resume_value: dict[str, Any],
+    runtime_context: RuntimeContext | None = None,
 ) -> dict[str, Any]:
+    from app.services.agent.runtime.runs import rebuild_runtime_context_for_run
+
     await ensure_checkpointer_ready()
     graph = get_compiled_workspace_graph()
-    cfg = {"configurable": {"thread_id": str(run.id)}}
+    # Resume must carry runtime_context — nodes downstream of the interrupt
+    # (research/answer) read it from configurable and would otherwise KeyError
+    # (agent-runtime-sprints §1.5).
+    if runtime_context is None:
+        runtime_context = await rebuild_runtime_context_for_run(session, run)
+    cfg = {
+        "configurable": {
+            "thread_id": str(run.id),
+            "runtime_context": runtime_context,
+        }
+    }
     final_state: dict[str, Any] = {}
     pending_interrupt: dict[str, Any] | None = None
     async for mode, chunk in graph.astream(

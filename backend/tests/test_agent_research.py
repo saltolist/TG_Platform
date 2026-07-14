@@ -54,6 +54,87 @@ def test_build_evidence_pack_dedup() -> None:
     assert isinstance(cites[0], NoteCite)
 
 
+def test_verify_evidence_empty_ids_fails() -> None:
+    """agent-runtime-sprints §1.3: an empty citation set is never a valid finish."""
+    rec = EvidenceRecord(
+        id="/note/global/n1/",
+        kind="note_chunk",
+        source_ref="/note/global/n1/",
+        content="content",
+        citation_path="/note/global/n1/",
+        citation_title="n1",
+    )
+    result = verify_evidence(
+        finish={"status": "ready", "evidence_ids": []},
+        records={"/note/global/n1/": rec},
+    )
+    assert result.ok is False
+    assert "no_evidence_ids" in result.errors
+
+
+def test_verify_evidence_partial_rejects_empty_content() -> None:
+    """agent-runtime-sprints §1.3: partial still must ground on non-empty content."""
+    rec = EvidenceRecord(
+        id="/post/3/",
+        kind="post_text",
+        source_ref="/post/3/",
+        content="   ",
+        citation_path="/post/3/",
+        citation_title="Post 3",
+    )
+    result = verify_evidence(
+        finish={"status": "partial", "evidence_ids": ["/post/3/"]},
+        records={"/post/3/": rec},
+    )
+    assert result.ok is False
+    assert "empty_evidence_content" in result.errors
+
+
+def test_records_from_agent_state_uses_natural_ids() -> None:
+    """agent-runtime-sprints §1.2: records key on citation path, no hash indirection."""
+    from types import SimpleNamespace
+
+    from app.services.agent.research.evidence import records_from_agent_state
+
+    cite = NoteCite(path="/post/3/", title="Post 3")
+    agent_state = SimpleNamespace(
+        context_blocks=[(cite, "post body")],
+        visited=[],
+    )
+    records = records_from_agent_state(agent_state)
+    assert set(records) == {"/post/3/"}
+    assert records["/post/3/"].content == "post body"
+    assert records["/post/3/"].kind == "post_text"
+
+
+@pytest.mark.asyncio
+async def test_answer_node_refuses_on_empty_evidence() -> None:
+    """agent-runtime-sprints §1.1: research with no grounded evidence refuses."""
+    from app.services.agent.runtime.workspace_graph import REFUSAL_TEXT, answer_node
+
+    ctx = RuntimeContext(
+        session_factory=AsyncMock(),
+        user_id=uuid4(),
+        user=None,
+        tenant_key=None,
+        settings=Settings(),
+        embedding_backend=AsyncMock(),
+        scope="global",
+        post_data=None,
+        ai_profile={},
+    )
+    state = {
+        "user_text": "какой охват у поста 3?",
+        "tool_call": {"type": "read"},
+        "evidence_ids": [],
+        "rag_context": "",
+    }
+    result = await answer_node(state, {"configurable": {"runtime_context": ctx}})
+    assert result["answer_text"] == REFUSAL_TEXT
+    assert result["claims"] == []
+    assert result["stopped_reason"] == "empty_evidence_refusal"
+
+
 @pytest.mark.asyncio
 async def test_run_research_graph_without_llm_uses_context_blocks() -> None:
     session = AsyncMock()

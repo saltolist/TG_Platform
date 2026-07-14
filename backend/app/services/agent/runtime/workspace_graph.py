@@ -86,7 +86,7 @@ def route_workspace_call(
     # "read" enters the research loop directly at its first node (seed). The
     # research nodes (seed/planner/tool/verify/pack) are first-class members of
     # this single graph — no nested subgraph, no separate checkpointer, and no
-    # lossy repackaging of evidence_records (ADR-012 §1.0).
+    # lossy repackaging of evidence_records (agent-runtime-sprints §1.0).
     call_type = str((state.get("tool_call") or {}).get("type") or "read")
     return {
         "read": "seed",
@@ -96,12 +96,31 @@ def route_workspace_call(
     }.get(call_type, "seed")  # type: ignore[return-value]
 
 
+REFUSAL_TEXT = (
+    "Не нашёл в workspace данных, чтобы ответить на это фактически. "
+    "Уточните запрос или добавьте материалы, на которые можно опереться."
+)
+
+
 async def answer_node(state: AgentGraphState, config: RunnableConfig) -> dict[str, Any]:
     from app.services.ai.llm import complete_chat_completion
     from app.services.ai.rag_json import extract_json_object
 
     ctx: RuntimeContext = config["configurable"]["runtime_context"]
     evidence_ids = state.get("evidence_ids") or []
+    rag_context = str(state.get("rag_context") or "").strip()
+    came_through_research = str((state.get("tool_call") or {}).get("type") or "") == "read"
+
+    # Answer guard (code-gate, not prompt): if the request went through research
+    # but produced no grounded evidence, refuse instead of letting the model
+    # invent an answer on an empty pack (agent-runtime-sprints §1.1).
+    if came_through_research and (not evidence_ids or not rag_context):
+        return {
+            **state,
+            "answer_text": REFUSAL_TEXT,
+            "claims": [],
+            "stopped_reason": "empty_evidence_refusal",
+        }
     prompt = (
         f"Вопрос:\n{state.get('user_text', '')}\n\n"
         f"Evidence IDs: {evidence_ids}\n"
@@ -373,7 +392,7 @@ def build_workspace_graph() -> StateGraph:
     graph = StateGraph(AgentGraphState)
     graph.add_node("bootstrap", bootstrap_node)
     graph.add_node("workspace_agent", workspace_agent_node)
-    # Research nodes are first-class in the single graph (ADR-012 §1.0), not a
+    # Research nodes are first-class in the single graph (agent-runtime-sprints §1.0), not a
     # nested subgraph. One checkpointer, one state, no content="" repackaging.
     graph.add_node("seed", research_seed_node)
     graph.add_node("planner", research_planner_node)

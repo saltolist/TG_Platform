@@ -47,6 +47,10 @@ def verify_evidence(
     dangling = [eid for eid in requested if eid in records and not records[eid].content.strip()]
 
     errors: list[str] = []
+    # An empty citation set is never a valid finish: the planner claimed it was
+    # done but selected nothing to ground the answer on (agent-runtime-sprints §1.3).
+    if not requested:
+        errors.append("no_evidence_ids")
     if missing:
         errors.append("missing_evidence_ids")
     if dangling:
@@ -60,9 +64,12 @@ def verify_evidence(
     if ownership_errors:
         errors.append("invalid_citation_paths")
 
-    ok = not missing and not dangling and status == "ready"
-    if status == "partial" and not missing:
-        ok = True
+    # Both ready and partial must have at least one resolvable, non-empty cite.
+    # partial only relaxes the "everything requested resolved" bar, not the
+    # dangling/empty-content bar (agent-runtime-sprints §1.3).
+    ok = bool(requested) and not dangling
+    if status == "ready":
+        ok = ok and not missing
 
     return VerifyResult(
         ok=ok,

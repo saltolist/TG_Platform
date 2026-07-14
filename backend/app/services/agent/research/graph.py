@@ -30,6 +30,7 @@ from app.services.ai.rag_tools import (
     tool_get_post_analytics,
     tool_hydrate_attachment,
     tool_list_note_attachments,
+    tool_list_post_notes,
     tool_list_posts,
     tool_open_note,
     tool_open_post,
@@ -45,6 +46,7 @@ READ_TOOLS = frozenset(
         "OpenPost",
         "OpenNote",
         "ListPosts",
+        "ListPostNotes",
         "ListNoteAttachments",
         "HydrateAttachment",
         "GetPostAnalytics",
@@ -56,8 +58,9 @@ AGENT_SYSTEM = """Ты research-агент workspace. Собери факты re
 Доступные tools (JSON):
 - SearchNodes {query, node_types?, k?}
 - OpenPost {post_id}
-- OpenNote {note_id, post_id?}
+- OpenNote {note_id, post_id?} — прочитать содержимое конкретной заметки
 - ListPosts {query?, limit?}
+- ListPostNotes {post_id} — перечислить заметки поста (сначала OpenPost)
 - ListNoteAttachments {note_id, post_id?}
 - HydrateAttachment {ref, mode?}
 - GetPostAnalytics {post_id, period?}
@@ -66,6 +69,7 @@ AGENT_SYSTEM = """Ты research-агент workspace. Собери факты re
 Правила:
 - Только read; никаких мутаций.
 - Завершай, когда собрано достаточно для ответа.
+- В `evidence_ids` перечисляй ТОЛЬКО те id, что показаны в блоке «Собранный context» как `[id: …]` — дословно. Не выдумывай id и не подставляй номера постов.
 - Верни один JSON: {"tool": "...", "args": {...}}.
 """
 
@@ -143,12 +147,15 @@ async def _execute_tool(state: AgentState, action: ToolAction) -> ToolOutcome:
             post_id=args.get("post_id"),
         )
     if tool == "ListPosts":
+        # Expose only the documented query/limit surface — no hidden status arg
+        # that the planner was never told about (agent-runtime-sprints §1.4).
         return await tool_list_posts(
             state,
-            status=str(args.get("status") or "") or None,
             query=str(args.get("query") or "") or None,
             limit=int(args.get("limit") or 8),
         )
+    if tool == "ListPostNotes":
+        return tool_list_post_notes(state, post_id=str(args.get("post_id") or ""))
     if tool == "ListNoteAttachments":
         return await tool_list_note_attachments(
             state,
@@ -171,7 +178,7 @@ async def _execute_tool(state: AgentState, action: ToolAction) -> ToolOutcome:
 
 
 # ---------------------------------------------------------------------------
-# Module-level research nodes (ADR-012 §1.0 single-graph).
+# Module-level research nodes (agent-runtime-sprints §1.0 single-graph).
 #
 # Lifted out of run_research_graph's closures so the SAME nodes power both the
 # legacy run_research_graph entrypoint and the unified workspace graph. Each
@@ -189,6 +196,22 @@ def _planner_inputs(config: RunnableConfig) -> dict[str, Any]:
         "seed_ref": conf.get("seed_ref"),
         "seed_post_id": conf.get("seed_post_id"),
     }
+
+
+def _format_evidence_for_planner(records: dict[str, EvidenceRecord]) -> str:
+    """List collected evidence with its natural id so the planner cites real keys.
+
+    FinishRetrieval.evidence_ids must reference these ids verbatim; surfacing
+    them here is what closes the empty-pack loop (agent-runtime-sprints §1.2).
+    """
+    if not records:
+        return "(контекст пуст)"
+    blocks: list[str] = []
+    for rec_id, rec in records.items():
+        title = rec.citation_title or rec_id
+        body = (rec.content or "").strip()[:1200] or "(пусто)"
+        blocks.append(f"[id: {rec_id}] {title}\n{body}")
+    return "\n\n".join(blocks)
 
 
 def _l1_summary(l1_results: list[dict[str, Any]] | None) -> str:
@@ -276,7 +299,7 @@ async def research_planner_node(state: AgentGraphState, config: RunnableConfig) 
             ledger_text=ledger_text,
             l1_summary=_l1_summary(inp["l1_results"]),
         )
-        evidence_text, _ = build_evidence_pack(records=records, evidence_ids=list(records))
+        evidence_text = _format_evidence_for_planner(records)
         messages[-1]["content"] += "\n\nСобранный context:\n" + evidence_text
         raw = await complete_chat_completion(
             messages=messages,
@@ -328,9 +351,10 @@ async def research_verify_node(state: AgentGraphState, config: RunnableConfig) -
         key: EvidenceRecord.from_dict(value)
         for key, value in (state.get("evidence_records") or {}).items()
     }
+    # Do NOT auto-fill evidence_ids with every record — an empty list is a
+    # verification failure that triggers repair, not a licence to "cite
+    # everything" (agent-runtime-sprints §1.3). The model must choose its cites.
     candidate = dict((state.get("tool_action") or {}).get("args") or {})
-    if not candidate.get("evidence_ids"):
-        candidate["evidence_ids"] = list(records)
     verdict = verify_evidence(
         finish=candidate,
         records=records,
@@ -354,15 +378,12 @@ async def research_pack_node(state: AgentGraphState, config: RunnableConfig) -> 
         key: EvidenceRecord.from_dict(value)
         for key, value in (state.get("evidence_records") or {}).items()
     }
+    # Honour the verified finish literally — no "cite everything" fallback.
+    # An empty selection yields an empty pack, which the answer guard turns
+    # into an honest refusal rather than ungrounded text (agent-runtime-sprints §1.3).
     finish = dict(state.get("finish_retrieval") or {})
-    if not finish:
-        finish = {
-            "status": "partial" if records else "ready",
-            "evidence_ids": list(records),
-            "unresolved": [],
-        }
-    evidence_ids = [str(item) for item in finish.get("evidence_ids") or list(records)]
-    unresolved_items = [str(item) for item in finish.get("unresolved") or []]
+    evidence_ids = [str(item) for item in (finish.get("evidence_ids") or [])]
+    unresolved_items = [str(item) for item in (finish.get("unresolved") or [])]
     packed, _ = build_evidence_pack(
         records=records,
         evidence_ids=evidence_ids,
@@ -378,18 +399,25 @@ async def research_pack_node(state: AgentGraphState, config: RunnableConfig) -> 
     }
 
 
-def route_research_plan(state: AgentGraphState) -> Literal["planner", "tool", "verify", "pack"]:
+def route_research_plan(state: AgentGraphState) -> Literal["planner", "tool", "verify"]:
     action = state.get("tool_action") or {}
     tool = str(action.get("tool") or "")
     if tool == "FinishRetrieval":
         return "verify"
+    # Hard-stop on step budget still routes through verify, never straight to
+    # pack — the collected evidence must clear the gate before it can ground an
+    # answer (agent-runtime-sprints §1.3).
     if int(state.get("step_count") or 0) >= int(state.get("max_steps") or 4):
-        return "pack"
+        return "verify"
     return "tool" if tool in READ_TOOLS else "planner"
 
 
-def route_research_after_tool(state: AgentGraphState) -> Literal["planner", "pack"]:
-    return "pack" if int(state.get("step_count") or 0) >= int(state.get("max_steps") or 4) else "planner"
+def route_research_after_tool(state: AgentGraphState) -> Literal["planner", "verify"]:
+    return (
+        "verify"
+        if int(state.get("step_count") or 0) >= int(state.get("max_steps") or 4)
+        else "planner"
+    )
 
 
 def route_research_verify(state: AgentGraphState) -> Literal["planner", "pack"]:
@@ -401,7 +429,7 @@ def build_research_graph() -> StateGraph:
 
     Single source of truth: the same nodes power both this standalone graph
     (legacy run_research_graph / contract tests) and the unified workspace
-    graph (ADR-012 §1.0), so behaviour cannot drift between the two paths.
+    graph (agent-runtime-sprints §1.0), so behaviour cannot drift between the two paths.
     """
     graph = StateGraph(AgentGraphState)
     graph.add_node("seed", research_seed_node)
