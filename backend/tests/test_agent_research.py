@@ -184,3 +184,19 @@ async def test_run_research_graph_without_llm_uses_context_blocks() -> None:
         )
 
     assert "seeded content" in result.rag_context or result.stopped_reason
+
+    # Deterministic graders must pass on real graph output, not just fixtures
+    # (agent-runtime-sprints Фаза 0): no dangling citation, no claim on empty pack.
+    from app.services.agent.runtime.graders import grade_run
+
+    report = grade_run(
+        {
+            "rag_context": result.rag_context,
+            "evidence_ids": list(result.evidence_ids or []),
+            "evidence_records": {eid: {} for eid in (result.evidence_ids or [])},
+            "claims": [],
+            "answer_text": result.rag_context,
+            "stopped_reason": result.stopped_reason,
+        }
+    )
+    assert report.ok, report.failures
