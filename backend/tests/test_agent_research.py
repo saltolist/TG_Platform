@@ -135,6 +135,91 @@ async def test_answer_node_refuses_on_empty_evidence() -> None:
     assert result["stopped_reason"] == "empty_evidence_refusal"
 
 
+def _reasoner_ctx() -> RuntimeContext:
+    from app.services.ai.providers import ProviderSpec
+
+    ctx = RuntimeContext(
+        session_factory=AsyncMock(),
+        user_id=uuid4(),
+        user=None,
+        tenant_key=None,
+        settings=Settings(),
+        embedding_backend=AsyncMock(),
+        scope="global",
+        post_data=None,
+        ai_profile={},
+    )
+    ctx.reasoner_spec = ProviderSpec("OpenAI", "https://api.openai.com")
+    ctx.reasoner_model = "gpt-4o-mini"
+    ctx.reasoner_api_key = "test-key"
+    return ctx
+
+
+@pytest.mark.asyncio
+async def test_workspace_agent_node_forwards_dialog_context_to_classifier_prompt() -> None:
+    """agent-runtime-sprints §2.1: classifier must see dialog_context, not just
+    the current turn, so it can route stylistic follow-ups to "finish" instead
+    of a doomed re-search."""
+    from app.services.agent.runtime.workspace_graph import workspace_agent_node
+
+    ctx = _reasoner_ctx()
+    state = {"user_text": "Покороче можешь?"}
+    config = {
+        "configurable": {
+            "runtime_context": ctx,
+            "dialog_context": "Пользователь: Какой охват у поста 3?\nАссистент: Охват 1200 просмотров.",
+        }
+    }
+    with patch(
+        "app.services.ai.llm.complete_chat_completion",
+        new_callable=AsyncMock,
+        return_value='{"type": "finish"}',
+    ) as mock_llm:
+        result = await workspace_agent_node(state, config)
+
+    assert result["current_tool"] == "finish"
+    messages = mock_llm.await_args.kwargs.get("messages")
+    user_content = messages[1]["content"]
+    assert "Охват 1200 просмотров" in user_content
+    assert "Покороче можешь?" in user_content
+
+
+@pytest.mark.asyncio
+async def test_answer_node_forwards_dialog_context_on_finish_path() -> None:
+    """agent-runtime-sprints §2.1: a "finish" turn (no research pack) must still
+    let the model answer from dialog_context — e.g. "покороче" needs the prior
+    answer's text, not the empty-evidence refusal."""
+    from app.services.agent.runtime.workspace_graph import REFUSAL_TEXT, answer_node
+
+    ctx = _reasoner_ctx()
+    state = {
+        "user_text": "Покороче можешь?",
+        "tool_call": {"type": "finish"},
+        "evidence_ids": [],
+        "rag_context": "",
+    }
+    config = {
+        "configurable": {
+            "runtime_context": ctx,
+            "dialog_context": "Пользователь: Какой охват у поста 3?\nАссистент: Охват 1200 просмотров.",
+        }
+    }
+    with patch(
+        "app.services.ai.llm.complete_chat_completion",
+        new_callable=AsyncMock,
+        return_value='{"answer": "1200.", "claims": []}',
+    ) as mock_llm:
+        result = await answer_node(state, config)
+
+    # No research pack was produced, but the finish path never hits the
+    # empty-evidence guard — that guard only fires when tool_call == "read".
+    assert result["answer_text"] != REFUSAL_TEXT
+    assert result["answer_text"] == "1200."
+    messages = mock_llm.await_args.kwargs.get("messages")
+    user_content = messages[1]["content"]
+    assert "Охват 1200 просмотров" in user_content
+
+
 @pytest.mark.asyncio
 async def test_run_research_graph_without_llm_uses_context_blocks() -> None:
     session = AsyncMock()

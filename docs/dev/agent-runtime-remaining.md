@@ -9,7 +9,8 @@ reference-level. **Канон — [agent-runtime-sprints.md](agent-runtime-sprin
 Ветка: `cursor/per-post-analytics-foundation`.
 
 Статус проверен по коду и git (коммиты `5e54ac6` §1.0, `7b6d62b` §1.2–1.5,
-`8e83e58` грейдеры). Тесты: 38 agent-тестов зелёные + 7 новых для Спринта 2.
+`8e83e58` грейдеры). Тесты: 38 agent-тестов зелёные + 7 новых для Спринта 2
++ 2 новых на доступ `dialog_context` для classifier/answer.
 
 ---
 
@@ -88,6 +89,23 @@ ADR-009 сознательно **не** делать — это архитект
       по `post_chat_id`, с fallback на старую эвристику (`chat_id` → последний
       чат поста) для run'ов, созданных до этой колонки.
       Тест: `test_rebuild_runtime_context_post_scope_uses_post_chat_id`.
+      **Закрыт хвост «dialog_context видит только planner»:** `dialog_context`
+      теперь читают все три reasoning-узла, не только research planner.
+      `workspace_agent_node` (классификатор `read`/`finish`/`*_proposal`) кладёт
+      его перед `user_text` в промпт и получил инструкцию в `WORKSPACE_SYSTEM`
+      маршрутизировать чисто стилевые правки прошлого ответа («покороче»,
+      «на английском?», без нового факт-вопроса) в `"finish"`, а не гнать их
+      через обречённый повторный research. `answer_node` тоже читает
+      `dialog_context` и веткует промпт: на research-пути (`tool_call=="read"`)
+      поведение не изменилось (только evidence, guard на пустой evidence
+      остаётся жёстким code-gate и не смягчается историей); на `"finish"`-пути
+      теперь строится разговорный промпт с диалогом, а не всегда
+      статичный «Для ответа не требуется дополнительный контекст».
+      Файлы: `runtime/workspace_graph.py` (`WORKSPACE_SYSTEM`,
+      `workspace_agent_node`, `answer_node`).
+      Тесты: `test_workspace_agent_node_forwards_dialog_context_to_classifier_prompt`,
+      `test_answer_node_forwards_dialog_context_on_finish_path`
+      (`tests/test_agent_research.py`).
 - [x] **2.2 Референты артефактов — без resolver'а.** ✅ Агент пере-вызывает
       tool (`OpenNote`/`HydrateAttachment`) с натуральным ID, упомянутым в
       прошлом сообщении — штатный tool-loop, читающий ID из текста
@@ -120,10 +138,16 @@ ADR-009 сознательно **не** делать — это архитект
 (`test_rebuild_runtime_context_loads_dialog_context_from_chat_history`).
 «А что было на той картинке/заметке из прошлого turn'а?» резолвится через
 planner re-call с реальным evidence-путём
-(`test_agent_referent_recall_reopens_note_via_dialog_context`). Оба теста
-детерминированы через scripted LLM — реального прогона с живой моделью не
-было (AgentRouter не работал в течение всей работы над Спринтом 2); это
-единственный оставшийся хвост, и он не блокирует переход к Спринту 3.
+(`test_agent_referent_recall_reopens_note_via_dialog_context`). «Покороче
+можешь?» после фактического ответа резолвится через `"finish"`-маршрут
+классификатора и разговорный промпт `answer_node`, оба видящие
+`dialog_context`, а не через отказ/повторный research
+(`test_workspace_agent_node_forwards_dialog_context_to_classifier_prompt`,
+`test_answer_node_forwards_dialog_context_on_finish_path`). Все тесты
+детерминированы через scripted/mocked LLM — реального прогона с живой
+моделью не было (AgentRouter не работал в течение всей работы над Спринтом
+2); это единственный оставшийся хвост, и он не блокирует переход к
+Спринту 3.
 
 ---
 

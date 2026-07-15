@@ -39,7 +39,8 @@ WORKSPACE_SYSTEM = """Ты единственный WorkspaceAgent платфо�
 - {"type":"post_proposal","command":"create_post|edit_post|schedule_post|publish_post|cancel_schedule|delete_post|restore_post","payload":{...}};
 - {"type":"media_proposal","kind":"image|video","prompt":"...","options":{},"cost_ceiling":number}.
 Не выполняй мутации напрямую. Выбирай только тип вызова, без keyword routing.
-При любой неоднозначности выбирай "read": если запрос ссылается на посты, заметки, метрики, охваты или любые факты workspace — это "read". "finish" — только для явно общих/не-фактических запросов (приветствие, объяснение возможностей, вопрос не про данные workspace)."""
+При любой неоднозначности выбирай "read": если запрос ссылается на посты, заметки, метрики, охваты или любые факты workspace — это "read". "finish" — только для явно общих/не-фактических запросов (приветствие, объяснение возможностей, вопрос не про данные workspace).
+Если передан блок "Диалог" — используй его, чтобы понять контекст запроса. Короткая правка твоего предыдущего ответа без новых фактических вопросов (перефразируй, покороче, на другом языке, другим тоном) — это "finish", даже если предыдущий ответ был по фактам workspace: факты уже собраны и лежат в диалоге, повторный поиск не нужен."""
 
 
 async def bootstrap_node(state: AgentGraphState, config: RunnableConfig) -> dict[str, Any]:
@@ -62,10 +63,21 @@ async def workspace_agent_node(
     if not ctx.reasoner_spec or not ctx.reasoner_model or not ctx.reasoner_api_key:
         call: dict[str, Any] = {"type": "read"}
     else:
+        # dialog_context lets the classifier route conversational follow-ups
+        # ("покороче", "на английском?") to "finish" instead of a doomed
+        # research pass with nothing new to retrieve (agent-runtime-sprints
+        # §2.1 — canon requires both planner and answer to see history).
+        dialog_context = str((config["configurable"] or {}).get("dialog_context") or "")
+        user_text = str(state.get("user_text") or "")
+        user_content = (
+            f"Диалог:\n{dialog_context.strip()}\n\nТекущий запрос:\n{user_text}"
+            if dialog_context.strip()
+            else user_text
+        )
         raw = await complete_chat_completion(
             messages=[
                 {"role": "system", "content": WORKSPACE_SYSTEM},
-                {"role": "user", "content": str(state.get("user_text") or "")},
+                {"role": "user", "content": user_content},
             ],
             spec=ctx.reasoner_spec,
             model=ctx.reasoner_model,
@@ -108,13 +120,15 @@ async def answer_node(state: AgentGraphState, config: RunnableConfig) -> dict[st
     from app.services.ai.rag_json import extract_json_object
 
     ctx: RuntimeContext = config["configurable"]["runtime_context"]
+    dialog_context = str((config["configurable"] or {}).get("dialog_context") or "")
     evidence_ids = state.get("evidence_ids") or []
     rag_context = str(state.get("rag_context") or "").strip()
     came_through_research = str((state.get("tool_call") or {}).get("type") or "") == "read"
 
     # Answer guard (code-gate, not prompt): if the request went through research
     # but produced no grounded evidence, refuse instead of letting the model
-    # invent an answer on an empty pack (agent-runtime-sprints §1.1).
+    # invent an answer on an empty pack (agent-runtime-sprints §1.1). Dialog
+    # history never overrides this — it cannot substitute for missing facts.
     if came_through_research and (not evidence_ids or not rag_context):
         return {
             **state,
@@ -122,24 +136,37 @@ async def answer_node(state: AgentGraphState, config: RunnableConfig) -> dict[st
             "claims": [],
             "stopped_reason": "empty_evidence_refusal",
         }
-    prompt = (
-        f"Вопрос:\n{state.get('user_text', '')}\n\n"
-        f"Evidence IDs: {evidence_ids}\n"
-        f"Evidence:\n{state.get('rag_context', '')}\n\n"
-        "Верни JSON {\"answer\":\"...\",\"claims\":[{\"text\":\"...\",\"evidence_ids\":[...]}]}."
-    )
+
+    prompt_parts: list[str] = []
+    if dialog_context.strip():
+        prompt_parts.append(f"Диалог:\n{dialog_context.strip()}")
+    prompt_parts.append(f"Вопрос:\n{state.get('user_text', '')}")
+    if came_through_research:
+        # Grounded path: cite only the retrieved evidence, same contract as before.
+        prompt_parts.append(f"Evidence IDs: {evidence_ids}\nEvidence:\n{rag_context}")
+        prompt_parts.append(
+            'Верни JSON {"answer":"...","claims":[{"text":"...","evidence_ids":[...]}]}.'
+        )
+        system_text = "Отвечай только по evidence. Не выдумывай отсутствующие факты."
+    else:
+        # Conversational "finish" path (agent-runtime-sprints §2.1): a
+        # follow-up like "покороче" or "на английском?" needs the prior turn
+        # from dialog_context, not new evidence — there is none to fetch.
+        prompt_parts.append('Верни JSON {"answer":"...","claims":[]}.')
+        system_text = (
+            "Отвечай на разговорный запрос, используя диалог выше как контекст "
+            "(например, если это правка твоего предыдущего ответа). Не выдумывай "
+            "факты о workspace, которых нет в диалоге."
+        )
+    prompt = "\n\n".join(prompt_parts)
+
     if not ctx.reasoner_spec or not ctx.reasoner_model or not ctx.reasoner_api_key:
-        answer = str(state.get("rag_context") or "")
-        if not answer:
-            answer = "Для ответа не требуется дополнительный контекст."
+        answer = rag_context or "Для ответа не требуется дополнительный контекст."
         return {**state, "answer_text": answer, "claims": []}
 
     raw = await complete_chat_completion(
         messages=[
-            {
-                "role": "system",
-                "content": "Отвечай только по evidence. Не выдумывай отсутствующие факты.",
-            },
+            {"role": "system", "content": system_text},
             {"role": "user", "content": prompt},
         ],
         spec=ctx.reasoner_spec,
