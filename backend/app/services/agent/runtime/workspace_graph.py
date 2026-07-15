@@ -42,7 +42,8 @@ WORKSPACE_SYSTEM = """Ты единственный WorkspaceAgent платфо�
 - {"type":"media_proposal","kind":"image|video","prompt":"...","options":{},"cost_ceiling":number}.
 Не выполняй мутации напрямую. Выбирай только тип вызова, без keyword routing.
 При любой неоднозначности выбирай "read": если запрос ссылается на посты, заметки, метрики, охваты или любые факты workspace — это "read". "finish" — только для явно общих/не-фактических запросов (приветствие, объяснение возможностей, вопрос не про данные workspace).
-Если передан блок "Диалог" — используй его, чтобы понять контекст запроса. Короткая правка твоего предыдущего ответа без новых фактических вопросов (перефразируй, покороче, на другом языке, другим тоном) — это "finish", даже если предыдущий ответ был по фактам workspace: факты уже собраны и лежат в диалоге, повторный поиск не нужен."""
+Если передан блок "Диалог" — используй его, чтобы понять контекст запроса. Короткая правка твоего предыдущего ответа без новых фактических вопросов (перефразируй, покороче, на другом языке, другим тоном) — это "finish", даже если предыдущий ответ был по фактам workspace: факты уже собраны и лежат в диалоге, повторный поиск не нужен.
+Если передан блок "Текущий пост" и пользователь просит изменить его текст (убрать/добавить/переформулировать что-то в посте) — это {"type":"post_proposal","command":"edit_post","payload":{"post_id":"<id из блока>","patch":{"text":"<полный новый текст поста>"}}}. В patch.text верни ПОЛНЫЙ текст поста с внесённой правкой, сохранив всё остальное без изменений — не фрагмент и не описание правки."""
 
 
 async def bootstrap_node(state: AgentGraphState, config: RunnableConfig) -> dict[str, Any]:
@@ -70,11 +71,19 @@ async def workspace_agent_node(
         # §2.1 — canon requires both planner and answer to see history).
         dialog_context = str((config["configurable"] or {}).get("dialog_context") or "")
         user_text = str(state.get("user_text") or "")
-        user_content = (
-            f"Диалог:\n{dialog_context.strip()}\n\nТекущий запрос:\n{user_text}"
-            if dialog_context.strip()
-            else user_text
-        )
+        content_parts: list[str] = []
+        if dialog_context.strip():
+            content_parts.append(f"Диалог:\n{dialog_context.strip()}")
+        # The classifier must see the post it's being asked to edit — without
+        # this it cannot produce a correct edit_post payload and silently
+        # falls back to "read"/"finish" (a plain text answer, no proposal).
+        if ctx.scope == "post" and ctx.post_data:
+            post_id = str(ctx.post_data.get("id") or "")
+            post_text = str(ctx.post_data.get("text") or "")
+            if post_id and post_text:
+                content_parts.append(f"Текущий пост (id={post_id}):\n{post_text}")
+        content_parts.append(f"Текущий запрос:\n{user_text}" if content_parts else user_text)
+        user_content = "\n\n".join(content_parts)
         raw = await call_llm_with_deadline(
             ctx,
             messages=[

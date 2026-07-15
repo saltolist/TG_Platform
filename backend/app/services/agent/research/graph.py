@@ -30,6 +30,7 @@ from app.services.ai.rag_tools import (
     ToolOutcome,
     tool_get_post_analytics,
     tool_hydrate_attachment,
+    tool_list_global_notes,
     tool_list_note_attachments,
     tool_list_post_notes,
     tool_list_posts,
@@ -48,6 +49,7 @@ READ_TOOLS = frozenset(
         "OpenNote",
         "ListPosts",
         "ListPostNotes",
+        "ListGlobalNotes",
         "ListNoteAttachments",
         "HydrateAttachment",
         "GetPostAnalytics",
@@ -63,6 +65,7 @@ AGENT_SYSTEM = (
 - OpenNote {note_id, post_id?} — прочитать содержимое конкретной заметки
 - ListPosts {query?, limit?}
 - ListPostNotes {post_id} — перечислить заметки поста (сначала OpenPost)
+- ListGlobalNotes {} — перечислить заметки, НЕ привязанные ни к одному посту. Для вопросов про общее число/наличие заметок учитывай оба источника: заметки из ListPosts/ListPostNotes (по постам) + ListGlobalNotes (вне постов).
 - ListNoteAttachments {note_id, post_id?}
 - HydrateAttachment {ref, mode?}
 - GetPostAnalytics {post_id, period?}
@@ -229,6 +232,8 @@ async def _execute_tool(state: AgentState, action: ToolAction) -> ToolOutcome:
         )
     if tool == "ListPostNotes":
         return tool_list_post_notes(state, post_id=str(args.get("post_id") or ""))
+    if tool == "ListGlobalNotes":
+        return await tool_list_global_notes(state)
     if tool == "ListNoteAttachments":
         return await tool_list_note_attachments(
             state,
@@ -473,7 +478,26 @@ async def research_verify_node(state: AgentGraphState, config: RunnableConfig) -
     # Do NOT auto-fill evidence_ids with every record — an empty list is a
     # verification failure that triggers repair, not a licence to "cite
     # everything" (agent-runtime-sprints §1.3). The model must choose its cites.
+    tool_name = str((state.get("tool_action") or {}).get("tool") or "")
     candidate = dict((state.get("tool_action") or {}).get("args") or {})
+    # Budget-exhaustion salvage: verify is reachable two ways — the planner chose
+    # FinishRetrieval, or the step budget ran out mid-exploration (route_* forces
+    # verify). In the latter case `candidate` is the last read-tool's args (e.g.
+    # {post_id: ...}) with no evidence_ids, so the pack would be empty and the
+    # answer a false "нет данных" — even though listing tools already recorded
+    # citable facts. When we land here on anything other than an explicit
+    # FinishRetrieval, synthesize a `partial` finish over the non-empty records
+    # collected so far. This is NOT "cite everything" (§1.3): it fires only when
+    # the planner never got its turn to finish, salvaging gathered evidence
+    # instead of discarding it.
+    if tool_name != "FinishRetrieval" and records:
+        salvaged_ids = [rid for rid, rec in records.items() if rec.content.strip()]
+        if salvaged_ids:
+            candidate = {
+                "status": "partial",
+                "evidence_ids": salvaged_ids,
+                "unresolved": ["step_budget_exhausted"],
+            }
     verdict = verify_evidence(
         finish=candidate,
         records=records,

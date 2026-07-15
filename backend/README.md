@@ -54,6 +54,14 @@ pip install -r requirements-dev.txt
 TEST_DATABASE_URL=postgresql+asyncpg://tg:tg@localhost:5432/tg_test pytest -v
 ```
 
+Юнит-тесты, которые мокают сессию БД (`AsyncMock`), не требуют Postgres и проходят за секунды — для точечной проверки логики гоняйте их напрямую, например `pytest tests/test_rag_tools.py`, а не весь suite.
+
+### TODO: перейти на пул соединений с ограничением
+
+Сейчас тестовый движок в [tests/conftest.py](tests/conftest.py) создаётся с `poolclass=NullPool` — каждая сессия открывает и закрывает отдельное соединение к Postgres, без переиспользования. На полном прогоне (~780 тестов) это даёт тысячи открытий/закрытий и упирается в `max_connections` Postgres: массовые ошибки `asyncpg ... TooManyConnections` и время прогона ~6 минут — следствие именно этого, а не логики тестов.
+
+Планируется заменить `NullPool` на обычный пул с ограничением (`pool_size` + `max_overflow`), совместимый с asyncpg и per-event-loop-изоляцией. Это должно убрать `TooManyConnections` и заметно ускорить полный прогон. Изменение затрагивает общую тестовую обвязку, поэтому вынесено отдельной задачей.
+
 ## Структура
 
 ```

@@ -662,6 +662,24 @@ async def get_note_data(
     return None
 
 
+async def list_global_notes(
+    session: AsyncSession,
+    user_id: uuid.UUID,
+    tenant_key: str | None = None,
+) -> list[dict[str, Any]]:
+    """List notes not attached to any post (overlay-aware, mirrors get_note_data scoping)."""
+    from app.db.models import GlobalNote
+    from app.services.overlay.tenant_notes import list_tenant_notes
+
+    if tenant_key:
+        return await list_tenant_notes(session, user_id, tenant_key, "global")
+
+    result = await session.execute(
+        select(GlobalNote).where(GlobalNote.user_id == user_id).order_by(GlobalNote.created_at)
+    )
+    return [dict(row.data) for row in result.scalars().all()]
+
+
 async def resolve_post_data(
     session: AsyncSession,
     user_id: uuid.UUID,

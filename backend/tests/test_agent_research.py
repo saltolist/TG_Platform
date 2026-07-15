@@ -170,6 +170,60 @@ def test_verify_evidence_partial_rejects_empty_content() -> None:
     assert "empty_evidence_content" in result.errors
 
 
+@pytest.mark.asyncio
+async def test_verify_node_salvages_records_when_budget_exhausted() -> None:
+    """When step budget runs out mid-exploration (last action is NOT FinishRetrieval),
+    verify must synthesize a partial finish over collected records instead of
+    discarding them — otherwise gathered listings yield a false 'нет данных'."""
+    from app.services.agent.research.graph import research_verify_node
+
+    rec = EvidenceRecord(
+        id="/global/notes/",
+        kind="search_hit",
+        source_ref="/global/notes/",
+        content="Заметки вне постов:\n- note:g1 title='Система'",
+        citation_path="/global/notes/",
+        citation_title="Заметки вне постов",
+    )
+    state = {
+        "evidence_records": {"/global/notes/": rec.to_dict()},
+        # Budget ran out on a read tool, not an explicit finish.
+        "tool_action": {"tool": "ListPostNotes", "args": {"post_id": "p1"}},
+        "repair_count": 0,
+    }
+    result = await research_verify_node(state, config={})
+    assert result["verification_ok"] is True
+    finish = result["finish_retrieval"]
+    assert finish["status"] == "partial"
+    assert finish["evidence_ids"] == ["/global/notes/"]
+    assert "step_budget_exhausted" in finish["unresolved"]
+
+
+@pytest.mark.asyncio
+async def test_verify_node_does_not_salvage_on_explicit_finish() -> None:
+    """An explicit FinishRetrieval with no cites must still fail (§1.3) — the
+    salvage path is only for budget exhaustion, not for a planner that chose
+    to finish empty."""
+    from app.services.agent.research.graph import research_verify_node
+
+    rec = EvidenceRecord(
+        id="/global/notes/",
+        kind="search_hit",
+        source_ref="/global/notes/",
+        content="Заметки вне постов",
+        citation_path="/global/notes/",
+        citation_title="Заметки вне постов",
+    )
+    state = {
+        "evidence_records": {"/global/notes/": rec.to_dict()},
+        "tool_action": {"tool": "FinishRetrieval", "args": {"status": "ready", "evidence_ids": []}},
+        "repair_count": 0,
+    }
+    result = await research_verify_node(state, config={})
+    # Repair is allowed on the first empty finish → not yet verified.
+    assert result["verification_ok"] is False
+
+
 def test_records_from_agent_state_uses_natural_ids() -> None:
     """agent-runtime-sprints §1.2: records key on citation path, no hash indirection."""
     from types import SimpleNamespace
@@ -464,3 +518,54 @@ async def test_run_research_graph_without_llm_uses_context_blocks() -> None:
         }
     )
     assert report.ok, report.failures
+
+
+@pytest.mark.asyncio
+async def test_workspace_agent_node_forwards_post_text_for_edit_intent() -> None:
+    """Bug fix: the classifier could not produce a correct edit_post payload
+    because it never saw the post it was asked to edit — it silently fell
+    back to "read"/"finish" instead of proposing edit_post."""
+    from app.services.agent.runtime.workspace_graph import workspace_agent_node
+
+    ctx = _reasoner_ctx()
+    ctx.scope = "post"
+    ctx.post_data = {"id": "post-1", "text": "Запуск 2 июля в 2 часа."}
+    state = {"user_text": "убери цифру 2 из текста"}
+    config = {"configurable": {"runtime_context": ctx}}
+
+    with patch(
+        "app.services.ai.llm.complete_chat_completion",
+        new_callable=AsyncMock,
+        return_value=(
+            '{"type": "post_proposal", "command": "edit_post", '
+            '"payload": {"post_id": "post-1", "patch": {"text": "Запуск июля в часа."}}}'
+        ),
+    ) as mock_llm:
+        result = await workspace_agent_node(state, config)
+
+    messages = mock_llm.await_args.kwargs.get("messages")
+    user_content = messages[1]["content"]
+    assert "Текущий пост (id=post-1)" in user_content
+    assert "Запуск 2 июля в 2 часа." in user_content
+    assert result["current_tool"] == "post_proposal"
+    assert result["tool_call"]["command"] == "edit_post"
+
+
+@pytest.mark.asyncio
+async def test_workspace_agent_node_skips_post_block_when_no_post_data() -> None:
+    """Global-scope runs (no post_data) must not gain a "Текущий пост" block."""
+    from app.services.agent.runtime.workspace_graph import workspace_agent_node
+
+    ctx = _reasoner_ctx()
+    state = {"user_text": "какой охват у поста 3?"}
+    config = {"configurable": {"runtime_context": ctx}}
+
+    with patch(
+        "app.services.ai.llm.complete_chat_completion",
+        new_callable=AsyncMock,
+        return_value='{"type": "read"}',
+    ) as mock_llm:
+        await workspace_agent_node(state, config)
+
+    messages = mock_llm.await_args.kwargs.get("messages")
+    assert "Текущий пост" not in messages[1]["content"]

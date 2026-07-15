@@ -10,7 +10,7 @@ from httpx import ASGITransport, AsyncClient
 
 from app.db.models import GlobalChat, Post
 from app.main import app
-from app.services.agent.runtime.executor import execute_agent_run
+from app.services.agent.runtime.executor import execute_agent_run, resume_agent_graph
 from app.services.agent.runtime.runs import rebuild_runtime_context_for_run, start_run
 from app.services.ai.providers import ProviderSpec
 from tests.conftest import TestSessionLocal, sample_global_chat, sample_post
@@ -581,3 +581,120 @@ async def test_execute_agent_run_skips_trace_log_when_flag_off(
             await session.commit()
 
     assert not any("AGENT RUN" in rec.message for rec in caplog.records)
+
+
+@pytest.mark.asyncio
+async def test_edit_post_request_produces_action_proposal_end_to_end(
+    writer_user, monkeypatch,
+) -> None:
+    """Bug fix regression: "убери цифру 2" in a post chat must produce an
+    edit_post ActionProposal (HITL card), not silently fall through to a
+    plain text answer — which is what happened when the classifier never saw
+    the post's text (agent-runtime-remaining.md tracing/bugfix pass)."""
+    monkeypatch.setattr("app.db.session.async_session_factory", TestSessionLocal)
+
+    post_id = str(uuid.uuid4())
+    post_data = sample_post(post_id, text="Запуск 2 июля в 2 часа.")
+
+    async with TestSessionLocal() as session:
+        session.add(Post(id=uuid.UUID(post_id), user_id=writer_user.id, data=post_data))
+        await session.commit()
+
+        run, _ = await start_run(
+            session, user=writer_user, thread_id="edit-post-e2e",
+            scope="post", post_id=post_id,
+        )
+        ctx = await rebuild_runtime_context_for_run(session, run, "убери цифру 2 из текста")
+        ctx.reasoner_spec = ProviderSpec("OpenAI", "https://api.openai.com")
+        ctx.reasoner_model = "gpt-4o-mini"
+        ctx.reasoner_api_key = "test-key"
+        monkeypatch.setattr(ctx.settings, "agent_actions_enabled", True)
+
+        assert ctx.post_data is not None and ctx.post_data.get("text") == "Запуск 2 июля в 2 часа."
+
+        llm_response = (
+            '{"type": "post_proposal", "command": "edit_post", '
+            f'"payload": {{"post_id": "{post_id}", '
+            '"patch": {"text": "Запуск июля в часа."}}}}'
+        )
+        with patch(
+            "app.services.ai.llm.complete_chat_completion",
+            new_callable=AsyncMock, return_value=llm_response,
+        ):
+            await execute_agent_run(
+                session, run=run, user=writer_user,
+                user_text="убери цифру 2 из текста", runtime_context=ctx,
+            )
+            await session.commit()
+
+        await session.refresh(run)
+        assert run.current_interrupt is not None
+        assert run.current_interrupt.get("type") == "action_proposal"
+        proposal = run.current_interrupt.get("proposal") or {}
+        assert proposal.get("command") == "edit_post"
+        assert proposal.get("payload", {}).get("patch", {}).get("text") == "Запуск июля в часа."
+
+
+@pytest.mark.asyncio
+async def test_resume_agent_graph_after_action_proposal_completes(
+    writer_user, monkeypatch,
+) -> None:
+    """Regression for the v1->v2 stream migration: resume_agent_graph must
+    reach status="completed" after an approve, using the same version="v2"
+    "interrupts" field executor.py now reads from (agent-runtime-remaining.md
+    v1/v2 follow-up). No prior test exercised this path at all."""
+    monkeypatch.setattr("app.db.session.async_session_factory", TestSessionLocal)
+
+    post_id = str(uuid.uuid4())
+    post_data = sample_post(post_id, text="Запуск 2 июля в 2 часа.")
+
+    async with TestSessionLocal() as session:
+        session.add(Post(id=uuid.UUID(post_id), user_id=writer_user.id, data=post_data))
+        await session.commit()
+
+        run, _ = await start_run(
+            session, user=writer_user, thread_id="edit-post-resume",
+            scope="post", post_id=post_id,
+        )
+        ctx = await rebuild_runtime_context_for_run(session, run, "убери цифру 2 из текста")
+        ctx.reasoner_spec = ProviderSpec("OpenAI", "https://api.openai.com")
+        ctx.reasoner_model = "gpt-4o-mini"
+        ctx.reasoner_api_key = "test-key"
+        monkeypatch.setattr(ctx.settings, "agent_actions_enabled", True)
+
+        llm_response = (
+            '{"type": "post_proposal", "command": "edit_post", '
+            f'"payload": {{"post_id": "{post_id}", '
+            '"patch": {"text": "Запуск июля в часа."}}}}'
+        )
+        with patch(
+            "app.services.ai.llm.complete_chat_completion",
+            new_callable=AsyncMock, return_value=llm_response,
+        ):
+            await execute_agent_run(
+                session, run=run, user=writer_user,
+                user_text="убери цифру 2 из текста", runtime_context=ctx,
+            )
+            await session.commit()
+
+        await session.refresh(run)
+        proposal = run.current_interrupt.get("proposal") or {}
+        assert run.status == "interrupted"
+
+        await resume_agent_graph(
+            session,
+            run=run,
+            resume_value={
+                "decision": "approve",
+                "proposal_id": proposal.get("id"),
+                "payload_hash": proposal.get("payload_hash"),
+                "applied": {"post_id": post_id, "status": "published"},
+            },
+            runtime_context=ctx,
+        )
+        await session.commit()
+
+        await session.refresh(run)
+        assert run.status == "completed"
+        assert run.current_interrupt is None
+        assert "статус: published" in (run.snapshot.get("answer_text") or "")

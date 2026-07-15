@@ -30,6 +30,7 @@ from app.services.ai.rag import (
     get_attachment_extraction,
     get_attachment_extraction_by_hash,
     get_note_data,
+    list_global_notes,
     markdown_to_index_text,
     resolve_post_data,
     upsert_attachment_extraction,
@@ -145,7 +146,8 @@ async def tool_search_nodes(
     node_types: list[str] | None = None,
     k: int | None = None,
 ) -> ToolOutcome:
-    ref = f"search:{query.strip()[:120]}"
+    types_key = ",".join(sorted(str(nt) for nt in node_types)) if node_types else ""
+    ref = f"search:{query.strip()[:120]}:{types_key}:{k or state.search_k}"
     existing = _already_visited(state, ref)
     if existing:
         return existing
@@ -327,14 +329,19 @@ def tool_list_post_notes(state: AgentState, *, post_id: str) -> ToolOutcome:
     existing = _already_visited(state, ref)
     if existing:
         return existing
-    _mark_visited(state, ref)
 
     post_data = _post_data_for(state, post_id)
     if not post_data:
+        # Do NOT mark visited on a precondition failure: "сначала OpenPost" is
+        # recoverable guidance, not a completed visit. Marking here poisons the
+        # ref so the legitimate retry after OpenPost returns "уже открыт ранее"
+        # and never lists the notes — the agent then burns its whole step budget
+        # looping on this call. Mark only once the listing actually succeeds.
         return ToolOutcome(
             summary=f"Пост {post_id} не открыт — сначала вызови OpenPost.",
             error="post_not_open",
         )
+    _mark_visited(state, ref)
 
     notes = [
         item
@@ -352,6 +359,38 @@ def tool_list_post_notes(state: AgentState, *, post_id: str) -> ToolOutcome:
     lines = [f"Заметки поста {post_id}:"]
     for item in notes:
         note_id = str(item.get("id") or "").strip()
+        title = str(item.get("title") or note_id).strip() or note_id
+        lines.append(f"- note:{note_id} title={title!r}")
+    return _record_listing(
+        state, path=listing_path, title=listing_title, body="\n".join(lines),
+    )
+
+
+async def tool_list_global_notes(state: AgentState) -> ToolOutcome:
+    ref = "global_notes"
+    existing = _already_visited(state, ref)
+    if existing:
+        return existing
+    _mark_visited(state, ref)
+
+    try:
+        notes = await list_global_notes(state.session, state.user_id, tenant_key=state.tenant_key)
+    except Exception as exc:
+        return ToolOutcome(summary="Не удалось получить список заметок вне постов.", error=str(exc))
+
+    listing_path = "/global/notes/"
+    listing_title = "Заметки вне постов"
+    if not notes:
+        return _record_listing(
+            state, path=listing_path, title=listing_title,
+            body="У пользователя нет заметок вне постов.",
+        )
+
+    lines = ["Заметки вне постов:"]
+    for item in notes:
+        note_id = str(item.get("id") or "").strip()
+        if not note_id:
+            continue
         title = str(item.get("title") or note_id).strip() or note_id
         lines.append(f"- note:{note_id} title={title!r}")
     return _record_listing(
@@ -939,14 +978,16 @@ def tool_list_post_comments(state: AgentState, *, post_id: str) -> ToolOutcome:
     existing = _already_visited(state, ref)
     if existing:
         return existing
-    _mark_visited(state, ref)
 
     post_data = _post_data_for(state, post_id)
     if not post_data:
+        # See tool_list_post_notes: don't poison the ref on a recoverable
+        # "open the post first" guidance return — mark only on success.
         return ToolOutcome(
             summary=f"Пост {post_id} не открыт — сначала вызови OpenPost.",
             error="post_not_open",
         )
+    _mark_visited(state, ref)
 
     comments = [
         item

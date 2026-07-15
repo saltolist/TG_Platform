@@ -13,6 +13,7 @@ from app.services.ai.rag_tools import (
     AgentState,
     tool_get_post_analytics,
     tool_hydrate_attachment,
+    tool_list_global_notes,
     tool_list_note_attachments,
     tool_list_post_comments,
     tool_list_post_notes,
@@ -264,6 +265,27 @@ async def test_tool_search_nodes_fail_soft_on_error() -> None:
     state.embedding_backend.embed_query = AsyncMock(side_effect=RuntimeError("boom"))
     outcome = await tool_search_nodes(state, query="test")
     assert outcome.error == "boom"
+
+
+@pytest.mark.asyncio
+async def test_tool_search_nodes_dedup_considers_node_types_and_k() -> None:
+    # Regression: retries that vary node_types/k must NOT be swallowed as
+    # duplicates of a same-query call — only the query text was hashed before,
+    # so a follow-up SearchNodes(query="x", k=50) after k=10 got no fresh result.
+    state = _state()
+    with patch(
+        "app.services.ai.rag_tools.retrieve_for_chat",
+        new_callable=AsyncMock,
+        return_value=[],
+    ) as mocked:
+        first = await tool_search_nodes(state, query="x", node_types=["note"], k=10)
+        second = await tool_search_nodes(state, query="x", node_types=["note"], k=50)
+        third = await tool_search_nodes(state, query="x", node_types=["note"], k=10)
+
+    assert mocked.await_count == 2
+    assert "уже открыт ранее" not in first.summary
+    assert "уже открыт ранее" not in second.summary
+    assert "уже открыт ранее" in third.summary
 
 
 @pytest.mark.asyncio
@@ -635,6 +657,39 @@ def test_list_post_notes_guidance_is_not_citable() -> None:
     assert state.context_blocks == []
 
 
+def test_list_post_notes_precondition_failure_does_not_poison_ref() -> None:
+    # Regression: ListPostNotes before OpenPost must NOT mark the ref visited —
+    # otherwise the legitimate retry after OpenPost returns "уже открыт ранее"
+    # and never lists the notes, burning the agent's whole step budget.
+    state = _state(scope="global", base_post_data=None)
+    first = tool_list_post_notes(state, post_id="post-1")
+    assert first.error == "post_not_open"
+
+    # Simulate OpenPost having populated the post into opened_posts.
+    state.opened_posts["post-1"] = {
+        "id": "post-1",
+        "notes": [{"id": "n1", "title": "Note 1"}],
+    }
+    second = tool_list_post_notes(state, post_id="post-1")
+    assert second.error is None
+    assert "note:n1" in second.summary
+    assert "уже открыт ранее" not in second.summary
+
+
+def test_list_post_comments_precondition_failure_does_not_poison_ref() -> None:
+    state = _state(scope="global", base_post_data=None)
+    first = tool_list_post_comments(state, post_id="post-1")
+    assert first.error == "post_not_open"
+
+    state.opened_posts["post-1"] = {
+        "id": "post-1",
+        "comments": [{"author": "A", "date": "2026-01-01", "text": "hi"}],
+    }
+    second = tool_list_post_comments(state, post_id="post-1")
+    assert second.error is None
+    assert "уже открыт ранее" not in second.summary
+
+
 @pytest.mark.asyncio
 async def test_list_note_attachments_records_citable_listing() -> None:
     state = _state()
@@ -652,4 +707,52 @@ async def test_list_note_attachments_records_citable_listing() -> None:
     assert cite.path == "/note/n1/attachments/"
     assert "report.pdf" in body
     assert records_from_agent_state(state)["/note/n1/attachments/"].kind == "search_hit"
+
+
+@pytest.mark.asyncio
+async def test_tool_list_global_notes_lists_rows() -> None:
+    state = _state(scope="global", base_post_data=None)
+    with patch(
+        "app.services.ai.rag_tools.list_global_notes",
+        new_callable=AsyncMock,
+        return_value=[{"id": "g1", "title": "Standalone note"}],
+    ):
+        outcome = await tool_list_global_notes(state)
+
+    assert outcome.error is None
+    assert "note:g1" in outcome.summary
+    assert "Standalone note" in outcome.summary
+    cite, body = state.context_blocks[0]
+    assert cite.path == "/global/notes/"
+    assert records_from_agent_state(state)["/global/notes/"].kind == "search_hit"
+
+
+@pytest.mark.asyncio
+async def test_tool_list_global_notes_empty_is_still_citable() -> None:
+    state = _state(scope="global", base_post_data=None)
+    with patch(
+        "app.services.ai.rag_tools.list_global_notes",
+        new_callable=AsyncMock,
+        return_value=[],
+    ):
+        outcome = await tool_list_global_notes(state)
+
+    assert outcome.error is None
+    assert "нет заметок вне постов" in outcome.summary
+    assert records_from_agent_state(state)["/global/notes/"].kind == "search_hit"
+
+
+@pytest.mark.asyncio
+async def test_tool_list_global_notes_dedup() -> None:
+    state = _state(scope="global", base_post_data=None)
+    with patch(
+        "app.services.ai.rag_tools.list_global_notes",
+        new_callable=AsyncMock,
+        return_value=[{"id": "g1", "title": "Standalone note"}],
+    ) as mocked:
+        await tool_list_global_notes(state)
+        outcome = await tool_list_global_notes(state)
+
+    mocked.assert_awaited_once()
+    assert "уже открыт ранее" in outcome.summary
 

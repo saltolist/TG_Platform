@@ -28,15 +28,15 @@ from app.services.agent.runtime.workspace_graph import get_compiled_workspace_gr
 logger = logging.getLogger(__name__)
 
 
-def _planner_step_payload(chunk: dict[str, Any]) -> dict[str, Any] | None:
-    """Extract the newest planner step from an "updates" chunk, if present.
+def _planner_step_payload(data: dict[str, Any]) -> dict[str, Any] | None:
+    """Extract the newest planner step from an "updates" event's data, if present.
 
-    The "updates" stream yields {node_name: partial_state_update} per node
-    (agent-runtime-sprints §3.3). research_planner_node returns the full
+    v2 "updates" events yield {"type": "updates", "data": {node_name: partial_state_update}}
+    per node (agent-runtime-sprints §3.3). research_planner_node returns the full
     accumulated planner_steps list each time it runs, so the newest entry
     (the one this node call just appended) is always the last item.
     """
-    planner_update = chunk.get("planner")
+    planner_update = data.get("planner")
     if not isinstance(planner_update, dict):
         return None
     steps = planner_update.get("planner_steps")
@@ -46,14 +46,14 @@ def _planner_step_payload(chunk: dict[str, Any]) -> dict[str, Any] | None:
     return dict(latest) if isinstance(latest, dict) else None
 
 
-def _tool_outcome_payload(chunk: dict[str, Any]) -> dict[str, Any] | None:
-    """Extract the newest tool result from a "tool" node "updates" chunk.
+def _tool_outcome_payload(data: dict[str, Any]) -> dict[str, Any] | None:
+    """Extract the newest tool result from a "tool" node "updates" event's data.
 
     Mirrors _planner_step_payload: research_tool_node returns the full
     accumulated tool_outcomes list, so the last entry is the one this node
     call just appended (Спринт 5 — tool observability).
     """
-    tool_update = chunk.get("tool")
+    tool_update = data.get("tool")
     if not isinstance(tool_update, dict):
         return None
     outcomes = tool_update.get("tool_outcomes")
@@ -63,21 +63,18 @@ def _tool_outcome_payload(chunk: dict[str, Any]) -> dict[str, Any] | None:
     return dict(latest) if isinstance(latest, dict) else None
 
 
-def _interrupt_payload(value: Any) -> dict[str, Any] | None:
-    if isinstance(value, dict):
-        if "__interrupt__" in value:
-            return _interrupt_payload(value["__interrupt__"])
-        for nested in value.values():
-            found = _interrupt_payload(nested)
-            if found is not None:
-                return found
-    if isinstance(value, (list, tuple)):
-        for nested in value:
-            found = _interrupt_payload(nested)
-            if found is not None:
-                return found
-    interrupt_value = getattr(value, "value", None)
-    return dict(interrupt_value) if isinstance(interrupt_value, dict) else None
+def _extract_interrupt(interrupts: tuple[Any, ...]) -> dict[str, Any] | None:
+    """Pull the interrupt payload out of a v2 "values" event's "interrupts" tuple.
+
+    v2 keeps interrupts out of the state dict entirely (unlike v1, which mixes
+    a raw non-JSON-serializable Interrupt object into the "values" chunk under
+    "__interrupt__" — see agent-runtime-remaining.md bugfix pass). Only the
+    latest interrupt matters; a node raises at most one per step.
+    """
+    if not interrupts:
+        return None
+    value = getattr(interrupts[-1], "value", None)
+    return dict(value) if isinstance(value, dict) else None
 
 
 async def _maybe_log_trace(session, *, run: AgentRun, settings) -> None:
@@ -183,41 +180,31 @@ async def execute_agent_run(
         graph_input = None
     final_state: dict[str, Any] = checkpoint_values or initial
     try:
-        async for mode, chunk in graph.astream(
+        # version="v2" keeps interrupts in a dedicated "interrupts" field on
+        # "values" events instead of mixing a raw, non-JSON-serializable
+        # Interrupt object into the state dict (v1's "__interrupt__" key) —
+        # see agent-runtime-remaining.md bugfix pass for the crash v1 caused.
+        async for event in graph.astream(
             graph_input,
             cfg,
             stream_mode=["values", "updates"],
+            version="v2",
         ):
-            if mode == "values" and isinstance(chunk, dict):
-                final_state = chunk
+            mode = event["type"]
+            data = event["data"]
+            if mode == "values" and isinstance(data, dict):
+                final_state = data
                 await emit_run_event(
                     session,
                     run_id=run.id,
                     event_type="graph_state",
                     payload={
-                        "status": chunk.get("status"),
-                        "step_count": chunk.get("step_count"),
-                        "stopped_reason": chunk.get("stopped_reason"),
+                        "status": data.get("status"),
+                        "step_count": data.get("step_count"),
+                        "stopped_reason": data.get("stopped_reason"),
                     },
                 )
-            elif mode == "updates" and isinstance(chunk, dict):
-                planner_step = _planner_step_payload(chunk)
-                if planner_step is not None:
-                    await emit_run_event(
-                        session,
-                        run_id=run.id,
-                        event_type="planner_step",
-                        payload=planner_step,
-                    )
-                tool_outcome = _tool_outcome_payload(chunk)
-                if tool_outcome is not None:
-                    await emit_run_event(
-                        session,
-                        run_id=run.id,
-                        event_type="tool_result",
-                        payload=tool_outcome,
-                    )
-                interrupt_payload = _interrupt_payload(chunk)
+                interrupt_payload = _extract_interrupt(event.get("interrupts") or ())
                 if interrupt_payload is not None:
                     run.current_interrupt = interrupt_payload
                     run.status = "interrupted"
@@ -229,6 +216,23 @@ async def execute_agent_run(
                         run_id=run.id,
                         event_type="interrupt",
                         payload=interrupt_payload,
+                    )
+            elif mode == "updates" and isinstance(data, dict):
+                planner_step = _planner_step_payload(data)
+                if planner_step is not None:
+                    await emit_run_event(
+                        session,
+                        run_id=run.id,
+                        event_type="planner_step",
+                        payload=planner_step,
+                    )
+                tool_outcome = _tool_outcome_payload(data)
+                if tool_outcome is not None:
+                    await emit_run_event(
+                        session,
+                        run_id=run.id,
+                        event_type="tool_result",
+                        payload=tool_outcome,
                     )
         status = str(final_state.get("status") or "completed")
         if run.status == "interrupted":
@@ -337,15 +341,21 @@ async def resume_agent_graph(
     }
     final_state: dict[str, Any] = {}
     pending_interrupt: dict[str, Any] | None = None
-    async for mode, chunk in graph.astream(
+    async for event in graph.astream(
         Command(resume=resume_value),
         cfg,
         stream_mode=["values", "updates"],
+        version="v2",
     ):
-        if mode == "values" and isinstance(chunk, dict):
-            final_state = chunk
-        elif mode == "updates" and isinstance(chunk, dict):
-            planner_step = _planner_step_payload(chunk)
+        mode = event["type"]
+        data = event["data"]
+        if mode == "values" and isinstance(data, dict):
+            final_state = data
+            interrupt_payload = _extract_interrupt(event.get("interrupts") or ())
+            if interrupt_payload is not None:
+                pending_interrupt = interrupt_payload
+        elif mode == "updates" and isinstance(data, dict):
+            planner_step = _planner_step_payload(data)
             if planner_step is not None:
                 await emit_run_event(
                     session,
@@ -353,7 +363,7 @@ async def resume_agent_graph(
                     event_type="planner_step",
                     payload=planner_step,
                 )
-            tool_outcome = _tool_outcome_payload(chunk)
+            tool_outcome = _tool_outcome_payload(data)
             if tool_outcome is not None:
                 await emit_run_event(
                     session,
@@ -361,9 +371,6 @@ async def resume_agent_graph(
                     event_type="tool_result",
                     payload=tool_outcome,
                 )
-            payload = _interrupt_payload(chunk)
-            if payload is not None:
-                pending_interrupt = payload
     status = "interrupted" if pending_interrupt else str(
         final_state.get("status") or "completed"
     )
