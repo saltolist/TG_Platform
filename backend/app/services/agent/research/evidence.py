@@ -70,7 +70,11 @@ def records_from_agent_state(agent_state) -> dict[str, EvidenceRecord]:
         if not path or path in records:
             continue
         kind: EvidenceKind = "note_chunk"
-        if "/attachment/" in path:
+        # Listing paths (§1.4 tail) must be classified before the "/post/" rule:
+        # "/post/3/notes/" contains "/post/" but is an enumeration, not post body.
+        if path.startswith("/posts/") or path.endswith("/notes/") or path.endswith("/attachments/"):
+            kind = "search_hit"
+        elif "/attachment/" in path:
             kind = "attachment_text"
         elif path.endswith("/post/") or "/post/" in path and "/note/" not in path:
             kind = "post_text"

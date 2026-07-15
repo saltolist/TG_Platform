@@ -88,6 +88,23 @@ def _mark_visited(state: AgentState, ref: str) -> None:
     state.visited.add(ref)
 
 
+def _record_listing(state: AgentState, *, path: str, title: str, body: str) -> ToolOutcome:
+    """Make a listing tool's output first-class citable evidence (§1.4 tail).
+
+    List tools used to return only a `summary` — visible to the planner via the
+    transcript but never to the answer model, which sees only the verified pack.
+    So a question the *listing itself* answers ("сколько у меня постов про X?",
+    "какие вложения у заметки?") could not be grounded: the answer guard saw an
+    empty pack and refused despite the data existing. Appending the listing as a
+    context block (same mechanism OpenPost/OpenNote use) turns it into a record
+    keyed by a stable listing path, so FinishRetrieval can cite it and the answer
+    can be grounded. Only valid results (incl. an honest empty listing) are
+    recorded; error/guidance returns are not — they are control flow, not facts.
+    """
+    state.context_blocks.append((NoteCite(path=path, title=title), body))
+    return ToolOutcome(summary=body)
+
+
 def _is_current_chat_post(state: AgentState, canonical_post_id: str) -> bool:
     """True when opening the post the user is already editing in a post-scoped chat."""
     if state.scope != "post" or not state.base_post_data:
@@ -278,11 +295,27 @@ async def tool_list_posts(
         if result_limit is not None and matched >= result_limit:
             break
 
+    # Encode the filter into the path so distinct listings (all posts vs.
+    # query=запуск vs. status=draft) get distinct records and are not collapsed
+    # by the pack's first-path-wins dedup.
+    if query_filter:
+        listing_path = f"/posts/q:{query_filter}/"
+        listing_title = f"Список постов по запросу {query_filter!r}"
+    elif status_filter != "all":
+        listing_path = f"/posts/status:{status_filter}/"
+        listing_title = f"Список постов (статус {status_filter})"
+    else:
+        listing_path = "/posts/"
+        listing_title = "Список постов"
+
     if matched == 0:
-        if query_filter:
-            return ToolOutcome(summary=f"Постов по запросу {query_filter!r} не найдено.")
-        return ToolOutcome(summary=f"Постов со статусом {status_filter!r} не найдено.")
-    return ToolOutcome(summary="\n".join(lines))
+        empty = (
+            f"Постов по запросу {query_filter!r} не найдено."
+            if query_filter
+            else f"Постов со статусом {status_filter!r} не найдено."
+        )
+        return _record_listing(state, path=listing_path, title=listing_title, body=empty)
+    return _record_listing(state, path=listing_path, title=listing_title, body="\n".join(lines))
 
 
 def tool_list_post_notes(state: AgentState, *, post_id: str) -> ToolOutcome:
@@ -308,15 +341,22 @@ def tool_list_post_notes(state: AgentState, *, post_id: str) -> ToolOutcome:
         for item in (post_data.get("notes") or [])
         if isinstance(item, dict) and str(item.get("id") or "").strip()
     ]
+    listing_path = f"/post/{post_id}/notes/"
+    listing_title = f"Заметки поста {post_id}"
     if not notes:
-        return ToolOutcome(summary=f"У поста {post_id} нет заметок.")
+        return _record_listing(
+            state, path=listing_path, title=listing_title,
+            body=f"У поста {post_id} нет заметок.",
+        )
 
     lines = [f"Заметки поста {post_id}:"]
     for item in notes:
         note_id = str(item.get("id") or "").strip()
         title = str(item.get("title") or note_id).strip() or note_id
         lines.append(f"- note:{note_id} title={title!r}")
-    return ToolOutcome(summary="\n".join(lines))
+    return _record_listing(
+        state, path=listing_path, title=listing_title, body="\n".join(lines),
+    )
 
 
 def _note_cite_path(
@@ -423,8 +463,13 @@ async def tool_list_note_attachments(
         for item in (note_data.get("files") or [])
         if isinstance(item, dict) and str(item.get("id") or "").strip()
     ]
+    listing_path = f"/note/{note_id}/attachments/"
+    listing_title = f"Вложения заметки {note_id}"
     if not files:
-        return ToolOutcome(summary=f"У заметки {note_id} нет вложений.")
+        return _record_listing(
+            state, path=listing_path, title=listing_title,
+            body=f"У заметки {note_id} нет вложений.",
+        )
 
     image_refs: list[str] = []
     lines = [f"Вложения заметки {note_id}:"]
@@ -437,7 +482,9 @@ async def tool_list_note_attachments(
             image_refs.append(ref)
         lines.append(f"- {ref} name={name!r} type={mime!r}")
     state.listed_image_attachment_refs = image_refs
-    return ToolOutcome(summary="\n".join(lines))
+    return _record_listing(
+        state, path=listing_path, title=listing_title, body="\n".join(lines),
+    )
 
 
 def _settings_for(state: AgentState) -> Settings:

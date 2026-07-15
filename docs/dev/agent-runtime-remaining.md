@@ -9,9 +9,10 @@ reference-level. **Канон — [agent-runtime-sprints.md](agent-runtime-sprin
 Ветка: `cursor/per-post-analytics-foundation`.
 
 Статус проверен по коду и git (коммиты `5e54ac6` §1.0, `7b6d62b` §1.2–1.5,
-`8e83e58` грейдеры, `d1dc3e5` §4a). Тесты: 68 agent-тестов зелёные (backend,
-включая Спринты 3, 4a и 6a) + frontend: 356 vitest тестов зелёные (перенос из
-Спринта 3 — 6a фронтенд не трогал, заново не гонялись), `tsc --noEmit` чисто.
+`8e83e58` грейдеры, `d1dc3e5` §4a). Тесты: 105 agent+rag тестов зелёные
+(backend, включая Спринты 3, 4a, 6a и хвост 1.4) + frontend: 356 vitest тестов
+зелёные (перенос из Спринта 3 — backend-правки фронтенд не трогали, заново не
+гонялись), `tsc --noEmit` чисто.
 
 ---
 
@@ -32,7 +33,7 @@ reference-level. **Канон — [agent-runtime-sprints.md](agent-runtime-sprin
 | 1.1 Answer guard | ✅ done | code-gate отказа в `answer_node`, `stopped_reason=empty_evidence_refusal` |
 | 1.2 Evidence ID contract | ✅ done | натуральные ID (citation path) сквозь tool→pack→finish |
 | 1.3 Verify-гейт | ✅ done | пустой evidence=провал; partial проверяет dangling; hard-stop через verify |
-| 1.4 Tool surface | 🟡 partial | `ListPostNotes` подключён, `ListPosts` args починены. **Остаток:** tool observation как first-class запись в evidence/контекст следующего шага (сейчас только в summary tool'а) |
+| 1.4 Tool surface | ✅ done | `ListPostNotes` подключён, `ListPosts` args починены. **Хвост закрыт:** вывод 3 list-tool'ов (`ListPosts`/`ListPostNotes`/`ListNoteAttachments`) стал first-class citable evidence — раньше жил только в summary (виден планнеру, не answer-модели), теперь запросы «сколько/какие/есть ли/что в работе» обосновываются, а не отказывают. Мёртвая проводка (`finish_retrieval`/`repair_count`/`research_transcript`) проверена — задействована |
 | 1.5 Resume + signature | ✅ done | `resume_agent_graph` кладёт `runtime_context`; `complete_chat_completion` sig проверена |
 | 2 Память | ✅ done | 2.1 через `dialog_context` (ADR-отступление от native `messages`); 2.2 проверен тестом (planner re-call с mocked LLM); 2.3 закрыт решением «оставить `thread_id=run_id`»; post-scope закрыт через новый `post_chat_id` |
 | 3 Планнер мыслит | ✅ done | 3.1–3.3 закрыты. **Отступление от канона** (обсуждено и подтверждено пользователем): reasoning-схема приложена только к research-циклу, классификатор `WORKSPACE_SYSTEM` остался single-shot без схемы — см. подробности ниже |
@@ -436,22 +437,51 @@ per-call `max_tokens` (600/700/1200) + pack cap 12000 симв. Явный cost-
 
 ---
 
-## Хвост Спринта 1 (не блокер, но незакрыто)
+## Хвост Спринта 1 — ✅ ЗАКРЫТ
 
-- [ ] **1.4 tool observation → first-class.** `notes=1` и т.п. должны попадать в
-      evidence/контекст следующего шага, а не только в summary tool'а (answer
-      видит pack, не transcript). Файлы: `research/graph.py`
-      (`_execute_tool`), `research/pack.py`.
-- [ ] **Мёртвая проводка** из аудита: `finish_retrieval`, `repair_count`
-      (проверить что инкрементится → repair-петля живёт), `research_transcript`
-      — свериться, что после §1.1–1.5 они реально задействованы.
+- [x] **1.4 tool observation → first-class.** Гэп уточнён по коду: transcript
+      **уже** доходил до планнера ([research/graph.py](../../backend/app/services/agent/research/graph.py)
+      кладёт `research_transcript` в промпт) — дыра была в том, что вывод трёх
+      list-tool'ов не порождал citable-запись, поэтому доходил до планнера, но
+      **не до answer-модели** (она видит только verified pack). Реальные
+      «неявные» запросы первого пользователя это ломало: «сколько у меня постов
+      про X?», «что у меня в работе?», «я не дублирую посты про доставку?»,
+      «к этому посту я что-то прикреплял?» — планнер получал список, но
+      обосновать ответ было нечем → answer-guard отказывал «нет данных», хотя
+      данные были. Водораздел: **листинг-как-ответ** (счёт/инвентаризация/дубли/
+      планирование) vs **листинг-как-навигация** (ведёт к OpenNote/Hydrate,
+      которые и так citable — сценарий 04). Охват подтверждён пользователем:
+      все 3 tool'а.
+      **Как сделано:** хелпер `_record_listing`
+      ([rag_tools.py](../../backend/app/services/ai/rag_tools.py)) кладёт вывод
+      в `context_blocks` (тот же механизм, что у OpenPost/OpenNote) на валидных
+      возвратах (успех + честный «ничего не найдено»), но **не** на
+      error/guidance (`missing_post_id`, «сначала OpenPost» — это control flow,
+      не факты). Citation path кодирует фильтр (`/posts/q:запуск/`,
+      `/post/{id}/notes/`, `/note/{id}/attachments/`) → разные листинги не
+      схлопываются dedup'ом. `records_from_agent_state`
+      ([evidence.py](../../backend/app/services/agent/research/evidence.py))
+      классифицирует listing-path как `kind="search_hit"` (проверка **раньше**
+      правила `"/post/"`, иначе `/post/3/notes/` улетел бы в `post_text`).
+      **Тесты:** `test_rag_tools.py` — 6 новых (citable на success, на пустом-
+      валидном, distinct-фильтры не сталкиваются, guidance НЕ citable, kind=
+      search_hit для всех трёх); `test_agent_listing.py` — e2e «сколько у меня
+      постов про запуск» через полный `execute_agent_run` → grounded, не отказ,
+      claims⊆evidence, `must_call=["ListPosts"]`.
+- [x] **Мёртвая проводка** из аудита — проверена по коду, всё задействовано:
+      `repair_count` инкрементится в `research_verify_node` (repair-петля жива),
+      `finish_retrieval` пишется в verify → читается в pack, `research_transcript`
+      пишется в tool_node → читается в planner. Изменений кода не потребовалось.
+
+**Exit:** listing-вопросы обосновываются вместо отказа (e2e-тест), контент-
+навигация не тронута; 105 agent+rag тестов зелёные, `pytest -m golden` = 3.
 
 ---
 
 ## Рекомендованный порядок (по канону)
 
 ```
-[✅ Спринт 0 → 1.0 → 1.1–1.5]  ← сделано (кроме хвоста 1.4)
+[✅ Спринт 0 → 1.0 → 1.1–1.5 + хвост 1.4]  ← сделано полностью
       ↓
 [✅ Спринт 2 (Память: dialog_context, thread_id=run_id, post_chat_id)]  ← закрыт
       ↓

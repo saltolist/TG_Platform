@@ -7,6 +7,7 @@ from uuid import uuid4
 
 import pytest
 
+from app.services.agent.research.evidence import records_from_agent_state
 from app.services.ai.note_citations import NoteCite
 from app.services.ai.rag_tools import (
     AgentState,
@@ -565,4 +566,90 @@ async def test_tool_get_post_analytics_unpublished() -> None:
         outcome = await tool_get_post_analytics(state, post_id="post-1", period="30d")
 
     assert outcome.error == "unpublished"
+
+
+# --- §1.4 tail: listing tools produce first-class citable evidence -----------
+
+
+def _posts_state():
+    state = _state(scope="global", base_post_data=None)
+    row_a = MagicMock()
+    row_a.data = {"id": "1", "status": "published", "text": "Запуск продукта уже близко", "notes": []}
+    row_b = MagicMock()
+    row_b.data = {"id": "2", "status": "draft", "text": "Черновик про доставку", "notes": []}
+    mock_result = MagicMock()
+    mock_result.scalars.return_value.all.return_value = [row_a, row_b]
+    state.session.execute = AsyncMock(return_value=mock_result)
+    return state
+
+
+@pytest.mark.asyncio
+async def test_list_posts_records_citable_listing() -> None:
+    state = _posts_state()
+    outcome = await tool_list_posts(state, query="запуск")
+    assert outcome.error is None
+    # A citable record exists, keyed by a filter-encoded listing path.
+    assert len(state.context_blocks) == 1
+    cite, body = state.context_blocks[0]
+    assert cite.path == "/posts/q:запуск/"
+    assert "id=1" in body
+    # records_from_agent_state classifies it as a search_hit, not post_text.
+    records = records_from_agent_state(state)
+    assert records["/posts/q:запуск/"].kind == "search_hit"
+
+
+@pytest.mark.asyncio
+async def test_list_posts_empty_result_is_still_citable() -> None:
+    state = _posts_state()
+    outcome = await tool_list_posts(state, query="несуществует")
+    # An honest "nothing found" is grounded evidence, not a dead end.
+    assert len(state.context_blocks) == 1
+    assert "не найдено" in outcome.summary
+    assert state.context_blocks[0][0].path == "/posts/q:несуществует/"
+
+
+@pytest.mark.asyncio
+async def test_list_posts_distinct_filters_do_not_collide() -> None:
+    state = _posts_state()
+    await tool_list_posts(state, query="запуск")
+    await tool_list_posts(state)  # all posts — different path
+    paths = {cite.path for cite, _ in state.context_blocks}
+    assert paths == {"/posts/q:запуск/", "/posts/"}
+
+
+def test_list_post_notes_records_citable_listing() -> None:
+    state = _state()
+    outcome = tool_list_post_notes(state, post_id="post-1")
+    assert outcome.error is None
+    cite, body = state.context_blocks[0]
+    assert cite.path == "/post/post-1/notes/"
+    assert "note:n1" in body
+    assert records_from_agent_state(state)["/post/post-1/notes/"].kind == "search_hit"
+
+
+def test_list_post_notes_guidance_is_not_citable() -> None:
+    # "сначала OpenPost" is control flow, not a fact — must not become evidence.
+    state = _state(scope="global", base_post_data=None)
+    outcome = tool_list_post_notes(state, post_id="missing")
+    assert outcome.error == "post_not_open"
+    assert state.context_blocks == []
+
+
+@pytest.mark.asyncio
+async def test_list_note_attachments_records_citable_listing() -> None:
+    state = _state()
+    with patch(
+        "app.services.ai.rag_tools.get_note_data",
+        new_callable=AsyncMock,
+        return_value={
+            "id": "n1", "title": "Note 1", "body": "",
+            "files": [{"id": "f1", "name": "report.pdf", "type": "application/pdf"}],
+        },
+    ):
+        outcome = await tool_list_note_attachments(state, note_id="n1", post_id="post-1")
+    assert outcome.error is None
+    cite, body = state.context_blocks[0]
+    assert cite.path == "/note/n1/attachments/"
+    assert "report.pdf" in body
+    assert records_from_agent_state(state)["/note/n1/attachments/"].kind == "search_hit"
 
