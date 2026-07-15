@@ -41,6 +41,10 @@ class RuntimeContext:
     agent_tool_state: AgentState | None = None
     emit_event: Callable[..., Any] | None = None
     audit: Callable[..., Any] | None = None
+    # Absolute time.monotonic() by which the run must finish (agent-runtime-sprints
+    # §6). Set by execute_agent_run/resume_agent_graph from rag_agent_deadline_s;
+    # None disables the wall-clock cap (e.g. legacy call sites). See runtime/budget.py.
+    deadline_monotonic: float | None = None
 
     def bind_agent_state(self, session: AsyncSession) -> AgentState:
         if self.agent_tool_state is not None:

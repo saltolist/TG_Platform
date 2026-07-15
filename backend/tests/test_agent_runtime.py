@@ -365,3 +365,48 @@ async def test_execute_agent_run_emits_planner_step_events(
     assert first["args"] == {"note_id": "n1"}
     assert first["observations"] == []
     assert second["tool"] == "FinishRetrieval"
+
+
+@pytest.mark.asyncio
+async def test_execute_agent_run_marks_deadline_exceeded(writer_user, monkeypatch) -> None:
+    """A spent wall-clock budget must terminate the run as failed with an
+    explicit deadline_exceeded reason, not a generic crash — and must not
+    dial the provider (agent-runtime-sprints §6)."""
+    from app.services.agent.runtime import events as event_service
+
+    monkeypatch.setattr("app.db.session.async_session_factory", TestSessionLocal)
+
+    async with TestSessionLocal() as session:
+        run, _ = await start_run(
+            session, user=writer_user, thread_id="deadline-test", scope="global"
+        )
+        runtime_context = await rebuild_runtime_context_for_run(session, run, "Что там?")
+        runtime_context.reasoner_spec = ProviderSpec("OpenAI", "https://api.openai.com")
+        runtime_context.reasoner_model = "gpt-4o-mini"
+        runtime_context.reasoner_api_key = "test-key"
+        # Zero budget: the very first LLM call (classifier) trips the deadline.
+        # settings is a cached singleton — monkeypatch so the negative value is
+        # restored and cannot leak into other tests' deadlines.
+        monkeypatch.setattr(runtime_context.settings, "rag_agent_deadline_s", -1.0)
+
+        with patch(
+            "app.services.ai.llm.complete_chat_completion",
+            new_callable=AsyncMock,
+        ) as mock_llm:
+            with pytest.raises(Exception):
+                await execute_agent_run(
+                    session,
+                    run=run,
+                    user=writer_user,
+                    user_text="Что там?",
+                    runtime_context=runtime_context,
+                )
+            await session.commit()
+
+        assert mock_llm.await_count == 0, "provider dialed despite spent budget"
+        events = await event_service.list_events(session, run_id=run.id)
+
+    failed = [evt for evt in events if evt.event_type == "run_failed"]
+    assert failed, "no run_failed event emitted"
+    assert failed[-1].payload.get("stopped_reason") == "deadline_exceeded"
+    assert run.status == "failed"

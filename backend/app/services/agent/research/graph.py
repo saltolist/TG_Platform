@@ -13,6 +13,7 @@ from langgraph.graph import END, StateGraph
 from app.services.agent.research.evidence import EvidenceRecord, records_from_agent_state
 from app.services.agent.research.pack import build_evidence_pack
 from app.services.agent.research.result import ResearchResult
+from app.services.agent.research.trust import UNTRUSTED_SYSTEM_NOTE, wrap_untrusted_block
 from app.services.agent.research.verifier import verify_evidence
 from app.services.agent.runtime.context import RuntimeContext
 from app.services.agent.runtime.state import AgentGraphState
@@ -53,7 +54,8 @@ READ_TOOLS = frozenset(
     }
 )
 
-AGENT_SYSTEM = """Ты research-агент workspace. Собери факты read-tools и заверши через FinishRetrieval.
+AGENT_SYSTEM = (
+    """Ты research-агент workspace. Собери факты read-tools и заверши через FinishRetrieval.
 
 Доступные tools (JSON):
 - SearchNodes {query, node_types?, k?}
@@ -80,7 +82,11 @@ AGENT_SYSTEM = """Ты research-агент workspace. Собери факты re
   "args": {...}
 }
 `observations` — только то, что реально видно в «Ход агента» или «Собранный context» этого запроса. Если это первый шаг и обоих блоков нет — можно вернуть пустой список observations, но не придумывать наблюдения.
+
 """
+    + UNTRUSTED_SYSTEM_NOTE
+    + "\n"
+)
 
 
 @dataclass(frozen=True)
@@ -277,7 +283,12 @@ def _format_evidence_for_planner(records: dict[str, EvidenceRecord]) -> str:
     for rec_id, rec in records.items():
         title = rec.citation_title or rec_id
         body = (rec.content or "").strip()[:1200] or "(пусто)"
-        blocks.append(f"[id: {rec_id}] {title}\n{body}")
+        # rec.content is user-controlled (post/note/attachment text): fence it as
+        # untrusted so an injected instruction can't steer the planner (§6). The
+        # natural id stays visible outside the body so FinishRetrieval can still
+        # cite it verbatim (agent-runtime-sprints §1.2).
+        fenced = wrap_untrusted_block(identifier=rec_id, title=title, body=body)
+        blocks.append(f"[id: {rec_id}] {title}\n{fenced}")
     return "\n\n".join(blocks)
 
 
@@ -333,7 +344,7 @@ async def research_seed_node(state: AgentGraphState, config: RunnableConfig) -> 
 
 
 async def research_planner_node(state: AgentGraphState, config: RunnableConfig) -> dict[str, Any]:
-    from app.services.ai.llm import complete_chat_completion
+    from app.services.agent.runtime.budget import call_llm_with_deadline
 
     ctx: RuntimeContext = config["configurable"]["runtime_context"]
     inp = _planner_inputs(config)
@@ -368,7 +379,8 @@ async def research_planner_node(state: AgentGraphState, config: RunnableConfig) 
         )
         evidence_text = _format_evidence_for_planner(records)
         messages[-1]["content"] += "\n\nСобранный context:\n" + evidence_text
-        raw = await complete_chat_completion(
+        raw = await call_llm_with_deadline(
+            ctx,
             messages=messages,
             spec=spec,
             model=model,

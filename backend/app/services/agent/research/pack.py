@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from app.services.ai.note_citations import NoteCite
 from app.services.agent.research.evidence import EvidenceRecord
+from app.services.agent.research.trust import wrap_untrusted_block
 
 
 def build_evidence_pack(
@@ -35,7 +36,11 @@ def build_evidence_pack(
                 break
             text = text[: remaining - 1] + "…"
         cites.append(NoteCite(path=path, title=rec.citation_title or path))
-        blocks.append(f"[{rec.citation_title or path}]\n{text}")
+        # Evidence body is user-controlled; fence it as untrusted before it
+        # reaches the answer model (agent-runtime-sprints §6). Fencing after the
+        # max_chars trim keeps the char budget about the real content, and the
+        # closing tag is never truncated away.
+        blocks.append(wrap_untrusted_block(identifier=path, title=rec.citation_title or path, body=text))
         used += len(text)
 
     if unresolved:

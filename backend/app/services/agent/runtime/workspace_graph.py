@@ -25,6 +25,8 @@ from app.services.agent.research.graph import (
     route_research_after_tool,
     route_research_verify,
 )
+from app.services.agent.research.trust import UNTRUSTED_SYSTEM_NOTE
+from app.services.agent.runtime.budget import call_llm_with_deadline
 from app.services.agent.runtime.checkpoint import ensure_checkpointer_ready, get_checkpointer
 from app.services.agent.runtime.context import RuntimeContext
 from app.services.agent.runtime.state import AgentGraphState
@@ -56,7 +58,6 @@ async def workspace_agent_node(
     state: AgentGraphState,
     config: RunnableConfig,
 ) -> dict[str, Any]:
-    from app.services.ai.llm import complete_chat_completion
     from app.services.ai.rag_json import extract_json_object
 
     ctx: RuntimeContext = config["configurable"]["runtime_context"]
@@ -74,7 +75,8 @@ async def workspace_agent_node(
             if dialog_context.strip()
             else user_text
         )
-        raw = await complete_chat_completion(
+        raw = await call_llm_with_deadline(
+            ctx,
             messages=[
                 {"role": "system", "content": WORKSPACE_SYSTEM},
                 {"role": "user", "content": user_content},
@@ -116,7 +118,6 @@ REFUSAL_TEXT = (
 
 
 async def answer_node(state: AgentGraphState, config: RunnableConfig) -> dict[str, Any]:
-    from app.services.ai.llm import complete_chat_completion
     from app.services.ai.rag_json import extract_json_object
 
     ctx: RuntimeContext = config["configurable"]["runtime_context"]
@@ -147,7 +148,10 @@ async def answer_node(state: AgentGraphState, config: RunnableConfig) -> dict[st
         prompt_parts.append(
             'Верни JSON {"answer":"...","claims":[{"text":"...","evidence_ids":[...]}]}.'
         )
-        system_text = "Отвечай только по evidence. Не выдумывай отсутствующие факты."
+        system_text = (
+            "Отвечай только по evidence. Не выдумывай отсутствующие факты.\n"
+            + UNTRUSTED_SYSTEM_NOTE
+        )
     else:
         # Conversational "finish" path (agent-runtime-sprints §2.1): a
         # follow-up like "покороче" or "на английском?" needs the prior turn
@@ -164,7 +168,8 @@ async def answer_node(state: AgentGraphState, config: RunnableConfig) -> dict[st
         answer = rag_context or "Для ответа не требуется дополнительный контекст."
         return {**state, "answer_text": answer, "claims": []}
 
-    raw = await complete_chat_completion(
+    raw = await call_llm_with_deadline(
+        ctx,
         messages=[
             {"role": "system", "content": system_text},
             {"role": "user", "content": prompt},

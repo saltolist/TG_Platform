@@ -11,6 +11,7 @@ from langgraph.types import Command
 
 from app.db.models import AgentRun, User
 from app.services.agent.runtime import events as event_service
+from app.services.agent.runtime.budget import RunDeadlineExceeded
 from app.services.agent.runtime.checkpoint import ensure_checkpointer_ready
 from app.services.agent.runtime.context import RuntimeContext
 from app.services.agent.runtime.observability import (
@@ -86,6 +87,11 @@ async def execute_agent_run(
     started_at = time.perf_counter()
     await ensure_checkpointer_ready()
     graph = get_compiled_workspace_graph()
+    # Arm the run-level wall-clock budget (agent-runtime-sprints §6): every LLM
+    # call downstream reads this off runtime_context and caps itself with it.
+    runtime_context.deadline_monotonic = (
+        time.monotonic() + runtime_context.settings.rag_agent_deadline_s
+    )
     cfg = {
         "configurable": {
             "thread_id": str(run.id),
@@ -202,6 +208,27 @@ async def execute_agent_run(
         AGENT_RUNS.labels(status).inc()
         AGENT_DURATION.observe(time.perf_counter() - started_at)
         return final_state
+    except RunDeadlineExceeded as exc:
+        # Wall-clock budget spent (agent-runtime-sprints §6). Distinct terminal
+        # state from a generic crash: the run is "failed" but with an explicit
+        # deadline_exceeded reason so ops/metrics can tell a timeout from a bug.
+        logger.warning("Agent run %s hit wall-clock deadline: %s", run.id, exc)
+        await event_service.update_run_status(
+            session,
+            run,
+            status="failed",
+            error="deadline_exceeded",
+        )
+        await emit_run_event(
+            session,
+            run_id=run.id,
+            event_type="run_failed",
+            payload={"error": "deadline_exceeded", "stopped_reason": "deadline_exceeded"},
+        )
+        await session.commit()
+        AGENT_RUNS.labels("failed").inc()
+        AGENT_DURATION.observe(time.perf_counter() - started_at)
+        raise
     except Exception as exc:
         logger.exception("Agent run %s failed", run.id)
         await event_service.update_run_status(
@@ -238,6 +265,10 @@ async def resume_agent_graph(
     # (agent-runtime-sprints §1.5).
     if runtime_context is None:
         runtime_context = await rebuild_runtime_context_for_run(session, run)
+    # Fresh wall-clock budget for the resumed leg (agent-runtime-sprints §6).
+    runtime_context.deadline_monotonic = (
+        time.monotonic() + runtime_context.settings.rag_agent_deadline_s
+    )
     cfg = {
         "configurable": {
             "thread_id": str(run.id),

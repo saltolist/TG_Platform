@@ -193,6 +193,10 @@ class Settings(BaseSettings):
     rag_mode: Literal["off", "flat", "agentic", "auto"] = "off"
     rag_agent_max_steps: int = 4
     rag_agent_max_vision: int = 2
+    # Wall-clock budget for a whole agent run (agent-runtime-sprints §6). Enforced
+    # as a hard cap via asyncio.wait_for around each LLM call, not just checked
+    # between nodes, so a slow provider can't blow past it by one full call.
+    rag_agent_deadline_s: float = 120.0
     # L2 structured planning: off | auto (heuristics) | always
     rag_agent_planning_mode: Literal["off", "auto", "always"] = "auto"
     # L2 plan alignment: optional LLM auditor after deterministic pre-flight gate
