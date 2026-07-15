@@ -289,3 +289,79 @@ async def test_agent_referent_recall_reopens_note_via_dialog_context(
     planner_messages = planner_call.kwargs.get("messages") or planner_call.args[0]
     prompt_text = " ".join(str(m.get("content", "")) for m in planner_messages)
     assert "план запуска" in prompt_text
+
+
+@pytest.mark.asyncio
+async def test_execute_agent_run_emits_planner_step_events(
+    writer_user,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """agent-runtime-sprints §3.3: every research_planner_node call must
+    surface as a "planner_step" agent_event with the full decision shape,
+    so the UI can render steps 1..N as the run streams."""
+    from app.services.agent.runtime import events as event_service
+
+    monkeypatch.setattr("app.db.session.async_session_factory", TestSessionLocal)
+
+    async with TestSessionLocal() as session:
+        run, _ = await start_run(
+            session,
+            user=writer_user,
+            thread_id="planner-step-sse-test",
+            scope="global",
+        )
+        runtime_context = await rebuild_runtime_context_for_run(
+            session, run, "Что в заметке n1?"
+        )
+        runtime_context.reasoner_spec = ProviderSpec("OpenAI", "https://api.openai.com")
+        runtime_context.reasoner_model = "gpt-4o-mini"
+        runtime_context.reasoner_api_key = "test-key"
+
+        llm_responses = [
+            '{"type": "read"}',
+            (
+                '{"observations": [], "reasoning": "нужно найти заметку n1",'
+                ' "gap": "note content missing", "tool": "OpenNote",'
+                ' "args": {"note_id": "n1"}}'
+            ),
+            (
+                '{"tool": "FinishRetrieval", "args": '
+                '{"status": "ready", "evidence_ids": ["/note/global/n1/"]}}'
+            ),
+            '{"answer": "Есть данные.", "claims": []}',
+        ]
+        with (
+            patch(
+                "app.services.ai.llm.complete_chat_completion",
+                new_callable=AsyncMock,
+                side_effect=llm_responses,
+            ),
+            patch(
+                "app.services.ai.rag_tools.get_note_data",
+                new_callable=AsyncMock,
+                return_value={"id": "n1", "title": "План", "body": "Запуск в июле.", "files": []},
+            ),
+        ):
+            await execute_agent_run(
+                session,
+                run=run,
+                user=writer_user,
+                user_text="Что в заметке n1?",
+                runtime_context=runtime_context,
+            )
+            await session.commit()
+
+        events = await event_service.list_events(session, run_id=run.id)
+
+    # Two research_planner_node calls happen: step 1 decides OpenNote, step 2
+    # (after fetching the note) decides FinishRetrieval — each must surface as
+    # its own planner_step event, in step order.
+    planner_events = [evt for evt in events if evt.event_type == "planner_step"]
+    assert len(planner_events) == 2
+    first, second = planner_events[0].payload, planner_events[1].payload
+    assert first["reasoning"] == "нужно найти заметку n1"
+    assert first["gap"] == "note content missing"
+    assert first["tool"] == "OpenNote"
+    assert first["args"] == {"note_id": "n1"}
+    assert first["observations"] == []
+    assert second["tool"] == "FinishRetrieval"

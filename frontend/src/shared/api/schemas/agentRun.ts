@@ -32,6 +32,19 @@ export const agentEventSchema = z.object({
   payload: z.record(z.string(), z.unknown()),
 });
 
+// agent-runtime-sprints §3.1/§3.3: the research planner's decision shape,
+// thought fields before the tool ({observations, reasoning, gap, tool, args}).
+// Emitted as the "planner_step" agent event so the UI can render steps 1..N.
+export const plannerStepSchema = z.object({
+  step: z.number(),
+  observations: z.array(z.string()),
+  reasoning: z.string(),
+  gap: z.string(),
+  tool: z.string(),
+  args: z.record(z.string(), z.unknown()),
+  repair_hint: z.string().optional(),
+});
+
 export const agentSsePayloadSchema = z.object({
   agent: agentEventSchema.optional(),
   text: z.string().optional(),
@@ -57,3 +70,4 @@ export type AgentRun = z.infer<typeof agentRunSchema>;
 export type AgentSsePayload = z.infer<typeof agentSsePayloadSchema>;
 export type AgentProposal = z.infer<typeof agentProposalSchema>;
 export type AgentMediaJob = z.infer<typeof agentMediaJobSchema>;
+export type PlannerStep = z.infer<typeof plannerStepSchema>;

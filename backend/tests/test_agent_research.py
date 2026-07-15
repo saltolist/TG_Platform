@@ -9,7 +9,12 @@ import pytest
 
 from app.core.config import Settings
 from app.services.agent.research.evidence import EvidenceRecord
-from app.services.agent.research.graph import parse_tool_action, run_research_graph
+from app.services.agent.research.graph import (
+    parse_tool_action,
+    research_planner_node,
+    run_research_graph,
+    validate_observations,
+)
 from app.services.agent.research.pack import build_evidence_pack
 from app.services.agent.research.verifier import verify_evidence
 from app.services.agent.runtime.context import RuntimeContext
@@ -21,6 +26,30 @@ def test_parse_tool_action_finish() -> None:
     action = parse_tool_action('{"tool": "FinishRetrieval", "args": {"status": "ready", "evidence_ids": []}}')
     assert action is not None
     assert action.tool == "FinishRetrieval"
+
+
+def test_parse_tool_action_preserves_reasoning() -> None:
+    """agent-runtime-sprints §3.1: reasoning/observations/gap must survive the
+    parse, not be discarded — the planner's thought is the point of the schema."""
+    action = parse_tool_action(
+        '{"observations": ["пост 721 notes=1"], "reasoning": "нужен текст заметки",'
+        ' "gap": "note content missing", "tool": "OpenNote", "args": {"note_id": "n1"}}'
+    )
+    assert action is not None
+    assert action.observations == ("пост 721 notes=1",)
+    assert action.reasoning == "нужен текст заметки"
+    assert action.gap == "note content missing"
+    assert action.tool == "OpenNote"
+
+
+def test_parse_tool_action_backward_compat_without_reasoning() -> None:
+    """Older/degenerate JSON without the thought fields must still parse —
+    parse_tool_action must not require the new keys."""
+    action = parse_tool_action('{"tool": "FinishRetrieval", "args": {"status": "ready", "evidence_ids": ["e1"]}}')
+    assert action is not None
+    assert action.observations == ()
+    assert action.reasoning == ""
+    assert action.gap == ""
 
 
 def test_verify_evidence_ready() -> None:
@@ -37,6 +66,57 @@ def test_verify_evidence_ready() -> None:
         records={"e1": rec},
     )
     assert result.ok is True
+
+
+def test_validate_observations_flags_fabricated() -> None:
+    """agent-runtime-sprints §3.2: an observation that matches nothing in the
+    transcript or evidence records is cosmetic reasoning, not real grounding."""
+    rec = EvidenceRecord(
+        id="/note/global/n1/",
+        kind="note_chunk",
+        source_ref="note:n1",
+        content="план запуска",
+        citation_path="/note/global/n1/",
+        citation_title="План",
+    )
+    fabricated = validate_observations(
+        ("выдуманный факт про акции",),
+        transcript=["step 1: OpenNote → открыта заметка План"],
+        records={"/note/global/n1/": rec},
+    )
+    assert fabricated == ["выдуманный факт про акции"]
+
+
+def test_validate_observations_accepts_grounded() -> None:
+    rec = EvidenceRecord(
+        id="/note/global/n1/",
+        kind="note_chunk",
+        source_ref="note:n1",
+        content="план запуска",
+        citation_path="/note/global/n1/",
+        citation_title="План",
+    )
+    fabricated = validate_observations(
+        ("План — заметка n1",),
+        transcript=["step 1: OpenNote → открыта заметка План"],
+        records={"/note/global/n1/": rec},
+    )
+    assert fabricated == []
+
+
+def test_validate_observations_empty_first_step_is_not_flagged() -> None:
+    assert validate_observations((), transcript=[], records={}) == []
+
+
+def test_validate_observations_blank_transcript_line_does_not_disable_check() -> None:
+    """A blank transcript line must not ground everything: "" is a substring
+    of any observation, so it would otherwise silently pass fabrications."""
+    fabricated = validate_observations(
+        ("выдуманный факт",),
+        transcript=["", "   "],
+        records={},
+    )
+    assert fabricated == ["выдуманный факт"]
 
 
 def test_build_evidence_pack_dedup() -> None:
@@ -218,6 +298,105 @@ async def test_answer_node_forwards_dialog_context_on_finish_path() -> None:
     messages = mock_llm.await_args.kwargs.get("messages")
     user_content = messages[1]["content"]
     assert "Охват 1200 просмотров" in user_content
+
+
+@pytest.mark.asyncio
+async def test_planner_node_records_step_with_reasoning() -> None:
+    """agent-runtime-sprints §3.1/§3.3: the planner node must accumulate a
+    planner_steps entry carrying observations/reasoning/gap/tool/args, so
+    the executor can emit it and a golden test can assert on it."""
+    ctx = _reasoner_ctx()
+    state = {
+        "user_text": "Что в заметке n1?",
+        "research_transcript": ["step 1: OpenPost → пост 721 notes=1"],
+        "evidence_records": {},
+        "step_count": 1,
+        "max_steps": 4,
+    }
+    config = {"configurable": {"runtime_context": ctx}}
+    scripted = (
+        '{"observations": ["пост 721 notes=1"], "reasoning": "нужен текст заметки, '
+        'метаданных мало", "gap": "note content missing", "tool": "OpenNote", '
+        '"args": {"note_id": "n1", "post_id": "721"}}'
+    )
+    with patch(
+        "app.services.ai.llm.complete_chat_completion",
+        new_callable=AsyncMock,
+        return_value=scripted,
+    ):
+        result = await research_planner_node(state, config)
+
+    steps = result["planner_steps"]
+    assert len(steps) == 1
+    step = steps[0]
+    assert step["reasoning"] == "нужен текст заметки, метаданных мало"
+    assert step["gap"] == "note content missing"
+    assert step["tool"] == "OpenNote"
+    assert step["args"] == {"note_id": "n1", "post_id": "721"}
+    assert "repair_hint" not in step
+
+
+@pytest.mark.asyncio
+async def test_planner_node_flags_fabricated_observation_with_repair_hint() -> None:
+    """agent-runtime-sprints §3.2: a planner step whose observation matches
+    nothing in transcript/evidence gets a repair-hint appended to
+    research_hints, which the planner already reads on the next turn."""
+    ctx = _reasoner_ctx()
+    state = {
+        "user_text": "Что в заметке n1?",
+        "research_transcript": ["step 1: OpenPost → пост 721 notes=1"],
+        "evidence_records": {},
+        "research_hints": [],
+        "step_count": 1,
+        "max_steps": 4,
+    }
+    config = {"configurable": {"runtime_context": ctx}}
+    scripted = (
+        '{"observations": ["выдуманная метрика роста 300%"], "reasoning": "...",'
+        ' "gap": "...", "tool": "OpenNote", "args": {"note_id": "n1"}}'
+    )
+    with patch(
+        "app.services.ai.llm.complete_chat_completion",
+        new_callable=AsyncMock,
+        return_value=scripted,
+    ):
+        result = await research_planner_node(state, config)
+
+    step = result["planner_steps"][0]
+    assert "repair_hint" in step
+    assert any("cosmetic_observations" in hint for hint in result["research_hints"])
+
+
+@pytest.mark.asyncio
+async def test_reasoning_influences_tool_choice_via_scripted_planner() -> None:
+    """agent-runtime-sprints §3.1 exit criterion: the planner's stated
+    reasoning/gap correspond to the tool it actually picks — scripted here
+    (no live LLM), but this is the wiring golden would assert on."""
+    ctx = _reasoner_ctx()
+    state = {
+        "user_text": "Что в заметке 721?",
+        "research_transcript": ["step 1: OpenPost → пост 721 notes=1"],
+        "evidence_records": {},
+        "step_count": 1,
+        "max_steps": 4,
+    }
+    config = {"configurable": {"runtime_context": ctx}}
+    scripted = (
+        '{"observations": ["пост 721 notes=1"], "reasoning": "нужен текст заметки '
+        '721, метаданных мало", "gap": "note content missing", "tool": "OpenNote", '
+        '"args": {"note_id": "n1", "post_id": "721"}}'
+    )
+    with patch(
+        "app.services.ai.llm.complete_chat_completion",
+        new_callable=AsyncMock,
+        return_value=scripted,
+    ):
+        result = await research_planner_node(state, config)
+
+    step = result["planner_steps"][0]
+    assert "заметки" in step["reasoning"]
+    assert step["tool"] == "OpenNote"
+    assert result["tool_action"]["tool"] == "OpenNote"
 
 
 @pytest.mark.asyncio

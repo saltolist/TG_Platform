@@ -9,8 +9,8 @@ reference-level. **Канон — [agent-runtime-sprints.md](agent-runtime-sprin
 Ветка: `cursor/per-post-analytics-foundation`.
 
 Статус проверен по коду и git (коммиты `5e54ac6` §1.0, `7b6d62b` §1.2–1.5,
-`8e83e58` грейдеры). Тесты: 38 agent-тестов зелёные + 7 новых для Спринта 2
-+ 2 новых на доступ `dialog_context` для classifier/answer.
+`8e83e58` грейдеры). Тесты: 49 agent-тестов зелёные (backend, включая Спринт 3)
++ frontend: 356 vitest тестов зелёные, `tsc --noEmit` чисто.
 
 ---
 
@@ -34,7 +34,7 @@ reference-level. **Канон — [agent-runtime-sprints.md](agent-runtime-sprin
 | 1.4 Tool surface | 🟡 partial | `ListPostNotes` подключён, `ListPosts` args починены. **Остаток:** tool observation как first-class запись в evidence/контекст следующего шага (сейчас только в summary tool'а) |
 | 1.5 Resume + signature | ✅ done | `resume_agent_graph` кладёт `runtime_context`; `complete_chat_completion` sig проверена |
 | 2 Память | ✅ done | 2.1 через `dialog_context` (ADR-отступление от native `messages`); 2.2 проверен тестом (planner re-call с mocked LLM); 2.3 закрыт решением «оставить `thread_id=run_id`»; post-scope закрыт через новый `post_chat_id` |
-| 3 Планнер мыслит | ❌ open | |
+| 3 Планнер мыслит | ✅ done | 3.1–3.3 закрыты. **Отступление от канона** (обсуждено и подтверждено пользователем): reasoning-схема приложена только к research-циклу, классификатор `WORKSPACE_SYSTEM` остался single-shot без схемы — см. подробности ниже |
 | 4 Evals | 🟡 partial | грейдеры-библиотека + юнит-тесты есть; **не** executable gate и **не** CI-блокер |
 | 5 Observability | ❌ open | |
 | 6 Trust boundary | ❌ open | **high**, не откладывать |
@@ -151,26 +151,82 @@ planner re-call с реальным evidence-путём
 
 ---
 
-### Спринт 3 — Планнер мыслит (must для «работает как надо»)
+### Спринт 3 — Планнер мыслит (must для «работает как надо») ✅ ЗАКРЫТ
 
 Планнер думает **перед** действием, мысль опирается на ground truth и видна.
-Реализуем **Вариант 1** (reasoning внутри структурного JSON). Нативный thinking
-и отдельная фаза-планирования — не сейчас.
+Реализован **Вариант 1** (reasoning внутри структурного JSON). Нативный
+thinking и отдельная фаза-планирования — не делались (по плану).
 
-- [ ] **3.1 Схема решения с reasoning ПЕРЕД tool.** Порядок ключей критичен
-      (думает → решает): `{observations[], reasoning, gap, tool, args}`. Обновить
-      системный промпт единого планнера; парсер **сохраняет** `reasoning`/
-      `observations`, а не выбрасывает.
-      Файлы: `runtime/workspace_graph.py` (промпт планнера, парсер).
-- [ ] **3.2 Anti-косметика.** Лёгкая валидация: `observations` ссылаются на
-      реальный transcript/tool-выхлоп; выдуманные → флаг/repair-hint.
-- [ ] **3.3 Эмит в SSE.** Event `planner_step` с
-      `{step, observations, reasoning, gap, tool, args}`.
-      Файлы: `runtime/executor.py`, `runtime/sse_events.py`, frontend
-      `agentRuns.ts` / composer.
+**Отступление от канона (обсуждено и подтверждено пользователем перед
+реализацией):** канон предполагал «единый планнер, один промпт». В коде
+планнеров два — классификатор `WORKSPACE_SYSTEM` (single-shot, решает
+`read/finish/*_proposal`) и ReAct-цикл `AGENT_SYSTEM` в `research/graph.py`
+(шаги 1…N, реально дочитывает tools). Решение: **не сливать**. Reasoning-схема
+`{observations, reasoning, gap, tool, args}` приложена **только к
+research-циклу** — она заземлена на transcript/tool-выхлоп (anti-косметика
+§3.2), а классификатор стартует **до** любого tool, заземлять там нечего.
+Exit-критерий («шаги 1…N, reasoning влияет на выбор tool») — свойство цикла,
+не одиночного решения. Коллапс классификатора в цикл (tools вместо
+read/finish/proposal-типов) — осознанно отложен как отдельный будущий
+рефактор, не часть Спринта 3.
 
-**Exit:** в UI видны шаги 1…N с мыслью+tool, совпадающие с transcript; reasoning
-влияет на выбор tool (проверяется на golden).
+- [x] **3.1 Схема решения с reasoning ПЕРЕД tool.** `ToolAction` (frozen
+      dataclass) получил поля `observations: tuple[str,...]`, `reasoning: str`,
+      `gap: str` — с дефолтами `()`/`""`/`""`, чтобы внутренние call sites
+      (no-LLM fallback, invalid-JSON fallback) не обязаны их подделывать.
+      `parse_tool_action` сохраняет их из JSON вместо отбрасывания.
+      `AGENT_SYSTEM` переписан: требует строгий порядок ключей
+      `observations[] → reasoning → gap → tool → args` с примером и явным
+      запретом выдумывать observations. `research_planner_node` кладёт шаг
+      `{step, observations, reasoning, gap, tool, args, repair_hint?}` в новое
+      поле state `planner_steps: list[dict]` (аккумулятор, `state.py`).
+      Файлы: `research/graph.py` (`ToolAction`, `parse_tool_action`,
+      `AGENT_SYSTEM`, `research_planner_node`), `runtime/state.py`
+      (`AgentGraphState.planner_steps`).
+      Тесты: `test_parse_tool_action_preserves_reasoning`,
+      `test_parse_tool_action_backward_compat_without_reasoning`,
+      `test_planner_node_records_step_with_reasoning`,
+      `test_reasoning_influences_tool_choice_via_scripted_planner`
+      (`tests/test_agent_research.py`).
+- [x] **3.2 Anti-косметика.** `validate_observations(observations,
+      transcript, records)` — лёгкая (substring-based, не hallucination
+      detector) проверка: observation считается заземлённой, если пересекается
+      с transcript-строками или citation_title/id evidence-записей. Пустой
+      список на первом шаге (нет transcript/evidence) — не флаг. Выдуманные
+      observations → `research_hints` получает `"repair: cosmetic_observations:
+      ..."` (канал, который планнер уже читает на следующий шаг), без
+      повторного LLM-вызова в узле.
+      Файлы: `research/graph.py` (`validate_observations`,
+      `research_planner_node`).
+      Тесты: `test_validate_observations_flags_fabricated`,
+      `test_validate_observations_accepts_grounded`,
+      `test_validate_observations_empty_first_step_is_not_flagged`,
+      `test_planner_node_flags_fabricated_observation_with_repair_hint`.
+- [x] **3.3 Эмит в SSE.** `executor.py` в ветке `updates`-стрима читает чанк
+      с ключом `"planner"` (имя ноды в обоих графах) и достаёт последний
+      элемент `planner_steps` → эмитит `agent_event(type="planner_step")` с
+      полным decision-shape. Работает и в `execute_agent_run`, и в
+      `resume_agent_graph`. `sse_events.py` не менялся — generic JSON-формат
+      уже подходил. Frontend: `plannerStepSchema` (строгая, все поля
+      обязательны кроме `repair_hint`) в `schemas/agentRun.ts`; новый
+      компонент `widgets/agent/ui/AgentPlannerSteps.tsx` (рендер списка
+      1…N — мысль + tool) с чистой функцией `selectPlannerSteps` (фильтр+parse
+      событий), вмонтирован в `AgentRunInterrupts.tsx` через `events` из
+      `useAgentRunStore`. `composer-store.tsx` не трогался — стрим ответа не
+      завязан на шаги планнера.
+      Файлы: `runtime/executor.py` (`_planner_step_payload`),
+      `shared/api/schemas/agentRun.ts`, `widgets/agent/ui/AgentPlannerSteps.tsx`,
+      `widgets/agent/ui/AgentRunInterrupts.tsx`.
+      Тесты: `test_execute_agent_run_emits_planner_step_events`
+      (`tests/test_agent_runtime.py`); `agentRun.test.ts` (schema),
+      `AgentPlannerSteps.test.ts` (`selectPlannerSteps` — фильтр/parse/порядок).
+      Примечание: `vitest.config.ts` включает только `*.test.ts` в
+      `node`-окружении (без jsdom) — рендер-тест на сам компонент не писался,
+      логика извлечена в тестируемую функцию.
+
+**Exit:** в UI видны шаги 1…N с мыслью+tool (research-цикл), совпадающие с
+transcript; reasoning влияет на выбор tool (проверено scripted-тестом, не
+живым golden — golden-прогон с реальной моделью не проводился в этой сессии).
 
 ---
 
@@ -244,7 +300,7 @@ planner re-call с реальным evidence-путём
       ↓
 [✅ Спринт 2 (Память: dialog_context, thread_id=run_id, post_chat_id)]  ← закрыт
       ↓
-Спринт 3 (Планнер мыслит + SSE)                        ← «работает как надо»
+[✅ Спринт 3 (Планнер мыслит + SSE, только research-цикл)]  ← закрыт
       ↓ (Спринт 4 идёт параллельно)
 Спринт 4 (Evals executable + CI gate)                  ← регрессы под контролем
       ↓
@@ -266,8 +322,10 @@ Reference-level DoD
    `post_chat_id` (миграция `016_agent_run_post_chat_id`, backend + frontend).
 3. **Спринт 4 — CI.** К какому CI привязать merge-gate (GitHub Actions?);
    сейчас привязки к конфигу нет.
-4. **Спринт 3 — schema.** Фиксируем формат решения
-   `{observations, reasoning, gap, tool, args}` или расширяем?
+4. ~~**Спринт 3 — schema.**~~ Закрыто: строго `{observations, reasoning, gap,
+   tool, args}`, без расширения (без confidence/self-check полей).
+5. ~~**Спринт 3 — единый промпт.**~~ Закрыто: НЕ сливаем классификатор и
+   research-цикл в этом спринте (обоснование — раздел Спринта 3 выше).
 
 ---
 

@@ -23,6 +23,24 @@ from app.services.agent.runtime.workspace_graph import get_compiled_workspace_gr
 logger = logging.getLogger(__name__)
 
 
+def _planner_step_payload(chunk: dict[str, Any]) -> dict[str, Any] | None:
+    """Extract the newest planner step from an "updates" chunk, if present.
+
+    The "updates" stream yields {node_name: partial_state_update} per node
+    (agent-runtime-sprints §3.3). research_planner_node returns the full
+    accumulated planner_steps list each time it runs, so the newest entry
+    (the one this node call just appended) is always the last item.
+    """
+    planner_update = chunk.get("planner")
+    if not isinstance(planner_update, dict):
+        return None
+    steps = planner_update.get("planner_steps")
+    if not isinstance(steps, list) or not steps:
+        return None
+    latest = steps[-1]
+    return dict(latest) if isinstance(latest, dict) else None
+
+
 def _interrupt_payload(value: Any) -> dict[str, Any] | None:
     if isinstance(value, dict):
         if "__interrupt__" in value:
@@ -130,6 +148,14 @@ async def execute_agent_run(
                     },
                 )
             elif mode == "updates" and isinstance(chunk, dict):
+                planner_step = _planner_step_payload(chunk)
+                if planner_step is not None:
+                    await emit_run_event(
+                        session,
+                        run_id=run.id,
+                        event_type="planner_step",
+                        payload=planner_step,
+                    )
                 interrupt_payload = _interrupt_payload(chunk)
                 if interrupt_payload is not None:
                     run.current_interrupt = interrupt_payload
@@ -228,7 +254,15 @@ async def resume_agent_graph(
     ):
         if mode == "values" and isinstance(chunk, dict):
             final_state = chunk
-        elif mode == "updates":
+        elif mode == "updates" and isinstance(chunk, dict):
+            planner_step = _planner_step_payload(chunk)
+            if planner_step is not None:
+                await emit_run_event(
+                    session,
+                    run_id=run.id,
+                    event_type="planner_step",
+                    payload=planner_step,
+                )
             payload = _interrupt_payload(chunk)
             if payload is not None:
                 pending_interrupt = payload

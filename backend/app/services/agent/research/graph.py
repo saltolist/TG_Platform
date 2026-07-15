@@ -70,14 +70,32 @@ AGENT_SYSTEM = """Ты research-агент workspace. Собери факты re
 - Только read; никаких мутаций.
 - Завершай, когда собрано достаточно для ответа.
 - В `evidence_ids` перечисляй ТОЛЬКО те id, что показаны в блоке «Собранный context» как `[id: …]` — дословно. Не выдумывай id и не подставляй номера постов.
-- Верни один JSON: {"tool": "...", "args": {...}}.
+
+Перед выбором tool сначала думай, потом решай. Верни один JSON СТРОГО в этом порядке ключей:
+{
+  "observations": ["что уже известно из «Ход агента» и «Собранный context», дословно/по смыслу — не выдумывай"],
+  "reasoning": "почему этого недостаточно и что нужно сделать дальше",
+  "gap": "какого конкретно факта/содержимого не хватает",
+  "tool": "...",
+  "args": {...}
+}
+`observations` — только то, что реально видно в «Ход агента» или «Собранный context» этого запроса. Если это первый шаг и обоих блоков нет — можно вернуть пустой список observations, но не придумывать наблюдения.
 """
 
 
 @dataclass(frozen=True)
 class ToolAction:
+    # Field order mirrors the decision schema (agent-runtime-sprints §3.1):
+    # thought fields before the tool that acts on them, so any code reading
+    # this dataclass positionally sees "why" before "what". Defaulted so
+    # internal call sites that build a FinishRetrieval/fallback action
+    # without a planner thought (no-LLM path, invalid-JSON fallback) don't
+    # need to fabricate one.
     tool: str
     args: dict[str, Any]
+    observations: tuple[str, ...] = ()
+    reasoning: str = ""
+    gap: str = ""
 
 
 def parse_tool_action(raw: str) -> ToolAction | None:
@@ -90,7 +108,56 @@ def parse_tool_action(raw: str) -> ToolAction | None:
     args = payload.get("args")
     if not isinstance(args, dict):
         args = {}
-    return ToolAction(tool=tool, args=args)
+    raw_observations = payload.get("observations")
+    observations = (
+        tuple(str(item) for item in raw_observations)
+        if isinstance(raw_observations, list)
+        else ()
+    )
+    return ToolAction(
+        observations=observations,
+        reasoning=str(payload.get("reasoning") or ""),
+        gap=str(payload.get("gap") or ""),
+        tool=tool,
+        args=args,
+    )
+
+
+def validate_observations(
+    observations: tuple[str, ...],
+    *,
+    transcript: list[str],
+    records: dict[str, EvidenceRecord],
+) -> list[str]:
+    """Flag observations that don't ground in anything the planner actually saw.
+
+    Anti-cosmetic check (agent-runtime-sprints §3.2): the thought must be
+    derived from real transcript/tool output, not invented after the fact to
+    justify a tool choice. An empty list is never flagged — the first step,
+    before any transcript/evidence exists, legitimately has nothing to observe.
+    Matching is substring-based on transcript lines and record titles/ids —
+    intentionally loose (the model paraphrases), not a hallucination detector.
+    """
+    if not observations:
+        return []
+    # Drop empty/whitespace haystacks: "" is a substring of every string, so a
+    # single blank line would make the `hay in needle` arm match everything and
+    # silently disable the check. Transcript lines are f-string built and never
+    # blank today, but this keeps the guard robust if that changes.
+    haystacks = [stripped for line in transcript if (stripped := line.strip().lower())]
+    for rec_id, rec in records.items():
+        if rec_id.strip():
+            haystacks.append(rec_id.strip().lower())
+        if rec.citation_title.strip():
+            haystacks.append(rec.citation_title.strip().lower())
+    fabricated: list[str] = []
+    for obs in observations:
+        needle = obs.strip().lower()
+        if not needle:
+            continue
+        if not any(needle in hay or hay in needle for hay in haystacks):
+            fabricated.append(obs)
+    return fabricated
 
 
 def render_agent_context(state: AgentState) -> str:
@@ -312,10 +379,36 @@ async def research_planner_node(state: AgentGraphState, config: RunnableConfig) 
         action = parse_tool_action(raw) or ToolAction(tool="Invalid", args={})
     steps = int(state.get("step_count") or 0) + 1
     trace_step("7. rag.L2.langgraph", [f"step={steps}/{max_steps}", f"tool={action.tool}"])
+    fabricated = validate_observations(
+        action.observations,
+        transcript=list(state.get("research_transcript") or []),
+        records=records,
+    )
+    hints = list(state.get("research_hints") or [])
+    if fabricated:
+        hints.append(f"repair: cosmetic_observations:{'; '.join(fabricated)}")
+    step_record: dict[str, Any] = {
+        "step": steps,
+        "observations": list(action.observations),
+        "reasoning": action.reasoning,
+        "gap": action.gap,
+        "tool": action.tool,
+        "args": action.args,
+    }
+    if fabricated:
+        step_record["repair_hint"] = f"cosmetic_observations:{'; '.join(fabricated)}"
     return {
         **state,
         "step_count": steps,
-        "tool_action": {"tool": action.tool, "args": action.args},
+        "tool_action": {
+            "tool": action.tool,
+            "args": action.args,
+            "observations": list(action.observations),
+            "reasoning": action.reasoning,
+            "gap": action.gap,
+        },
+        "research_hints": hints,
+        "planner_steps": [*(state.get("planner_steps") or []), step_record],
     }
 
 

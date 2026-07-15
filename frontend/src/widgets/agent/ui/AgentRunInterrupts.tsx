@@ -4,16 +4,18 @@ import { cancelAgentRun } from "@/shared/api/agentRuns";
 import { useAgentRunStore } from "@/app/model/store/agent-run-store";
 import { useComposerReplyStore } from "@/app/model/store/composer-reply-store";
 import type { ComposerScope } from "@/shared/types";
+import { AgentPlannerSteps } from "@/widgets/agent/ui/AgentPlannerSteps";
 import { AgentProposalCard } from "@/widgets/agent/ui/AgentProposalCard";
 import { MediaJobCard } from "@/widgets/agent/ui/MediaJobCard";
 
 export function AgentRunInterrupts({ scope }: { scope: ComposerScope }) {
   const runId = useComposerReplyStore((state) => state.lastRunIdByScope[scope] ?? null);
-  const { run, pendingProposal, pendingMediaJob, resume } = useAgentRunStore(runId);
+  const { run, events, pendingProposal, pendingMediaJob, resume } = useAgentRunStore(runId);
   if (!runId) return null;
 
   return (
     <div className="agent-run-interrupts" aria-live="polite">
+      <AgentPlannerSteps events={events} />
       {pendingProposal ? (
         <AgentProposalCard
           proposal={pendingProposal}

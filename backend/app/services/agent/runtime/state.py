@@ -34,6 +34,10 @@ class AgentGraphState(TypedDict, total=False):
     research_transcript: list[str]
     research_hints: list[str]
     tool_action: dict[str, Any] | None
+    # Accumulated planner decisions {step, observations, reasoning, gap, tool,
+    # args, repair_hint?} for SSE emission and golden inspection
+    # (agent-runtime-sprints §3.1/§3.3).
+    planner_steps: list[dict[str, Any]]
     verification_ok: bool
     proposal_ids: list[str]
     job_ids: list[str]
