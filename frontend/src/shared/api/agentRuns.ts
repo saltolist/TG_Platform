@@ -11,6 +11,7 @@ export type StartAgentRunBody = {
   scope: "global" | "post";
   chatId: string;
   postId?: string;
+  postChatId?: string;
   userText: string;
 };
 

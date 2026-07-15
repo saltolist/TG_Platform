@@ -65,6 +65,7 @@ class StartAgentRunRequest(BaseModel):
     scope: Literal["global", "post"] = "global"
     chat_id: str | None = Field(default=None, validation_alias="chatId")
     post_id: str | None = Field(default=None, validation_alias="postId")
+    post_chat_id: str | None = Field(default=None, validation_alias="postChatId")
     user_text: str = Field(default="", validation_alias="userText")
 
 

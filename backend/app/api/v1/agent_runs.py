@@ -61,6 +61,7 @@ async def create_agent_run(
         scope=body.scope,
         chat_id=body.chat_id,
         post_id=body.post_id,
+        post_chat_id=body.post_chat_id,
     )
     if body.user_text.strip():
         from app.tasks.agent_runs import execute_agent_run_task
@@ -93,6 +94,7 @@ async def get_agent_run(
         "scope": run.scope,
         "chat_id": run.chat_id,
         "post_id": run.post_id,
+        "post_chat_id": run.post_chat_id,
         "current_interrupt": run.current_interrupt,
         "snapshot": run.snapshot,
         "error": run.error,

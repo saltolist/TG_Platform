@@ -22,6 +22,7 @@ async def create_run(
     scope: str = "global",
     chat_id: str | None = None,
     post_id: str | None = None,
+    post_chat_id: str | None = None,
     snapshot: dict[str, Any] | None = None,
 ) -> AgentRun:
     now = datetime.now(timezone.utc)
@@ -32,6 +33,7 @@ async def create_run(
         scope=scope,
         chat_id=chat_id,
         post_id=post_id,
+        post_chat_id=post_chat_id,
         status="running",
         snapshot=snapshot or {},
         created_at=now,

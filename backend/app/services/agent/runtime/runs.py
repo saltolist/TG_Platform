@@ -23,6 +23,7 @@ async def start_run(
     scope: str = "global",
     chat_id: str | None = None,
     post_id: str | None = None,
+    post_chat_id: str | None = None,
 ) -> tuple[Any, int]:
     run = await event_service.create_run(
         session,
@@ -31,6 +32,7 @@ async def start_run(
         scope=scope,
         chat_id=chat_id,
         post_id=post_id,
+        post_chat_id=post_chat_id,
     )
     evt = await event_service.append_event(
         session,
@@ -89,11 +91,12 @@ async def load_run_history(
         if not chats:
             return []
         chat = None
-        if run.chat_id:
-            chat = next((c for c in chats if str(c.get("id")) == run.chat_id), None)
+        # post_chat_id is authoritative (mirrors AiReplyRequest.post_chat_id).
+        # chat_id is a fallback for runs created before that column existed.
+        target_id = run.post_chat_id or run.chat_id
+        if target_id:
+            chat = next((c for c in chats if str(c.get("id")) == target_id), None)
         if chat is None:
-            # AgentRun has no post_chat_id column (unlike AiReplyRequest); fall
-            # back to the most recent embedded chat when chat_id doesn't match.
             chat = chats[-1]
         return list(chat.get("history") or [])
 

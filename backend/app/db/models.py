@@ -173,6 +173,11 @@ class AgentRun(Base):
     scope: Mapped[str] = mapped_column(String(32), nullable=False, default="global")
     chat_id: Mapped[str | None] = mapped_column(String(128), nullable=True)
     post_id: Mapped[str | None] = mapped_column(String(128), nullable=True)
+    # Disambiguates which embedded chat within post.data["chats"] this run
+    # belongs to (mirrors AiReplyRequest.post_chat_id) — a post can host
+    # several chats, and chat_id alone doesn't identify one for scope="post"
+    # (agent-runtime-sprints §2.1 memory).
+    post_chat_id: Mapped[str | None] = mapped_column(String(128), nullable=True)
     status: Mapped[str] = mapped_column(String(32), nullable=False, default="running")
     checkpoint_ns: Mapped[str | None] = mapped_column(String(256), nullable=True)
     current_interrupt: Mapped[dict | None] = mapped_column(JSONB, nullable=True)

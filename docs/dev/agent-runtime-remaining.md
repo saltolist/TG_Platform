@@ -9,7 +9,7 @@ reference-level. **Канон — [agent-runtime-sprints.md](agent-runtime-sprin
 Ветка: `cursor/per-post-analytics-foundation`.
 
 Статус проверен по коду и git (коммиты `5e54ac6` §1.0, `7b6d62b` §1.2–1.5,
-`8e83e58` грейдеры). Тесты: 38 agent-тестов зелёные + 2 новых для Спринта 2.
+`8e83e58` грейдеры). Тесты: 38 agent-тестов зелёные + 7 новых для Спринта 2.
 
 ---
 
@@ -32,7 +32,7 @@ reference-level. **Канон — [agent-runtime-sprints.md](agent-runtime-sprin
 | 1.3 Verify-гейт | ✅ done | пустой evidence=провал; partial проверяет dangling; hard-stop через verify |
 | 1.4 Tool surface | 🟡 partial | `ListPostNotes` подключён, `ListPosts` args починены. **Остаток:** tool observation как first-class запись в evidence/контекст следующего шага (сейчас только в summary tool'а) |
 | 1.5 Resume + signature | ✅ done | `resume_agent_graph` кладёт `runtime_context`; `complete_chat_completion` sig проверена |
-| 2 Память | 🟡 partial | 2.1 done через `dialog_context` (ADR-отступление от native `messages`, см. ниже); 2.3 закрыт решением «оставить `thread_id=run_id`» (не баг, обосновано); 2.2 (referent re-call) не проверялся отдельно |
+| 2 Память | ✅ done | 2.1 через `dialog_context` (ADR-отступление от native `messages`); 2.2 проверен тестом (planner re-call с mocked LLM); 2.3 закрыт решением «оставить `thread_id=run_id`»; post-scope закрыт через новый `post_chat_id` |
 | 3 Планнер мыслит | ❌ open | |
 | 4 Evals | 🟡 partial | грейдеры-библиотека + юнит-тесты есть; **не** executable gate и **не** CI-блокер |
 | 5 Observability | ❌ open | |
@@ -42,12 +42,14 @@ reference-level. **Канон — [agent-runtime-sprints.md](agent-runtime-sprin
 
 ## Осталось сделать
 
-### Спринт 2 — Память (must, приоритет #1)
+### Спринт 2 — Память (must, приоритет #1) ✅ ЗАКРЫТ
 
-**Обновлено после recon + явного решения пользователя.** Канон ниже
+**Обновлено после recon + явных решений пользователя (2 сессии).** Канон ниже
 описан как было написано изначально; фактическая реализация в двух местах
 **сознательно отклоняется** от буквы канона — с обоснованием, зафиксированным
-в момент решения (не втихую).
+в момент решения (не втихую). Все три подпункта закрыты и покрыты тестами;
+post-scope хвост (изначально открытый вопрос) закрыт отдельным решением
+пользователя — добавить `post_chat_id`, а не гадать эвристикой.
 
 **Принцип канона:** память = **родная thread-persistence LangGraph** (message
 history), **НЕ** bespoke-подсистема. `ledger`/`resolver`/`RetrievalBrief` из
@@ -76,15 +78,32 @@ ADR-009 сознательно **не** делать — это архитект
       `tasks/agent_runs.py` (передаёт `user_text`).
       Тест: `tests/test_agent_runtime.py::test_rebuild_runtime_context_loads_dialog_context_from_chat_history`
       (+ пустой случай без чата).
-      **Открыт хвост:** post-scope у `AgentRun` нет `post_chat_id` (в отличие от
-      `AiReplyRequest`) — сейчас матчим `run.chat_id` на `id` чата внутри
-      `post.data["chats"]`, а если не найден — берём последний чат поста
-      (эвристика, не подтверждена пользователем; см. открытый вопрос ниже).
-- [ ] **2.2 Референты артефактов — без resolver'а.** Агент пере-вызывает tool
-      (`OpenNote`/`HydrateAttachment`) с натуральным ID из прошлого сообщения —
-      штатный tool-loop. НЕ строить artifact resolver / referent router.
-      Не проверено отдельным тестом в этой итерации.
-      (Опц. позже по замерам: тонкий кэш гидратированных превью по `ref`.)
+      **Post-scope хвост закрыт** (был открытым вопросом, решение пользователя:
+      «доработать API, не гадать»): `AgentRun` получил колонку `post_chat_id`
+      (миграция [`016_agent_run_post_chat_id`](../../backend/alembic/versions/016_agent_run_post_chat_id.py)),
+      `StartAgentRunRequest`/`StartAgentRunBody` (backend + frontend) передают
+      его явно — симметрично `AiReplyRequest.post_chat_id`. Фронтенд
+      (`composer-store.tsx`) теперь шлёт `postChatId` для post-scope run'ов
+      (тот же id, что использует legacy reply). `load_run_history()` матчит
+      по `post_chat_id`, с fallback на старую эвристику (`chat_id` → последний
+      чат поста) для run'ов, созданных до этой колонки.
+      Тест: `test_rebuild_runtime_context_post_scope_uses_post_chat_id`.
+- [x] **2.2 Референты артефактов — без resolver'а.** ✅ Агент пере-вызывает
+      tool (`OpenNote`/`HydrateAttachment`) с натуральным ID, упомянутым в
+      прошлом сообщении — штатный tool-loop, читающий ID из текста
+      `dialog_context` в промпте планнера. НЕ строится artifact resolver /
+      referent router (тот легаси-паттерн, который канон запрещает; не путать
+      с уже существующим `dialog_ledger`/ADR-011 в `rag_query.py` — тот
+      работает только в legacy-пути, agent path его не использует и не
+      обязан, поскольку простой re-call через `dialog_context` достаточен для
+      exit-критерия).
+      Тест: `test_agent_referent_recall_reopens_note_via_dialog_context` —
+      детерминированный прогон полного `execute_agent_run` со scripted LLM
+      (`side_effect` на `complete_chat_completion`): планнер видит `note:n1`
+      в `dialog_context`, пере-вызывает `OpenNote(note_id="n1")`, evidence
+      доходит до `answer_node`, ответ не рефьюзится. Живого LLM в этой сессии
+      не было (AgentRouter не работал) — тест детерминированно проверяет
+      именно проводку, а не решение реальной модели.
 - [x] **2.3 Thread persistence.** ✅ **Отступление от канона (осознанное,
       подтверждено пользователем)**: `thread_id` остаётся `run.id`, **не**
       переведён на `chat_id`. Причина: память теперь даётся 2.1
@@ -97,10 +116,14 @@ ADR-009 сознательно **не** делать — это архитект
       namespace, теряющий чекпоинты), уже закрыт в §1.0 — `thread_id`
       детерминирован (`str(run.id)`), без fallback на случайный UUID.
 
-**Exit:** «2 поста → про что они?» резолвится через `dialog_context` (проверено
-тестом на уровне `rebuild_runtime_context_for_run`; end-to-end через LLM не
-прогонялось в этой сессии — нет доступа к LLM). «А что было на той картинке из
-прошлого turn'а?» (2.2, tool re-call) не проверялось.
+**Exit:** «2 поста → про что они?» резолвится через `dialog_context`
+(`test_rebuild_runtime_context_loads_dialog_context_from_chat_history`).
+«А что было на той картинке/заметке из прошлого turn'а?» резолвится через
+planner re-call с реальным evidence-путём
+(`test_agent_referent_recall_reopens_note_via_dialog_context`). Оба теста
+детерминированы через scripted LLM — реального прогона с живой моделью не
+было (AgentRouter не работал в течение всей работы над Спринтом 2); это
+единственный оставшийся хвост, и он не блокирует переход к Спринту 3.
 
 ---
 
@@ -195,7 +218,7 @@ ADR-009 сознательно **не** делать — это архитект
 ```
 [✅ Спринт 0 → 1.0 → 1.1–1.5]  ← сделано (кроме хвоста 1.4)
       ↓
-[🟡 Спринт 2 (Память: dialog_context, thread_id=run_id)]  ← 2.1/2.3 сделаны, 2.2 не проверен
+[✅ Спринт 2 (Память: dialog_context, thread_id=run_id, post_chat_id)]  ← закрыт
       ↓
 Спринт 3 (Планнер мыслит + SSE)                        ← «работает как надо»
       ↓ (Спринт 4 идёт параллельно)
@@ -215,11 +238,8 @@ Reference-level DoD
 
 1. ~~**Спринт 2 — thread_id.**~~ Закрыто: `thread_id` остаётся `run.id`
    (обоснование — §2.3 выше).
-2. **Спринт 2 — post-scope chat matching.** `AgentRun` не имеет
-   `post_chat_id`; `load_run_history()` матчит `run.chat_id` на `id` внутри
-   `post.data["chats"]`, а без совпадения берёт последний чат поста. Нужно
-   подтвердить: это верная эвристика, или клиенту нужно начать передавать
-   `post_chat_id` в `StartAgentRunRequest`?
+2. ~~**Спринт 2 — post-scope chat matching.**~~ Закрыто: добавлен
+   `post_chat_id` (миграция `016_agent_run_post_chat_id`, backend + frontend).
 3. **Спринт 4 — CI.** К какому CI привязать merge-gate (GitHub Actions?);
    сейчас привязки к конфигу нет.
 4. **Спринт 3 — schema.** Фиксируем формат решения

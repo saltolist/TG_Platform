@@ -146,6 +146,11 @@ async function runAgentAssistantTurn(params: {
       scope: postId ? "post" : "global",
       chatId,
       postId,
+      // For post scope, chatId is the id of the chat embedded in post.data.chats
+      // (see readPostChat above) — that's what the backend needs as
+      // post_chat_id to disambiguate which of the post's chats this run
+      // belongs to (agent-runtime-sprints §2.1 memory).
+      postChatId: postId ? chatId : undefined,
       userText,
     },
     signal,
