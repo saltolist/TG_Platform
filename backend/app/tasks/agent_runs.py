@@ -25,8 +25,8 @@ async def _execute_agent_run(run_id: uuid.UUID, user_text: str) -> None:
         if user is None:
             return
         # Single source of truth for context assembly, shared with HITL resume
-        # (agent-runtime-sprints §1.5).
-        context = await rebuild_runtime_context_for_run(session, run)
+        # (agent-runtime-sprints §1.5). user_text feeds dialog_context (§2.1).
+        context = await rebuild_runtime_context_for_run(session, run, user_text)
         await execute_agent_run(
             session,
             run=run,

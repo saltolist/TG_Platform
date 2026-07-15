@@ -72,6 +72,7 @@ async def execute_agent_run(
         "configurable": {
             "thread_id": str(run.id),
             "runtime_context": runtime_context,
+            "dialog_context": runtime_context.dialog_context,
             **(configurable or {}),
         }
     }
@@ -215,6 +216,7 @@ async def resume_agent_graph(
         "configurable": {
             "thread_id": str(run.id),
             "runtime_context": runtime_context,
+            "dialog_context": runtime_context.dialog_context,
         }
     }
     final_state: dict[str, Any] = {}

@@ -31,6 +31,10 @@ class RuntimeContext:
     reasoner_spec: ProviderSpec | None = None
     reasoner_model: str = ""
     reasoner_api_key: str = ""
+    # Recent chat turns as text, threaded into configurable["dialog_context"]
+    # for the research planner (agent-runtime-sprints §2.1). Deliberately a
+    # string, not native state["messages"] — see agent-runtime-remaining.md §2.
+    dialog_context: str = ""
     min_similarity: float = 0.38
     search_k: int = 4
     scope_bias: float = 0.04
