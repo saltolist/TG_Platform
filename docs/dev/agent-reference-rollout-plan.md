@@ -1,5 +1,10 @@
 # План доведения WorkspaceAgent до эталонного уровня
 
+> ⚠️ **DEPRECATED.** Этот документ заменён на [agent-runtime-sprints.md](agent-runtime-sprints.md)
+> (спринты вместо фаз, опора на фактический аудит кода). Актуальный список
+> незакрытых работ — [agent-runtime-remaining.md](agent-runtime-remaining.md).
+> Сохранён только как исторический контекст; **не** использовать для планирования.
+
 Документ фиксирует согласованный план досборки agent runtime path (`POST /ai/runs/`) до production-grade agentic RAG. Основан на:
 
 - [Anthropic — Building Effective Agents](https://www.anthropic.com/engineering/building-effective-agents)
