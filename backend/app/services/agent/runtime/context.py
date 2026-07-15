@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import uuid
 from dataclasses import dataclass, field
-from typing import Any, Callable
+from typing import Any
 
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
@@ -39,8 +39,6 @@ class RuntimeContext:
     search_k: int = 4
     scope_bias: float = 0.04
     agent_tool_state: AgentState | None = None
-    emit_event: Callable[..., Any] | None = None
-    audit: Callable[..., Any] | None = None
     # Absolute time.monotonic() by which the run must finish (agent-runtime-sprints
     # §6). Set by execute_agent_run/resume_agent_graph from rag_agent_deadline_s;
     # None disables the wall-clock cap (e.g. legacy call sites). See runtime/budget.py.

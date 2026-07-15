@@ -38,6 +38,11 @@ class AgentGraphState(TypedDict, total=False):
     # args, repair_hint?} for SSE emission and golden inspection
     # (agent-runtime-sprints §3.1/§3.3).
     planner_steps: list[dict[str, Any]]
+    # Accumulated tool results {step, tool, args, summary, error, record_ids}
+    # so the log shows not just the planner's decision but what the tool
+    # actually returned — closing the "why did the agent decide this" chain
+    # (agent-runtime-remaining.md Спринт 5).
+    tool_outcomes: list[dict[str, Any]]
     verification_ok: bool
     proposal_ids: list[str]
     job_ids: list[str]

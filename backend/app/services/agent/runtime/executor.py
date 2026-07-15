@@ -16,9 +16,13 @@ from app.services.agent.runtime.checkpoint import ensure_checkpointer_ready
 from app.services.agent.runtime.context import RuntimeContext
 from app.services.agent.runtime.observability import (
     AGENT_DURATION,
+    AGENT_EMPTY_PACK,
     AGENT_INTERRUPTS,
     AGENT_RUNS,
+    AGENT_STEPS,
+    AGENT_STOPPED_REASON,
 )
+from app.services.agent.runtime.trace import render_run_trace
 from app.services.agent.runtime.workspace_graph import get_compiled_workspace_graph
 
 logger = logging.getLogger(__name__)
@@ -42,6 +46,23 @@ def _planner_step_payload(chunk: dict[str, Any]) -> dict[str, Any] | None:
     return dict(latest) if isinstance(latest, dict) else None
 
 
+def _tool_outcome_payload(chunk: dict[str, Any]) -> dict[str, Any] | None:
+    """Extract the newest tool result from a "tool" node "updates" chunk.
+
+    Mirrors _planner_step_payload: research_tool_node returns the full
+    accumulated tool_outcomes list, so the last entry is the one this node
+    call just appended (Спринт 5 — tool observability).
+    """
+    tool_update = chunk.get("tool")
+    if not isinstance(tool_update, dict):
+        return None
+    outcomes = tool_update.get("tool_outcomes")
+    if not isinstance(outcomes, list) or not outcomes:
+        return None
+    latest = outcomes[-1]
+    return dict(latest) if isinstance(latest, dict) else None
+
+
 def _interrupt_payload(value: Any) -> dict[str, Any] | None:
     if isinstance(value, dict):
         if "__interrupt__" in value:
@@ -57,6 +78,32 @@ def _interrupt_payload(value: Any) -> dict[str, Any] | None:
                 return found
     interrupt_value = getattr(value, "value", None)
     return dict(interrupt_value) if isinstance(interrupt_value, dict) else None
+
+
+async def _maybe_log_trace(session, *, run: AgentRun, settings) -> None:
+    """When AI_CONTEXT_LOG=1, dump the run's decision timeline to the worker
+    log — durable-first tracing (Спринт 5). Rendered from the persisted
+    agent_events, not a process-local buffer, so it works from the Celery
+    worker. Gated by the flag: the extra event re-query only runs when on."""
+    if not getattr(settings, "ai_context_log", False):
+        return
+    try:
+        events = await event_service.list_events(session, run_id=run.id)
+        body = render_run_trace(events, run_id=str(run.id))
+        if body:
+            logger.info("\n%s", body)
+    except Exception:  # tracing must never break a run
+        logger.exception("Failed to render agent run trace for %s", run.id)
+
+
+def _record_run_metrics(final_state: dict[str, Any]) -> None:
+    """Run-level observability counters (Спринт 5): steps taken, empty-pack
+    (grounding gap), and terminal stopped_reason. Read from the final state so
+    a single call covers every successful terminal path."""
+    AGENT_STEPS.observe(int(final_state.get("step_count") or 0))
+    if not (final_state.get("evidence_ids") or []):
+        AGENT_EMPTY_PACK.inc()
+    AGENT_STOPPED_REASON.labels(str(final_state.get("stopped_reason") or "unknown")).inc()
 
 
 async def emit_run_event(
@@ -162,6 +209,14 @@ async def execute_agent_run(
                         event_type="planner_step",
                         payload=planner_step,
                     )
+                tool_outcome = _tool_outcome_payload(chunk)
+                if tool_outcome is not None:
+                    await emit_run_event(
+                        session,
+                        run_id=run.id,
+                        event_type="tool_result",
+                        payload=tool_outcome,
+                    )
                 interrupt_payload = _interrupt_payload(chunk)
                 if interrupt_payload is not None:
                     run.current_interrupt = interrupt_payload
@@ -207,6 +262,8 @@ async def execute_agent_run(
         await session.commit()
         AGENT_RUNS.labels(status).inc()
         AGENT_DURATION.observe(time.perf_counter() - started_at)
+        _record_run_metrics(final_state)
+        await _maybe_log_trace(session, run=run, settings=runtime_context.settings)
         return final_state
     except RunDeadlineExceeded as exc:
         # Wall-clock budget spent (agent-runtime-sprints §6). Distinct terminal
@@ -228,6 +285,7 @@ async def execute_agent_run(
         await session.commit()
         AGENT_RUNS.labels("failed").inc()
         AGENT_DURATION.observe(time.perf_counter() - started_at)
+        AGENT_STOPPED_REASON.labels("deadline_exceeded").inc()
         raise
     except Exception as exc:
         logger.exception("Agent run %s failed", run.id)
@@ -246,6 +304,7 @@ async def execute_agent_run(
         await session.commit()
         AGENT_RUNS.labels("failed").inc()
         AGENT_DURATION.observe(time.perf_counter() - started_at)
+        AGENT_STOPPED_REASON.labels("crash").inc()
         raise
 
 
@@ -293,6 +352,14 @@ async def resume_agent_graph(
                     run_id=run.id,
                     event_type="planner_step",
                     payload=planner_step,
+                )
+            tool_outcome = _tool_outcome_payload(chunk)
+            if tool_outcome is not None:
+                await emit_run_event(
+                    session,
+                    run_id=run.id,
+                    event_type="tool_result",
+                    payload=tool_outcome,
                 )
             payload = _interrupt_payload(chunk)
             if payload is not None:

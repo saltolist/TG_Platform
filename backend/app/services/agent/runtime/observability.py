@@ -31,6 +31,20 @@ MEDIA_JOBS = Counter(
     "Durable media jobs by kind and status",
     ("kind", "status"),
 )
+AGENT_STEPS = Histogram(
+    "agent_run_steps",
+    "Planner/tool steps taken per WorkspaceAgent run",
+    buckets=(0, 1, 2, 3, 4, 6, 8, 12, 16),
+)
+AGENT_EMPTY_PACK = Counter(
+    "agent_empty_pack_total",
+    "Runs that finished with no evidence in the pack (grounding gap signal)",
+)
+AGENT_STOPPED_REASON = Counter(
+    "agent_stopped_reason_total",
+    "Terminal stopped_reason of WorkspaceAgent runs",
+    ("reason",),
+)
 
 
 @contextmanager

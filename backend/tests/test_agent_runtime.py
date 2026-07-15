@@ -368,6 +368,58 @@ async def test_execute_agent_run_emits_planner_step_events(
 
 
 @pytest.mark.asyncio
+async def test_execute_agent_run_emits_tool_result_events(writer_user, monkeypatch) -> None:
+    """Спринт 5: each tool execution must surface as a "tool_result" event
+    carrying what the tool returned (summary, error, produced record_ids), so
+    the log shows not just the decision but the observation that followed it."""
+    from app.services.agent.runtime import events as event_service
+
+    monkeypatch.setattr("app.db.session.async_session_factory", TestSessionLocal)
+
+    async with TestSessionLocal() as session:
+        run, _ = await start_run(
+            session, user=writer_user, thread_id="tool-result-test", scope="global",
+        )
+        ctx = await rebuild_runtime_context_for_run(session, run, "Что в заметке n1?")
+        ctx.reasoner_spec = ProviderSpec("OpenAI", "https://api.openai.com")
+        ctx.reasoner_model = "gpt-4o-mini"
+        ctx.reasoner_api_key = "test-key"
+
+        llm_responses = [
+            '{"type": "read"}',
+            '{"tool": "OpenNote", "args": {"note_id": "n1"}}',
+            (
+                '{"tool": "FinishRetrieval", "args": '
+                '{"status": "ready", "evidence_ids": ["/note/global/n1/"]}}'
+            ),
+            '{"answer": "Есть данные.", "claims": []}',
+        ]
+        with (
+            patch("app.services.ai.llm.complete_chat_completion",
+                  new_callable=AsyncMock, side_effect=llm_responses),
+            patch("app.services.ai.rag_tools.get_note_data", new_callable=AsyncMock,
+                  return_value={"id": "n1", "title": "План", "body": "Запуск в июле.", "files": []}),
+        ):
+            await execute_agent_run(
+                session, run=run, user=writer_user,
+                user_text="Что в заметке n1?", runtime_context=ctx,
+            )
+            await session.commit()
+
+        events = await event_service.list_events(session, run_id=run.id)
+
+    # Exactly one real tool call (OpenNote); FinishRetrieval is a planner
+    # terminal, not a tool-node execution.
+    tool_events = [evt for evt in events if evt.event_type == "tool_result"]
+    assert len(tool_events) == 1
+    payload = tool_events[0].payload
+    assert payload["tool"] == "OpenNote"
+    assert payload["error"] is None
+    assert "/note/global/n1/" in payload["record_ids"]
+    assert payload["step"] >= 0
+
+
+@pytest.mark.asyncio
 async def test_execute_agent_run_marks_deadline_exceeded(writer_user, monkeypatch) -> None:
     """A spent wall-clock budget must terminate the run as failed with an
     explicit deadline_exceeded reason, not a generic crash — and must not
@@ -410,3 +462,122 @@ async def test_execute_agent_run_marks_deadline_exceeded(writer_user, monkeypatc
     assert failed, "no run_failed event emitted"
     assert failed[-1].payload.get("stopped_reason") == "deadline_exceeded"
     assert run.status == "failed"
+
+
+def test_record_run_metrics_counts_empty_pack_and_reason() -> None:
+    """Спринт 5: run-level counters — empty pack (grounding gap) and terminal
+    stopped_reason — move when a run finishes with no evidence."""
+    from app.services.agent.runtime.executor import _record_run_metrics
+    from app.services.agent.runtime.observability import (
+        AGENT_EMPTY_PACK,
+        AGENT_STOPPED_REASON,
+    )
+
+    empty_before = AGENT_EMPTY_PACK._value.get()
+    reason_before = AGENT_STOPPED_REASON.labels("empty_evidence_refusal")._value.get()
+
+    _record_run_metrics(
+        {"step_count": 3, "evidence_ids": [], "stopped_reason": "empty_evidence_refusal"}
+    )
+
+    assert AGENT_EMPTY_PACK._value.get() == empty_before + 1
+    assert (
+        AGENT_STOPPED_REASON.labels("empty_evidence_refusal")._value.get()
+        == reason_before + 1
+    )
+
+
+def test_record_run_metrics_non_empty_pack_does_not_count_empty() -> None:
+    from app.services.agent.runtime.executor import _record_run_metrics
+    from app.services.agent.runtime.observability import AGENT_EMPTY_PACK
+
+    empty_before = AGENT_EMPTY_PACK._value.get()
+    _record_run_metrics(
+        {"step_count": 2, "evidence_ids": ["/note/global/n1/"], "stopped_reason": "ready"}
+    )
+    assert AGENT_EMPTY_PACK._value.get() == empty_before  # не инкрементился
+
+
+@pytest.mark.asyncio
+async def test_execute_agent_run_logs_trace_when_ai_context_log_enabled(
+    writer_user, monkeypatch, caplog,
+) -> None:
+    """Спринт 5 tracing hail: unlike the legacy AI_CONTEXT_LOG path (process-
+    local ContextVar buffer, dead in the Celery worker), this renders from the
+    durable agent_events chain — so it works from execute_agent_run directly."""
+    monkeypatch.setattr("app.db.session.async_session_factory", TestSessionLocal)
+
+    async with TestSessionLocal() as session:
+        run, _ = await start_run(
+            session, user=writer_user, thread_id="trace-log-test", scope="global",
+        )
+        ctx = await rebuild_runtime_context_for_run(session, run, "Что в заметке n1?")
+        ctx.reasoner_spec = ProviderSpec("OpenAI", "https://api.openai.com")
+        ctx.reasoner_model = "gpt-4o-mini"
+        ctx.reasoner_api_key = "test-key"
+        monkeypatch.setattr(ctx.settings, "ai_context_log", True)
+
+        llm_responses = [
+            '{"type": "read"}',
+            '{"tool": "OpenNote", "args": {"note_id": "n1"}}',
+            (
+                '{"tool": "FinishRetrieval", "args": '
+                '{"status": "ready", "evidence_ids": ["/note/global/n1/"]}}'
+            ),
+            '{"answer": "Есть данные.", "claims": []}',
+        ]
+        with (
+            patch("app.services.ai.llm.complete_chat_completion",
+                  new_callable=AsyncMock, side_effect=llm_responses),
+            patch("app.services.ai.rag_tools.get_note_data", new_callable=AsyncMock,
+                  return_value={"id": "n1", "title": "План", "body": "Запуск в июле.", "files": []}),
+            caplog.at_level("INFO", logger="agent.runtime"),
+        ):
+            await execute_agent_run(
+                session, run=run, user=writer_user,
+                user_text="Что в заметке n1?", runtime_context=ctx,
+            )
+            await session.commit()
+
+    assert any("AGENT RUN" in rec.message for rec in caplog.records)
+
+
+@pytest.mark.asyncio
+async def test_execute_agent_run_skips_trace_log_when_flag_off(
+    writer_user, monkeypatch, caplog,
+) -> None:
+    monkeypatch.setattr("app.db.session.async_session_factory", TestSessionLocal)
+
+    async with TestSessionLocal() as session:
+        run, _ = await start_run(
+            session, user=writer_user, thread_id="trace-log-off-test", scope="global",
+        )
+        ctx = await rebuild_runtime_context_for_run(session, run, "Что в заметке n1?")
+        ctx.reasoner_spec = ProviderSpec("OpenAI", "https://api.openai.com")
+        ctx.reasoner_model = "gpt-4o-mini"
+        ctx.reasoner_api_key = "test-key"
+        assert ctx.settings.ai_context_log is False  # default
+
+        llm_responses = [
+            '{"type": "read"}',
+            '{"tool": "OpenNote", "args": {"note_id": "n1"}}',
+            (
+                '{"tool": "FinishRetrieval", "args": '
+                '{"status": "ready", "evidence_ids": ["/note/global/n1/"]}}'
+            ),
+            '{"answer": "Есть данные.", "claims": []}',
+        ]
+        with (
+            patch("app.services.ai.llm.complete_chat_completion",
+                  new_callable=AsyncMock, side_effect=llm_responses),
+            patch("app.services.ai.rag_tools.get_note_data", new_callable=AsyncMock,
+                  return_value={"id": "n1", "title": "План", "body": "Запуск в июле.", "files": []}),
+            caplog.at_level("INFO", logger="agent.runtime"),
+        ):
+            await execute_agent_run(
+                session, run=run, user=writer_user,
+                user_text="Что в заметке n1?", runtime_context=ctx,
+            )
+            await session.commit()
+
+    assert not any("AGENT RUN" in rec.message for rec in caplog.records)

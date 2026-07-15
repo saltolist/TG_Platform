@@ -282,6 +282,25 @@ async def build_media_proposal_node(
     return {**state, "interrupt": pending}
 
 
+def _action_result_text(decision: dict[str, Any]) -> str:
+    """Report the real outcome of an approved action, not a hardcoded string.
+
+    The resume payload carries `applied` — the execute_approved_proposal result
+    (e.g. {"post_id": .., "status": "published"}). Reflecting it means a failed
+    or unexpected execution no longer reads as a flat "выполнено"
+    (agent-runtime-remaining.md Спринт 5)."""
+    if decision.get("decision") != "approve":
+        return "Предложенное действие отклонено."
+    applied = decision.get("applied")
+    if not isinstance(applied, dict) or not applied:
+        # Approved but no execution result surfaced — be honest, don't claim done.
+        return "Действие подтверждено (результат исполнения недоступен)."
+    status = str(applied.get("status") or "").strip()
+    post_id = str(applied.get("post_id") or "").strip()
+    tail = f" (пост {post_id}, статус: {status})" if status else ""
+    return f"Действие подтверждено и выполнено{tail}."
+
+
 async def action_hitl_node(state: AgentGraphState, config: RunnableConfig) -> dict[str, Any]:
     pending = state.get("interrupt")
     if pending and pending.get("type") == "action_proposal":
@@ -290,11 +309,7 @@ async def action_hitl_node(state: AgentGraphState, config: RunnableConfig) -> di
             **state,
             "interrupt": None,
             "status": "running",
-            "answer_text": (
-                "Действие подтверждено и выполнено."
-                if decision.get("decision") == "approve"
-                else "Предложенное действие отклонено."
-            ),
+            "answer_text": _action_result_text(decision),
         }
     return state
 

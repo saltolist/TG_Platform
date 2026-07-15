@@ -25,6 +25,7 @@ from app.services.agent.runtime.sse_events import (
     format_agent_sse_event,
     parse_last_event_id,
 )
+from app.services.agent.runtime.trace import render_run_trace
 
 router = APIRouter(prefix="/ai/runs", tags=["Agent Runs"])
 
@@ -101,6 +102,28 @@ async def get_agent_run(
         "created_at": run.created_at.isoformat(),
         "updated_at": run.updated_at.isoformat(),
         "completed_at": run.completed_at.isoformat() if run.completed_at else None,
+    }
+
+
+@router.get("/{run_id}/trace/")
+async def get_agent_run_trace(
+    run_id: uuid.UUID,
+    user: CurrentUser,
+    session: DbSession,
+    limit: int = Query(default=500, ge=1, le=2000),
+) -> dict[str, Any]:
+    """Human-readable decision timeline for a run, rendered from the durable
+    agent_events chain (Спринт 5 tracing). Owner-scoped; answers "why did the
+    agent decide this" after the fact, cross-process (unlike legacy in-memory)."""
+    run = await event_service.get_run(session, user_id=user.id, run_id=run_id)
+    if run is None:
+        raise HTTPException(status_code=404, detail="Run not found")
+    events = await event_service.list_events(session, run_id=run_id, limit=limit)
+    return {
+        "run_id": str(run_id),
+        "status": run.status,
+        "event_count": len(events),
+        "trace": render_run_trace(events, run_id=str(run_id)),
     }
 
 
@@ -206,6 +229,9 @@ async def resume_agent_run(
             result["proposal"] = {"id": str(proposal.id), "status": "rejected"}
 
     if run.status == "interrupted":
+        # Carry the real execution result into the resume so action_hitl_node
+        # can report what actually happened instead of a hardcoded "выполнено"
+        # (agent-runtime-remaining.md Спринт 5). Present only on approve.
         await resume_agent_graph(
             session,
             run=run,
@@ -214,6 +240,7 @@ async def resume_agent_run(
                 "proposal_id": body.proposal_id,
                 "payload_hash": body.payload_hash,
                 "interrupt_id": body.interrupt_id,
+                "applied": (result.get("proposal") or {}).get("result"),
             },
         )
     else:

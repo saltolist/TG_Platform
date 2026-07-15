@@ -9,10 +9,10 @@ reference-level. **Канон — [agent-runtime-sprints.md](agent-runtime-sprin
 Ветка: `cursor/per-post-analytics-foundation`.
 
 Статус проверен по коду и git (коммиты `5e54ac6` §1.0, `7b6d62b` §1.2–1.5,
-`8e83e58` грейдеры, `d1dc3e5` §4a). Тесты: 105 agent+rag тестов зелёные
-(backend, включая Спринты 3, 4a, 6a и хвост 1.4) + frontend: 356 vitest тестов
-зелёные (перенос из Спринта 3 — backend-правки фронтенд не трогали, заново не
-гонялись), `tsc --noEmit` чисто.
+`8e83e58` грейдеры, `d1dc3e5` §4a). Тесты: 120 agent+rag тестов зелёные
+(backend, включая Спринты 3, 4a, 6a, хвост 1.4 и Спринт 5 целиком) + frontend:
+356 vitest тестов зелёные (перенос из Спринта 3 — backend-правки фронтенд не
+трогали, заново не гонялись), `tsc --noEmit` чисто.
 
 ---
 
@@ -38,7 +38,7 @@ reference-level. **Канон — [agent-runtime-sprints.md](agent-runtime-sprin
 | 2 Память | ✅ done | 2.1 через `dialog_context` (ADR-отступление от native `messages`); 2.2 проверен тестом (planner re-call с mocked LLM); 2.3 закрыт решением «оставить `thread_id=run_id`»; post-scope закрыт через новый `post_chat_id` |
 | 3 Планнер мыслит | ✅ done | 3.1–3.3 закрыты. **Отступление от канона** (обсуждено и подтверждено пользователем): reasoning-схема приложена только к research-циклу, классификатор `WORKSPACE_SYSTEM` остался single-shot без схемы — см. подробности ниже |
 | 4 Evals | 🟡 partial | **4a закрыт**: 3 executable golden + CI-блокер (`pytest -m golden`). **Остаток:** LLM-judge (осознанно за скоупом — решение пользователя: без живой модели в тестах), 16 сценариев doc-only |
-| 5 Observability | ❌ open | |
+| 5 Observability | ✅ закрыт | `tool_result`-события, метрики run-уровня (empty-pack/stopped_reason/steps), мёртвый `emit_event`/`audit` убран, хардкод HITL-текста починен, durable-tracing (`render_run_trace`, `/trace/`, воркер-лог при `AI_CONTEXT_LOG=1`) |
 | 6 Trust boundary | 🟡 partial | **6a закрыт**: retrieved-контент обёрнут как untrusted (A2: fence + нейтрализация + system-note) в planner/pack/answer; wall-clock deadline (`asyncio.wait_for`, hard-cap). **Реальная страховка = A2 + HITL** (инвариант: агент только предлагает мутации). **Остаток 6b:** токен/стоимость-бюджет (нужен provider usage accounting) |
 
 ---
@@ -415,23 +415,77 @@ per-call `max_tokens` (600/700/1200) + pack cap 12000 симв. Явный cost-
 
 ---
 
-### Спринт 5 — Observability прод (medium)
+### Спринт 5 — Observability прод — ✅ закрыт
 
-- [ ] Persist `planner_decisions` + tool outcomes в `agent_events`
-      (`RuntimeContext.emit_event`/`audit` объявлены, но не вызываются).
-- [ ] Метрики: empty-pack rate, finish-without-content на content-вопросах,
-      шаги/токены/латентность на run.
-- [ ] Tracing (AI_CONTEXT_LOG / LangSmith) на agent path.
-      Файлы: `runtime/context.py`, узлы `workspace_graph.py`,
-      `runtime/observability.py`.
-- [ ] **Наблюдение (найдено при верификации HITL в §6a):** `action_hitl_node`
-      ([workspace_graph.py](../../backend/app/services/agent/runtime/workspace_graph.py))
-      возвращает захардкоженный текст «Действие подтверждено и выполнено» на
-      `approve`. Порядок корректен (эндпоинт исполняет мутацию **до**
-      `resume_agent_graph`), но текст не отражает фактический результат
-      `execute_approved_proposal`: если апрув прошёл, а исполнение упало,
-      сообщение всё равно скажет «выполнено». Дефект наблюдаемости, не
-      безопасности — прокинуть реальный результат в текст узла.
+Recon уточнил статус: executor **уже** эмитил `graph_started`/`graph_state`/
+`planner_step`/`interrupt`/`answer`/`run_completed|interrupted|failed` и
+инкрементил `AGENT_RUNS`/`AGENT_INTERRUPTS`/`AGENT_DURATION`. Т.е. «persist
+planner_decisions» был сделан; реальные дыры — ниже.
+
+- [x] **Событие результата инструмента (`tool_result`).** `research_tool_node`
+      выполнял tool, но executor эмитил только решение планнера (`planner_step`),
+      а что tool **вернул** — жило лишь в `research_transcript`. Для exit-критерия
+      «почему агент так решил» цепочка была неполной: видно «решил открыть n1»,
+      не видно «n1 → error=not_found → поэтому дальше искал». Добавлено поле
+      `tool_outcomes` в [state.py](../../backend/app/services/agent/runtime/state.py)
+      (близнец `planner_steps`), узел накапливает `{step, tool, args, summary,
+      error, record_ids}` (record_ids = citation-паны, которые tool добавил в
+      evidence), executor извлекает через `_tool_outcome_payload` и эмитит
+      `tool_result` в обоих стримах (`execute_agent_run` + `resume_agent_graph`).
+- [x] **Метрики run-уровня** ([observability.py](../../backend/app/services/agent/runtime/observability.py)):
+      `AGENT_STEPS` (Histogram по `step_count`), `AGENT_EMPTY_PACK` (Counter —
+      run без evidence, сигнал grounding-дыры), `AGENT_STOPPED_REASON` (Counter
+      по label reason, ловит `empty_evidence_refusal`/`deadline_exceeded`/`crash`
+      /`ready`). Инкремент из `final_state` в терминальных ветках executor.
+      Токены/стоимость — сознательно НЕ здесь (это 6b, нужен provider usage
+      accounting).
+- [x] **Мёртвая проводка убрана:** `RuntimeContext.emit_event` и `audit`
+      (context.py) — ноль присваиваний/вызовов во всём коде (единая точка эмита
+      — executor через updates-стрим). Удалены вместе с неиспользуемым импортом
+      `Callable`. Модульная `write_audit_event` — это другое, живёт и работает.
+- [x] **Хардкод HITL-текста починен.** Эндпоинт прокидывает реальный результат
+      `execute_approved_proposal` в `resume_value["applied"]`
+      ([agent_runs.py](../../backend/app/api/v1/agent_runs.py)), `action_hitl_node`
+      строит текст через `_action_result_text` из факта (`{post_id, status}`), а
+      не хардкодом. Если апрув прошёл, а результат не прокинут — честное
+      «подтверждено (результат недоступен)», не ложное «выполнено».
+- [x] **Хвост — Tracing на agent path.** Не скопирован legacy-механизм
+      ([context_log.py](../../backend/app/services/ai/context_log.py) /
+      `reply_pipeline_log.py`) — это process-local ContextVar + in-memory
+      buffer, а agent-run исполняется в **Celery-воркере** (отдельный процесс
+      от web), так что legacy-подход там был бы мёртв межпроцессно (плюс сам
+      признан не эталоном). LangSmith в проекте отсутствует полностью (ноль
+      зависимостей/callbacks) — тянуть внешнюю интеграцию ради хвоста не
+      стал. Вместо этого — рендер durable-цепочки `agent_events` (она уже
+      кросс-процессная и переживает воркер):
+      - [trace.py](../../backend/app/services/agent/runtime/trace.py) —
+        чистая функция `render_run_trace(events)`: превращает
+        `planner_step`/`tool_result`/`answer`/`run_*` в читаемый timeline
+        «решение → результат → итог» (без I/O, тривиально тестируется).
+      - `GET /ai/runs/{run_id}/trace/` ([agent_runs.py](../../backend/app/api/v1/agent_runs.py))
+        — owner-scoped, читает `list_events`, отдаёт рендер. Доступен после
+        факта, дополняет сырой `/events/` (тот для live-стрима в UI).
+      - В конце `execute_agent_run` при `settings.ai_context_log=True` —
+        рендер того же trace в лог воркера (`logger.info`, `agent.runtime`).
+        Закрывает букву дока «AI_CONTEXT_LOG на agent path», но
+        durable-способом: рендер из БД, не из процесс-локального буфера.
+        Гейт по флагу — лишний re-query событий только когда включено;
+        рендер оборачивают в try/except — трейсинг не должен ронять run.
+
+**Тесты:** `test_agent_runtime.py` — `tool_result` e2e (успех + record_ids) +
+2 на метрики (empty-pack инкрементится / не инкрементится) + 2 на stdout-гейт
+трейса (флаг on/off); `test_agent_proposals.py` — 3 на `_action_result_text`
+(approve+результат / approve без результата = честно / reject) + 1 на
+`_tool_outcome_payload`; `test_agent_trace.py` — 4 юнита на `render_run_trace`
+(полная цепочка, ошибка инструмента, пустой вход, ORM-like объекты) + 2 HTTP
+на `/trace/` (рендер + owner-scope 404 чужому). Всего +15 → **120 agent+rag
+зелёные**, `pytest -m golden` = 3.
+
+**Exit:** по прод-run из `agent_events` видно всю цепочку — решение планнера
+(`planner_step`) → результат инструмента (`tool_result`) → итог
+(`answer`/`run_*`) — как структурированно (SSE/`/events/`), так и как читаемый
+timeline (`/trace/`, воркер-лог при флаге). Метрики grounding-дыр и причин
+остановки на месте. **Спринт 5 закрыт полностью.**
 
 **Exit:** по любому прод-run можно ответить «почему агент так решил» из логов.
 
@@ -491,13 +545,13 @@ per-call `max_tokens` (600/700/1200) + pack cap 12000 симв. Явный cost-
       ↓ (4b — LLM-judge — tech-debt, за скоупом)
 [✅ Спринт 6a (Trust boundary: A2 + wall-clock deadline)]  ← закрыт
       ↓ (6b — токен/стоимость-бюджет — tech-debt)
-Спринт 5 (Observability, medium)
+[✅ Спринт 5 (Observability)]  ← tool_result + метрики + уборка + HITL-фикс + durable tracing
       ↓
 Reference-level DoD
 ```
 
 **Минимум «система работает как надо»:** Спринт 2 + 3 (1.0 и 1.1–1.5 уже готовы).
-**Минимум «эталонная инженерная система»:** + Спринт 4a + 6a (готово).
+**Минимум «эталонная инженерная система»:** + Спринт 4a + 6a + 5 (готово).
 
 ---
 

@@ -438,12 +438,26 @@ async def research_tool_node(state: AgentGraphState, config: RunnableConfig) -> 
         outcome = await _execute_tool(agent_state, action)
         records = records_from_agent_state(agent_state)
         await session.commit()
-    transcript.append(f"step {state.get('step_count', 0)}: {action.tool} → {outcome.summary}")
+    step = int(state.get("step_count", 0) or 0)
+    transcript.append(f"step {step}: {action.tool} → {outcome.summary}")
     if outcome.error:
         transcript.append(f"  error={outcome.error}")
+    # Structured, first-class record of what the tool returned — emitted as a
+    # `tool_result` event by the executor (Спринт 5). record_ids lists the
+    # citation paths this tool call added to evidence, so the log ties a tool
+    # outcome to the evidence it produced.
+    outcome_record = {
+        "step": step,
+        "tool": action.tool,
+        "args": action.args,
+        "summary": outcome.summary[:500],
+        "error": outcome.error,
+        "record_ids": sorted(str(key) for key in records),
+    }
     return {
         **state,
         "research_transcript": transcript,
+        "tool_outcomes": [*(state.get("tool_outcomes") or []), outcome_record],
         "evidence_records": {
             **existing_records,
             **{key: rec.to_dict() for key, rec in records.items()},

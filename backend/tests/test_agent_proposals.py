@@ -75,3 +75,43 @@ async def test_execute_applied_proposal_is_idempotent() -> None:
     result = await execute_approved_proposal(session, proposal=proposal, user=user)
     assert result == {"post_id": "p1"}
     session.flush.assert_not_called()
+
+
+# --- Спринт 5: HITL текст отражает реальный результат исполнения ---
+
+
+def test_action_result_text_reflects_real_execution() -> None:
+    from app.services.agent.runtime.workspace_graph import _action_result_text
+
+    approved = _action_result_text(
+        {"decision": "approve", "applied": {"post_id": "p1", "status": "published"}}
+    )
+    assert "выполнено" in approved
+    assert "p1" in approved and "published" in approved
+
+
+def test_action_result_text_approve_without_result_is_honest() -> None:
+    from app.services.agent.runtime.workspace_graph import _action_result_text
+
+    # Апрув прошёл, но результат исполнения не прокинут — не врём «выполнено».
+    text = _action_result_text({"decision": "approve", "applied": None})
+    assert "недоступен" in text
+
+
+def test_action_result_text_reject() -> None:
+    from app.services.agent.runtime.workspace_graph import _action_result_text
+
+    assert _action_result_text({"decision": "reject"}) == "Предложенное действие отклонено."
+
+
+def test_tool_outcome_payload_extracts_latest() -> None:
+    from app.services.agent.runtime.executor import _tool_outcome_payload
+
+    chunk = {"tool": {"tool_outcomes": [
+        {"step": 0, "tool": "OpenNote", "error": None},
+        {"step": 1, "tool": "ListPosts", "error": None},
+    ]}}
+    assert _tool_outcome_payload(chunk)["tool"] == "ListPosts"
+    # Не tool-узел / пусто → None.
+    assert _tool_outcome_payload({"planner": {"planner_steps": [{}]}}) is None
+    assert _tool_outcome_payload({"tool": {"tool_outcomes": []}}) is None
