@@ -186,6 +186,12 @@ async def test_golden_empty_pack_refusal(writer_user) -> None:
         writer_user,
         history=[],
         user_text="Какой охват у поста про запуск?",
+        # Exactly 4 LLM calls: classifier + 3 planner (SearchNodes, then two
+        # empty FinishRetrieval — the 2nd only because verify's repair budget
+        # is 1). The answer node refuses via code-gate, no 5th call. If
+        # verifier.max_repair ever rises above 1 this script runs dry and the
+        # graph raises StopIteration — add one more FinishRetrieval per extra
+        # repair to keep the flow legible.
         llm_script=[
             '{"type": "read"}',
             '{"tool": "SearchNodes", "args": {"query": "охват запуск"}}',
