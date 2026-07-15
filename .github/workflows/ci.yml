@@ -62,4 +62,8 @@ jobs:
 
       - name: Run tests
         working-directory: backend
-        run: pytest -v
+        run: pytest -v -m "not golden"
+
+      - name: Golden gate (agent-runtime-sprints §4)
+        working-directory: backend
+        run: pytest -v -m golden

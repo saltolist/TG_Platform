@@ -9,8 +9,8 @@ reference-level. **Канон — [agent-runtime-sprints.md](agent-runtime-sprin
 Ветка: `cursor/per-post-analytics-foundation`.
 
 Статус проверен по коду и git (коммиты `5e54ac6` §1.0, `7b6d62b` §1.2–1.5,
-`8e83e58` грейдеры). Тесты: 49 agent-тестов зелёные (backend, включая Спринт 3)
-+ frontend: 356 vitest тестов зелёные, `tsc --noEmit` чисто.
+`8e83e58` грейдеры). Тесты: 55 agent-тестов зелёные (backend, включая Спринты 3
+и 4a) + frontend: 356 vitest тестов зелёные, `tsc --noEmit` чисто.
 
 ---
 
@@ -35,7 +35,7 @@ reference-level. **Канон — [agent-runtime-sprints.md](agent-runtime-sprin
 | 1.5 Resume + signature | ✅ done | `resume_agent_graph` кладёт `runtime_context`; `complete_chat_completion` sig проверена |
 | 2 Память | ✅ done | 2.1 через `dialog_context` (ADR-отступление от native `messages`); 2.2 проверен тестом (planner re-call с mocked LLM); 2.3 закрыт решением «оставить `thread_id=run_id`»; post-scope закрыт через новый `post_chat_id` |
 | 3 Планнер мыслит | ✅ done | 3.1–3.3 закрыты. **Отступление от канона** (обсуждено и подтверждено пользователем): reasoning-схема приложена только к research-циклу, классификатор `WORKSPACE_SYSTEM` остался single-shot без схемы — см. подробности ниже |
-| 4 Evals | 🟡 partial | грейдеры-библиотека + юнит-тесты есть; **не** executable gate и **не** CI-блокер |
+| 4 Evals | 🟡 partial | **4a закрыт**: 3 executable golden + CI-блокер (`pytest -m golden`). **Остаток:** LLM-judge (осознанно за скоупом — решение пользователя: без живой модели в тестах), 16 сценариев doc-only |
 | 5 Observability | ❌ open | |
 | 6 Trust boundary | ❌ open | **high**, не откладывать |
 
@@ -230,24 +230,79 @@ transcript; reasoning влияет на выбор tool (проверено scri
 
 ---
 
-### Спринт 4 — Evals как страховка (high, ∥ с 1–3) — ХВОСТ
+### Спринт 4a — Executable golden gate ✅ ЗАКРЫТ (без LLM-judge — см. 4b)
 
-Грейдеры-библиотека готова (`runtime/graders.py` +
-`tests/test_agent_graders.py`), но это ещё **не** executable gate поверх
-рантайма и **не** CI-блокер.
+**Решение пользователя перед реализацией:** живой модели в тестах не будет —
+никакого LLM-judge/live-eval в этом под-спринте. Gate целиком scripted
+(детерминированный `complete_chat_completion` через `side_effect`), как и
+все агент-тесты до этого. Живая модель («AgentRouter») перестала быть
+рабочей темой сессии — открытый хвост «золотой прогон с реальной моделью не
+проводился» (висевший на Спринтах 2 и 3) закрыт этим решением, не станет
+проверяться в рамках канона.
 
-- [ ] Переделать `golden_runner` из спеки в **executable gate**: сейчас
-      проверяет `implemented=bool(matches)` (наличие .md), а не поведение
-      рантайма. Прогонять реальный run и ассертить исход.
-- [ ] 3 executable-сценария поверх рантайма (19 .md уже описаны): multi-turn
-      deixis, notes-with-content, empty-pack refusal. Грейдеры уже есть —
-      привязать `grade_run` к прогонам.
-- [ ] LLM-judge groundedness — после калибровки.
-- [ ] **CI-gate:** critical golden нельзя merge при fail.
-      Файлы: `tests/golden_runner.py`, `tests/test_golden_catalog.py`,
-      `.github/workflows/*`.
+CI **уже существовал** (`.github/workflows/ci.yml`, гоняет `pytest -v` на
+каждый PR) — открытое решение #3 (к какому CI цеплять gate) снято: цеплять
+не к новому механизму, а к тому, что уже есть. Любой pytest-тест уже был
+merge-блокером; экстра-строительство не нужно.
 
-**Exit:** PR не зелёный без grounding + multi-turn goldens.
+- [x] **Executable gate.** `tests/test_agent_golden.py` — 3 golden-сценария,
+      каждый гоняет **полный** `execute_agent_run` со scripted LLM и
+      завершается `grade_run(final_state, must_call=...)`:
+      `test_golden_multi_turn_deixis` (сценарий 13, `must_call=["OpenNote"]`),
+      `test_golden_notes_with_content` (сценарий 06, `must_call=["OpenNote"]`),
+      `test_golden_empty_pack_refusal` (сценарий 11 — настоящая дыра до этого:
+      грейдер `grade_empty_pack_no_claim` был проверен только на синтетическом
+      state, не на реальном прогоне; здесь `SearchNodes` находит 0 результатов
+      → repair-петля исчерпывается (`max_repair=1`) → `pack` с пустым evidence
+      → `answer_node` code-gate отказывает, `stopped_reason=
+      empty_evidence_refusal`, `claims=[]`).
+      Общий scripted-setup вынесен в `_run_golden()` — тот же паттерн, что
+      уже был в `test_agent_referent_recall_reopens_note_via_dialog_context`,
+      параметризованный на history/prompt/LLM-скрипт/tool-данные.
+      Примечание по производительности: для empty-pack сценария
+      `ctx.embedding_backend` подменён на `AsyncMock()` — `SearchNodes` иначе
+      грузит реальный `LocalEmbeddingBackend` (скачивание модели, ~30 сек),
+      что не годится для «быстрого детерминированного gate».
+- [x] **`golden_runner.py` переделан.** `implemented` раньше значило «есть
+      .md» (`bool(matches)`) — тихо считал все 19 «реализованными», хотя
+      большинство доков — заглушки «TBD». Теперь `EXECUTABLE_SCENARIOS: dict[
+      scenario_id, test_name]` — явная карта из 3 записей на тесты выше;
+      `implemented` = «есть исполняемый тест». Новая `documented_scenario_ids()`
+      сохраняет старый смысл (наличие .md) под новым именем.
+      `test_golden_catalog.py`: старый ассерт «все 19 implemented» стал
+      `test_golden_catalog_covers_01_through_19` (проверяет `documented_
+      scenario_ids`); новый `test_golden_catalog_executable_scenarios_are_
+      the_intended_three` явно фиксирует, что исполняемых — 3, не 19 (16
+      doc-only сценариев не маскируются под «покрыто»).
+- [x] **CI-gate.** `.github/workflows/ci.yml` backend-job разбит на два шага:
+      `pytest -v -m "not golden"` (основной набор) и отдельный шаг
+      «Golden gate (agent-runtime-sprints §4)» — `pytest -v -m golden`.
+      Маркер `golden` зарегистрирован в `pytest.ini` (`markers =`). PR не
+      зелёный, если один из трёх golden fail — отдельный сигнал в CI, не
+      смешан с общим прогоном.
+      Файлы: `pytest.ini`, `tests/golden_runner.py`, `tests/test_golden_catalog.py`,
+      `.github/workflows/ci.yml`.
+
+**Exit:** PR не зелёный без 3 критических golden (multi-turn deixis,
+notes-with-content, empty-pack refusal) — все три через `grade_run` на
+полном прогоне рантайма, не на синтетике. Live-модель не участвует
+(осознанно, по решению пользователя) — LLM-judge остаётся отдельным
+хвостом 4b, tech-debt.
+
+---
+
+### Спринт 4b — LLM-judge groundedness (за скоупом, tech-debt)
+
+Осознанно отложено: пользователь решил не пускать живую модель в тесты.
+Живой прогон («AgentRouter») больше не тема сессии.
+
+- [ ] LLM-judge groundedness поверх golden — калибровка + прогон с реальной
+      моделью. Не в CI-gate (флаки/стоимость/недетерминизм), отдельный
+      ручной/ночной прогон, если и когда понадобится.
+- [ ] Остальные 16 golden-сценариев из каталога — сейчас doc-only (многие
+      сами доки — заглушки «TBD detailed pipelines»); переводить в
+      executable по мере необходимости, тем же паттерном `_run_golden` +
+      `grade_run`.
 
 ---
 
@@ -301,16 +356,16 @@ transcript; reasoning влияет на выбор tool (проверено scri
 [✅ Спринт 2 (Память: dialog_context, thread_id=run_id, post_chat_id)]  ← закрыт
       ↓
 [✅ Спринт 3 (Планнер мыслит + SSE, только research-цикл)]  ← закрыт
-      ↓ (Спринт 4 идёт параллельно)
-Спринт 4 (Evals executable + CI gate)                  ← регрессы под контролем
       ↓
+[✅ Спринт 4a (3 executable golden + CI gate, scripted)]  ← закрыт
+      ↓ (4b — LLM-judge — tech-debt, за скоупом)
 Спринт 6 (Trust boundary, high) → Спринт 5 (Observability)
       ↓
 Reference-level DoD
 ```
 
 **Минимум «система работает как надо»:** Спринт 2 + 3 (1.0 и 1.1–1.5 уже готовы).
-**Минимум «эталонная инженерная система»:** + Спринт 4 + 6.
+**Минимум «эталонная инженерная система»:** + Спринт 4a (готово) + 6.
 
 ---
 
@@ -320,12 +375,15 @@ Reference-level DoD
    (обоснование — §2.3 выше).
 2. ~~**Спринт 2 — post-scope chat matching.**~~ Закрыто: добавлен
    `post_chat_id` (миграция `016_agent_run_post_chat_id`, backend + frontend).
-3. **Спринт 4 — CI.** К какому CI привязать merge-gate (GitHub Actions?);
-   сейчас привязки к конфигу нет.
+3. ~~**Спринт 4 — CI.**~~ Закрыто: CI уже существовал (`.github/workflows/ci.yml`),
+   gate цепляется к нему отдельным шагом `pytest -v -m golden` (обоснование —
+   §4a выше).
 4. ~~**Спринт 3 — schema.**~~ Закрыто: строго `{observations, reasoning, gap,
    tool, args}`, без расширения (без confidence/self-check полей).
 5. ~~**Спринт 3 — единый промпт.**~~ Закрыто: НЕ сливаем классификатор и
    research-цикл в этом спринте (обоснование — раздел Спринта 3 выше).
+6. ~~**Спринт 4 — live-модель в тестах.**~~ Закрыто: без LLM в тестах,
+   решение пользователя. LLM-judge — tech-debt §4b, не в этом канон-проходе.
 
 ---
 
