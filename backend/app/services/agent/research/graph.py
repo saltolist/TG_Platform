@@ -32,6 +32,7 @@ from app.services.ai.rag_tools import (
     tool_hydrate_attachment,
     tool_list_global_notes,
     tool_list_note_attachments,
+    tool_list_post_media,
     tool_list_post_notes,
     tool_list_posts,
     tool_open_note,
@@ -42,6 +43,17 @@ from app.services.ai.reply_pipeline_log import trace_step
 
 logger = logging.getLogger(__name__)
 
+# Error codes that mean "you called this too early, do X first" — recoverable
+# precondition guidance, not a failed lookup. Burning a step on these lets a
+# single mis-ordered call (ListPostNotes before OpenPost) eat into the budget
+# the run needs to actually reach the evidence, so we refund the step. `not_found`
+# is deliberately absent: a genuinely missing post/note is a real (if empty)
+# result, and refunding it would let a planner fishing for bad ids loop for free.
+REFUNDABLE_TOOL_ERRORS = frozenset({"post_not_open", "note_not_found"})
+# Hard ceiling on refunds per run: without it a planner stuck repeating the same
+# broken call would get an unbounded free ride and never terminate.
+MAX_STEP_REFUNDS = 3
+
 READ_TOOLS = frozenset(
     {
         "SearchNodes",
@@ -51,6 +63,7 @@ READ_TOOLS = frozenset(
         "ListPostNotes",
         "ListGlobalNotes",
         "ListNoteAttachments",
+        "ListPostMedia",
         "HydrateAttachment",
         "GetPostAnalytics",
     }
@@ -60,14 +73,15 @@ AGENT_SYSTEM = (
     """Ты research-агент workspace. Собери факты read-tools и заверши через FinishRetrieval.
 
 Доступные tools (JSON):
-- SearchNodes {query, node_types?, k?}
+- SearchNodes {query, node_types?, k?} — семантический поиск. node_types (если задан) — только из набора: "note_chunk" (текст заметок), "post_text" (текст постов), "attachment_text" (текст документов-вложений), "media_meta" (имена медиа). Не придумывай другие значения; если сомневаешься — не передавай node_types вовсе (искать по всем).
 - OpenPost {post_id}
-- OpenNote {note_id, post_id?} — прочитать содержимое конкретной заметки
+- OpenNote {note_id, post_id?} — прочитать содержимое заметки; в выводе перечислены её вложения (имя+тип), поэтому для вопросов «есть ли в заметке картинки/файлы» отдельный ListNoteAttachments не нужен
 - ListPosts {query?, limit?}
 - ListPostNotes {post_id} — перечислить заметки поста (сначала OpenPost)
 - ListGlobalNotes {} — перечислить заметки, НЕ привязанные ни к одному посту. Для вопросов про общее число/наличие заметок учитывай оба источника: заметки из ListPosts/ListPostNotes (по постам) + ListGlobalNotes (вне постов).
-- ListNoteAttachments {note_id, post_id?}
-- HydrateAttachment {ref, mode?}
+- ListNoteAttachments {note_id, post_id?} — файлы, приложенные к заметке (ref вида attachment:<id>)
+- ListPostMedia {post_id} — медиа, приложенные напрямую к посту (ref вида file:<id>); сначала OpenPost. Голосовые/видео/кружочки/стикеры видны только по имени и типу — их содержимое прочитать нельзя.
+- HydrateAttachment {ref, mode?, post_id?} — прочитать вложение: mode=text для документов (PDF/DOCX/txt), mode=vision для изображений. Для ref вида file:<id> (медиа поста) укажи post_id.
 - GetPostAnalytics {post_id, period?}
 - FinishRetrieval {status: ready|partial, evidence_ids: string[], unresolved?: string[]}
 
@@ -75,6 +89,11 @@ AGENT_SYSTEM = (
 - Только read; никаких мутаций.
 - Завершай, когда собрано достаточно для ответа.
 - В `evidence_ids` перечисляй ТОЛЬКО те id, что показаны в блоке «Собранный context» как `[id: …]` — дословно. Не выдумывай id и не подставляй номера постов.
+
+Диалог и Dialog evidence ledger — это история, а не рамка, сужающая поиск. Определяй охват по тому, ссылается ли вопрос на конкретные объекты прошлых ходов:
+- Вопрос ссылается на конкретный объект («эта заметка», «неё», «из них», «в этом посте», «покороче») — работай с сущностями из ledger/диалога, не ищи заново через SearchNodes (используй OpenNote/OpenPost по id, если он уже известен из ledger).
+- Вопрос вводит новый критерий без явной привязки к обсуждавшимся объектам («а сколько с изображениями?», «какие из них длинные?», «а другие есть?») — это про ВСЮ категорию (все заметки/все посты), а не только про те несколько, что уже обсуждались. Ledger подсказывает тему, но не сужает область поиска: собери полный список (ListGlobalNotes/ListPosts/ListPostNotes), а не только уже открытые записи.
+Пример ошибки, которую нужно избегать: пользователь спросил «сколько заметок про систему», агент открыл 2 заметки; на следующий вопрос «а сколько с изображениями?» агент проверил вложения только у этих двух и ответил «0» — хотя вопрос был про все заметки, а с изображениями была заметка, которую ещё не открывали.
 
 Перед выбором tool сначала думай, потом решай. Верни один JSON СТРОГО в этом порядке ключей:
 {
@@ -240,11 +259,16 @@ async def _execute_tool(state: AgentState, action: ToolAction) -> ToolOutcome:
             note_id=str(args.get("note_id") or ""),
             post_id=args.get("post_id"),
         )
+    if tool == "ListPostMedia":
+        return tool_list_post_media(state, post_id=str(args.get("post_id") or ""))
     if tool == "HydrateAttachment":
         return await tool_hydrate_attachment(
             state,
             ref=str(args.get("ref") or ""),
             mode=str(args.get("mode") or "text"),
+            # file:-refs (post media) require post_id to resolve; forward it so
+            # the planner can hydrate a post's own documents/images.
+            post_id=args.get("post_id"),
         )
     if tool == "GetPostAnalytics":
         return await tool_get_post_analytics(
@@ -444,6 +468,19 @@ async def research_tool_node(state: AgentGraphState, config: RunnableConfig) -> 
         records = records_from_agent_state(agent_state)
         await session.commit()
     step = int(state.get("step_count", 0) or 0)
+    # Refund the step consumed by the planner when the tool only returned
+    # recoverable precondition guidance (e.g. "сначала OpenPost"), capped at
+    # MAX_STEP_REFUNDS so a repeating broken call can't loop for free. The
+    # planner still gets its retry; it just doesn't pay for the mis-ordered call.
+    refunds = int(state.get("step_refunds") or 0)
+    if (
+        outcome.error in REFUNDABLE_TOOL_ERRORS
+        and refunds < MAX_STEP_REFUNDS
+        and step > 0
+    ):
+        step -= 1
+        refunds += 1
+        transcript.append(f"  refund: step not charged ({outcome.error})")
     transcript.append(f"step {step}: {action.tool} → {outcome.summary}")
     if outcome.error:
         transcript.append(f"  error={outcome.error}")
@@ -461,6 +498,8 @@ async def research_tool_node(state: AgentGraphState, config: RunnableConfig) -> 
     }
     return {
         **state,
+        "step_count": step,
+        "step_refunds": refunds,
         "research_transcript": transcript,
         "tool_outcomes": [*(state.get("tool_outcomes") or []), outcome_record],
         "evidence_records": {
@@ -527,7 +566,7 @@ async def research_pack_node(state: AgentGraphState, config: RunnableConfig) -> 
     finish = dict(state.get("finish_retrieval") or {})
     evidence_ids = [str(item) for item in (finish.get("evidence_ids") or [])]
     unresolved_items = [str(item) for item in (finish.get("unresolved") or [])]
-    packed, _ = build_evidence_pack(
+    packed, cites = build_evidence_pack(
         records=records,
         evidence_ids=evidence_ids,
         unresolved=unresolved_items,
@@ -536,6 +575,7 @@ async def research_pack_node(state: AgentGraphState, config: RunnableConfig) -> 
         **state,
         "rag_context": packed,
         "evidence_ids": evidence_ids,
+        "evidence_titles": [cite.title for cite in cites],
         "unresolved": unresolved_items,
         "stopped_reason": str(finish.get("status") or "ready"),
         "status": "completed",

@@ -16,6 +16,7 @@ from app.services.ai.rag_tools import (
     tool_list_global_notes,
     tool_list_note_attachments,
     tool_list_post_comments,
+    tool_list_post_media,
     tool_list_post_notes,
     tool_list_posts,
     tool_open_note,
@@ -68,6 +69,40 @@ async def test_tool_search_nodes_summary_shape() -> None:
     assert "note:n1" in outcome.summary
     assert "0.81" in outcome.summary
     assert state.context_blocks == []
+
+
+def test_normalize_node_types_maps_planner_aliases() -> None:
+    from app.services.ai.rag_tools import _normalize_node_types
+
+    # The planner says "post"/"note"; the DB stores post_text/note_chunk. Without
+    # translation the retrieval filter intersects to ∅ and recall drops to zero.
+    assert _normalize_node_types(["post", "note"]) == frozenset(
+        {"post_text", "note_chunk"}
+    )
+    # Real types pass through unchanged.
+    assert _normalize_node_types(["note_chunk"]) == frozenset({"note_chunk"})
+    # Empty / unknown-only degrade to None = "no filter, search everything",
+    # never to an empty set that would silently match nothing.
+    assert _normalize_node_types(None) is None
+    assert _normalize_node_types([]) is None
+    assert _normalize_node_types(["totally_bogus"]) is None
+
+
+@pytest.mark.asyncio
+async def test_tool_search_nodes_translates_node_types_before_retrieval() -> None:
+    state = _state()
+    with patch(
+        "app.services.ai.rag_tools.retrieve_for_chat",
+        new_callable=AsyncMock,
+        return_value=[],
+    ) as retrieve:
+        await tool_search_nodes(state, query="система", node_types=["post", "note"])
+
+    # The alien planner vocabulary must be translated to real node types, not
+    # forwarded verbatim (which zeroed every retrieval pass in chat 63dfb9e4).
+    assert retrieve.await_args.kwargs["node_types_filter"] == frozenset(
+        {"post_text", "note_chunk"}
+    )
 
 
 @pytest.mark.asyncio
@@ -195,6 +230,57 @@ async def test_tool_open_note_from_post_scope() -> None:
     cite, text = state.context_blocks[0]
     assert cite.path == "/note/post/post-1/n1/"
     assert "Подробности" in text
+
+
+@pytest.mark.asyncio
+async def test_tool_open_note_lists_attachments_in_evidence() -> None:
+    state = _state()
+    with patch(
+        "app.services.ai.rag_tools.get_note_data",
+        new_callable=AsyncMock,
+        return_value={
+            "id": "n1",
+            "title": "Варианты изображений",
+            "body": "Текст заметки",
+            "files": [
+                {"id": "img1", "name": "shot.png", "type": "image/png"},
+                {"id": "img2", "name": "gen.png", "type": "image/png"},
+            ],
+        },
+    ):
+        outcome = await tool_open_note(state, note_id="n1", post_id="post-1")
+
+    assert outcome.error is None
+    assert "files=2" in outcome.summary
+    _, text = state.context_blocks[0]
+    # The answer model must see the attachment names/types, not just the body,
+    # so it can ground "какая заметка с изображениями?".
+    assert "Текст заметки" in text
+    assert "Вложения заметки" in text
+    assert "shot.png" in text and "image/png" in text
+
+
+@pytest.mark.asyncio
+async def test_tool_open_note_records_note_with_files_but_no_text() -> None:
+    state = _state()
+    with patch(
+        "app.services.ai.rag_tools.get_note_data",
+        new_callable=AsyncMock,
+        return_value={
+            "id": "n1",
+            "title": "",
+            "body": "",
+            "files": [{"id": "img1", "name": "shot.png", "type": "image/png"}],
+        },
+    ):
+        outcome = await tool_open_note(state, note_id="n1", post_id="post-1")
+
+    assert outcome.error is None
+    # A body-less, image-only note used to record nothing at all — the answer
+    # pack was empty and the run refused despite the images existing.
+    assert len(state.context_blocks) == 1
+    _, text = state.context_blocks[0]
+    assert "shot.png" in text
 
 
 @pytest.mark.asyncio
@@ -674,6 +760,52 @@ def test_list_post_notes_precondition_failure_does_not_poison_ref() -> None:
     assert second.error is None
     assert "note:n1" in second.summary
     assert "уже открыт ранее" not in second.summary
+
+
+def test_list_post_media_lists_refs_and_flags_images() -> None:
+    state = _state()
+    state.opened_posts["post-1"] = {
+        "id": "post-1",
+        "media": [
+            {"mediaKey": "mk1", "name": "photo.jpg", "type": "image/jpeg", "kind": "image"},
+            {"mediaKey": "mk2", "name": "spec.pdf", "type": "application/pdf", "kind": "document"},
+            {"name": "note.ogg", "type": "audio/ogg", "kind": "voice"},
+        ],
+    }
+    outcome = tool_list_post_media(state, post_id="post-1")
+    assert outcome.error is None
+    cite, body = state.context_blocks[0]
+    assert cite.path == "/post/post-1/media/"
+    assert "file:mk1" in body
+    assert "file:mk2" in body
+    assert "file:idx-2" in body  # voice item without mediaKey → positional id
+    # Only the image is offered for vision hydration.
+    assert state.listed_image_media_refs == ["file:mk1"]
+    assert records_from_agent_state(state)["/post/post-1/media/"].kind == "search_hit"
+
+
+def test_list_post_media_precondition_failure_does_not_poison_ref() -> None:
+    state = _state(scope="global", base_post_data=None)
+    first = tool_list_post_media(state, post_id="post-1")
+    assert first.error == "post_not_open"
+
+    state.opened_posts["post-1"] = {
+        "id": "post-1",
+        "media": [{"mediaKey": "mk1", "name": "photo.jpg", "type": "image/jpeg"}],
+    }
+    second = tool_list_post_media(state, post_id="post-1")
+    assert second.error is None
+    assert "file:mk1" in second.summary
+    assert "уже открыт ранее" not in second.summary
+
+
+def test_list_post_media_empty_is_still_citable() -> None:
+    state = _state()
+    state.opened_posts["post-1"] = {"id": "post-1", "media": []}
+    outcome = tool_list_post_media(state, post_id="post-1")
+    assert outcome.error is None
+    assert "нет медиа" in outcome.summary
+    assert records_from_agent_state(state)["/post/post-1/media/"].kind == "search_hit"
 
 
 def test_list_post_comments_precondition_failure_does_not_poison_ref() -> None:

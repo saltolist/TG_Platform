@@ -24,6 +24,12 @@ class AgentGraphState(TypedDict, total=False):
     repair_count: int
     rag_context: str
     cite_paths: list[str]
+    # Human-readable evidence titles (one per cite) so answer_node can state
+    # "N objects" explicitly in the prompt, instead of relying on the model to
+    # count blocks itself — a scope-narrowing dialog frame (e.g. "заметки про
+    # систему" from an earlier turn) can otherwise make it silently drop
+    # objects present in evidence but absent from the discussed frame.
+    evidence_titles: list[str]
     stopped_reason: str
     current_tool: str | None
     tool_call: dict[str, Any] | None
@@ -31,6 +37,10 @@ class AgentGraphState(TypedDict, total=False):
     claims: list[dict[str, Any]]
     step_count: int
     max_steps: int
+    # Steps refunded because a tool returned recoverable precondition guidance
+    # ("сначала OpenPost") rather than a real result. Capped so a planner that
+    # keeps repeating the same broken call can't loop forever on free steps.
+    step_refunds: int
     research_transcript: list[str]
     research_hints: list[str]
     tool_action: dict[str, Any] | None

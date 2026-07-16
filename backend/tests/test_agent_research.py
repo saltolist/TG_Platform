@@ -15,6 +15,7 @@ from app.services.agent.research.graph import (
     run_research_graph,
     validate_observations,
 )
+from app.services.ai.rag_tools import ToolOutcome
 from app.services.agent.research.pack import build_evidence_pack
 from app.services.agent.research.verifier import verify_evidence
 from app.services.agent.runtime.context import RuntimeContext
@@ -26,6 +27,157 @@ def test_parse_tool_action_finish() -> None:
     action = parse_tool_action('{"tool": "FinishRetrieval", "args": {"status": "ready", "evidence_ids": []}}')
     assert action is not None
     assert action.tool == "FinishRetrieval"
+
+
+@pytest.mark.asyncio
+async def test_execute_tool_dispatches_list_post_media() -> None:
+    from app.services.agent.research.graph import ToolAction, _execute_tool
+
+    with patch(
+        "app.services.agent.research.graph.tool_list_post_media",
+    ) as mocked:
+        mocked.return_value = "sentinel"
+        result = await _execute_tool(
+            object(), ToolAction(tool="ListPostMedia", args={"post_id": "p1"})
+        )
+    mocked.assert_called_once()
+    assert mocked.call_args.kwargs["post_id"] == "p1"
+    assert result == "sentinel"
+
+
+@pytest.mark.asyncio
+async def test_execute_tool_forwards_post_id_to_hydrate_attachment() -> None:
+    """file:-refs (post media) can only resolve with post_id — the dispatch must
+    forward it, otherwise a post's own documents/images are unreachable."""
+    from app.services.agent.research.graph import ToolAction, _execute_tool
+
+    with patch(
+        "app.services.agent.research.graph.tool_hydrate_attachment",
+        new_callable=AsyncMock,
+        return_value="ok",
+    ) as mocked:
+        await _execute_tool(
+            object(),
+            ToolAction(
+                tool="HydrateAttachment",
+                args={"ref": "file:mk1", "mode": "text", "post_id": "p1"},
+            ),
+        )
+    assert mocked.await_args.kwargs["post_id"] == "p1"
+    assert mocked.await_args.kwargs["ref"] == "file:mk1"
+
+
+class _FakeSessionCtx:
+    async def __aenter__(self):
+        return AsyncMock()
+
+    async def __aexit__(self, *exc):
+        return False
+
+
+def _tool_node_ctx() -> RuntimeContext:
+    ctx = RuntimeContext(
+        session_factory=lambda: _FakeSessionCtx(),
+        user_id=uuid4(),
+        user=None,
+        tenant_key=None,
+        settings=Settings(),
+        embedding_backend=AsyncMock(),
+        scope="global",
+        post_data=None,
+        ai_profile={},
+    )
+    ctx.bind_agent_state = lambda session: AgentState(  # type: ignore[method-assign]
+        session=session,
+        user_id=ctx.user_id,
+        scope="global",
+        tenant_key=None,
+        embedding_backend=ctx.embedding_backend,
+    )
+    return ctx
+
+
+@pytest.mark.asyncio
+async def test_research_tool_node_refunds_step_on_recoverable_error() -> None:
+    """A recoverable precondition error ("сначала OpenPost") must not consume a
+    step — otherwise a single mis-ordered call eats the budget the run needs to
+    reach the evidence (observed in chat 4159bd36: ListPostNotes before OpenPost
+    burned the step that would have opened the post holding the images)."""
+    from app.services.agent.research.graph import research_tool_node
+
+    ctx = _tool_node_ctx()
+    state = {
+        "tool_action": {"tool": "ListPostNotes", "args": {"post_id": "p1"}},
+        "step_count": 5,
+        "step_refunds": 0,
+    }
+    with patch(
+        "app.services.agent.research.graph._execute_tool",
+        new_callable=AsyncMock,
+        return_value=ToolOutcome(summary="сначала OpenPost", error="post_not_open"),
+    ), patch(
+        "app.services.agent.research.graph.records_from_agent_state",
+        return_value={},
+    ):
+        result = await research_tool_node(state, {"configurable": {"runtime_context": ctx}})
+
+    assert result["step_count"] == 4
+    assert result["step_refunds"] == 1
+
+
+@pytest.mark.asyncio
+async def test_research_tool_node_refund_capped() -> None:
+    """Refunds are bounded — a planner stuck repeating a broken call can't get an
+    unbounded free ride and loop forever."""
+    from app.services.agent.research.graph import (
+        MAX_STEP_REFUNDS,
+        research_tool_node,
+    )
+
+    ctx = _tool_node_ctx()
+    state = {
+        "tool_action": {"tool": "ListPostNotes", "args": {"post_id": "p1"}},
+        "step_count": 5,
+        "step_refunds": MAX_STEP_REFUNDS,
+    }
+    with patch(
+        "app.services.agent.research.graph._execute_tool",
+        new_callable=AsyncMock,
+        return_value=ToolOutcome(summary="сначала OpenPost", error="post_not_open"),
+    ), patch(
+        "app.services.agent.research.graph.records_from_agent_state",
+        return_value={},
+    ):
+        result = await research_tool_node(state, {"configurable": {"runtime_context": ctx}})
+
+    assert result["step_count"] == 5
+    assert result["step_refunds"] == MAX_STEP_REFUNDS
+
+
+@pytest.mark.asyncio
+async def test_research_tool_node_does_not_refund_real_result() -> None:
+    """A successful tool call (no error) pays its step — refund is only for
+    recoverable precondition guidance, not normal progress."""
+    from app.services.agent.research.graph import research_tool_node
+
+    ctx = _tool_node_ctx()
+    state = {
+        "tool_action": {"tool": "OpenPost", "args": {"post_id": "p1"}},
+        "step_count": 3,
+        "step_refunds": 0,
+    }
+    with patch(
+        "app.services.agent.research.graph._execute_tool",
+        new_callable=AsyncMock,
+        return_value=ToolOutcome(summary="Открыт пост p1."),
+    ), patch(
+        "app.services.agent.research.graph.records_from_agent_state",
+        return_value={},
+    ):
+        result = await research_tool_node(state, {"configurable": {"runtime_context": ctx}})
+
+    assert result["step_count"] == 3
+    assert result["step_refunds"] == 0
 
 
 def test_parse_tool_action_preserves_reasoning() -> None:
@@ -132,6 +284,36 @@ def test_build_evidence_pack_dedup() -> None:
     assert "alpha" in ctx
     assert len(cites) == 1
     assert isinstance(cites[0], NoteCite)
+
+
+def test_build_evidence_pack_small_item_survives_budget_overflow() -> None:
+    """Regression for chat 63dfb9e4: research opened 4 large notes plus one
+    small note carrying the decisive fact ("files=2, два PNG"). Greedily
+    filling max_chars in evidence_ids order let the large notes alone exceed
+    the budget, hard-dropping the small note entirely — the answer model then
+    said "0 заметок с изображениями" despite research having verified one.
+    Every opened item must get at least a floor allocation."""
+    big_text = "x" * 8000
+    small_text = "Заметка 'Варианты изображений для поста': files=2, два PNG."
+    records = {
+        "big1": EvidenceRecord(
+            id="big1", kind="note_chunk", source_ref="note:big1", content=big_text,
+            citation_path="/note/global/big1/", citation_title="Big Note 1",
+        ),
+        "big2": EvidenceRecord(
+            id="big2", kind="note_chunk", source_ref="note:big2", content=big_text,
+            citation_path="/note/global/big2/", citation_title="Big Note 2",
+        ),
+        "small": EvidenceRecord(
+            id="small", kind="note_chunk", source_ref="note:small", content=small_text,
+            citation_path="/note/global/small/", citation_title="Small Note",
+        ),
+    }
+    ctx, cites = build_evidence_pack(
+        records=records, evidence_ids=["big1", "big2", "small"], max_chars=12000,
+    )
+    assert "files=2, два PNG" in ctx
+    assert any(c.path == "/note/global/small/" for c in cites)
 
 
 def test_verify_evidence_empty_ids_fails() -> None:
@@ -352,6 +534,67 @@ async def test_answer_node_forwards_dialog_context_on_finish_path() -> None:
     messages = mock_llm.await_args.kwargs.get("messages")
     user_content = messages[1]["content"]
     assert "Охват 1200 просмотров" in user_content
+
+
+@pytest.mark.asyncio
+async def test_answer_node_grounded_system_prompt_warns_against_narrowing_scope() -> None:
+    """Regression for chat 63dfb9e4: a follow-up with a new predicate ("а
+    сколько с изображениями?") must not be answered as if the evidence from
+    the 2 previously-discussed notes covers the whole category. The grounded
+    system prompt must tell the model to honour the full evidence set, not
+    just the objects named in the dialog frame."""
+    from app.services.agent.runtime.workspace_graph import answer_node
+
+    ctx = _reasoner_ctx()
+    state = {
+        "user_text": "А сколько с изображениями?",
+        "tool_call": {"type": "read"},
+        "evidence_ids": ["/note/9fd458be/"],
+        "rag_context": "note:9fd458be — нет вложений",
+    }
+    config = {"configurable": {"runtime_context": ctx}}
+    with patch(
+        "app.services.ai.llm.complete_chat_completion",
+        new_callable=AsyncMock,
+        return_value='{"answer": "0", "claims": []}',
+    ) as mock_llm:
+        await answer_node(state, config)
+
+    messages = mock_llm.await_args.kwargs.get("messages")
+    system_content = messages[0]["content"]
+    assert "Не сужай ответ до подмножества" in system_content
+
+
+@pytest.mark.asyncio
+async def test_answer_node_states_evidence_object_count_explicitly() -> None:
+    """Regression for chat 63dfb9e4: research opened 4 notes (evidence covers
+    all 4), but the answer only discussed the 2 named in the prior dialog turn
+    ("заметки про систему") and silently dropped the other 2. Spelling out the
+    object count in the user content — rather than relying on the model to
+    count evidence blocks itself — is what should stop that drop."""
+    from app.services.agent.runtime.workspace_graph import answer_node
+
+    ctx = _reasoner_ctx()
+    state = {
+        "user_text": "А сколько заметок с изображениями?",
+        "tool_call": {"type": "read"},
+        "evidence_ids": ["/note/a/", "/note/b/", "/note/c/", "/note/d/"],
+        "evidence_titles": ["Заметка A", "Заметка B", "Заметка C", "Заметка D"],
+        "rag_context": "note:a — files=0\n\nnote:b — files=0\n\nnote:c — files=0\n\nnote:d — files=0",
+    }
+    config = {"configurable": {"runtime_context": ctx}}
+    with patch(
+        "app.services.ai.llm.complete_chat_completion",
+        new_callable=AsyncMock,
+        return_value='{"answer": "0", "claims": []}',
+    ) as mock_llm:
+        await answer_node(state, config)
+
+    messages = mock_llm.await_args.kwargs.get("messages")
+    user_content = messages[1]["content"]
+    assert "Evidence охватывает 4 объектов" in user_content
+    assert "Заметка A" in user_content
+    assert "Заметка D" in user_content
 
 
 @pytest.mark.asyncio

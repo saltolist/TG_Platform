@@ -49,7 +49,7 @@ def test_rag_mode_defaults_and_accepts_valid_values() -> None:
 
 
 def test_rag_agent_max_steps_default() -> None:
-    assert Settings().rag_agent_max_steps == 4
+    assert Settings().rag_agent_max_steps == 10
 
 
 def test_rag_agent_max_vision_default() -> None:

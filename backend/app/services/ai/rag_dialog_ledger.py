@@ -23,6 +23,52 @@ _MAX_ENTITIES = 50
 
 _NOTE_PATH_RE = re.compile(r"/note/(?:post/([\w-]+)/|global/)([\w-]+)/")
 
+# Markers that a follow-up points at the SAME instances discussed in prior turns
+# ("эта заметка", "неё", "из них") rather than introducing a new predicate over
+# the whole category ("а сколько с изображениями?"). Referential → reuse/narrow
+# to ledger entities. New-predicate → ledger sets the topic but must not narrow
+# the search to just the discussed instances (chat 63dfb9e4: "сколько заметок
+# про систему" narrowed a follow-up "а сколько с изображениями?" down to the 2
+# notes already opened, answering "0" instead of counting across all notes).
+#
+# Deliberately excludes content words like "картинка"/"файл" — those name a
+# NEW predicate ("сколько с картинками?"), not a same-instance reference, and
+# including them was exactly the chat 63dfb9e4 failure mode. Only
+# demonstrative/anaphoric markers belong here.
+_REFERENTIAL_MARKERS = (
+    "это",
+    "та ",
+    "тот ",
+    "ту ",
+    "той ",
+    "них",
+    "нём",
+    "ней",
+    "неё",
+    "него",
+    "предыдущ",
+    "этот",
+    "эти",
+    "эту",
+    "этих",
+    "выше",
+    "которы",
+)
+
+
+def is_referential(user_text: str) -> bool:
+    """Heuristic: does user_text point at specific already-discussed entities?
+
+    Deliberately NOT keyed on question type (count/list/etc) — a "сколько"
+    question can be either referential ("сколько там файлов?" = in that note)
+    or category-wide ("сколько всего заметок с картинками?" = across
+    workspace). Only demonstrative/anaphoric markers narrow scope — content
+    words like "картинка"/"файл" name a predicate, not a same-instance
+    reference, so they must NOT be in this list (see _REFERENTIAL_MARKERS).
+    """
+    lowered = (user_text or "").lower()
+    return any(marker in lowered for marker in _REFERENTIAL_MARKERS)
+
 
 @dataclass(frozen=True)
 class DialogEntityRef:
@@ -448,9 +494,13 @@ def seed_hydrated_attachments_from_ledger(
 
     from app.services.ai.note_citations import NoteCite
 
-    deictic = any(
+    # Wider than is_referential() on purpose: replaying a vision preview is
+    # cheap and safe even on a loose match (worst case we add unused context),
+    # unlike is_referential() which gates whether the search narrows to fewer
+    # instances (a false positive there silently drops real answers).
+    deictic = is_referential(user_text) or any(
         marker in (user_text or "").lower()
-        for marker in ("это", "та ", "тот ", "ту ", "картин", "файл", "вложен", "предыдущ")
+        for marker in ("картин", "файл", "вложен")
     )
     if not deictic and len(ledger) <= 1:
         return ()
@@ -501,3 +551,45 @@ def seed_hydrated_attachments_from_ledger(
             state.visited.add(f"note:{note_id}")
         seeded.append(ref)
     return tuple(seeded)
+
+
+def referential_hints_from_ledger(
+    user_text: str,
+    ledger: tuple[TurnSnapshot, ...],
+    *,
+    last_n_turns: int = 3,
+) -> list[str]:
+    """Planner hints to reopen ledger notes/posts directly, skipping SearchNodes.
+
+    Only fires for referential follow-ups ("эта заметка", "неё") — a new-predicate
+    follow-up ("а сколько с изображениями?") must NOT be steered toward just the
+    discussed instances, so it gets no hints and searches the full category.
+    Notes carry no body in the ledger (unlike hydrated attachments), so reuse
+    here means "open directly by known note_id", not "skip reading entirely".
+    """
+    if not ledger or not is_referential(user_text):
+        return []
+
+    hints: list[str] = []
+    seen_notes: set[str] = set()
+    seen_posts: set[str] = set()
+    for turn in ledger[-last_n_turns:]:
+        for entity in turn.entities:
+            if entity.entity_type == "note" and entity.note_id:
+                note_id = str(entity.note_id).strip()
+                if note_id and note_id not in seen_notes:
+                    seen_notes.add(note_id)
+                    post_part = f" post_id={entity.post_id}" if entity.post_id else ""
+                    hints.append(
+                        f"OpenNote note_id={note_id}{post_part} "
+                        "(уже открыта в этом диалоге — не ищи через SearchNodes)"
+                    )
+            elif entity.entity_type == "post" and entity.post_id:
+                post_id = str(entity.post_id).strip()
+                if post_id and post_id not in seen_posts:
+                    seen_posts.add(post_id)
+                    hints.append(
+                        f"OpenPost post_id={post_id} "
+                        "(уже открыт в этом диалоге — не ищи через SearchNodes)"
+                    )
+    return hints

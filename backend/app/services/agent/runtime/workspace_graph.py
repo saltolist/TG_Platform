@@ -153,12 +153,44 @@ async def answer_node(state: AgentGraphState, config: RunnableConfig) -> dict[st
     prompt_parts.append(f"Вопрос:\n{state.get('user_text', '')}")
     if came_through_research:
         # Grounded path: cite only the retrieved evidence, same contract as before.
+        evidence_titles = [str(t) for t in (state.get("evidence_titles") or []) if str(t).strip()]
+        # Spell out the object count explicitly rather than relying on the
+        # model to count blocks itself — an earlier dialog frame ("заметки
+        # про систему") can otherwise make it silently answer about only the
+        # subset it recognizes from that frame and drop the rest, even though
+        # research already gathered evidence for all of them (chat 63dfb9e4:
+        # research opened 4 notes, but the answer only discussed the 2 named
+        # in the prior turn and ignored evidence for the other 2).
+        if len(evidence_titles) > 1:
+            prompt_parts.append(
+                f"Evidence охватывает {len(evidence_titles)} объектов: "
+                + "; ".join(evidence_titles)
+            )
         prompt_parts.append(f"Evidence IDs: {evidence_ids}\nEvidence:\n{rag_context}")
         prompt_parts.append(
             'Верни JSON {"answer":"...","claims":[{"text":"...","evidence_ids":[...]}]}.'
         )
         system_text = (
             "Отвечай только по evidence. Не выдумывай отсутствующие факты.\n"
+            # Counting/filtering guard: a listing block (перечень заметок/постов)
+            # gives the TOTAL number of items, not the number matching the
+            # question. For «сколько X про Y» / «какие из них Y» не бери общее
+            # число из перечня — оцени содержимое каждого элемента по критерию
+            # вопроса и посчитай только подходящие. Если тела для оценки нет —
+            # скажи, что содержимое не прочитано, а не выдавай общий счёт за ответ.
+            "Если в вопросе есть уточняющий критерий (про что, какого типа, за "
+            "период) — не бери итоговое число из перечня-списка: проверь "
+            "содержимое каждого элемента и посчитай только те, что реально "
+            "подходят под критерий.\n"
+            # Scope guard: если в user-контенте указано «Evidence охватывает N
+            # объектов» — учти ВСЕ N при подсчёте/выводе, а не только те, что
+            # упоминались в «Диалог» ранее. Диалог задаёт тему обсуждения, но
+            # не список объектов для ответа — evidence может быть шире того,
+            # что обсуждалось.
+            "Если в user-контенте указано «Evidence охватывает N объектов» — "
+            "твой счёт/список должен явно учитывать все N, даже если в "
+            "«Диалог» упоминались не все из них. Не сужай ответ до подмножества "
+            "объектов из прошлых реплик, если evidence содержит больше.\n"
             + UNTRUSTED_SYSTEM_NOTE
         )
     else:

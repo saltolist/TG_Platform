@@ -191,7 +191,11 @@ class Settings(BaseSettings):
     rag_tier_b_enabled: bool = False
     # L2 agentic loop mode: off (default) | flat | agentic | auto
     rag_mode: Literal["off", "flat", "agentic", "auto"] = "off"
-    rag_agent_max_steps: int = 4
+    # 10 fits an enumerate-everything read pass (ListGlobalNotes + one OpenNote
+    # per note + ListPosts/OpenPost/ListPostNotes for post-bound notes) without
+    # the loop dying mid-scan and answering from titles alone. 4 was too tight:
+    # runs hit the cap before opening the post that actually held the evidence.
+    rag_agent_max_steps: int = 10
     rag_agent_max_vision: int = 2
     # Wall-clock budget for a whole agent run (agent-runtime-sprints §6). Enforced
     # as a hard cap via asyncio.wait_for around each LLM call, not just checked

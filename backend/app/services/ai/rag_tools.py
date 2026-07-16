@@ -64,6 +64,7 @@ class AgentState:
     vision_calls_used: int = 0
     hydrated_text_files: set[str] = field(default_factory=set)
     listed_image_attachment_refs: list[str] = field(default_factory=list)
+    listed_image_media_refs: list[str] = field(default_factory=list)
     decision_ledger: list[str] = field(default_factory=list)
     resolved_target_post_id: str | None = None
     target_evidence_gap: str | None = None
@@ -126,6 +127,52 @@ def _post_data_for(state: AgentState, post_id: str) -> dict[str, Any] | None:
     return None
 
 
+# The planner invents node_type values from the natural words in the question
+# ("post", "note", "заметка") — it was never given the internal vocabulary. The
+# retrieval filter intersects against the real node types (note_chunk/post_text/
+# attachment_text/media_meta), so an alien value silently zeroes every pass
+# (`allowed_types & {"post","note"} == ∅` → pass skipped) and SearchNodes returns
+# "нет результатов" even when the text plainly exists. Map the aliases to real
+# types; drop anything unrecognisable so a stray value degrades to "no filter"
+# (search everything) instead of "match nothing".
+_NODE_TYPE_ALIASES: dict[str, str] = {
+    NODE_NOTE_CHUNK: NODE_NOTE_CHUNK,
+    NODE_POST_TEXT: NODE_POST_TEXT,
+    NODE_ATTACHMENT_TEXT: NODE_ATTACHMENT_TEXT,
+    NODE_MEDIA_META: NODE_MEDIA_META,
+    "note": NODE_NOTE_CHUNK,
+    "notes": NODE_NOTE_CHUNK,
+    "note_chunk": NODE_NOTE_CHUNK,
+    "заметка": NODE_NOTE_CHUNK,
+    "заметки": NODE_NOTE_CHUNK,
+    "post": NODE_POST_TEXT,
+    "posts": NODE_POST_TEXT,
+    "пост": NODE_POST_TEXT,
+    "посты": NODE_POST_TEXT,
+    "attachment": NODE_ATTACHMENT_TEXT,
+    "attachment_text": NODE_ATTACHMENT_TEXT,
+    "document": NODE_ATTACHMENT_TEXT,
+    "media": NODE_MEDIA_META,
+    "media_meta": NODE_MEDIA_META,
+}
+
+
+def _normalize_node_types(node_types: list[str] | None) -> frozenset[str] | None:
+    """Translate planner-supplied node_types to real DB types.
+
+    Returns None (no filter → search all types) when nothing maps, so an
+    unrecognised value can never silently kill recall. See _NODE_TYPE_ALIASES.
+    """
+    if not node_types:
+        return None
+    mapped = {
+        real
+        for raw in node_types
+        if (real := _NODE_TYPE_ALIASES.get(str(raw).strip().lower()))
+    }
+    return frozenset(mapped) or None
+
+
 def _node_label(item: dict[str, Any]) -> str:
     node_type = str(item.get("node_type") or "")
     note_id = str(item.get("note_id") or "")
@@ -159,7 +206,7 @@ async def tool_search_nodes(
 
     try:
         query_vec = await state.embedding_backend.embed_query(query_text)
-        allowed_filter = frozenset(str(nt) for nt in node_types) if node_types else None
+        allowed_filter = _normalize_node_types(node_types)
         results = await retrieve_for_chat(
             session=state.session,
             user_id=state.user_id,
@@ -447,15 +494,34 @@ async def tool_open_note(
     title = str(note_data.get("title") or note_id).strip() or note_id
     body = str(note_data.get("body") or "")
     plain = markdown_to_index_text(title, body)
-    if plain.strip():
+
+    # Surface the note's attachments as first-class evidence, not just a count.
+    # The answer model only ever sees the verified pack, so a bare `files=2` in
+    # the tool summary (planner-only) could never ground "какая заметка с
+    # изображениями?" — the pack held text but no file metadata, so the model
+    # honestly said "нет информации о вложениях". Listing name+type here (and
+    # recording the note even when it has no body but does have files) makes the
+    # attachment facts citable without a separate ListNoteAttachments round-trip.
+    files = [
+        record
+        for item in (note_data.get("files") or [])
+        if isinstance(item, dict) and (record := note_file_record(item))
+    ]
+    attachment_lines = [
+        f"- {rec['name']} (тип: {rec['type'] or 'неизвестно'})" for rec in files
+    ]
+    parts = [plain.strip()] if plain.strip() else []
+    if attachment_lines:
+        parts.append("Вложения заметки:\n" + "\n".join(attachment_lines))
+    content = "\n\n".join(parts)
+    if content:
         cite = NoteCite(
             path=_note_cite_path(state, note_id, post_id),
             title=title,
         )
-        state.context_blocks.append((cite, plain))
+        state.context_blocks.append((cite, content))
 
-    files_count = len(note_data.get("files") or [])
-    return ToolOutcome(summary=f"Открыта заметка note:{note_id} ({title!r}), files={files_count}.")
+    return ToolOutcome(summary=f"Открыта заметка note:{note_id} ({title!r}), files={len(files)}.")
 
 
 async def tool_list_note_attachments(
@@ -521,6 +587,62 @@ async def tool_list_note_attachments(
             image_refs.append(ref)
         lines.append(f"- {ref} name={name!r} type={mime!r}")
     state.listed_image_attachment_refs = image_refs
+    return _record_listing(
+        state, path=listing_path, title=listing_title, body="\n".join(lines),
+    )
+
+
+def tool_list_post_media(state: AgentState, *, post_id: str) -> ToolOutcome:
+    """List a post's directly-attached media as file:-refs the planner can hydrate.
+
+    OpenPost only reports a media count, so the planner had no way to discover
+    the file:<mediaKey|idx-N> refs that HydrateAttachment already accepts. This
+    closes that gap: documents (PDF/DOCX/text) become readable via
+    HydrateAttachment mode=text and images via mode=vision. Voice/video/stickers
+    are surfaced by name+type only — there is no ASR/video understanding yet.
+    """
+    post_id = str(post_id or "").strip()
+    if not post_id:
+        return ToolOutcome(summary="post_id не указан.", error="missing_post_id")
+
+    ref = f"post:{post_id}:media"
+    existing = _already_visited(state, ref)
+    if existing:
+        return existing
+
+    post_data = _post_data_for(state, post_id)
+    if not post_data:
+        # Recoverable guidance — do not poison the ref (see tool_list_post_notes).
+        return ToolOutcome(
+            summary=f"Пост {post_id} не открыт — сначала вызови OpenPost.",
+            error="post_not_open",
+        )
+    _mark_visited(state, ref)
+
+    media = [
+        post_media_record(item, index)
+        for index, item in enumerate(post_data.get("media") or [])
+        if isinstance(item, dict)
+    ]
+    listing_path = f"/post/{post_id}/media/"
+    listing_title = f"Медиа поста {post_id}"
+    if not media:
+        return _record_listing(
+            state, path=listing_path, title=listing_title,
+            body=f"У поста {post_id} нет медиа.",
+        )
+
+    image_refs: list[str] = []
+    lines = [f"Медиа поста {post_id}:"]
+    for record in media:
+        file_id = record["id"]
+        name = record["name"]
+        mime = record["type"]
+        ref_str = f"file:{file_id}"
+        if mime.startswith("image/"):
+            image_refs.append(ref_str)
+        lines.append(f"- {ref_str} name={name!r} type={mime!r}")
+    state.listed_image_media_refs = image_refs
     return _record_listing(
         state, path=listing_path, title=listing_title, body="\n".join(lines),
     )

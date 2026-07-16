@@ -20,6 +20,7 @@ venv/
 .ruff_cache/
 
 # Docker / data volumes
+docker-compose.override.yml
 postgres-data/
 minio-data/
 media-data/

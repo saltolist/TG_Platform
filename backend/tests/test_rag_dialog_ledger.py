@@ -218,3 +218,53 @@ def test_seed_hydrated_dialog_artifacts_replays_ledger_vision() -> None:
     assert seeded == (ref,)
     assert f"hydrate:vision:{ref}" in state.visited
     assert any("девушки" in plain for _cite, plain in state.context_blocks)
+
+
+def test_is_referential_distinguishes_same_instance_vs_new_predicate() -> None:
+    from app.services.ai.rag_dialog_ledger import is_referential
+
+    # Referential: points at objects already discussed.
+    assert is_referential("Расскажи про неё подробнее")
+    assert is_referential("А что в этой заметке?")
+    assert is_referential("Покажи файл из них")
+    # New predicate: same category, but not the same instances — must NOT
+    # be treated as referential, or the search narrows to already-discussed
+    # objects (chat 63dfb9e4 regression: "а сколько с изображениями?" got
+    # answered against only the 2 notes opened for a prior question).
+    assert not is_referential("А сколько с изображениями?")
+    assert not is_referential("Сколько всего у меня заметок?")
+    assert not is_referential("Какие посты самые популярные?")
+
+
+def test_referential_hints_from_ledger_only_for_referential_followups() -> None:
+    from app.services.ai.rag_dialog_ledger import (
+        LedgerEntity,
+        TurnSnapshot,
+        referential_hints_from_ledger,
+    )
+
+    ledger = (
+        TurnSnapshot(
+            turn_id="t1",
+            recorded_at="2026-07-16T00:00:00+00:00",
+            user_text="Сколько заметок про систему?",
+            target_post_id=None,
+            target_evidence_gap=None,
+            entities=(
+                LedgerEntity(entity_type="note", note_id="9fd458be", post_id=None),
+                LedgerEntity(entity_type="post", post_id="42", title="Дайджест"),
+            ),
+        ),
+    )
+
+    # Referential follow-up: reuse the ledger objects directly.
+    hints = referential_hints_from_ledger("А что там написано про неё?", ledger)
+    assert any("OpenNote note_id=9fd458be" in h for h in hints)
+    assert any("OpenPost post_id=42" in h for h in hints)
+
+    # New-predicate follow-up: no hints — must search the full category, not
+    # just the 2 objects already discussed.
+    assert referential_hints_from_ledger("А сколько всего заметок с картинками?", ledger) == []
+
+    # No ledger: nothing to hint regardless of phrasing.
+    assert referential_hints_from_ledger("Расскажи про неё", ()) == []

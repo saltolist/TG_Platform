@@ -24,6 +24,7 @@ from app.services.ai.rag_dialog_ledger import (
     chat_ledger_key,
     ledger_chat_id,
     load_ledger,
+    referential_hints_from_ledger,
 )
 from app.services.ai.rag_escalation import TierAResult, evaluate_tier_a
 from app.services.ai.rag_gate import l0_skip_reason
@@ -604,6 +605,7 @@ async def retrieve_rag_for_reply(
             user_id=user_id,
             chat_key=ledger_key,
         )
+        hints.extend(referential_hints_from_ledger(user_text, dialog_ledger))
 
         trace_step(
             "7. rag.L2",

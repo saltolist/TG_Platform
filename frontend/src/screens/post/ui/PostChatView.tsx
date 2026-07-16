@@ -103,11 +103,11 @@ export default function PostChatView({ post, data, ui, actions }: Props) {
                   />
                 );
               })}
+              <AgentRunInterrupts scope="post" />
             </div>
           </div>
         </div>
       </div>
-      <AgentRunInterrupts scope="post" />
       <Composer scope="post" onSubmit={sendPost} />
     </>
   );
