@@ -183,7 +183,7 @@ async def answer_node(state: AgentGraphState, config: RunnableConfig) -> dict[st
         post_id = str(ctx.post_data.get("id") or "")
         post_text = str(ctx.post_data.get("text") or "")
         if post_id and post_text:
-            prompt_parts.append(f"Текущий пост (id={post_id}):\n{post_text}")
+            prompt_parts.append(f"Текущий пост (tech_id={post_id}):\n{post_text}")
     prompt_parts.append(f"Вопрос:\n{state.get('user_text', '')}")
     if came_through_research:
         # Grounded path: cite only the retrieved evidence, same contract as before.
@@ -227,6 +227,16 @@ async def answer_node(state: AgentGraphState, config: RunnableConfig) -> dict[st
             "твой счёт/список должен явно учитывать все N, даже если в "
             "«Диалог» упоминались не все из них. Не сужай ответ до подмножества "
             "объектов из прошлых реплик, если evidence содержит больше.\n"
+            # Id-hygiene guard (чат 74b0ef7d): технические id (tech_id=…, note:…,
+            # UUID) — внутренние ключи, пользователю не нужны и не должны попадать
+            # в ответ. Ссылайся на посты/заметки по заголовку или содержанию. И не
+            # путай авторскую нумерацию внутри текста заметки («Пост 2») с
+            # системным tech_id: число в id не означает позицию в серии.
+            "Не показывай пользователю технические id (tech_id, note:, UUID) — "
+            "называй посты и заметки по заголовку/содержанию, а не по id. "
+            "Нумерация внутри текста заметки («Пост 2», «до 6-го») — это авторская "
+            "нумерация контента, она НЕ связана с tech_id постов; не отождествляй "
+            "«Пост N из заметки» с постом, у которого tech_id=N.\n"
             + UNTRUSTED_SYSTEM_NOTE
         )
     else:

@@ -273,7 +273,7 @@ async def tool_open_post(state: AgentState, *, post_id: str) -> ToolOutcome:
     primer_note = " (текст уже в primer)" if skip_text else ""
     return ToolOutcome(
         summary=(
-            f"Открыт пост {canonical_post_id}{primer_note}. "
+            f"Открыт пост tech_id={canonical_post_id}{primer_note}. "
             f"notes={notes_count}, media={media_count}, comments={comments_count}."
         )
     )
@@ -310,7 +310,13 @@ async def tool_list_posts(
     except Exception as exc:
         return ToolOutcome(summary="Не удалось получить список постов.", error=str(exc))
 
-    lines = [f"Посты пользователя (status={status_filter}):"]
+    # tech_id (не «id»): опубликованные посты несут tg message_id (маленькое
+    # число), черновики — UUID. Метка + пояснение не дают модели принять число
+    # в ключе за порядковый номер поста / позицию в серии (чат 74b0ef7d).
+    lines = [
+        f"Посты пользователя (status={status_filter}). "
+        "tech_id — технический ключ для OpenPost/GetPostAnalytics, НЕ порядковый номер:"
+    ]
     matched = 0
     state.catalog_posts = []
     for row in rows:
@@ -338,7 +344,7 @@ async def tool_list_posts(
             }
         )
         lines.append(
-            f"- id={post_id} status={post_status} title={title!r} "
+            f"- title={title!r} tech_id={post_id} status={post_status} "
             f"notes={notes_count} preview={preview!r}"
         )
         if result_limit is not None and matched >= result_limit:
