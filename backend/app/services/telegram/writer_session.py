@@ -109,19 +109,49 @@ async def export_writer_session(
         await disconnect_safely(writer_client)
 
 
+async def _writer_session_is_valid(
+    api_id: int, api_hash: str, session_string: str, settings: Settings
+) -> bool:
+    """Probe a cached writer session's auth key against Telegram.
+
+    Telegram can revoke a session out-of-band (password change, "terminate all
+    sessions", new login) without this backend ever hearing about it — the
+    reader session is a separate auth key and keeps working, so nothing else
+    surfaces the revocation. A stale writer session was then returned
+    unconditionally on every publish/edit/delete, permanently failing outbound
+    RPCs with AuthKeyUnregisteredError while incoming sync via the reader
+    session kept working fine (chat b0d11b7c).
+    """
+    client = build_client(api_id, api_hash, session_string)
+    try:
+        await connect_telegram_client(client, settings)
+        return bool(await with_timeout(client.is_user_authorized(), settings))
+    except Exception:
+        return False
+    finally:
+        await disconnect_safely(client)
+
+
 async def ensure_writer_session_string(
     profile: Profile,
     user_id: UUID,
     settings: Settings | None = None,
 ) -> str:
-    """Return a writer session string, creating and persisting one when missing."""
+    """Return a writer session string, creating and persisting one when missing
+    or when the cached one was revoked by Telegram."""
     settings = settings or get_settings()
     telegram = profile.telegram or {}
     existing = decrypt_writer_session(telegram, settings)
     if existing:
-        return existing
-
-    api_id, api_hash = require_api_credentials(telegram, settings)
+        api_id, api_hash = require_api_credentials(telegram, settings)
+        if await _writer_session_is_valid(api_id, api_hash, existing, settings):
+            return existing
+        logger.warning(
+            "Cached writer session for user %s failed auth check — re-exporting",
+            user_id,
+        )
+    else:
+        api_id, api_hash = require_api_credentials(telegram, settings)
     reader_session = decrypt_field(str(telegram.get("sessionString") or ""), settings)
     if not reader_session:
         raise TelegramAuthError("Не удалось подготовить writer-сессию Telegram", 400)
@@ -162,6 +192,19 @@ async def ensure_writer_session_string(
         finally:
             if remote_active:
                 await signal_listener_resume(user_id, telegram)
+
+    # Some accounts have Export/ImportAuthorizationRequest revoked server-side
+    # (Telegram invalidates the freshly imported auth key on the very next
+    # request) — export_writer_session then "succeeds" with a session string
+    # that is already dead. Persisting and returning it would repeat the same
+    # AuthKeyUnregisteredError forever. Raise instead so the caller
+    # (open_outbound_telegram_client) falls back to the reader session, which
+    # is the already-designed degraded path for this case (chat b0d11b7c).
+    if not await _writer_session_is_valid(api_id, api_hash, writer_session, settings):
+        raise TelegramAuthError(
+            "Не удалось создать writer-сессию Telegram (ключ отозван сразу после создания)",
+            400,
+        )
 
     await persist_writer_session_string(user_id, writer_session, settings)
     return writer_session

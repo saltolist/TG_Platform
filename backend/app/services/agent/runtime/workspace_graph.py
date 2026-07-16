@@ -404,6 +404,20 @@ async def build_action_proposal_node(
         new_text, new_text_html = stored_fields_from_platform_html(new_html)
         patch: dict[str, Any] = {"text": new_text or new_html, "textHtml": new_text_html}
         payload = {"post_id": post_id, "patch": patch}
+    elif (
+        command in {"publish_post", "schedule_post", "cancel_schedule", "delete_post", "restore_post"}
+        and ctx.scope == "post"
+        and ctx.post_data
+        and not str(payload.get("post_id") or "").strip()
+    ):
+        # Same failure shape as edit_post above, minus the text generation:
+        # the router is a 600-token classifier with no reliable memory of the
+        # post id it was shown, so it can emit payload={} for a bare "Опубликуй
+        # этот пост" — the proposal then reaches the user with an empty
+        # payload and the confirmation card renders "Пост пустой" (there is
+        # nothing to look up post_id from). ctx.post_data is the same
+        # authoritative source edit_post already trusts over the model.
+        payload = {**payload, "post_id": str(ctx.post_data.get("id") or "")}
     async with async_session_factory() as session:
         run = await session.get(AgentRun, uuid.UUID(state["run_id"]))
         if run is None:

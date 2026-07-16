@@ -27,6 +27,12 @@ async def test_ensure_writer_session_returns_existing_without_export(
         "decrypt_writer_session",
         lambda _tg, _s: "existing-writer-session",
     )
+    monkeypatch.setattr(
+        writer_session, "require_api_credentials", lambda _tg, _s: (1, "hash")
+    )
+    monkeypatch.setattr(
+        writer_session, "_writer_session_is_valid", AsyncMock(return_value=True)
+    )
 
     profile = Profile(user_id=writer_user.id, telegram={"writerSessionString": "enc"})
     result = await writer_session.ensure_writer_session_string(
@@ -35,6 +41,62 @@ async def test_ensure_writer_session_returns_existing_without_export(
 
     assert result == "existing-writer-session"
     export.assert_not_called()
+
+
+@pytest.mark.asyncio
+async def test_ensure_writer_session_reexports_when_existing_is_revoked(
+    writer_user, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Regression (chat b0d11b7c): Telegram can revoke the writer auth key
+    out-of-band (password change, "terminate all sessions") while the reader
+    session — a separate auth key powering incoming sync — keeps working.
+    ensure_writer_session_string used to trust a cached writerSessionString
+    unconditionally, so every publish/edit/delete failed forever with
+    AuthKeyUnregisteredError even though the user could still see messages
+    arrive from Telegram. It must probe the cached session and re-export a
+    fresh one when Telegram no longer recognizes it."""
+    user_id = writer_user.id
+    persist = AsyncMock()
+    monkeypatch.setattr(
+        writer_session, "decrypt_writer_session", lambda _tg, _s: "revoked-writer-session"
+    )
+    monkeypatch.setattr(writer_session, "decrypt_field", lambda value, _s: value or "reader")
+    monkeypatch.setattr(
+        writer_session, "require_api_credentials", lambda _tg, _s: (1, "hash")
+    )
+    monkeypatch.setattr(
+        writer_session,
+        "_writer_session_is_valid",
+        AsyncMock(side_effect=[False, True]),
+    )
+    monkeypatch.setattr(
+        writer_session,
+        "export_writer_session",
+        AsyncMock(return_value="fresh-writer-session"),
+    )
+    monkeypatch.setattr(writer_session, "persist_writer_session_string", persist)
+
+    registry = SimpleNamespace(get_active_reader_client=lambda _uid: object())
+    monkeypatch.setattr(
+        "app.services.telegram.live_sync_worker.listener_registry",
+        registry,
+    )
+
+    profile = Profile(
+        user_id=user_id,
+        telegram={
+            "sessionString": "reader",
+            "writerSessionString": "revoked",
+            "apiId": "1",
+            "apiHash": "hash",
+        },
+    )
+    result = await writer_session.ensure_writer_session_string(
+        profile, user_id, get_settings()
+    )
+
+    assert result == "fresh-writer-session"
+    persist.assert_awaited_once()
 
 
 @pytest.mark.asyncio
@@ -149,6 +211,9 @@ async def test_ensure_writer_session_persists_exported_session(
         AsyncMock(return_value="new-writer-session"),
     )
     monkeypatch.setattr(writer_session, "persist_writer_session_string", persist)
+    monkeypatch.setattr(
+        writer_session, "_writer_session_is_valid", AsyncMock(return_value=True)
+    )
 
     registry = SimpleNamespace(get_active_reader_client=lambda _uid: object())
     monkeypatch.setattr(
@@ -168,6 +233,50 @@ async def test_ensure_writer_session_persists_exported_session(
     persist.assert_awaited_once()
     assert persist.await_args.args[0] == user_id
     assert persist.await_args.args[1] == "new-writer-session"
+
+
+@pytest.mark.asyncio
+async def test_ensure_writer_session_raises_when_freshly_exported_key_is_dead(
+    writer_user, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Regression (chat b0d11b7c): some accounts have Telegram revoke the
+    freshly imported auth key on the very next request — export_writer_session
+    "succeeds" (Import returns full user data) but the key is already dead.
+    Persisting and returning that string would repeat AuthKeyUnregisteredError
+    forever; ensure_writer_session_string must instead raise so the caller
+    (open_outbound_telegram_client) falls back to the reader session, which is
+    the already-designed degraded path."""
+    user_id = writer_user.id
+    persist = AsyncMock()
+    monkeypatch.setattr(writer_session, "decrypt_writer_session", lambda _tg, _s: None)
+    monkeypatch.setattr(writer_session, "decrypt_field", lambda value, _s: value or "reader")
+    monkeypatch.setattr(
+        writer_session, "require_api_credentials", lambda _tg, _s: (1, "hash")
+    )
+    monkeypatch.setattr(
+        writer_session,
+        "export_writer_session",
+        AsyncMock(return_value="dead-on-arrival-session"),
+    )
+    monkeypatch.setattr(writer_session, "persist_writer_session_string", persist)
+    monkeypatch.setattr(
+        writer_session, "_writer_session_is_valid", AsyncMock(return_value=False)
+    )
+
+    registry = SimpleNamespace(get_active_reader_client=lambda _uid: object())
+    monkeypatch.setattr(
+        "app.services.telegram.live_sync_worker.listener_registry",
+        registry,
+    )
+
+    profile = Profile(
+        user_id=user_id,
+        telegram={"sessionString": "reader", "apiId": "1", "apiHash": "hash"},
+    )
+    with pytest.raises(writer_session.TelegramAuthError):
+        await writer_session.ensure_writer_session_string(profile, user_id, get_settings())
+
+    persist.assert_not_called()
 
 
 @pytest.mark.asyncio

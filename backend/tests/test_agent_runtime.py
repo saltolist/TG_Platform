@@ -774,6 +774,55 @@ async def test_edit_post_request_produces_action_proposal_end_to_end(
 
 
 @pytest.mark.asyncio
+async def test_publish_post_request_fills_post_id_when_router_omits_it(
+    writer_user, monkeypatch,
+) -> None:
+    """Regression (chat b0d11b7c): "Опубликуй этот пост" produced an
+    action_proposal with payload={} — the router classifier has no reliable
+    memory of which post_id it was shown, and unlike edit_post there was no
+    deterministic fill-in for publish_post/schedule_post/cancel_schedule/
+    delete_post/restore_post. The confirmation card then rendered "Пост
+    пустой" (buildProposalPostPreview has nothing to look post_id up from).
+    ctx.post_data is the same authoritative source edit_post already trusts
+    over the model output."""
+    monkeypatch.setattr("app.db.session.async_session_factory", TestSessionLocal)
+
+    post_id = str(uuid.uuid4())
+    post_data = sample_post(post_id, text="Готовый пост.")
+
+    async with TestSessionLocal() as session:
+        session.add(Post(id=uuid.UUID(post_id), user_id=writer_user.id, data=post_data))
+        await session.commit()
+
+        run, _ = await start_run(
+            session, user=writer_user, thread_id="publish-post-e2e",
+            scope="post", post_id=post_id,
+        )
+        ctx = await rebuild_runtime_context_for_run(session, run, "Опубликуй этот пост")
+        ctx.reasoner_spec = ProviderSpec("OpenAI", "https://api.openai.com")
+        ctx.reasoner_model = "gpt-4o-mini"
+        ctx.reasoner_api_key = "test-key"
+        monkeypatch.setattr(ctx.settings, "agent_actions_enabled", True)
+
+        route_response = '{"type": "post_proposal", "command": "publish_post", "payload": {}}'
+        with patch(
+            "app.services.ai.llm.complete_chat_completion",
+            new_callable=AsyncMock, return_value=route_response,
+        ):
+            await execute_agent_run(
+                session, run=run, user=writer_user,
+                user_text="Опубликуй этот пост", runtime_context=ctx,
+            )
+            await session.commit()
+
+        await session.refresh(run)
+        assert run.current_interrupt is not None
+        proposal = run.current_interrupt.get("proposal") or {}
+        assert proposal.get("command") == "publish_post"
+        assert proposal.get("payload", {}).get("post_id") == post_id
+
+
+@pytest.mark.asyncio
 async def test_edit_post_generates_multiline_text_without_json_wrapping(
     writer_user, monkeypatch,
 ) -> None:
