@@ -9,8 +9,8 @@ from fastapi import HTTPException
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.db.models import AgentRun, Post, Profile, User
-from app.db.resolve import get_owned_chat
+from app.db.models import AgentRun, Profile, User
+from app.db.resolve import get_owned_chat, get_owned_post
 from app.services.agent.runtime import events as event_service
 from app.services.agent.runtime.context import RuntimeContext
 
@@ -145,17 +145,23 @@ async def rebuild_runtime_context_for_run(
     reasoner = resolve_rag_reasoner_llm(user, ai_profile, settings)
     post_data = None
     if run.post_id:
+        # Resolve by UUID PK OR legacy JSONB data['id'] — the same canonical
+        # resolver the mutation executor (_edit_post) uses. run.post_id can be a
+        # legacy numeric id like "3" (older posts store data['id'] as a small
+        # int while the PK is a UUID); the previous uuid.UUID(run.post_id)-only
+        # lookup raised ValueError and left post_data=None, so edit_post silently
+        # produced an empty payload and no editable proposal ever reached the
+        # user (chat 61af02c7, post data.id="3").
         try:
-            post_uuid = uuid.UUID(run.post_id)
-        except ValueError:
-            post_uuid = None
-        if post_uuid:
-            post = await session.scalar(
-                select(Post).where(Post.id == post_uuid, Post.user_id == user.id)
-            )
-            post_data = dict(post.data) if post else None
+            post = await get_owned_post(session, user.id, run.post_id)
+            post_data = dict(post.data)
+        except HTTPException:
+            post_data = None
+    from app.services.ai.chat_history import extract_last_proposed_edit
+
     history = await load_run_history(session, run, user)
     dialog_context = build_planner_dialog_context(user_text, history) if history else ""
+    last_proposed_post_html = extract_last_proposed_edit(history) if history else None
     return RuntimeContext(
         session_factory=async_session_factory,
         user_id=user.id,
@@ -170,4 +176,5 @@ async def rebuild_runtime_context_for_run(
         reasoner_model=reasoner[1] if reasoner else "",
         reasoner_api_key=reasoner[2] if reasoner else "",
         dialog_context=dialog_context,
+        last_proposed_post_html=last_proposed_post_html,
     )

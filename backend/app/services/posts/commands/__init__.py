@@ -89,6 +89,8 @@ async def _edit_post(
     payload: dict[str, Any],
     resource_version: str | None,
 ) -> dict[str, Any]:
+    from app.services.telegram.text_formatting import apply_platform_text_fields
+
     post_id = str(payload.get("post_id") or "")
     post = await get_owned_post(session, user.id, post_id)
     current_version = str(post.data.get("syncRevision") or post.created_at.isoformat())
@@ -96,9 +98,29 @@ async def _edit_post(
         raise HTTPException(status_code=409, detail="resource_version_conflict")
     patch = dict(payload.get("patch") or {})
     allowed = {"text", "textHtml", "notes", "media", "title"}
+    # Reassign a fresh dict rather than mutating post.data in place: SQLAlchemy
+    # does not track in-place JSONB mutations (the other commands here all
+    # reassign for the same reason), so an in-place edit could silently fail to
+    # persist on flush.
+    data = dict(post.data)
     for key, value in patch.items():
-        if key in allowed:
-            post.data[key] = value
+        if key not in allowed:
+            continue
+        # None means "clear this field" (matches the frontend applyPostPatch
+        # convention: textHtml=null → delete). An edit_post that rewrites
+        # `text` without a matching `textHtml` clears the stale one this way so
+        # the post doesn't keep rendering pre-edit formatted wording (chat
+        # 49a569c8) — same convention _create_post already applies below.
+        if value is None:
+            data.pop(key, None)
+        else:
+            data[key] = value
+    # Re-validate text/textHtml agreement (same pass _create_post runs on
+    # authoring): if a caller patches `text` but leaves a `textHtml` that no
+    # longer matches it plain-for-plain, drop the stale HTML instead of letting
+    # it silently keep rendering over the new text.
+    apply_platform_text_fields(data)
+    post.data = data
     await session.flush()
     return {
         "post_id": post_id,

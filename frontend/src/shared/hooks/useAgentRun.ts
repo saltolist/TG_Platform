@@ -4,6 +4,10 @@ import { streamAgentRun } from "@/shared/api/agentRuns";
 import { apiRequest } from "@/shared/api/httpClient";
 import { agentRunSchema, type AgentRun, type AgentSsePayload } from "../api/schemas/agentRun";
 
+// Statuses from which a run never emits more events. "interrupted" is excluded
+// on purpose: it resumes after a HITL decision and then streams again.
+const TERMINAL_RUN_STATUSES = new Set(["completed", "failed", "cancelled"]);
+
 type UseAgentRunOptions = {
   runId: string | null;
   enabled?: boolean;
@@ -17,13 +21,16 @@ export function useAgentRun({ runId, enabled = true, lastEventId = 0 }: UseAgent
   const [lastSequence, setLastSequence] = useState(lastEventId);
   const lastSeqRef = useRef(lastEventId);
 
-  const refresh = useCallback(async () => {
-    if (!runId || !enabled) return;
+  const refresh = useCallback(async (): Promise<AgentRun | null> => {
+    if (!runId || !enabled) return null;
     try {
       const json = await apiRequest<unknown>(`/api/v1/ai/runs/${runId}/`);
-      setRun(agentRunSchema.parse(json));
+      const parsed = agentRunSchema.parse(json);
+      setRun(parsed);
+      return parsed;
     } catch {
       setError("run_fetch_failed");
+      return null;
     }
   }, [enabled, runId]);
 
@@ -44,7 +51,13 @@ export function useAgentRun({ runId, enabled = true, lastEventId = 0 }: UseAgent
         }
         setEvents((prev) => [...prev, payload]);
           }, controller.signal, lastSeqRef.current);
-          await refresh();
+          const latest = await refresh();
+          // Terminal runs emit no further events; the backend closes the SSE
+          // stream immediately, so without this the loop reconnects every 500ms
+          // forever (observed as endless GET events/?after=N in server logs).
+          // "interrupted" is NOT terminal — the run resumes after a HITL
+          // decision, so keep polling to pick up post-resume events.
+          if (latest && TERMINAL_RUN_STATUSES.has(latest.status)) break;
         } catch {
           if (!controller.signal.aborted) setError("sse_disconnected");
         }

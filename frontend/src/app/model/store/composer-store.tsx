@@ -495,7 +495,15 @@ export function ComposerProvider({ children }: { children: ReactNode }) {
         mergedVariantWebCites,
       );
       await patchGlobalChatHistory(queryClient, chats, chatId, (history) =>
-        updateLastVisibleAiMessage(history, () => reply),
+        updateLastVisibleAiMessage(history, (current) => ({
+          ...reply,
+          // An agent run's HITL proposal can land on this same turn via a
+          // separate SSE subscription (agent-run-store) racing this finalize
+          // call — preserve it instead of letting an empty-text finalize
+          // silently wipe the card.
+          proposal: current.proposal,
+          proposalDecision: current.proposalDecision,
+        })),
       );
     },
     [accountId, chats, getTarget, queryClient],
@@ -526,7 +534,13 @@ export function ComposerProvider({ children }: { children: ReactNode }) {
         mergedVariantWebCites,
       );
       await patchPostChatHistory(queryClient, posts, postId, chatId, (history) =>
-        updateLastVisibleAiMessage(history, () => reply),
+        updateLastVisibleAiMessage(history, (current) => ({
+          ...reply,
+          // See finalizeGlobalReply: preserve a proposal card written by the
+          // agent-run-store's separate SSE subscription racing this finalize.
+          proposal: current.proposal,
+          proposalDecision: current.proposalDecision,
+        })),
       );
     },
     [accountId, getTarget, posts, queryClient],

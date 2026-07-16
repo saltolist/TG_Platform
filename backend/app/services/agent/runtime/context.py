@@ -35,6 +35,12 @@ class RuntimeContext:
     # for the research planner (agent-runtime-sprints §2.1). Deliberately a
     # string, not native state["messages"] — see agent-runtime-remaining.md §2.
     dialog_context: str = ""
+    # HTML body of the most recently proposed edit_post action in this thread
+    # (approved, rejected, or pending), if any. dialog_context above only
+    # carries display text and drops the `proposal` payload, so a follow-up
+    # instruction referring back to a prior edit ("сделай ЕЁ через пробел")
+    # had nothing to resolve against — see extract_last_proposed_edit.
+    last_proposed_post_html: str | None = None
     min_similarity: float = 0.38
     search_k: int = 4
     scope_bias: float = 0.04

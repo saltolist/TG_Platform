@@ -168,7 +168,15 @@ async def stream_agent_events(
                     event_type=evt.event_type,
                     payload=evt.payload,
                 )
-            if run_row and run_row.status in {"completed", "failed", "cancelled"}:
+            # "interrupted" is terminal for THIS stream: the run is paused on a
+            # HITL proposal and won't emit more events until the user resumes.
+            # The client only calls refresh() (which loads current_interrupt and
+            # renders the approval card) AFTER the stream closes — so leaving it
+            # open here means the card never appears and the user waits forever
+            # despite a valid proposal already sitting in current_interrupt
+            # (chats 2323c4e4 / d8a4b47d and every prior edit_post run). Resuming
+            # opens a fresh stream.
+            if run_row and run_row.status in {"completed", "failed", "cancelled", "interrupted"}:
                 break
             if not events:
                 idle_rounds += 1

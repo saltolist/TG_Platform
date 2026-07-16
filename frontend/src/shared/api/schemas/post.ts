@@ -1,5 +1,6 @@
 import { z } from "zod";
 import { chatContextMetaSchema } from "./chatContextMeta";
+import { agentProposalSchema } from "./agentRun";
 
 export const postStatusSchema = z.enum(["published", "scheduled", "draft", "deleted"]);
 
@@ -118,6 +119,8 @@ export const userMessageBranchSchema = z.object({
   bundleContext: messageBundleContextSchema.optional(),
 });
 
+export const chatMessageProposalDecisionSchema = z.enum(["approve", "reject"]);
+
 export const chatMessageSchema: z.ZodType<{
   role: "user" | "ai";
   text?: string;
@@ -135,6 +138,13 @@ export const chatMessageSchema: z.ZodType<{
   bundleContext?: z.infer<typeof messageBundleContextSchema>;
   webCites?: WebCite[];
   kbCites?: KbCite[];
+  // Snapshot of an agent action_proposal card born on this AI turn — kept
+  // here (not in transient run state) so the card survives a reload and
+  // renders inline, in its own turn's slot, instead of always at the bottom
+  // of the thread.
+  proposal?: z.infer<typeof agentProposalSchema>;
+  // Null while the card is still awaiting a decision.
+  proposalDecision?: z.infer<typeof chatMessageProposalDecisionSchema> | null;
 }> = z.lazy(() =>
   z.object({
     role: z.enum(["user", "ai"]),
@@ -153,6 +163,8 @@ export const chatMessageSchema: z.ZodType<{
     bundleContext: messageBundleContextSchema.optional(),
     webCites: z.array(webCiteSchema).optional(),
     kbCites: z.array(kbCiteSchema).optional(),
+    proposal: agentProposalSchema.optional(),
+    proposalDecision: chatMessageProposalDecisionSchema.nullable().optional(),
   }),
 );
 

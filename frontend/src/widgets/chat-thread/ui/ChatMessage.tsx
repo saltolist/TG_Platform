@@ -77,6 +77,8 @@ export default function ChatMessage({
           : undefined
       }
       isStreaming={isStreaming}
+      proposal={message.proposal}
+      proposalDecision={message.proposalDecision ?? null}
     />
   );
 }

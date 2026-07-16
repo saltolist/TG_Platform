@@ -1,17 +1,14 @@
-/** Serialize PATCH mutations for one post so concurrent edits do not clobber each other. */
-const tailByPostId = new Map<string, Promise<unknown>>();
+import { runExclusive } from "@/shared/lib/asyncMutex";
 
+/**
+ * Serialize PATCH mutations for one post so concurrent edits do not clobber
+ * each other. Shares the `post:{id}` mutex key with patchPostChatHistory, so
+ * comment edits and chat-history/proposal writes queue together rather than
+ * racing on the same post object.
+ */
 export function enqueueSerialPostPatch<T>(
   postId: string,
   task: () => Promise<T>,
 ): Promise<T> {
-  const previous = tailByPostId.get(postId) ?? Promise.resolve();
-  const next = previous.catch(() => undefined).then(task);
-  tailByPostId.set(postId, next);
-  void next.finally(() => {
-    if (tailByPostId.get(postId) === next) {
-      tailByPostId.delete(postId);
-    }
-  });
-  return next;
+  return runExclusive(`post:${postId}`, task);
 }

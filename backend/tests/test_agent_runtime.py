@@ -9,6 +9,7 @@ import pytest
 from httpx import ASGITransport, AsyncClient
 
 from app.db.models import GlobalChat, Post
+from app.db.resolve import get_owned_post
 from app.main import app
 from app.services.agent.runtime.executor import execute_agent_run, resume_agent_graph
 from app.services.agent.runtime.runs import rebuild_runtime_context_for_run, start_run
@@ -33,6 +34,51 @@ async def test_create_and_get_agent_run(writer_auth_headers: dict[str, str]) -> 
         body = fetched.json()
         assert body["status"] == "running"
         assert body["thread_id"] == "gc-test"
+
+
+@pytest.mark.asyncio
+async def test_event_stream_terminates_on_interrupted_run(
+    writer_auth_headers: dict[str, str], writer_user, monkeypatch,
+) -> None:
+    """Regression for chats 2323c4e4 / d8a4b47d: an interrupted run (paused on a
+    HITL proposal) must CLOSE the SSE stream. The client only calls refresh()
+    — which loads current_interrupt and renders the approval card — after the
+    stream closes, so a stream that stays open on "interrupted" leaves the user
+    waiting forever despite a valid proposal already sitting in the run."""
+    import asyncio
+
+    from app.services.agent.runtime import events as event_service
+
+    monkeypatch.setattr("app.db.session.async_session_factory", TestSessionLocal)
+    transport = ASGITransport(app=app)
+    async with AsyncClient(transport=transport, base_url="http://test") as client:
+        created = await client.post(
+            "/api/v1/ai/runs/",
+            json={"threadId": "sse-interrupt", "scope": "global", "chatId": "gc-sse"},
+            headers=writer_auth_headers,
+        )
+        run_id = created.json()["id"]
+
+        async with TestSessionLocal() as session:
+            run = await event_service.get_run(
+                session, user_id=writer_user.id, run_id=uuid.UUID(run_id)
+            )
+            await event_service.update_run_status(
+                session, run, status="interrupted",
+                current_interrupt={"type": "action_proposal", "proposal": {"command": "edit_post"}},
+            )
+            await session.commit()
+
+        # Must complete quickly (generator polls every 0.5s, breaks on
+        # interrupted). Before the fix this hung until the wait_for timeout.
+        async def _read_stream() -> None:
+            async with client.stream(
+                "GET", f"/api/v1/ai/runs/{run_id}/events/", headers=writer_auth_headers
+            ) as resp:
+                async for _ in resp.aiter_bytes():
+                    pass
+
+        await asyncio.wait_for(_read_stream(), timeout=5.0)
 
 
 @pytest.mark.asyncio
@@ -191,6 +237,92 @@ async def test_rebuild_runtime_context_post_scope_uses_post_chat_id(
 
     assert "Нужный чат поста про текст" in context.dialog_context
     assert "другой чат" not in context.dialog_context
+
+
+@pytest.mark.asyncio
+async def test_rebuild_runtime_context_loads_last_proposed_post_html(
+    writer_user,
+) -> None:
+    """Regression for chat 2b9447dd: dialog_context only carries display text
+    ("Предложенное действие отклонено."), dropping what edit_post actually
+    proposed — so a follow-up like "сделай ЕЁ через пробел" had nothing to
+    resolve against. RuntimeContext.last_proposed_post_html must recover the
+    proposed body from history (regardless of approve/reject) separately.
+    """
+    post_id = str(uuid.uuid4())
+    chat_id = str(uuid.uuid4())
+    post_data = {
+        **sample_post(post_id),
+        "chats": [
+            {
+                "id": chat_id,
+                "history": [
+                    {"role": "user", "text": "Добавь цифру 3 в конце этого поста"},
+                    {
+                        "role": "ai",
+                        "text": "Предложенное действие отклонено.",
+                        "proposal": {
+                            "id": "p1",
+                            "command": "edit_post",
+                            "preview": {"patch": {"textHtml": "Текст поста.3"}},
+                        },
+                        "proposalDecision": "reject",
+                    },
+                ],
+            },
+        ],
+    }
+
+    async with TestSessionLocal() as session:
+        session.add(Post(id=uuid.UUID(post_id), user_id=writer_user.id, data=post_data))
+        await session.commit()
+
+        run, _ = await start_run(
+            session,
+            user=writer_user,
+            thread_id="last-proposed-test",
+            scope="post",
+            post_id=post_id,
+            post_chat_id=chat_id,
+        )
+
+        context = await rebuild_runtime_context_for_run(
+            session, run, "Сделай ее через пробел"
+        )
+
+    assert context.last_proposed_post_html == "Текст поста.3"
+    # Display text is what dialog_context carries — the proposed body must
+    # NOT already be sitting there under a different key.
+    assert "Текст поста.3" not in context.dialog_context
+
+
+@pytest.mark.asyncio
+async def test_rebuild_runtime_context_resolves_legacy_numeric_post_id(
+    writer_user,
+) -> None:
+    """Regression for chat 61af02c7: older posts store data['id'] as a small
+    integer ("3") while the DB PK is a UUID. run.post_id carries that legacy
+    "3", so the old uuid.UUID(run.post_id)-only lookup raised ValueError and
+    left post_data=None — edit_post then produced an empty payload and no
+    editable proposal ever reached the user. rebuild must resolve by data['id']
+    fallback, matching the mutation executor's get_owned_post."""
+    pk = uuid.uuid4()
+    legacy_id = "3"
+    post_data = {**sample_post(legacy_id, text="Привет 👋"), "id": legacy_id}
+
+    async with TestSessionLocal() as session:
+        session.add(Post(id=pk, user_id=writer_user.id, data=post_data))
+        await session.commit()
+
+        run, _ = await start_run(
+            session, user=writer_user, thread_id="legacy-post-id",
+            scope="post", post_id=legacy_id,
+        )
+        context = await rebuild_runtime_context_for_run(session, run, "Добавь цифру 2")
+
+    assert context.post_data is not None
+    assert context.post_data.get("text") == "Привет 👋"
+    assert context.post_data.get("id") == legacy_id
 
 
 @pytest.mark.asyncio
@@ -612,14 +744,18 @@ async def test_edit_post_request_produces_action_proposal_end_to_end(
 
         assert ctx.post_data is not None and ctx.post_data.get("text") == "Запуск 2 июля в 2 часа."
 
-        llm_response = (
-            '{"type": "post_proposal", "command": "edit_post", '
-            f'"payload": {{"post_id": "{post_id}", '
-            '"patch": {"text": "Запуск июля в часа."}}}}'
-        )
+        # Two LLM calls now: (1) router classifies as edit_post with an empty
+        # payload — it no longer regenerates the post text; (2) a dedicated,
+        # properly-budgeted call produces the full edited text. The router
+        # echoing "<полный новый текст поста>" into a 600-token reply was the
+        # original bug (chat 25e2cac3), so the split is the fix, not a crutch.
+        route_response = '{"type": "post_proposal", "command": "edit_post", "payload": {}}'
+        # The text generator returns the raw post body, not JSON — post bodies
+        # are multi-line and JSON-wrapping them broke json.loads (chat 479a2210).
+        edit_response = "Запуск июля в часа."
         with patch(
             "app.services.ai.llm.complete_chat_completion",
-            new_callable=AsyncMock, return_value=llm_response,
+            new_callable=AsyncMock, side_effect=[route_response, edit_response],
         ):
             await execute_agent_run(
                 session, run=run, user=writer_user,
@@ -632,7 +768,176 @@ async def test_edit_post_request_produces_action_proposal_end_to_end(
         assert run.current_interrupt.get("type") == "action_proposal"
         proposal = run.current_interrupt.get("proposal") or {}
         assert proposal.get("command") == "edit_post"
+        # post_id is authoritative from ctx.post_data, never the model output.
+        assert proposal.get("payload", {}).get("post_id") == post_id
         assert proposal.get("payload", {}).get("patch", {}).get("text") == "Запуск июля в часа."
+
+
+@pytest.mark.asyncio
+async def test_edit_post_generates_multiline_text_without_json_wrapping(
+    writer_user, monkeypatch,
+) -> None:
+    """Regression for chat 479a2210: real post bodies are multi-line (newlines,
+    emoji, quotes). The generator used to demand JSON {"text":"..."} and the
+    model emitted literal newlines inside the string, so json.loads rejected
+    every real post and edit_post reported "не удалось сгенерировать". The
+    generator now takes the raw completion as the body — no JSON round-trip."""
+    monkeypatch.setattr("app.db.session.async_session_factory", TestSessionLocal)
+
+    post_id = str(uuid.uuid4())
+    original = "Привет 👋\n\nЭто канал о TG.\nСтрочка «в кавычках»."
+    post_data = sample_post(post_id, text=original)
+
+    async with TestSessionLocal() as session:
+        session.add(Post(id=uuid.UUID(post_id), user_id=writer_user.id, data=post_data))
+        await session.commit()
+
+        run, _ = await start_run(
+            session, user=writer_user, thread_id="edit-multiline",
+            scope="post", post_id=post_id,
+        )
+        ctx = await rebuild_runtime_context_for_run(session, run, "Добавь цифру 2 в конце")
+        ctx.reasoner_spec = ProviderSpec("OpenAI", "https://api.openai.com")
+        ctx.reasoner_model = "gpt-4o-mini"
+        ctx.reasoner_api_key = "test-key"
+        monkeypatch.setattr(ctx.settings, "agent_actions_enabled", True)
+
+        edited = original + "2"
+        route_response = '{"type": "post_proposal", "command": "edit_post", "payload": {}}'
+        with patch(
+            "app.services.ai.llm.complete_chat_completion",
+            new_callable=AsyncMock, side_effect=[route_response, edited],
+        ):
+            await execute_agent_run(
+                session, run=run, user=writer_user,
+                user_text="Добавь цифру 2 в конце", runtime_context=ctx,
+            )
+            await session.commit()
+
+        await session.refresh(run)
+        assert run.current_interrupt is not None
+        proposal = run.current_interrupt.get("proposal") or {}
+        assert proposal.get("payload", {}).get("patch", {}).get("text") == edited
+
+
+@pytest.mark.asyncio
+async def test_edit_post_clears_stale_texthtml(writer_user, monkeypatch) -> None:
+    """Regression for chat 49a569c8: posts render textHtml in preference to
+    text. When the model's HTML response carries no real formatting (plain
+    text with no tags), stored_fields_from_platform_html must derive
+    textHtml=None so the post doesn't keep showing the old bold wording, and
+    the executor must treat that None as "delete the field"."""
+    monkeypatch.setattr("app.db.session.async_session_factory", TestSessionLocal)
+
+    post_id = str(uuid.uuid4())
+    post_data = {
+        **sample_post(post_id, text="Привет"),
+        "textHtml": "<strong>Привет</strong>",
+    }
+
+    async with TestSessionLocal() as session:
+        session.add(Post(id=uuid.UUID(post_id), user_id=writer_user.id, data=post_data))
+        await session.commit()
+
+        run, _ = await start_run(
+            session, user=writer_user, thread_id="edit-clears-html",
+            scope="post", post_id=post_id,
+        )
+        ctx = await rebuild_runtime_context_for_run(session, run, "Добавь цифру 2")
+        ctx.reasoner_spec = ProviderSpec("OpenAI", "https://api.openai.com")
+        ctx.reasoner_model = "gpt-4o-mini"
+        ctx.reasoner_api_key = "test-key"
+        monkeypatch.setattr(ctx.settings, "agent_actions_enabled", True)
+
+        route_response = '{"type": "post_proposal", "command": "edit_post", "payload": {}}'
+        with patch(
+            "app.services.ai.llm.complete_chat_completion",
+            new_callable=AsyncMock, side_effect=[route_response, "Привет2"],
+        ):
+            await execute_agent_run(
+                session, run=run, user=writer_user,
+                user_text="Добавь цифру 2", runtime_context=ctx,
+            )
+            await session.commit()
+
+        proposal = run.current_interrupt.get("proposal") or {}
+        patch_payload = proposal.get("payload", {}).get("patch", {})
+        assert patch_payload.get("text") == "Привет2"
+        # textHtml explicitly cleared so the card/post won't show the old bold form.
+        assert "textHtml" in patch_payload and patch_payload["textHtml"] is None
+
+        # And the executor actually drops the field (not stores None).
+        from app.services.posts.commands import execute_post_command
+
+        await execute_post_command(
+            session, user=writer_user, command="edit_post",
+            payload=proposal["payload"], resource_version=None,
+        )
+        refreshed = await get_owned_post(session, writer_user.id, post_id)
+        assert refreshed.data.get("text") == "Привет2"
+        assert "textHtml" not in refreshed.data
+
+
+@pytest.mark.asyncio
+async def test_edit_post_preserves_formatting_and_custom_emoji(
+    writer_user, monkeypatch,
+) -> None:
+    """The agent is fed the post's existing textHtml (not just plain text) so
+    it can preserve inline formatting and Telegram custom emoji through an
+    edit, and may apply new formatting of its own. Verifies both: an existing
+    <tg-emoji> survives untouched, and the model's own <strong> comes through
+    as real formatting in the stored textHtml."""
+    monkeypatch.setattr("app.db.session.async_session_factory", TestSessionLocal)
+
+    post_id = str(uuid.uuid4())
+    original_html = 'Привет <tg-emoji emoji-id="5789">⭐</tg-emoji> мир'
+    post_data = {
+        **sample_post(post_id, text="Привет ⭐ мир"),
+        "textHtml": original_html,
+    }
+
+    async with TestSessionLocal() as session:
+        session.add(Post(id=uuid.UUID(post_id), user_id=writer_user.id, data=post_data))
+        await session.commit()
+
+        run, _ = await start_run(
+            session, user=writer_user, thread_id="edit-preserve-formatting",
+            scope="post", post_id=post_id,
+        )
+        ctx = await rebuild_runtime_context_for_run(session, run, "Выдели 'мир' жирным")
+        ctx.reasoner_spec = ProviderSpec("OpenAI", "https://api.openai.com")
+        ctx.reasoner_model = "gpt-4o-mini"
+        ctx.reasoner_api_key = "test-key"
+        monkeypatch.setattr(ctx.settings, "agent_actions_enabled", True)
+
+        # Model echoes the custom emoji verbatim and adds its own <strong>.
+        model_html = 'Привет <tg-emoji emoji-id="5789">⭐</tg-emoji> <strong>мир</strong>'
+        route_response = '{"type": "post_proposal", "command": "edit_post", "payload": {}}'
+        with patch(
+            "app.services.ai.llm.complete_chat_completion",
+            new_callable=AsyncMock, side_effect=[route_response, model_html],
+        ):
+            await execute_agent_run(
+                session, run=run, user=writer_user,
+                user_text="Выдели 'мир' жирным", runtime_context=ctx,
+            )
+            await session.commit()
+
+        proposal = run.current_interrupt.get("proposal") or {}
+        patch_payload = proposal.get("payload", {}).get("patch", {})
+        assert patch_payload.get("text") == "Привет ⭐ мир"
+        assert 'tg-emoji emoji-id="5789"' in (patch_payload.get("textHtml") or "")
+        assert "<strong>мир</strong>" in (patch_payload.get("textHtml") or "")
+
+        from app.services.posts.commands import execute_post_command
+
+        await execute_post_command(
+            session, user=writer_user, command="edit_post",
+            payload=proposal["payload"], resource_version=None,
+        )
+        refreshed = await get_owned_post(session, writer_user.id, post_id)
+        assert refreshed.data.get("text") == "Привет ⭐ мир"
+        assert 'tg-emoji emoji-id="5789"' in refreshed.data.get("textHtml", "")
 
 
 @pytest.mark.asyncio
@@ -662,14 +967,14 @@ async def test_resume_agent_graph_after_action_proposal_completes(
         ctx.reasoner_api_key = "test-key"
         monkeypatch.setattr(ctx.settings, "agent_actions_enabled", True)
 
-        llm_response = (
-            '{"type": "post_proposal", "command": "edit_post", '
-            f'"payload": {{"post_id": "{post_id}", '
-            '"patch": {"text": "Запуск июля в часа."}}}}'
-        )
+        # Router classifies (empty payload), then a dedicated call generates
+        # the edited text — two LLM calls, mirroring the split in
+        # build_action_proposal_node.
+        route_response = '{"type": "post_proposal", "command": "edit_post", "payload": {}}'
+        edit_response = "Запуск июля в часа."
         with patch(
             "app.services.ai.llm.complete_chat_completion",
-            new_callable=AsyncMock, return_value=llm_response,
+            new_callable=AsyncMock, side_effect=[route_response, edit_response],
         ):
             await execute_agent_run(
                 session, run=run, user=writer_user,

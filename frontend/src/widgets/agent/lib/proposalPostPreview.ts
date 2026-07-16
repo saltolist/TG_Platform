@@ -64,8 +64,17 @@ export function buildProposalPostPreview(
     merged.text = nextText;
     changes.push("текст");
   }
-  const nextHtml = (patch.textHtml ?? data.textHtml) as string | undefined;
-  if (typeof nextHtml === "string") merged.textHtml = nextHtml;
+  // textHtml renders in preference to text (TelegramFormattedText). An agent
+  // edit_post rewrites plain `text` and sends textHtml:null to clear the stale
+  // formatted version — otherwise the card shows the pre-edit wording despite
+  // the new text (chat 49a569c8). Honour the explicit null, mirroring the
+  // executor and applyPostPatch.
+  if ("textHtml" in patch && patch.textHtml === null) {
+    delete merged.textHtml;
+  } else {
+    const nextHtml = (patch.textHtml ?? data.textHtml) as string | undefined;
+    if (typeof nextHtml === "string") merged.textHtml = nextHtml;
+  }
 
   const nextMedia = (patch.media ?? data.media ?? preview.media) as PostMedia[] | undefined;
   if (Array.isArray(nextMedia)) {

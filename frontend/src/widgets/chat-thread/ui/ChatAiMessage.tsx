@@ -14,8 +14,18 @@ import {
   prepareNoteCitationsForDisplay,
   stripSelfPostCitations,
 } from "@/shared/lib/noteCitation";
-import { useMemo } from "react";
+import { useCallback, useMemo, useState } from "react";
 import type { KbCite, WebCite } from "@/shared/api/schemas/post";
+import type { AgentProposal } from "@/shared/api/schemas/agentRun";
+import { useAgentRunContext } from "@/widgets/agent/model/AgentRunContext";
+import { getCachedPost } from "@/entities/post/lib/getCachedPost";
+import { useQueryClient } from "@tanstack/react-query";
+import { AgentProposalCard } from "@/widgets/agent/ui/AgentProposalCard";
+import { PostProposalCard, type ProposalDecision } from "@/widgets/agent/ui/PostProposalCard";
+import {
+  POST_PROPOSAL_COMMANDS,
+  proposalPostId,
+} from "@/widgets/agent/lib/proposalPostPreview";
 
 type Props = {
   plainAi: string;
@@ -30,6 +40,11 @@ type Props = {
   onBumpVariant: (delta: number) => void;
   onDelete?: () => void;
   isStreaming?: boolean;
+  // Snapshot of the action_proposal card born on this turn, if any (persisted
+  // by agent-run-store so it survives a reload) — rendered inline, in this
+  // turn's own slot in the thread, instead of only at the bottom.
+  proposal?: AgentProposal;
+  proposalDecision?: ProposalDecision | null;
 };
 
 export default function ChatAiMessage({
@@ -45,6 +60,8 @@ export default function ChatAiMessage({
   onBumpVariant,
   onDelete,
   isStreaming = false,
+  proposal,
+  proposalDecision = null,
 }: Props) {
   const { data: posts = [] } = usePosts();
   const { data: globalNotes = [] } = useGlobalNotes();
@@ -73,12 +90,50 @@ export default function ChatAiMessage({
   const showMultiStreamingNav = isStreaming && showVariantNav && !!ctx;
   const showFooter = !isStreaming || showMultiStreamingNav;
 
+  const agentRun = useAgentRunContext();
+  const queryClient = useQueryClient();
+  const [collapsed, setCollapsed] = useState(true);
+  const decide = useCallback(
+    (decision: ProposalDecision) => {
+      if (!proposal) return;
+      void agentRun?.resume({
+        decision,
+        proposal_id: proposal.id,
+        payload_hash: proposal.payload_hash,
+      });
+    },
+    [agentRun, proposal],
+  );
+  const currentPostForProposal = useMemo(() => {
+    if (!proposal) return null;
+    const id = proposalPostId(proposal);
+    return id ? (getCachedPost(queryClient, id) ?? null) : null;
+  }, [proposal, queryClient]);
+
   return (
     <div className="msg-row ai">
       <div className="msg-body">
+        {proposal ? (
+          POST_PROPOSAL_COMMANDS.has(proposal.command) ? (
+            <PostProposalCard
+              proposal={proposal}
+              currentPost={currentPostForProposal}
+              decision={proposalDecision}
+              collapsed={proposalDecision !== null && collapsed}
+              onDecide={decide}
+              onToggle={() => setCollapsed((v) => !v)}
+            />
+          ) : (
+            <AgentProposalCard
+              proposal={proposal}
+              onApprove={() => decide("approve")}
+              onReject={() => decide("reject")}
+            />
+          )
+        ) : null}
         {showTyping ? (
           <AiTypingIndicator />
-        ) : (
+        ) : plainAi.trim() ? (
           <div className="msg-text">
             <ChatMarkdown
               text={displayAi}
@@ -87,7 +142,7 @@ export default function ChatAiMessage({
               webCites={webCites}
             />
           </div>
-        )}
+        ) : null}
         {showFooter ? (
           <div className="ai-msg-footer">
             <div className="ai-msg-footer-left">

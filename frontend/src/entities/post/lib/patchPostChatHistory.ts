@@ -3,6 +3,7 @@ import type { QueryClient } from "@tanstack/react-query";
 import { setCachedPost } from "@/entities/post/lib/getCachedPost";
 import { queryKeys } from "@/shared/api/queryKeys";
 import type { PostsRepository } from "@/shared/api/repositories";
+import { runExclusive } from "@/shared/lib/asyncMutex";
 import { getQueryAccountIdFromAuth } from "@/shared/lib/auth/queryAccountScope";
 import { lastUserPreviewFromVisibleHistory, normalizeBranchedHistory } from "@/shared/lib/chatPaths";
 import type { ChatMessage, LocalChat, Post } from "@/shared/types";
@@ -65,14 +66,21 @@ export async function patchPostChatHistory(
   updater: (history: ChatMessage[]) => ChatMessage[],
   options?: PatchPostChatHistoryOptions,
 ): Promise<Post> {
-  const post = await fetchPost(queryClient, posts, postId);
-  let chats = patchLocalChatInList(post.chats, chatId, updater);
-  if (options?.preview) {
-    chats = chats.map((c) =>
-      c.id === chatId ? { ...c, preview: options.preview!.slice(0, 80) } : c,
-    );
-  }
-  const updated = await posts.update(postId, { chats });
-  setCachedPost(queryClient, updated);
-  return updated;
+  // Serialize per post: composer-store finalize and agent-run-store proposal
+  // persist both read-modify-write this post's chats concurrently. Under React
+  // Query's 60s staleTime their fetches would otherwise share one stale
+  // snapshot and the last update() would drop the other's change (e.g. wipe a
+  // HITL proposal card). See asyncMutex.
+  return runExclusive(`post:${postId}`, async () => {
+    const post = await fetchPost(queryClient, posts, postId);
+    let chats = patchLocalChatInList(post.chats, chatId, updater);
+    if (options?.preview) {
+      chats = chats.map((c) =>
+        c.id === chatId ? { ...c, preview: options.preview!.slice(0, 80) } : c,
+      );
+    }
+    const updated = await posts.update(postId, { chats });
+    setCachedPost(queryClient, updated);
+    return updated;
+  });
 }

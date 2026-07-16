@@ -144,6 +144,35 @@ def apply_platform_text_fields(payload: dict[str, Any]) -> None:
         payload.pop("textHtml", None)
 
 
+def stored_fields_from_platform_html(raw_html: str) -> tuple[str, str | None]:
+    """Derive stored ``(text, textHtml)`` from agent-authored Telegram HTML.
+
+    The agent produces Telegram HTML (bold/italic/links/<tg-emoji> …); the plain
+    ``text`` is derived from it so the two never disagree — the post renders
+    textHtml over text, so a mismatch would show stale wording (chat 49a569c8).
+    Custom emoji survive because Telethon parses <tg-emoji emoji-id> into a
+    MessageEntityCustomEmoji and unparse restores the tag verbatim. Returns
+    ``(plain, None)`` when the HTML is broken or carries no real formatting.
+    """
+    html = str(raw_html or "").strip()
+    if not html:
+        return "", None
+    try:
+        from telethon.extensions import html as tg_html
+
+        _ensure_telegram_html_formatters()
+        parsed_text, _entities = tg_html.parse(_html_for_telethon_parse(html))
+    except Exception:
+        logger.debug("Failed to parse agent textHtml", exc_info=True)
+        return html, None
+    plain = str(parsed_text or "").strip()
+    # normalize_platform_text_html re-validates that the HTML's plain projection
+    # equals `plain` (true by construction here) and returns normalized HTML or
+    # None when there is no formatting to keep.
+    _norm_plain, normalized_html, _ = normalize_platform_text_html(plain, html)
+    return plain, normalized_html
+
+
 def post_formatting_entities_from_payload(payload: Mapping[str, Any]) -> list[Any] | None:
     """Return Telethon entities for outbound publish/edit when formatting is present."""
     text = str(payload.get("text") or "")
@@ -164,4 +193,5 @@ __all__ = [
     "message_to_text_html",
     "normalize_platform_text_html",
     "post_formatting_entities_from_payload",
+    "stored_fields_from_platform_html",
 ]

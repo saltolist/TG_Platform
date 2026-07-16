@@ -8,6 +8,7 @@ import { ScreenShell } from "@/screens/_ui/screen-shell";
 import { useGChatScreen } from "@/screens/gchat/model/useGChatScreen";
 import { GChatScreenHeader } from "@/screens/gchat/ui/GChatScreenHeader";
 import { GlobalChatMessages } from "@/screens/gchat/ui/GlobalChatMessages";
+import { AgentRunProvider } from "@/widgets/agent/model/AgentRunContext";
 import { AgentRunInterrupts } from "@/widgets/agent/ui/AgentRunInterrupts";
 
 export function GChatScreen() {
@@ -69,16 +70,18 @@ export function GChatScreen() {
   return (
     <>
       {header}
-      <div className="gchat-layout">
-        <GlobalChatMessages
-          chatId={gchatId}
-          flatMessages={flatMessages}
-          lastAssistantFlat={lastAssistantFlat}
-          messagesRef={messagesRef}
-        />
-        <AgentRunInterrupts scope="gchat" />
-        <Composer scope="gchat" onSubmit={sendGChat} />
-      </div>
+      <AgentRunProvider scope="gchat" chatId={gchatId}>
+        <div className="gchat-layout">
+          <GlobalChatMessages
+            chatId={gchatId}
+            flatMessages={flatMessages}
+            lastAssistantFlat={lastAssistantFlat}
+            messagesRef={messagesRef}
+          />
+          <AgentRunInterrupts />
+          <Composer scope="gchat" onSubmit={sendGChat} />
+        </div>
+      </AgentRunProvider>
     </>
   );
 }

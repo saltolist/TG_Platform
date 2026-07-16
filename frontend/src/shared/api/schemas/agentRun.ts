@@ -58,6 +58,7 @@ export const agentRunSchema = z.object({
   scope: z.string(),
   chat_id: z.string().nullable().optional(),
   post_id: z.string().nullable().optional(),
+  post_chat_id: z.string().nullable().optional(),
   current_interrupt: z.record(z.string(), z.unknown()).nullable().optional(),
   snapshot: z.record(z.string(), z.unknown()).optional(),
   error: z.string().nullable().optional(),

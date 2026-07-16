@@ -43,7 +43,7 @@ WORKSPACE_SYSTEM = """Ты единственный WorkspaceAgent платфо�
 Не выполняй мутации напрямую. Выбирай только тип вызова, без keyword routing.
 При любой неоднозначности выбирай "read": если запрос ссылается на посты, заметки, метрики, охваты или любые факты workspace — это "read". "finish" — только для явно общих/не-фактических запросов (приветствие, объяснение возможностей, вопрос не про данные workspace).
 Если передан блок "Диалог" — используй его, чтобы понять контекст запроса. Короткая правка твоего предыдущего ответа без новых фактических вопросов (перефразируй, покороче, на другом языке, другим тоном) — это "finish", даже если предыдущий ответ был по фактам workspace: факты уже собраны и лежат в диалоге, повторный поиск не нужен.
-Если передан блок "Текущий пост" и пользователь просит изменить его текст (убрать/добавить/переформулировать что-то в посте) — это {"type":"post_proposal","command":"edit_post","payload":{"post_id":"<id из блока>","patch":{"text":"<полный новый текст поста>"}}}. В patch.text верни ПОЛНЫЙ текст поста с внесённой правкой, сохранив всё остальное без изменений — не фрагмент и не описание правки."""
+Если передан блок "Текущий пост" и пользователь просит изменить его текст (убрать/добавить/переформулировать что-то в посте) — верни ровно {"type":"post_proposal","command":"edit_post","payload":{}}. Полный текст поста и его id проставляются отдельным детерминированным шагом — тебе НЕ нужно возвращать ни текст, ни id здесь, только классифицировать запрос как edit_post."""
 
 
 async def bootstrap_node(state: AgentGraphState, config: RunnableConfig) -> dict[str, Any]:
@@ -230,6 +230,121 @@ async def answer_node(state: AgentGraphState, config: RunnableConfig) -> dict[st
     }
 
 
+_EDIT_POST_SYSTEM = (
+    "Ты редактируешь текст поста для Telegram. Тебе дан текущий текст поста в "
+    "виде Telegram HTML и инструкция пользователя, а также, если есть, недавний "
+    "диалог. Верни ТОЛЬКО итоговый текст поста целиком в виде Telegram HTML — "
+    "с применённой правкой, сохранив всё остальное без изменений (переносы "
+    "строк передавай как <br>).\n\n"
+    "Инструкция может ссылаться на предыдущий ход анафорой («сделай ЕЁ через "
+    "пробел», «добавь ТО ЖЕ в конец»). Используй недавний диалог, чтобы понять, "
+    "к чему относится ссылка — например, если пользователь до этого просил "
+    "добавить цифру, а потом просит «сделать её через пробел», это значит "
+    "добавить ту же цифру, но через пробел, даже если предыдущая правка была "
+    "отклонена. Если из диалога неясно, к чему относится ссылка, следуй "
+    "инструкции буквально, не выдумывая контекст.\n\n"
+    "Разрешённые теги: <strong>, <em>, <u>, <s>, <code>, <a href=\"...\">, "
+    "<span class=\"tg-spoiler\">, <tg-emoji emoji-id=\"...\">, <br>. Никаких "
+    "других тегов, атрибутов, markdown-разметки или ```-блоков.\n\n"
+    "Если в тексте встречаются <tg-emoji emoji-id=\"...\">...</tg-emoji> — это "
+    "кастомные эмодзи пользователя из его наборов Telegram. Копируй такие теги "
+    "ДОСЛОВНО, включая emoji-id и содержимое, если не удаляешь именно этот "
+    "фрагмент текста. Не придумывай новые emoji-id и не добавляй новые "
+    "<tg-emoji> — их нет в твоём распоряжении.\n\n"
+    "Форматирование (жирный, курсив и т.п.) применяй по своему усмотрению там, "
+    "где это уместно и улучшает читаемость, даже если пользователь не просил "
+    "об этом явно — но не переусердствуй и не меняй стиль поста без причины. "
+    "Не добавляй пояснений — только сам текст поста в виде HTML."
+)
+
+
+async def _generate_edited_post_html(
+    ctx: RuntimeContext,
+    *,
+    current_html: str,
+    instruction: str,
+    dialog_context: str = "",
+    last_proposed_post_html: str | None = None,
+) -> str | None:
+    """Generate the full edited post as Telegram HTML in a dedicated LLM call.
+
+    Split out of the router (workspace_agent_node): that node is a lightweight
+    classifier capped at max_tokens=600, which physically cannot re-emit a
+    ~1200-char Cyrillic post, so it "cheated" by echoing the prompt's
+    placeholder (`<полный новый текст поста>`) verbatim into patch.text — the
+    proposal then carried garbage that would have overwritten the post body on
+    approval (chat 25e2cac3). Here the budget is sized to the actual post.
+
+    Fed with (and returning) Telegram HTML rather than plain text so inline
+    formatting and existing <tg-emoji> custom emoji survive an AI edit instead
+    of being silently flattened to plain text (chat 49a569c8 follow-up).
+
+    dialog_context carries the recent turns as display text only — it does NOT
+    include what a prior edit_post turn actually proposed (linearize_for_llm
+    drops the `proposal` payload). So an anaphoric instruction ("сделай ЕЁ
+    через пробел") had nothing concrete to resolve against and the referenced
+    change silently vanished (chat 2b9447dd). last_proposed_post_html carries
+    that prior proposed body separately.
+
+    A rejected proposal in this UI means "this exact wording isn't right yet",
+    not "forget it, go back to the saved post" — the "Отклонить" button starts
+    another refinement round, it doesn't reset the thread. So when the new
+    instruction is a follow-up edit on an unapplied proposal (chat 2b9447dd
+    turn 3: "Добавь после неё точку" referring to the "3"/"4" from two
+    still-rejected edits), the edit must be layered ON TOP OF
+    last_proposed_post_html, not on current_html — current_html has no digit
+    at all, so "after it" has nothing to anchor to and the model silently
+    returns the post unchanged (observed regression: three chained anaphoric
+    edits, only the first one actually landed). current_html is used instead
+    only when there is no pending proposal to continue from.
+    """
+    from app.services.ai.rag_json import _strip_code_fences
+
+    if not ctx.reasoner_spec or not ctx.reasoner_model or not ctx.reasoner_api_key:
+        return None
+    edit_base = current_html
+    proposal_block = ""
+    if last_proposed_post_html and last_proposed_post_html.strip() != current_html.strip():
+        edit_base = last_proposed_post_html.strip()
+        proposal_block = (
+            "Пользователь уже несколько сообщений подряд правит один и тот же "
+            "черновик — предыдущие варианты были отклонены не потому что не по "
+            "теме, а потому что формулировка ещё не финальная. Текст поста, "
+            "сохранённый в системе, ниже (для справки, на случай если это "
+            "первое сообщение в цепочке правок):\n"
+            f"{current_html}\n\n"
+        )
+    # Budget the completion to comfortably exceed the source text: Cyrillic runs
+    # ~1 token/char, HTML tags add overhead on top, and an edit can only grow
+    # the text modestly, so 3x chars plus headroom avoids mid-text truncation.
+    max_tokens = min(6000, max(800, len(edit_base) * 3 + 400))
+    context_block = f"Недавний диалог:\n{dialog_context}\n\n" if dialog_context.strip() else ""
+    prompt = (
+        f"{context_block}{proposal_block}Текст поста, который нужно отредактировать "
+        f"(Telegram HTML):\n{edit_base}\n\n"
+        f"Инструкция:\n{instruction}"
+    )
+    raw = await call_llm_with_deadline(
+        ctx,
+        messages=[
+            {"role": "system", "content": _EDIT_POST_SYSTEM},
+            {"role": "user", "content": prompt},
+        ],
+        spec=ctx.reasoner_spec,
+        model=ctx.reasoner_model,
+        api_key=ctx.reasoner_api_key,
+        temperature=0.0,
+        max_tokens=max_tokens,
+    )
+    # Post bodies are multi-line (newlines, emoji, quotes). Asking for JSON
+    # {"text":"..."} was fragile — models emit literal newlines inside the
+    # string and json.loads rejects it, so generation "failed" on every real
+    # post (chat 479a2210, 1178-char multi-line post). Take the raw completion
+    # as the new body instead; only strip a stray ```-fence the model may wrap
+    # around it. No JSON round-trip means no escaping to get wrong.
+    return _strip_code_fences(str(raw or "")).strip() or None
+
+
 async def build_action_proposal_node(
     state: AgentGraphState,
     config: RunnableConfig,
@@ -246,6 +361,49 @@ async def build_action_proposal_node(
     call = state.get("tool_call") or {}
     command = str(call.get("command") or "")
     payload = dict(call.get("payload") or {})
+
+    # edit_post text is generated here, not by the router. The router only
+    # classifies; the authoritative post_id comes from ctx.post_data (never the
+    # model, which used to echo "<id из блока>"), and the full new text is
+    # produced by a properly-budgeted LLM call.
+    if command == "edit_post" and ctx.scope == "post" and ctx.post_data:
+        from app.services.telegram.text_formatting import stored_fields_from_platform_html
+
+        post_id = str(ctx.post_data.get("id") or "")
+        current_text = str(ctx.post_data.get("text") or "")
+        # Feed the model the existing textHtml (falling back to plain text for
+        # posts without formatting) so it can see and preserve inline styling
+        # and any <tg-emoji> custom emoji already in the post.
+        current_html = str(ctx.post_data.get("textHtml") or current_text)
+        if not post_id or not current_text:
+            return {
+                **state,
+                "errors": [*(state.get("errors") or []), "edit_post_missing_context"],
+                "answer_text": "Не удалось определить пост для редактирования.",
+            }
+        new_html = await _generate_edited_post_html(
+            ctx,
+            current_html=current_html,
+            instruction=str(state.get("user_text") or ""),
+            dialog_context=ctx.dialog_context,
+            last_proposed_post_html=ctx.last_proposed_post_html,
+        )
+        if not new_html:
+            return {
+                **state,
+                "errors": [*(state.get("errors") or []), "edit_post_generation_failed"],
+                "answer_text": "Не удалось сгенерировать изменённый текст поста.",
+            }
+        # Derive text from the HTML the model returned rather than trusting it
+        # separately — the two must never disagree, since the post renders
+        # textHtml over text (TelegramFormattedText); a mismatch showed stale
+        # wording (chat 49a569c8). stored_fields_from_platform_html re-validates
+        # via the same normalize_platform_text_html path platform-authored posts
+        # go through, and falls back to plain text if the model's HTML is
+        # broken or has no real formatting.
+        new_text, new_text_html = stored_fields_from_platform_html(new_html)
+        patch: dict[str, Any] = {"text": new_text or new_html, "textHtml": new_text_html}
+        payload = {"post_id": post_id, "patch": patch}
     async with async_session_factory() as session:
         run = await session.get(AgentRun, uuid.UUID(state["run_id"]))
         if run is None:

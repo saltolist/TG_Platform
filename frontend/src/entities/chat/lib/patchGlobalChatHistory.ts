@@ -2,6 +2,7 @@ import type { QueryClient } from "@tanstack/react-query";
 
 import { queryKeys } from "@/shared/api/queryKeys";
 import type { ChatsRepository, GlobalChatPatch } from "@/shared/api/repositories";
+import { runExclusive } from "@/shared/lib/asyncMutex";
 import { getQueryAccountIdFromAuth } from "@/shared/lib/auth/queryAccountScope";
 import { lastUserPreviewFromVisibleHistory, normalizeBranchedHistory } from "@/shared/lib/chatPaths";
 import type { ChatMessage, GlobalChat } from "@/shared/types";
@@ -45,14 +46,19 @@ export async function patchGlobalChatHistory(
   updater: (history: ChatMessage[]) => ChatMessage[],
   options?: PatchGlobalChatHistoryOptions,
 ): Promise<GlobalChat> {
-  const chat = await fetchGlobalChat(queryClient, chats, chatId);
-  const history = updater(normalizeBranchedHistory(chat.history));
-  const patch: GlobalChatPatch = {
-    history,
-    preview: options?.preview ?? lastUserPreviewFromVisibleHistory(history).slice(0, 80),
-    date: new Date().toISOString(),
-  };
-  const updated = await chats.update(chatId, patch);
-  syncGlobalChatInCache(queryClient, updated);
-  return updated;
+  // Serialize per chat so a proposal-persist and a reply-finalize racing on the
+  // same history don't clobber each other via a shared stale snapshot. See
+  // patchPostChatHistory / asyncMutex for the full rationale.
+  return runExclusive(`chat:${chatId}`, async () => {
+    const chat = await fetchGlobalChat(queryClient, chats, chatId);
+    const history = updater(normalizeBranchedHistory(chat.history));
+    const patch: GlobalChatPatch = {
+      history,
+      preview: options?.preview ?? lastUserPreviewFromVisibleHistory(history).slice(0, 80),
+      date: new Date().toISOString(),
+    };
+    const updated = await chats.update(chatId, patch);
+    syncGlobalChatInCache(queryClient, updated);
+    return updated;
+  });
 }
