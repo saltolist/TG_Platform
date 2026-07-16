@@ -106,12 +106,20 @@ async def workspace_agent_node(
 
 def route_workspace_call(
     state: AgentGraphState,
-) -> Literal["seed", "answer", "build_action_proposal", "build_media_proposal"]:
+) -> Literal["seed", "answer", "resolve_schedule_time", "build_action_proposal", "build_media_proposal"]:
     # "read" enters the research loop directly at its first node (seed). The
     # research nodes (seed/planner/tool/verify/pack) are first-class members of
     # this single graph — no nested subgraph, no separate checkpointer, and no
     # lossy repackaging of evidence_records (agent-runtime-sprints §1.0).
-    call_type = str((state.get("tool_call") or {}).get("type") or "read")
+    call = state.get("tool_call") or {}
+    call_type = str(call.get("type") or "read")
+    if call_type == "post_proposal" and str(call.get("command") or "") == "schedule_post":
+        # schedule_post needs an actual instant before a proposal is worth
+        # creating — the classifier never computes one (it's a 600-token
+        # router, not a date parser), so route through a dedicated resolver
+        # first (chat 4a3ed2f5: every schedule_post proposal used to reach
+        # the user with no scheduled_at and fail approval with a silent 400).
+        return "resolve_schedule_time"
     return {
         "read": "seed",
         "finish": "answer",
@@ -343,6 +351,46 @@ async def _generate_edited_post_html(
     # as the new body instead; only strip a stray ```-fence the model may wrap
     # around it. No JSON round-trip means no escaping to get wrong.
     return _strip_code_fences(str(raw or "")).strip() or None
+
+
+async def resolve_schedule_time_node(
+    state: AgentGraphState,
+    config: RunnableConfig,
+) -> dict[str, Any]:
+    """Pin schedule_post's target time down before a proposal is created.
+
+    On success, fills tool_call.payload.scheduled_at (UTC ISO) so
+    build_action_proposal_node's payload carries a value _schedule_post can
+    parse. On failure (ambiguous/missing time), skips proposal creation
+    entirely and answers with a clarifying question instead — the user needs
+    to reply with a concrete time, not stare at a proposal card that will
+    400 on approval.
+    """
+    from app.services.agent.scheduling.time_resolver import resolve_schedule_time
+
+    ctx: RuntimeContext = config["configurable"]["runtime_context"]
+    dialog_context = str((config["configurable"] or {}).get("dialog_context") or "")
+    resolution = await resolve_schedule_time(
+        ctx,
+        instruction=str(state.get("user_text") or ""),
+        dialog_context=dialog_context,
+    )
+    if not resolution.resolved:
+        return {
+            **state,
+            "answer_text": resolution.clarifying_question or "Уточните дату и время публикации.",
+            "claims": [],
+            "stopped_reason": "schedule_time_unresolved",
+        }
+    call = dict(state.get("tool_call") or {})
+    call["payload"] = {**dict(call.get("payload") or {}), "scheduled_at": resolution.scheduled_at_utc}
+    return {**state, "tool_call": call}
+
+
+def route_schedule_time_resolution(
+    state: AgentGraphState,
+) -> Literal["build_action_proposal", "complete"]:
+    return "complete" if state.get("stopped_reason") == "schedule_time_unresolved" else "build_action_proposal"
 
 
 async def build_action_proposal_node(
@@ -661,6 +709,7 @@ def build_workspace_graph() -> StateGraph:
     graph.add_node("verify", research_verify_node)
     graph.add_node("pack", research_pack_node)
     graph.add_node("answer", answer_node)
+    graph.add_node("resolve_schedule_time", resolve_schedule_time_node)
     graph.add_node("build_action_proposal", build_action_proposal_node)
     graph.add_node("build_media_proposal", build_media_proposal_node)
     graph.add_node("action_hitl", action_hitl_node)
@@ -679,6 +728,7 @@ def build_workspace_graph() -> StateGraph:
     graph.add_conditional_edges("verify", route_research_verify)
     graph.add_edge("pack", "answer")
     graph.add_edge("answer", "complete")
+    graph.add_conditional_edges("resolve_schedule_time", route_schedule_time_resolution)
     graph.add_edge("build_action_proposal", "action_hitl")
     graph.add_edge("build_media_proposal", "media_hitl")
     graph.add_edge("action_hitl", "complete")

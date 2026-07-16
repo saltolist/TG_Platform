@@ -63,6 +63,7 @@ async def create_agent_run(
         chat_id=body.chat_id,
         post_id=body.post_id,
         post_chat_id=body.post_chat_id,
+        timezone=body.timezone,
     )
     if body.user_text.strip():
         from app.tasks.agent_runs import execute_agent_run_task

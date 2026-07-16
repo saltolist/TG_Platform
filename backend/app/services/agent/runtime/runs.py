@@ -24,6 +24,7 @@ async def start_run(
     chat_id: str | None = None,
     post_id: str | None = None,
     post_chat_id: str | None = None,
+    timezone: str | None = None,
 ) -> tuple[Any, int]:
     run = await event_service.create_run(
         session,
@@ -33,6 +34,7 @@ async def start_run(
         chat_id=chat_id,
         post_id=post_id,
         post_chat_id=post_chat_id,
+        tz_name=timezone,
     )
     evt = await event_service.append_event(
         session,
@@ -177,4 +179,5 @@ async def rebuild_runtime_context_for_run(
         reasoner_api_key=reasoner[2] if reasoner else "",
         dialog_context=dialog_context,
         last_proposed_post_html=last_proposed_post_html,
+        user_timezone=run.timezone,
     )

@@ -19,7 +19,11 @@ export async function startAgentRun(
   body: StartAgentRunBody,
   signal?: AbortSignal,
 ): Promise<{ id: string; sequence: number }> {
-  return apiRequest("/api/v1/ai/runs/", { method: "POST", body, signal });
+  // Browser's IANA zone, e.g. "Europe/Moscow" — lets schedule_post resolve
+  // relative phrasing ("сегодня через полчаса") in the user's local time
+  // instead of the server's UTC.
+  const timezone = Intl.DateTimeFormat().resolvedOptions().timeZone;
+  return apiRequest("/api/v1/ai/runs/", { method: "POST", body: { ...body, timezone }, signal });
 }
 
 export async function streamAgentRun(

@@ -41,6 +41,11 @@ class RuntimeContext:
     # instruction referring back to a prior edit ("сделай ЕЁ через пробел")
     # had nothing to resolve against — see extract_last_proposed_edit.
     last_proposed_post_html: str | None = None
+    # IANA zone name (e.g. "Europe/Moscow") from the browser, used by
+    # resolve_schedule_time_node to interpret relative schedule_post phrasing
+    # ("сегодня через полчаса") in the user's local time rather than UTC.
+    # None (legacy runs, or a client that never sent one) falls back to UTC.
+    user_timezone: str | None = None
     min_similarity: float = 0.38
     search_k: int = 4
     scope_bias: float = 0.04

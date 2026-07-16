@@ -4,12 +4,14 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { useQueryClient } from "@tanstack/react-query";
 
 import { getAgentMediaJob, resumeAgentRun } from "@/shared/api/agentRuns";
+import { getApiErrorMessage } from "@/shared/api/getApiErrorMessage";
 import type { AgentMediaJob, AgentProposal, AgentRun, AgentSsePayload } from "@/shared/api/schemas/agentRun";
 import { useAgentRun } from "@/shared/hooks/useAgentRun";
 import { useRepositories } from "@/app/providers/RepositoryProvider";
 import { patchPostChatHistory } from "@/entities/post/lib/patchPostChatHistory";
 import { patchGlobalChatHistory } from "@/entities/chat/lib/patchGlobalChatHistory";
 import { updateLastVisibleAiMessage } from "@/shared/lib/chatPaths";
+import { showToast } from "@/shared/ui/toast";
 import type { ComposerScope } from "@/shared/types";
 
 type AgentRunStoreState = {
@@ -147,7 +149,22 @@ export function useAgentRunStore(
       const decision = body.decision === "reject" ? "reject" : "approve";
       const proposalToRecord =
         pendingProposal && body.proposal_id === pendingProposal.id ? pendingProposal : null;
-      const res = await resumeAgentRun(runId, body);
+      let res: Record<string, unknown>;
+      try {
+        res = await resumeAgentRun(runId, body);
+      } catch (error) {
+        // A failed resume (e.g. the backend rejects an incomplete
+        // schedule_post payload with 400) used to be swallowed silently —
+        // the proposal card just sat there with no feedback and no way to
+        // retry, looking "stuck" (chat 4a3ed2f5). Surface the real reason
+        // and leave the card in its pending state (approve/reject still
+        // available) instead of clearing it as if the decision went through.
+        showToast({
+          message: getApiErrorMessage(error, "Не удалось выполнить действие"),
+          variant: "error",
+        });
+        return null;
+      }
       if (proposalToRecord) {
         persistProposalToHistory(proposalToRecord, decision, describeResumeResult(decision, res));
       }
