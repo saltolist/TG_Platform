@@ -67,6 +67,31 @@ async def test_execute_tool_forwards_post_id_to_hydrate_attachment() -> None:
     assert mocked.await_args.kwargs["ref"] == "file:mk1"
 
 
+@pytest.mark.asyncio
+async def test_execute_tool_forwards_note_id_to_hydrate_attachment() -> None:
+    """Regression for chat 63dfb9e4: attachment:-refs (note files) can only
+    resolve with note_id (tool_hydrate_attachment/_resolve_attachment_record
+    hard-require it), but the dispatch dropped it entirely — every planner
+    call with a correct note_id still failed with missing_note_id, burning 5
+    straight steps with no way to ever succeed."""
+    from app.services.agent.research.graph import ToolAction, _execute_tool
+
+    with patch(
+        "app.services.agent.research.graph.tool_hydrate_attachment",
+        new_callable=AsyncMock,
+        return_value="ok",
+    ) as mocked:
+        await _execute_tool(
+            object(),
+            ToolAction(
+                tool="HydrateAttachment",
+                args={"ref": "attachment:f1", "mode": "vision", "note_id": "n1"},
+            ),
+        )
+    assert mocked.await_args.kwargs["note_id"] == "n1"
+    assert mocked.await_args.kwargs["ref"] == "attachment:f1"
+
+
 class _FakeSessionCtx:
     async def __aenter__(self):
         return AsyncMock()

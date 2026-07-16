@@ -81,7 +81,7 @@ AGENT_SYSTEM = (
 - ListGlobalNotes {} — перечислить заметки, НЕ привязанные ни к одному посту. Для вопросов про общее число/наличие заметок учитывай оба источника: заметки из ListPosts/ListPostNotes (по постам) + ListGlobalNotes (вне постов).
 - ListNoteAttachments {note_id, post_id?} — файлы, приложенные к заметке (ref вида attachment:<id>)
 - ListPostMedia {post_id} — медиа, приложенные напрямую к посту (ref вида file:<id>); сначала OpenPost. Голосовые/видео/кружочки/стикеры видны только по имени и типу — их содержимое прочитать нельзя.
-- HydrateAttachment {ref, mode?, post_id?} — прочитать вложение: mode=text для документов (PDF/DOCX/txt), mode=vision для изображений. Для ref вида file:<id> (медиа поста) укажи post_id.
+- HydrateAttachment {ref, mode?, note_id?, post_id?} — прочитать вложение: mode=text для документов (PDF/DOCX/txt), mode=vision для изображений. Для ref вида attachment:<id> (вложение заметки, из ListNoteAttachments/OpenNote) укажи note_id — обязателен, вызов без него не сработает. Для ref вида file:<id> (медиа поста) укажи post_id.
 - GetPostAnalytics {post_id, period?}
 - FinishRetrieval {status: ready|partial, evidence_ids: string[], unresolved?: string[]}
 
@@ -266,8 +266,13 @@ async def _execute_tool(state: AgentState, action: ToolAction) -> ToolOutcome:
             state,
             ref=str(args.get("ref") or ""),
             mode=str(args.get("mode") or "text"),
-            # file:-refs (post media) require post_id to resolve; forward it so
-            # the planner can hydrate a post's own documents/images.
+            # attachment:-refs (note files) require note_id to resolve; file:-refs
+            # (post media) require post_id. Forward both — tool_hydrate_attachment
+            # picks whichever the ref kind needs. note_id was previously dropped
+            # here, so every planner call with a valid note_id still failed with
+            # missing_note_id (chat 63dfb9e4: 5 straight HydrateAttachment retries,
+            # each burning a step, none ever able to succeed).
+            note_id=args.get("note_id"),
             post_id=args.get("post_id"),
         )
     if tool == "GetPostAnalytics":
