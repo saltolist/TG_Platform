@@ -28,6 +28,13 @@ class RuntimeContext:
     scope: str
     post_data: dict[str, Any] | None
     ai_profile: dict[str, Any]
+    # Channel voice/tone/rules (Profile.channel) and Telegram identity
+    # (Profile.telegram) — fed into generating nodes' system prompt so the
+    # agent writes in the channel's voice, same as the legacy /ai/reply/ path's
+    # primer. Never routed through RAG: this is ambient behavior, not a fact
+    # to retrieve. None when the profile has no channel set up yet.
+    channel_profile: dict[str, Any] | None = None
+    telegram_profile: dict[str, Any] | None = None
     reasoner_spec: ProviderSpec | None = None
     reasoner_model: str = ""
     reasoner_api_key: str = ""

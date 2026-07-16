@@ -109,7 +109,7 @@ async def create_post(payload: PostIn, user: CurrentWriter, session: DbSession) 
         enqueue_post_text=enqueue_post_text_job,
     )
     await session.commit()
-    return dict(result["post"])
+    return normalize_post_for_api(result["post"], db_id=str(post_id))
 
 
 @router.put("/reorder/")
@@ -121,12 +121,18 @@ async def reorder_posts(
 
     ordered: list[dict[str, Any]] = []
     for index, item in enumerate(payload.posts):
+        # item.get("id") from the client is the UUID PK (what normalize_post_for_api
+        # now always returns) — used only to look up the row, never written into
+        # data. Writing it back would clobber the legacy data['id'] the RAG
+        # partition key / telegramMessageId alias still relies on internally.
         post = by_id.get(str(item.get("id")))
         if post is None:
             continue
         post.position = index
-        post.data = item
-        ordered.append(item)
+        stored = dict(item)
+        stored["id"] = post.data.get("id", str(post.id))
+        post.data = stored
+        ordered.append(normalize_post_for_api(stored, db_id=str(post.id)))
 
     await session.commit()
     return ordered
@@ -273,7 +279,7 @@ async def update_post(
         )
     await session.commit()
 
-    response = dict(merged)
+    response = normalize_post_for_api(merged, db_id=str(post.id))
     if comment_delete_error:
         response["commentSyncError"] = comment_delete_error
 
@@ -292,7 +298,7 @@ async def update_post(
         if sync_result.deleted_in_telegram:
             post = await get_owned_post(session, user.id, post_id)
             await session.refresh(post)
-            response = dict(post.data)
+            response = normalize_post_for_api(post.data, db_id=str(post.id))
         elif sync_result.error:
             response["telegramSyncError"] = sync_result.error
 
@@ -334,7 +340,7 @@ async def sync_post_comments_endpoint(
 
     telegram = profile.telegram if profile.telegram else empty_telegram_profile()
     if not post.data.get("telegramMessageId"):
-        return dict(post.data)
+        return normalize_post_for_api(post.data, db_id=str(post.id))
 
     try:
         require_comments_enabled(telegram)
@@ -343,7 +349,7 @@ async def sync_post_comments_endpoint(
 
     result = await sync_post_comments_pull(profile, post.data, user.id)
 
-    response = dict(post.data)
+    response = normalize_post_for_api(post.data, db_id=str(post.id))
     if result.comments is not None:
         updated = dict(post.data)
         updated["comments"] = normalize_post_comments(result.comments)
@@ -357,7 +363,7 @@ async def sync_post_comments_endpoint(
             updated["commentsPullComplete"] = result.comments_pull_complete
         post.data = updated
         await session.commit()
-        response = dict(updated)
+        response = normalize_post_for_api(updated, db_id=str(post.id))
     if result.error:
         response["commentSyncError"] = result.error
     if result.comments_pull_complete is not None:
@@ -378,7 +384,7 @@ async def publish_post_endpoint(
     )
     post = await get_owned_post(session, user.id, post_id)
     await session.commit()
-    return post.data
+    return normalize_post_for_api(post.data, db_id=str(post.id))
 
 
 @router.post("/{post_id}/schedule/")
@@ -394,7 +400,7 @@ async def schedule_post_endpoint(
     )
     post = await get_owned_post(session, user.id, post_id)
     await session.commit()
-    return post.data
+    return normalize_post_for_api(post.data, db_id=str(post.id))
 
 
 @router.delete("/{post_id}/", status_code=status.HTTP_204_NO_CONTENT)

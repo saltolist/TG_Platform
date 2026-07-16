@@ -86,10 +86,17 @@ def build_planner_dialog_context(
     user_text: str,
     history: list[Mapping[str, Any]] | None,
     *,
-    history_turns: int = 2,
-    max_chars: int = 1500,
+    history_turns: int = 5,
+    max_chars: int = 3000,
 ) -> str:
-    """Recent dialogue for L2 brief/planner (excludes duplicate current user turn)."""
+    """Recent dialogue for L2 brief/planner (excludes duplicate current user turn).
+
+    history_turns=5 (was 2): the agent path has no rolling-summary primer of
+    its own for older turns, unlike the legacy /ai/reply/ path, so a narrow
+    window silently dropped context a few turns back — widened alongside
+    max_chars (was 1500) to actually fit 5 exchanges instead of truncating
+    them from the front.
+    """
     pairs = _history_pairs_excluding_current(history, user_text)
     if not pairs or history_turns <= 0:
         return ""

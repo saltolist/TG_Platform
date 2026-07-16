@@ -144,6 +144,8 @@ async def rebuild_runtime_context_for_run(
         raise RuntimeError("agent_run_user_not_found")
     profile = await session.get(Profile, user.id)
     ai_profile = dict(profile.ai or {}) if profile else {}
+    channel_profile = dict(profile.channel) if profile and profile.channel else None
+    telegram_profile = dict(profile.telegram) if profile and profile.telegram else None
     reasoner = resolve_rag_reasoner_llm(user, ai_profile, settings)
     post_data = None
     if run.post_id:
@@ -163,6 +165,25 @@ async def rebuild_runtime_context_for_run(
 
     history = await load_run_history(session, run, user)
     dialog_context = build_planner_dialog_context(user_text, history) if history else ""
+    if history:
+        # Turns older than the verbatim window above are lossy in dialog_context
+        # (build_planner_dialog_context only keeps the last N pairs) — summarize
+        # them so a reference a few turns back doesn't just vanish. Computed
+        # fresh from history each call (template fallback, no LLM, no stored
+        # state) rather than the legacy label-thread rolling_summary machinery:
+        # agent runs don't go through refresh_context_meta_after_reply, so
+        # there is no persisted rolling_summary to read here anyway.
+        from app.services.ai.chat_history import filter_alternating_roles, linearize_for_llm
+        from app.services.ai.rolling_summary import rolling_summary_for_assembly
+
+        valid_pairs = filter_alternating_roles(linearize_for_llm(history))
+        older_summary = rolling_summary_for_assembly({}, valid_pairs)
+        if older_summary:
+            dialog_context = (
+                f"Ранее в диалоге: {older_summary}\n\n{dialog_context}"
+                if dialog_context
+                else f"Ранее в диалоге: {older_summary}"
+            )
     last_proposed_post_html = extract_last_proposed_edit(history) if history else None
     return RuntimeContext(
         session_factory=async_session_factory,
@@ -174,6 +195,8 @@ async def rebuild_runtime_context_for_run(
         scope=run.scope,
         post_data=post_data,
         ai_profile=ai_profile,
+        channel_profile=channel_profile,
+        telegram_profile=telegram_profile,
         reasoner_spec=reasoner[0] if reasoner else None,
         reasoner_model=reasoner[1] if reasoner else "",
         reasoner_api_key=reasoner[2] if reasoner else "",

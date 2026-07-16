@@ -134,6 +134,22 @@ REFUSAL_TEXT = (
 )
 
 
+def _channel_voice_block(ctx: RuntimeContext) -> str:
+    """Channel voice/tone/rules for the system prompt of generating nodes.
+
+    Ambient behavior, not a retrievable fact — fed directly rather than
+    through RAG, same as build_summary_bundle(post=None) in the legacy
+    /ai/reply/ primer. Without this the agent writes with no channel voice at
+    all (unlike /ai/reply/, which always had it).
+    """
+    from app.services.ai.bundle import build_summary_bundle
+
+    if not ctx.channel_profile:
+        return ""
+    text = build_summary_bundle(ctx.channel_profile, telegram=ctx.telegram_profile, post=None)
+    return text.strip()
+
+
 async def answer_node(state: AgentGraphState, config: RunnableConfig) -> dict[str, Any]:
     from app.services.ai.rag_json import extract_json_object
 
@@ -158,6 +174,16 @@ async def answer_node(state: AgentGraphState, config: RunnableConfig) -> dict[st
     prompt_parts: list[str] = []
     if dialog_context.strip():
         prompt_parts.append(f"Диалог:\n{dialog_context.strip()}")
+    # Post-scope: the current post is a deictic reference ("этот пост") that
+    # research/RAG cannot resolve — there is nothing to search for by meaning.
+    # Without this the "finish" path (workspace_agent_node classified the turn
+    # as conversational, e.g. "Как тебе этот пост?") never sees the post body
+    # at all, even once ctx.post_data resolves correctly (chat d395d1ef).
+    if ctx.scope == "post" and ctx.post_data:
+        post_id = str(ctx.post_data.get("id") or "")
+        post_text = str(ctx.post_data.get("text") or "")
+        if post_id and post_text:
+            prompt_parts.append(f"Текущий пост (id={post_id}):\n{post_text}")
     prompt_parts.append(f"Вопрос:\n{state.get('user_text', '')}")
     if came_through_research:
         # Grounded path: cite only the retrieved evidence, same contract as before.
@@ -178,8 +204,10 @@ async def answer_node(state: AgentGraphState, config: RunnableConfig) -> dict[st
         prompt_parts.append(
             'Верни JSON {"answer":"...","claims":[{"text":"...","evidence_ids":[...]}]}.'
         )
+        channel_block = _channel_voice_block(ctx)
         system_text = (
-            "Отвечай только по evidence. Не выдумывай отсутствующие факты.\n"
+            (f"{channel_block}\n\n" if channel_block else "")
+            + "Отвечай только по evidence. Не выдумывай отсутствующие факты.\n"
             # Counting/filtering guard: a listing block (перечень заметок/постов)
             # gives the TOTAL number of items, not the number matching the
             # question. For «сколько X про Y» / «какие из них Y» не бери общее
@@ -206,10 +234,13 @@ async def answer_node(state: AgentGraphState, config: RunnableConfig) -> dict[st
         # follow-up like "покороче" or "на английском?" needs the prior turn
         # from dialog_context, not new evidence — there is none to fetch.
         prompt_parts.append('Верни JSON {"answer":"...","claims":[]}.')
+        channel_block = _channel_voice_block(ctx)
         system_text = (
-            "Отвечай на разговорный запрос, используя диалог выше как контекст "
-            "(например, если это правка твоего предыдущего ответа). Не выдумывай "
-            "факты о workspace, которых нет в диалоге."
+            (f"{channel_block}\n\n" if channel_block else "")
+            + "Отвечай на разговорный запрос, используя диалог выше и текущий пост "
+            "(если он передан) как контекст — например, если это правка твоего "
+            "предыдущего ответа или вопрос про сам пост. Не выдумывай факты о "
+            "workspace, которых нет в этом контексте."
         )
     prompt = "\n\n".join(prompt_parts)
 
@@ -332,10 +363,12 @@ async def _generate_edited_post_html(
         f"(Telegram HTML):\n{edit_base}\n\n"
         f"Инструкция:\n{instruction}"
     )
+    channel_block = _channel_voice_block(ctx)
+    edit_system = f"{_EDIT_POST_SYSTEM}\n\n{channel_block}" if channel_block else _EDIT_POST_SYSTEM
     raw = await call_llm_with_deadline(
         ctx,
         messages=[
-            {"role": "system", "content": _EDIT_POST_SYSTEM},
+            {"role": "system", "content": edit_system},
             {"role": "user", "content": prompt},
         ],
         spec=ctx.reasoner_spec,

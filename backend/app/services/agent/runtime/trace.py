@@ -33,6 +33,15 @@ def _fmt_planner_step(p: Mapping[str, Any]) -> list[str]:
         lines.append(f"    reasoning: {_preview(p['reasoning'])}")
     if p.get("gap"):
         lines.append(f"    gap: {_preview(p['gap'])}")
+    plan = p.get("plan")
+    if isinstance(plan, Sequence) and not isinstance(plan, str) and plan:
+        glyph = {"open": "☐", "done": "✓", "dropped": "✗"}
+        rendered = " ".join(
+            f"{glyph.get(str(it.get('status')), '☐')}{it.get('id')}"
+            for it in plan
+            if isinstance(it, Mapping)
+        )
+        lines.append(f"    plan: {rendered}")
     if p.get("repair_hint"):
         lines.append(f"    repair_hint: {_preview(p['repair_hint'])}")
     return lines

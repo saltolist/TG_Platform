@@ -12,6 +12,12 @@ from langgraph.graph import END, StateGraph
 
 from app.services.agent.research.evidence import EvidenceRecord, records_from_agent_state
 from app.services.agent.research.pack import build_evidence_pack
+from app.services.agent.research.plan import (
+    merge_plan,
+    open_items,
+    parse_plan,
+    render_plan_for_planner,
+)
 from app.services.agent.research.result import ResearchResult
 from app.services.agent.research.trust import UNTRUSTED_SYSTEM_NOTE, wrap_untrusted_block
 from app.services.agent.research.verifier import verify_evidence
@@ -53,6 +59,11 @@ REFUNDABLE_TOOL_ERRORS = frozenset({"post_not_open", "note_not_found"})
 # Hard ceiling on refunds per run: without it a planner stuck repeating the same
 # broken call would get an unbounded free ride and never terminate.
 MAX_STEP_REFUNDS = 3
+# Hard ceiling on finish-gate bounces: a planner that keeps calling
+# FinishRetrieval while plan items stay open is sent back this many times, then
+# allowed through (the step budget is the ultimate backstop). Prevents a plan the
+# model refuses to close from wedging the run (persistent-plan).
+MAX_PLAN_REPAIRS = 2
 
 READ_TOOLS = frozenset(
     {
@@ -100,10 +111,19 @@ AGENT_SYSTEM = (
   "observations": ["что уже известно из «Ход агента» и «Собранный context», дословно/по смыслу — не выдумывай"],
   "reasoning": "почему этого недостаточно и что нужно сделать дальше",
   "gap": "какого конкретно факта/содержимого не хватает",
+  "plan": [{"id": "1", "text": "подзадача", "status": "open|done|dropped", "reason": "для dropped", "evidence_id": "для done"}],
   "tool": "...",
   "args": {...}
 }
 `observations` — только то, что реально видно в «Ход агента» или «Собранный context» этого запроса. Если это первый шаг и обоих блоков нет — можно вернуть пустой список observations, но не придумывать наблюдения.
+
+`plan` — твой план работы, который живёт весь ран и переносится между шагами (см. блок «План» во входе, если он есть):
+- На ПЕРВОМ шаге разбей задачу на подзадачи (например: «прочитать все посты», «проверить заметки вне постов через ListGlobalNotes», «сформировать идею»). Дай каждой короткий стабильный `id`.
+- На КАЖДОМ шаге возвращай ПОЛНЫЙ план со статусами. Можно добавлять новые пункты и менять статусы. НО пункт нельзя просто удалить: он уходит из работы только явным переходом.
+- `status:"done"` требует `evidence_id` — id из блока «Собранный context», который реально закрывает пункт. Без валидного evidence_id пункт останется open.
+- `status:"dropped"` требует `reason` (почему пункт больше не нужен — например «ListGlobalNotes вернул пусто»). Без причины пункт останется open.
+- FinishRetrieval НЕ сработает, пока есть хоть один пункт со `status:"open"`. Если считаешь, что пора завершать, но пункт ещё open — либо выполни его (вызови нужный tool), либо закрой явно (done/dropped). Нельзя «забыть» о намеченном пункте.
+- Если задача по ходу изменилась — не бросай старые пункты молча, помечай их dropped с причиной (например «superseded: пользователь спрашивал про структуру, а не идею») и добавляй новые.
 
 """
     + UNTRUSTED_SYSTEM_NOTE
@@ -124,6 +144,10 @@ class ToolAction:
     observations: tuple[str, ...] = ()
     reasoning: str = ""
     gap: str = ""
+    # Full plan the planner re-emits this step (persistent-plan). None means the
+    # model said nothing about the plan → carry the previous plan unchanged;
+    # merge_plan enforces the no-silent-drop invariant on whatever is present.
+    plan: list[dict[str, Any]] | None = None
 
 
 def parse_tool_action(raw: str) -> ToolAction | None:
@@ -148,6 +172,7 @@ def parse_tool_action(raw: str) -> ToolAction | None:
         gap=str(payload.get("gap") or ""),
         tool=tool,
         args=args,
+        plan=parse_plan(payload.get("plan")),
     )
 
 
@@ -204,6 +229,7 @@ def _build_messages(
     dialog_context: str,
     ledger_text: str,
     l1_summary: str,
+    plan_text: str = "",
 ) -> list[dict[str, str]]:
     parts = [f"Вопрос:\n{user_text.strip()}"]
     if dialog_context.strip():
@@ -212,6 +238,8 @@ def _build_messages(
         parts.append(ledger_text.strip())
     if l1_summary.strip():
         parts.append(l1_summary.strip())
+    if plan_text.strip():
+        parts.append(plan_text.strip())
     if hints:
         parts.append("Подсказки: " + "; ".join(hints))
     if transcript:
@@ -410,6 +438,7 @@ async def research_planner_node(state: AgentGraphState, config: RunnableConfig) 
             dialog_context=inp["dialog_context"],
             ledger_text=ledger_text,
             l1_summary=_l1_summary(inp["l1_results"]),
+            plan_text=render_plan_for_planner(list(state.get("plan") or [])),
         )
         evidence_text = _format_evidence_for_planner(records)
         messages[-1]["content"] += "\n\nСобранный context:\n" + evidence_text
@@ -433,6 +462,17 @@ async def research_planner_node(state: AgentGraphState, config: RunnableConfig) 
     hints = list(state.get("research_hints") or [])
     if fabricated:
         hints.append(f"repair: cosmetic_observations:{'; '.join(fabricated)}")
+    # Merge the re-emitted plan onto the persisted one, enforcing the
+    # no-silent-drop invariant. Any refused transition (done without evidence,
+    # drop without reason, silent omission) comes back as a repair hint so the
+    # planner sees it next step (persistent-plan).
+    merged_plan, plan_hints = merge_plan(
+        list(state.get("plan") or []),
+        action.plan,
+        evidence_ids=frozenset(records),
+    )
+    for hint in plan_hints:
+        hints.append(f"repair: {hint}")
     step_record: dict[str, Any] = {
         "step": steps,
         "observations": list(action.observations),
@@ -440,12 +480,14 @@ async def research_planner_node(state: AgentGraphState, config: RunnableConfig) 
         "gap": action.gap,
         "tool": action.tool,
         "args": action.args,
+        "plan": merged_plan,
     }
     if fabricated:
         step_record["repair_hint"] = f"cosmetic_observations:{'; '.join(fabricated)}"
     return {
         **state,
         "step_count": steps,
+        "plan": merged_plan,
         "tool_action": {
             "tool": action.tool,
             "args": action.args,
@@ -542,6 +584,31 @@ async def research_verify_node(state: AgentGraphState, config: RunnableConfig) -
                 "evidence_ids": salvaged_ids,
                 "unresolved": ["step_budget_exhausted"],
             }
+    # Finish-gate (persistent-plan): an explicit FinishRetrieval is refused while
+    # plan items are still `open` — the planner must act on them or close them
+    # (done/dropped) first. Only fires with budget remaining and under the repair
+    # cap; budget exhaustion routes here with tool != FinishRetrieval and is
+    # salvaged above, so a starved run still terminates. This is where a dropped
+    # intent ("проверить global notes") is forced back into an action.
+    still_open = open_items(list(state.get("plan") or []))
+    plan_repairs = int(state.get("plan_repair_count") or 0)
+    budget_exhausted = int(state.get("step_count") or 0) >= int(state.get("max_steps") or 4)
+    if (
+        tool_name == "FinishRetrieval"
+        and still_open
+        and not budget_exhausted
+        and plan_repairs < MAX_PLAN_REPAIRS
+    ):
+        pending = "; ".join(str(it.get("text")) for it in still_open)
+        return {
+            **state,
+            "plan_repair_count": plan_repairs + 1,
+            "research_hints": [
+                *(state.get("research_hints") or []),
+                f"repair: unfinished_plan_items — закрой или выполни: {pending}",
+            ],
+            "verification_ok": False,
+        }
     verdict = verify_evidence(
         finish=candidate,
         records=records,

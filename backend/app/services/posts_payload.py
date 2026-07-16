@@ -51,10 +51,21 @@ def normalize_post_for_api(
     *,
     db_id: str | None = None,
 ) -> dict[str, Any]:
-    """Ensure required Post fields exist so clients can parse the payload reliably."""
+    """Ensure required Post fields exist so clients can parse the payload reliably.
+
+    ``id`` always reflects the UUID PK (``db_id``), never the JSONB
+    ``data['id']`` — that legacy field stays the RAG partition key /
+    telegramMessageId alias internally and must never reach clients (or come
+    back on a write), or it drifts from the PK on Telegram re-sync and the
+    frontend starts addressing a post that resolvers can no longer find
+    (chat d395d1ef: post_id "3" sent by the client matched neither the PK nor
+    any post's legacy data['id']).
+    """
     result = dict(data)
-    if not result.get("id") and db_id:
+    if db_id:
         result["id"] = db_id
+    elif not result.get("id"):
+        result["id"] = None
     if result.get("notes") is None:
         result["notes"] = []
     if result.get("chats") is None:

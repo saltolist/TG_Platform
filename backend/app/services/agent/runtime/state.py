@@ -37,6 +37,17 @@ class AgentGraphState(TypedDict, total=False):
     claims: list[dict[str, Any]]
     step_count: int
     max_steps: int
+    # Persistent research plan (agent-runtime persistent-plan): list of
+    # {id, text, status: open|done|dropped, reason?, evidence_id?}. Carried
+    # across planner steps so a stated intent ("проверить global notes") can't
+    # silently evaporate between steps — the code re-inserts any open item the
+    # model drops without an explicit done/dropped transition, and FinishRetrieval
+    # is gated until no item is still `open`.
+    plan: list[dict[str, Any]]
+    # How many times the finish-gate has bounced a premature FinishRetrieval back
+    # to the planner because open plan items remained. Capped so a model that
+    # keeps re-emitting finish without closing items can't loop forever.
+    plan_repair_count: int
     # Steps refunded because a tool returned recoverable precondition guidance
     # ("сначала OpenPost") rather than a real result. Capped so a planner that
     # keeps repeating the same broken call can't loop forever on free steps.
