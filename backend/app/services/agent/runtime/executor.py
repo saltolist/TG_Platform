@@ -7,6 +7,7 @@ import time
 import uuid
 from typing import Any
 
+import httpx
 from langgraph.types import Command
 
 from app.db.models import AgentRun, User
@@ -24,6 +25,7 @@ from app.services.agent.runtime.observability import (
 )
 from app.services.agent.runtime.trace import render_run_trace
 from app.services.agent.runtime.workspace_graph import get_compiled_workspace_graph
+from app.services.ai.llm import _HTTP_TIMEOUT
 
 logger = logging.getLogger(__name__)
 
@@ -230,147 +232,153 @@ async def execute_agent_run(
             return checkpoint_values
         graph_input = None
     final_state: dict[str, Any] = checkpoint_values or initial
-    try:
-        # version="v2" keeps interrupts in a dedicated "interrupts" field on
-        # "values" events instead of mixing a raw, non-JSON-serializable
-        # Interrupt object into the state dict (v1's "__interrupt__" key) —
-        # see agent-runtime-remaining.md bugfix pass for the crash v1 caused.
-        async for event in graph.astream(
-            graph_input,
-            cfg,
-            stream_mode=["values", "updates", "custom"],
-            version="v2",
-        ):
-            mode = event["type"]
-            data = event["data"]
-            if mode == "custom" and isinstance(data, dict):
-                await _emit_answer_partial(session, run_id=run.id, data=data)
-            elif mode == "values" and isinstance(data, dict):
-                final_state = data
+    # One shared httpx.AsyncClient for all LLM calls in this run — avoids
+    # re-establishing TLS per call (was one AsyncClient per call before).
+    # budget.py injects it via ctx.llm_client; llm.py won't close it because
+    # owns_client=False when a client is passed in.
+    async with httpx.AsyncClient(timeout=_HTTP_TIMEOUT) as llm_client:
+        runtime_context.llm_client = llm_client
+        try:
+            # version="v2" keeps interrupts in a dedicated "interrupts" field on
+            # "values" events instead of mixing a raw, non-JSON-serializable
+            # Interrupt object into the state dict (v1's "__interrupt__" key) —
+            # see agent-runtime-remaining.md bugfix pass for the crash v1 caused.
+            async for event in graph.astream(
+                graph_input,
+                cfg,
+                stream_mode=["values", "updates", "custom"],
+                version="v2",
+            ):
+                mode = event["type"]
+                data = event["data"]
+                if mode == "custom" and isinstance(data, dict):
+                    await _emit_answer_partial(session, run_id=run.id, data=data)
+                elif mode == "values" and isinstance(data, dict):
+                    final_state = data
+                    await emit_run_event(
+                        session,
+                        run_id=run.id,
+                        event_type="graph_state",
+                        payload={
+                            "status": data.get("status"),
+                            "step_count": data.get("step_count"),
+                            "stopped_reason": data.get("stopped_reason"),
+                        },
+                    )
+                    interrupt_payload = _extract_interrupt(event.get("interrupts") or ())
+                    if interrupt_payload is not None:
+                        run.current_interrupt = interrupt_payload
+                        run.status = "interrupted"
+                        AGENT_INTERRUPTS.labels(
+                            str(interrupt_payload.get("type") or "unknown")
+                        ).inc()
+                        await emit_run_event(
+                            session,
+                            run_id=run.id,
+                            event_type="interrupt",
+                            payload=interrupt_payload,
+                        )
+                elif mode == "updates" and isinstance(data, dict):
+                    workspace_step = _workspace_step_payload(data)
+                    if workspace_step is not None:
+                        await emit_run_event(
+                            session,
+                            run_id=run.id,
+                            event_type="workspace_step",
+                            payload=workspace_step,
+                        )
+                    planner_step = _planner_step_payload(data)
+                    if planner_step is not None:
+                        await emit_run_event(
+                            session,
+                            run_id=run.id,
+                            event_type="planner_step",
+                            payload=planner_step,
+                        )
+                    tool_outcome = _tool_outcome_payload(data)
+                    if tool_outcome is not None:
+                        await emit_run_event(
+                            session,
+                            run_id=run.id,
+                            event_type="tool_result",
+                            payload=tool_outcome,
+                        )
+            status = str(final_state.get("status") or "completed")
+            if run.status == "interrupted":
+                status = "interrupted"
+            elif status not in {"failed", "cancelled"}:
+                status = "completed"
+            await event_service.update_run_status(
+                session,
+                run,
+                status=status,
+                snapshot=dict(final_state),
+                current_interrupt=run.current_interrupt,
+            )
+            if final_state.get("answer_text"):
                 await emit_run_event(
                     session,
                     run_id=run.id,
-                    event_type="graph_state",
+                    event_type="answer",
                     payload={
-                        "status": data.get("status"),
-                        "step_count": data.get("step_count"),
-                        "stopped_reason": data.get("stopped_reason"),
+                        "text": final_state["answer_text"],
+                        "claims": final_state.get("claims") or [],
+                        "evidence_ids": final_state.get("evidence_ids") or [],
                     },
                 )
-                interrupt_payload = _extract_interrupt(event.get("interrupts") or ())
-                if interrupt_payload is not None:
-                    run.current_interrupt = interrupt_payload
-                    run.status = "interrupted"
-                    AGENT_INTERRUPTS.labels(
-                        str(interrupt_payload.get("type") or "unknown")
-                    ).inc()
-                    await emit_run_event(
-                        session,
-                        run_id=run.id,
-                        event_type="interrupt",
-                        payload=interrupt_payload,
-                    )
-            elif mode == "updates" and isinstance(data, dict):
-                workspace_step = _workspace_step_payload(data)
-                if workspace_step is not None:
-                    await emit_run_event(
-                        session,
-                        run_id=run.id,
-                        event_type="workspace_step",
-                        payload=workspace_step,
-                    )
-                planner_step = _planner_step_payload(data)
-                if planner_step is not None:
-                    await emit_run_event(
-                        session,
-                        run_id=run.id,
-                        event_type="planner_step",
-                        payload=planner_step,
-                    )
-                tool_outcome = _tool_outcome_payload(data)
-                if tool_outcome is not None:
-                    await emit_run_event(
-                        session,
-                        run_id=run.id,
-                        event_type="tool_result",
-                        payload=tool_outcome,
-                    )
-        status = str(final_state.get("status") or "completed")
-        if run.status == "interrupted":
-            status = "interrupted"
-        elif status not in {"failed", "cancelled"}:
-            status = "completed"
-        await event_service.update_run_status(
-            session,
-            run,
-            status=status,
-            snapshot=dict(final_state),
-            current_interrupt=run.current_interrupt,
-        )
-        if final_state.get("answer_text"):
             await emit_run_event(
                 session,
                 run_id=run.id,
-                event_type="answer",
-                payload={
-                    "text": final_state["answer_text"],
-                    "claims": final_state.get("claims") or [],
-                    "evidence_ids": final_state.get("evidence_ids") or [],
-                },
+                event_type="run_interrupted" if status == "interrupted" else "run_completed",
+                payload={"status": status},
             )
-        await emit_run_event(
-            session,
-            run_id=run.id,
-            event_type="run_interrupted" if status == "interrupted" else "run_completed",
-            payload={"status": status},
-        )
-        await session.commit()
-        AGENT_RUNS.labels(status).inc()
-        AGENT_DURATION.observe(time.perf_counter() - started_at)
-        _record_run_metrics(final_state)
-        await _maybe_log_trace(session, run=run, settings=runtime_context.settings)
-        return final_state
-    except RunDeadlineExceeded as exc:
-        # Wall-clock budget spent (agent-runtime-sprints §6). Distinct terminal
-        # state from a generic crash: the run is "failed" but with an explicit
-        # deadline_exceeded reason so ops/metrics can tell a timeout from a bug.
-        logger.warning("Agent run %s hit wall-clock deadline: %s", run.id, exc)
-        await event_service.update_run_status(
-            session,
-            run,
-            status="failed",
-            error="deadline_exceeded",
-        )
-        await emit_run_event(
-            session,
-            run_id=run.id,
-            event_type="run_failed",
-            payload={"error": "deadline_exceeded", "stopped_reason": "deadline_exceeded"},
-        )
-        await session.commit()
-        AGENT_RUNS.labels("failed").inc()
-        AGENT_DURATION.observe(time.perf_counter() - started_at)
-        AGENT_STOPPED_REASON.labels("deadline_exceeded").inc()
-        raise
-    except Exception as exc:
-        logger.exception("Agent run %s failed", run.id)
-        await event_service.update_run_status(
-            session,
-            run,
-            status="failed",
-            error=str(exc),
-        )
-        await emit_run_event(
-            session,
-            run_id=run.id,
-            event_type="run_failed",
-            payload={"error": str(exc)},
-        )
-        await session.commit()
-        AGENT_RUNS.labels("failed").inc()
-        AGENT_DURATION.observe(time.perf_counter() - started_at)
-        AGENT_STOPPED_REASON.labels("crash").inc()
-        raise
+            await session.commit()
+            AGENT_RUNS.labels(status).inc()
+            AGENT_DURATION.observe(time.perf_counter() - started_at)
+            _record_run_metrics(final_state)
+            await _maybe_log_trace(session, run=run, settings=runtime_context.settings)
+            return final_state
+        except RunDeadlineExceeded as exc:
+            # Wall-clock budget spent (agent-runtime-sprints §6). Distinct terminal
+            # state from a generic crash: the run is "failed" but with an explicit
+            # deadline_exceeded reason so ops/metrics can tell a timeout from a bug.
+            logger.warning("Agent run %s hit wall-clock deadline: %s", run.id, exc)
+            await event_service.update_run_status(
+                session,
+                run,
+                status="failed",
+                error="deadline_exceeded",
+            )
+            await emit_run_event(
+                session,
+                run_id=run.id,
+                event_type="run_failed",
+                payload={"error": "deadline_exceeded", "stopped_reason": "deadline_exceeded"},
+            )
+            await session.commit()
+            AGENT_RUNS.labels("failed").inc()
+            AGENT_DURATION.observe(time.perf_counter() - started_at)
+            AGENT_STOPPED_REASON.labels("deadline_exceeded").inc()
+            raise
+        except Exception as exc:
+            logger.exception("Agent run %s failed", run.id)
+            await event_service.update_run_status(
+                session,
+                run,
+                status="failed",
+                error=str(exc),
+            )
+            await emit_run_event(
+                session,
+                run_id=run.id,
+                event_type="run_failed",
+                payload={"error": str(exc)},
+            )
+            await session.commit()
+            AGENT_RUNS.labels("failed").inc()
+            AGENT_DURATION.observe(time.perf_counter() - started_at)
+            AGENT_STOPPED_REASON.labels("crash").inc()
+            raise
 
 
 async def resume_agent_graph(

@@ -123,6 +123,61 @@ def grade_empty_pack_no_claim(state: Mapping[str, Any]) -> GraderResult:
     )
 
 
+_IMAGE_AFFIRM_MARKERS = (
+    "изображени",
+    "картинк",
+    "фотограф",
+    "иллюстрац",
+    "на ней изображ",
+    "на картинке",
+    "на изображении",
+)
+_IMAGE_NEGATION_MARKERS = ("нет изображени", "нет картинок", "не приложен", "отсутству")
+
+
+def grade_image_claim_backed(state: Mapping[str, Any]) -> GraderResult:
+    """No affirming an image the evidence doesn't carry (chat 9f3d5fdf/8caf07f4).
+
+    Image existence is structural: a hydrated attachment produces an evidence
+    record with a citation path containing '/attachment/'. The old approach
+    scanned rag_context text for "image/" — wrong: vision captions are plain
+    prose and never contain "image/", so the grader falsely reported "no image"
+    even for valid vision evidence (chat 8caf07f4). Record paths are the
+    authoritative signal.
+    """
+    evidence_records = state.get("evidence_records") or {}
+    has_attachment = any("/attachment/" in str(rid) for rid in evidence_records)
+    if not has_attachment:
+        # Fallback for runs that don't populate evidence_records (unit tests,
+        # legacy paths): keep the old rag_context text check.
+        rag = str(state.get("rag_context") or "").lower()
+        has_attachment = "image/" in rag
+    if has_attachment:
+        return GraderResult(
+            name="image_claim_backed",
+            passed=True,
+            reason="pack carries image attachment(s) — grader not applicable",
+        )
+    answer = str(state.get("answer_text") or "").lower()
+    if any(neg in answer for neg in _IMAGE_NEGATION_MARKERS):
+        return GraderResult(
+            name="image_claim_backed",
+            passed=True,
+            reason="answer denies images, does not affirm",
+        )
+    if any(marker in answer for marker in _IMAGE_AFFIRM_MARKERS):
+        return GraderResult(
+            name="image_claim_backed",
+            passed=False,
+            reason="answer affirms an image but pack has no image attachment",
+        )
+    return GraderResult(
+        name="image_claim_backed",
+        passed=True,
+        reason="answer makes no image affirmation",
+    )
+
+
 def grade_trajectory_includes(
     state: Mapping[str, Any],
     *,
@@ -158,6 +213,7 @@ def grade_run(
     results = [
         grade_claims_subset_evidence(state),
         grade_empty_pack_no_claim(state),
+        grade_image_claim_backed(state),
     ]
     if must_call:
         results.append(grade_trajectory_includes(state, must_call=must_call))

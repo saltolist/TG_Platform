@@ -9,6 +9,8 @@ role="${1:-worker}"
 
 case "$role" in
   worker)
+    echo "[entrypoint-celery] Warming up embedding model..."
+    python scripts/warmup_embeddings.py || true
     echo "[entrypoint-celery] Starting Celery worker..."
     exec celery -A app.celery_app worker -l info --concurrency=2
     ;;

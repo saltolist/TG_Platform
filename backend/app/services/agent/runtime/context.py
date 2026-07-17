@@ -6,6 +6,7 @@ import uuid
 from dataclasses import dataclass, field
 from typing import Any
 
+import httpx
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
 from app.core.config import Settings
@@ -61,6 +62,11 @@ class RuntimeContext:
     # §6). Set by execute_agent_run/resume_agent_graph from rag_agent_deadline_s;
     # None disables the wall-clock cap (e.g. legacy call sites). See runtime/budget.py.
     deadline_monotonic: float | None = None
+    # Shared httpx client for all LLM calls within a single agent run — avoids
+    # creating a new TCP/TLS connection per call (was one AsyncClient per call).
+    # Created in execute_agent_run and threaded through budget.py into llm.py.
+    # None falls back to the old per-call client behaviour (safe default).
+    llm_client: httpx.AsyncClient | None = None
 
     def bind_agent_state(self, session: AsyncSession) -> AgentState:
         if self.agent_tool_state is not None:

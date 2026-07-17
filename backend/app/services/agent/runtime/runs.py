@@ -147,6 +147,14 @@ async def rebuild_runtime_context_for_run(
     channel_profile = dict(profile.channel) if profile and profile.channel else None
     telegram_profile = dict(profile.telegram) if profile and profile.telegram else None
     reasoner = resolve_rag_reasoner_llm(user, ai_profile, settings)
+    if reasoner:
+        import logging as _logging
+        _logging.getLogger(__name__).info(
+            "Agent planner model resolved: provider=%s model=%s run_id=%s",
+            getattr(reasoner[0], "name", "?"),
+            reasoner[1],
+            run.id,
+        )
     post_data = None
     if run.post_id:
         # Resolve by UUID PK OR legacy JSONB data['id'] — the same canonical

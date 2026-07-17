@@ -438,6 +438,7 @@ async def get_attachment_extraction_by_hash(
                 "SELECT extracted_text FROM attachment_extractions "
                 "WHERE user_id = :uid AND content_hash = :ch "
                 "AND extracted_text IS NOT NULL AND extracted_text != '' "
+                "AND extracted_text != 'None' AND length(extracted_text) > 10 "
                 "ORDER BY extracted_at DESC LIMIT 1"
             ),
             {"uid": str(user_id), "ch": content_hash_value},
@@ -628,8 +629,16 @@ async def get_note_data(
     post_data: Any | None = None,
     opened_posts: dict[str, dict[str, Any]] | None = None,
 ) -> dict[str, Any] | None:
-    """Resolve a full note dict (including files[]) from overlay, global, or post scope."""
-    from app.db.models import GlobalNote
+    """Resolve a full note dict (including files[]) from overlay, global, or post scope.
+
+    Search order:
+    1. Tenant overlay (if tenant_key)
+    2. global_notes table (if scope == "global")
+    3. opened_posts in-memory (post_data + opened_posts dict)
+    4. DB fallback: scan posts table for a post whose notes[] contains note_id
+       — allows OpenNote(note_id) to succeed without a prior OpenPost call.
+    """
+    from app.db.models import GlobalNote, Post
     from app.services.overlay.tenant_notes import get_tenant_note
 
     if tenant_key:
@@ -659,6 +668,24 @@ async def get_note_data(
         for note in post.get("notes") or []:
             if isinstance(note, dict) and str(note.get("id", "")) == note_id:
                 return dict(note)
+
+    # DB fallback: the note wasn't found in memory — scan posts to locate it.
+    # This lets OpenNote(note_id) succeed without a prior OpenPost call, avoiding
+    # the planner loop: OpenNote→not_found → OpenPost → (loop without retry).
+    try:
+        result = await session.execute(
+            select(Post).where(
+                Post.user_id == user_id,
+                Post.data["notes"].as_string().contains(note_id),
+            )
+        )
+        for post_row in result.scalars().all():
+            for note in (post_row.data or {}).get("notes") or []:
+                if isinstance(note, dict) and str(note.get("id", "")) == note_id:
+                    return dict(note)
+    except Exception:
+        pass  # fallback — non-fatal if the scan fails
+
     return None
 
 

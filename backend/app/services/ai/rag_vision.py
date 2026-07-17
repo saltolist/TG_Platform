@@ -14,6 +14,10 @@ logger = logging.getLogger(__name__)
 
 _VISION_FALLBACK_PROVIDERS = frozenset({"OpenAI", "Perplexity"})
 
+# Perplexity: only sonar-pro supports image inputs; sonar/sonar-reasoning are text-only.
+# If the model name doesn't match this prefix, skip it for vision fallback.
+_PERPLEXITY_VISION_MODEL_PREFIX = "sonar-pro"
+
 
 def pick_active_vision_model(ai_profile: Mapping[str, Any]) -> dict[str, Any] | None:
     models = ai_profile.get("visionModels") or []
@@ -50,6 +54,10 @@ def _pick_active_model_from_group(
         if provider not in _VISION_FALLBACK_PROVIDERS:
             continue
         if provider not in PROVIDER_SPECS:
+            continue
+        # Perplexity: only sonar-pro supports vision — sonar/sonar-reasoning are text-only.
+        if provider == "Perplexity" and not model_name.startswith(_PERPLEXITY_VISION_MODEL_PREFIX):
+            logger.debug("Skipping Perplexity model %s — only sonar-pro supports vision", model_name)
             continue
         return dict(model)
     return None

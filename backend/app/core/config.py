@@ -23,6 +23,13 @@ class Settings(BaseSettings):
 
     # Database
     database_url: str = "postgresql+asyncpg://tg:tg@localhost:5432/tg"
+    # Per-process connection pool limits.  Each deployed process (API, Celery
+    # worker, beat, sync-worker) opens up to pool_size + max_overflow connections.
+    # Default keeps total well below postgres max_connections=100:
+    #   API(1) + celery-worker(3 procs) + beat(1) + sync-worker(1) = 6 procs
+    #   6 × (3 + 5) = 48 connections max.
+    db_pool_size: int = 3
+    db_pool_max_overflow: int = 5
 
     # Auth / JWT
     jwt_secret: str = "change-me-please"

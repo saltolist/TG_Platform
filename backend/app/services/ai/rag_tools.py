@@ -47,6 +47,38 @@ _VISION_CAPTION_PROMPT = (
     "Опиши, что изображено, включая видимый текст/цифры на изображении."
 )
 
+# Patterns that indicate a model refused/failed to process the image rather than
+# returning a real description. Sonar-pro (and other providers that don't support
+# inline base64 data: URLs) return these refusals as 200 OK text responses. We
+# must NOT cache them — a stale "I cannot see" caption would permanently block
+# legitimate vision calls on the same content hash.
+_VISION_REFUSAL_FRAGMENTS = (
+    "cannot view",
+    "can't view",
+    "cannot see",
+    "can't see",
+    "unable to view",
+    "unable to see",
+    "unable to process",
+    "cannot process",
+    "can't process",
+    "no image",
+    "i don't see",
+    "i do not see",
+    "не вижу изображени",
+    "не могу видеть",
+    "не могу просмотреть",
+    "не могу обработать",
+    "изображение недоступно",
+    "не удаётся",
+)
+
+
+def _is_vision_refusal(caption: str) -> bool:
+    """Return True if the caption looks like a model refusal rather than a real description."""
+    lower = caption.lower()
+    return any(frag in lower for frag in _VISION_REFUSAL_FRAGMENTS)
+
 
 @dataclass
 class AgentState:
@@ -109,6 +141,31 @@ def _record_listing(state: AgentState, *, path: str, title: str, body: str) -> T
     """
     state.context_blocks.append((NoteCite(path=path, title=title), body))
     return ToolOutcome(summary=body)
+
+
+def _attachment_suffix(files: Any) -> str:
+    """`files=N` / `images=M` decoration for a note in a listing.
+
+    Attachment presence is structured data (files[].type) the listing tools
+    already hold in memory, but they used to print title only — so «заметка с
+    вложениями/картинками» was not findable from a listing, forcing the planner
+    to open notes one-by-one or open a topically-similar note blindly (chat
+    9f3d5fdf). Surfacing counts here makes attachments discoverable across BOTH
+    sources (global notes + post notes) without a new tool or extra query.
+    Covers all attachments, not only images: `images` is a subset of `files`.
+    """
+    items = [f for f in (files or []) if isinstance(f, dict)]
+    if not items:
+        return ""
+    images = sum(
+        1
+        for f in items
+        if str(f.get("type") or f.get("mimeType") or "").startswith("image/")
+    )
+    parts = [f"files={len(items)}"]
+    if images:
+        parts.append(f"images={images}")
+    return " " + " ".join(parts)
 
 
 def _is_current_chat_post(state: AgentState, canonical_post_id: str) -> bool:
@@ -346,19 +403,38 @@ async def tool_list_posts(
             continue
         matched += 1
         preview = text_value[:80] + ("…" if len(text_value) > 80 else "")
-        notes_count = len(data.get("notes") or [])
+        post_notes = data.get("notes") or []
+        notes_count = len(post_notes)
+        # Aggregate attachment presence across THIS post's notes, so a post whose
+        # notes carry images/files is findable from the catalog without opening
+        # each post then each note (chat 9f3d5fdf — the note with images lived
+        # under a post and was never located). Structured data already in memory.
+        note_files = 0
+        note_images = 0
+        for note in post_notes:
+            for f in (note.get("files") or []) if isinstance(note, dict) else []:
+                if not isinstance(f, dict):
+                    continue
+                note_files += 1
+                if str(f.get("type") or f.get("mimeType") or "").startswith("image/"):
+                    note_images += 1
         state.catalog_posts.append(
             {
                 "id": post_id,
                 "text": text_value,
                 "status": post_status,
                 "notes_count": notes_count,
-                "notes": data.get("notes") or [],
+                "notes": post_notes,
             }
         )
+        att_suffix = ""
+        if note_files:
+            att_suffix = f" note_files={note_files}"
+            if note_images:
+                att_suffix += f" note_images={note_images}"
         lines.append(
             f"- title={title!r} tech_id={post_id} status={post_status} "
-            f"notes={notes_count} preview={preview!r}"
+            f"notes={notes_count}{att_suffix} preview={preview!r}"
         )
         if result_limit is not None and matched >= result_limit:
             break
@@ -426,7 +502,7 @@ def tool_list_post_notes(state: AgentState, *, post_id: str) -> ToolOutcome:
     for item in notes:
         note_id = str(item.get("id") or "").strip()
         title = str(item.get("title") or note_id).strip() or note_id
-        lines.append(f"- note:{note_id} title={title!r}")
+        lines.append(f"- note:{note_id} title={title!r}{_attachment_suffix(item.get('files'))}")
     return _record_listing(
         state, path=listing_path, title=listing_title, body="\n".join(lines),
     )
@@ -458,7 +534,7 @@ async def tool_list_global_notes(state: AgentState) -> ToolOutcome:
         if not note_id:
             continue
         title = str(item.get("title") or note_id).strip() or note_id
-        lines.append(f"- note:{note_id} title={title!r}")
+        lines.append(f"- note:{note_id} title={title!r}{_attachment_suffix(item.get('files'))}")
     return _record_listing(
         state, path=listing_path, title=listing_title, body="\n".join(lines),
     )
@@ -527,7 +603,8 @@ async def tool_open_note(
         if isinstance(item, dict) and (record := note_file_record(item))
     ]
     attachment_lines = [
-        f"- {rec['name']} (тип: {rec['type'] or 'неизвестно'})" for rec in files
+        f"- {rec['name']} (тип: {rec['type'] or 'неизвестно'}, ref: attachment:{rec['id']})"
+        for rec in files
     ]
     parts = [plain.strip()] if plain.strip() else []
     if attachment_lines:
@@ -674,13 +751,18 @@ def _settings_for(state: AgentState) -> Settings:
 def _find_note_file_by_id(note_data: dict[str, Any] | None, file_id: str) -> dict[str, str] | None:
     if not note_data:
         return None
+    name_fallback: dict[str, str] | None = None
     for item in note_data.get("files") or []:
         if not isinstance(item, dict):
             continue
         record = note_file_record(item)
         if record and record["id"] == file_id:
             return record
-    return None
+        # Fallback: the planner may use the display name instead of UUID ref
+        # (OpenNote summary shows names; planner constructs "attachment:name").
+        if record and not name_fallback and record["name"] == file_id:
+            name_fallback = record
+    return name_fallback
 
 
 def _find_post_media_by_id(post_data: dict[str, Any] | None, file_id: str) -> dict[str, str] | None:
@@ -786,7 +868,7 @@ async def _append_extracted_text(
     post_id: str | None,
     record: dict[str, str],
     text_value: str,
-) -> None:
+) -> str:
     cite_path = _attachment_cite_path(
         ref_kind=ref_kind,
         file_id=file_id,
@@ -797,6 +879,12 @@ async def _append_extracted_text(
     cite = NoteCite(path=cite_path, title=record["name"])
     state.context_blocks.append((cite, text_value.strip()))
     state.hydrated_text_files.add(ref)
+    # Return the cite_path so callers can surface it in tool summaries — the
+    # planner must copy evidence IDs verbatim from the transcript (see AGENT_SYSTEM
+    # §evidence_ids rule), but without an explicit path in the summary it falls
+    # back to reconstructing from memory and drops UUID characters (chat 9f3d5fdf:
+    # last 6 chars of note UUID consistently dropped in FinishRetrieval).
+    return cite_path
 
 
 def _format_post_trend_text(trend: Mapping[str, Any], *, period: str) -> str:
@@ -1003,7 +1091,13 @@ async def tool_hydrate_attachment(
             text_value=text_value,
         )
         _mark_visited(state, visit_ref)
-        return ToolOutcome(summary=f"Гидратировано {ref} (text), символов={len(text_value)}.")
+        cite_path = _attachment_cite_path(
+            ref_kind=ref_kind, file_id=file_id,
+            note_id=note_id, post_id=post_id, state=state,
+        )
+        return ToolOutcome(
+            summary=f"Гидратировано {ref} (text), символов={len(text_value)}. [id: {cite_path}]"
+        )
     except Exception as exc:
         logger.warning("HydrateAttachment text failed for %s: %s", ref, exc)
         return ToolOutcome(summary=f"Гидратация {ref} не выполнена.", error=str(exc))
@@ -1064,7 +1158,13 @@ async def _tool_hydrate_attachment_vision(
 
             vision_llm = resolve_vision_llm(state.user, state.ai_profile, settings)
             if vision_llm is None:
-                return ToolOutcome(summary="Vision-модель недоступна.", error="no_vision_model")
+                return ToolOutcome(
+                    summary=(
+                        "Vision-модель недоступна: нет OpenAI-совместимой модели с поддержкой "
+                        "изображений в настройках профиля. Добавь GPT-4o или аналог в visionModels."
+                    ),
+                    error="no_vision_model",
+                )
             spec, model, api_key = vision_llm
             caption = (
                 await complete_vision_completion(
@@ -1077,6 +1177,12 @@ async def _tool_hydrate_attachment_vision(
                 )
             ).strip()
             state.vision_calls_used += 1
+            if caption and _is_vision_refusal(caption):
+                logger.warning(
+                    "HydrateAttachment vision refusal for %s (model=%s): %s",
+                    ref, model, caption[:120],
+                )
+                caption = ""
             if caption:
                 await upsert_attachment_extraction(
                     state.session,
@@ -1104,10 +1210,25 @@ async def _tool_hydrate_attachment_vision(
             text_value=caption,
         )
         _mark_visited(state, visit_ref)
-        return ToolOutcome(summary=f"Гидратировано {ref} (vision), символов={len(caption)}.")
+        # Surface the canonical citation path in the summary so the planner can
+        # copy it verbatim into FinishRetrieval evidence_ids — without this it
+        # reconstructs from memory and silently truncates UUIDs (chat 9f3d5fdf:
+        # last 6 chars of note UUID dropped every time, second image not found).
+        cite_path = _attachment_cite_path(
+            ref_kind=ref_kind, file_id=file_id,
+            note_id=note_id, post_id=post_id, state=state,
+        )
+        return ToolOutcome(
+            summary=f"Гидратировано {ref} (vision), символов={len(caption)}. [id: {cite_path}]"
+        )
     except Exception as exc:
-        logger.warning("HydrateAttachment vision failed for %s: %s", ref, exc)
-        return ToolOutcome(summary=f"Vision-гидратация {ref} не выполнена.", error=str(exc))
+        exc_name = type(exc).__name__
+        exc_msg = str(exc)[:200]
+        logger.warning("HydrateAttachment vision failed for %s: %s: %s", ref, exc_name, exc_msg)
+        return ToolOutcome(
+            summary=f"Vision-гидратация {ref} не выполнена: {exc_name}: {exc_msg}",
+            error=f"{exc_name}: {exc_msg}",
+        )
 
 
 def tool_list_post_comments(state: AgentState, *, post_id: str) -> ToolOutcome:

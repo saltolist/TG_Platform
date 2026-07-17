@@ -11,6 +11,7 @@ from __future__ import annotations
 from app.services.agent.runtime.graders import (
     grade_claims_subset_evidence,
     grade_empty_pack_no_claim,
+    grade_image_claim_backed,
     grade_run,
     grade_trajectory_includes,
 )
@@ -122,4 +123,62 @@ def test_trajectory_superset_detects_missing_tool() -> None:
 
 def test_trajectory_superset_passes_when_present() -> None:
     result = grade_trajectory_includes(_grounded_run(), must_call=["OpenPost"])
+    assert result.passed is True
+
+
+# --------------------------------------------------------------------------- #
+# image claim must be backed by an image attachment in the pack (chat 9f3d5fdf)
+# --------------------------------------------------------------------------- #
+
+
+def _confabulated_image_run() -> dict:
+    """Regression trap: answer affirms an image, but pack has no image attachment.
+
+    The note's prose describes a schema; the model reported it as an attached
+    picture, "confirming" the user's presupposition that images exist.
+    """
+    return {
+        "rag_context": "[id: /note/global/n1/] Заметка про каскадный поиск: уровни 0,1,2.",
+        "evidence_ids": ["/note/global/n1/"],
+        "answer_text": "Да, в заметке есть изображение — схема каскадного поиска.",
+        "claims": [{"text": "В заметке есть изображение схемы.", "evidence_ids": ["/note/global/n1/"]}],
+    }
+
+
+def test_confabulated_image_fails_grader() -> None:
+    result = grade_image_claim_backed(_confabulated_image_run())
+    assert result.passed is False
+    assert "no image attachment" in result.reason
+
+
+def test_image_claim_passes_when_pack_has_image() -> None:
+    state = dict(_confabulated_image_run())
+    state["rag_context"] += "\nВложения заметки:\n- схема (тип: image/png)"
+    result = grade_image_claim_backed(state)
+    assert result.passed is True
+
+
+def test_image_claim_passes_via_attachment_record_path() -> None:
+    # evidence_records with /attachment/ path → grader passes without "image/" in
+    # rag_context (chat 8caf07f4: vision captions are plain prose, never contain
+    # "image/", so old text-scan falsely triggered).
+    state = dict(_confabulated_image_run())
+    state["evidence_records"] = {
+        "/note/global/n1/attachment/f1/": {"content": "На изображении рекламный баннер."}
+    }
+    result = grade_image_claim_backed(state)
+    assert result.passed is True
+
+
+def test_image_denial_passes_grader() -> None:
+    # Honest "there are no images" answer over an image-less pack must not trip.
+    state = dict(_confabulated_image_run())
+    state["answer_text"] = "В найденной заметке нет изображений."
+    result = grade_image_claim_backed(state)
+    assert result.passed is True
+
+
+def test_grounded_run_has_no_image_affirmation() -> None:
+    # Sanity: the healthy fixture makes no image claim, so grade_run stays green.
+    result = grade_image_claim_backed(_grounded_run())
     assert result.passed is True

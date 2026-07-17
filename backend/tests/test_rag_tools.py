@@ -192,6 +192,56 @@ def test_tool_list_post_notes_from_base_post_data() -> None:
     assert "Note 1" in outcome.summary
 
 
+def test_list_post_notes_surfaces_attachment_markers() -> None:
+    # A post note with an image + a doc must expose files=/images= so «заметка с
+    # вложениями/картинками» is findable without opening it (chat 9f3d5fdf).
+    post = {
+        "id": "post-1",
+        "text": "T",
+        "notes": [
+            {
+                "id": "n1",
+                "title": "Note 1",
+                "files": [
+                    {"id": "f1", "type": "image/png"},
+                    {"id": "f2", "type": "application/pdf"},
+                ],
+            },
+            {"id": "n2", "title": "Note 2", "files": []},
+        ],
+    }
+    state = _state(scope="post", base_post_data=post)
+    outcome = tool_list_post_notes(state, post_id="post-1")
+    assert "note:n1" in outcome.summary and "files=2" in outcome.summary
+    assert "images=1" in outcome.summary
+    # A note with no files gets no suffix — no false "files=0".
+    n2_line = [ln for ln in outcome.summary.splitlines() if "note:n2" in ln][0]
+    assert "files=" not in n2_line
+
+
+@pytest.mark.asyncio
+async def test_list_posts_aggregates_note_attachments() -> None:
+    state = _state(scope="global", base_post_data=None)
+    row = MagicMock()
+    row.data = {
+        "id": "1",
+        "status": "draft",
+        "text": "Пост с картинками в заметке",
+        "notes": [
+            {"id": "n1", "files": [{"id": "f1", "type": "image/jpeg"}]},
+            {"id": "n2", "files": [{"id": "f2", "type": "text/plain"}]},
+        ],
+    }
+    mock_result = MagicMock()
+    mock_result.scalars.return_value.all.return_value = [row]
+    state.session.execute = AsyncMock(return_value=mock_result)
+
+    outcome = await tool_list_posts(state, status="all")
+
+    assert "note_files=2" in outcome.summary
+    assert "note_images=1" in outcome.summary
+
+
 @pytest.mark.asyncio
 async def test_tool_list_posts_filters_status() -> None:
     state = _state(scope="global", base_post_data=None)

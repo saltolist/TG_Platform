@@ -35,6 +35,8 @@ async def call_llm_with_deadline(ctx: RuntimeContext, **kwargs) -> str:
     provider that overruns the remainder → asyncio.TimeoutError, surfaced as
     RunDeadlineExceeded so the executor marks the run deadline_exceeded.
     """
+    if ctx.llm_client is not None:
+        kwargs.setdefault("client", ctx.llm_client)
     deadline = ctx.deadline_monotonic
     if deadline is None:
         return await llm.complete_chat_completion(**kwargs)
@@ -58,6 +60,8 @@ async def stream_llm_with_deadline(ctx: RuntimeContext, **kwargs) -> AsyncIterat
     asyncio.wait_for wraps each __anext__ so a stalled provider is cut off at
     the remaining budget, same guarantee the non-streaming path gives.
     """
+    if ctx.llm_client is not None:
+        kwargs.setdefault("client", ctx.llm_client)
     deadline = ctx.deadline_monotonic
     stream = llm.stream_chat_completion_tokens(**kwargs)
     agen = stream.__aiter__()

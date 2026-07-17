@@ -212,6 +212,29 @@ async def answer_node(state: AgentGraphState, config: RunnableConfig) -> dict[st
                 f"Evidence охватывает {len(evidence_titles)} объектов: "
                 + "; ".join(evidence_titles)
             )
+        # Explicit image-attachment inventory (chat 9f3d5fdf / 8caf07f4).
+        # Original check scanned rag_context text for "image/" — wrong: vision
+        # captions are plain prose ("На изображении рекламный баннер..."), they
+        # never contain "image/". Guard fired even when attachments were in
+        # evidence, causing answer to claim "НЕТ изображений" (chat 8caf07f4).
+        # Correct signal: structural — does any evidence record path contain
+        # "/attachment/"? That path is written by _attachment_cite_path and is
+        # present iff a real image attachment was hydrated into the pack.
+        evidence_records_raw = state.get("evidence_records") or {}
+        has_image_attachment = any(
+            "/attachment/" in str(rid)
+            for rid in evidence_records_raw
+        )
+        if not has_image_attachment:
+            prompt_parts.append(
+                "Инвентарь изображений: в собранном evidence НЕТ вложений-"
+                "изображений (ни у одной заметки/поста нет прикреплённой картинки). "
+                "Не утверждай, что изображение существует, и не описывай его "
+                "содержимое: текст, описывающий схему/картинку, — это НЕ "
+                "приложенное изображение. Если пользователь предполагает, что "
+                "картинки есть, а их в evidence нет — прямо скажи, что в "
+                "найденном их нет."
+            )
         prompt_parts.append(f"Evidence IDs: {evidence_ids}\nEvidence:\n{rag_context}")
         prompt_parts.append(
             'Верни JSON {"answer":"...","claims":[{"text":"...","evidence_ids":[...]}]}.'
@@ -249,6 +272,20 @@ async def answer_node(state: AgentGraphState, config: RunnableConfig) -> dict[st
             "Нумерация внутри текста заметки («Пост 2», «до 6-го») — это авторская "
             "нумерация контента, она НЕ связана с tech_id постов; не отождествляй "
             "«Пост N из заметки» с постом, у которого tech_id=N.\n"
+            # Recommendation-consistency invariant (chat d8ec8cc6 is one
+            # instance): a recommendation must not contradict the state the
+            # evidence already shows — don't advise creating/doing what evidence
+            # says already exists or is already done. d8ec8cc6 recommended
+            # writing a post that was already in drafts AND cited in the same
+            # answer; that's the retrieved-but-ignored variant, distinct from
+            # never-retrieved (chat 38e115df, fixed at the planner). Stated as
+            # the general rule, not the single case, with the case as example.
+            "Держи рекомендации согласованными с состоянием из evidence: не "
+            "советуй создать или сделать то, что evidence показывает уже "
+            "существующим или уже сделанным. В частности, если просят "
+            "предложить/написать материал, а на эту тему в evidence уже есть "
+            "пост/черновик/заметка — не предлагай писать заново: сошлись на "
+            "существующий и предложи доработать или опубликовать его.\n"
             + UNTRUSTED_SYSTEM_NOTE
         )
     else:

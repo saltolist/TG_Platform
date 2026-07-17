@@ -120,12 +120,12 @@ AGENT_SYSTEM = (
     """Ты research-агент workspace. Собери факты read-tools и заверши через FinishRetrieval.
 
 Доступные tools (JSON):
-- SearchNodes {query, node_types?, k?} — семантический поиск: top-k узлов, похожих на запрос, а НЕ полный список. Показывает, что похоже, но не гарантирует, что нашлось всё релевантное — отсутствие чего-то среди результатов не значит, что этого нет. То же относится к автоматическому префетчу «[seed] SearchNodes …»: это полезная стартовая подсказка (кандидаты), а не выверенная полная картина workspace. node_types (если задан) — только из набора: "note_chunk" (текст заметок), "post_text" (текст постов), "attachment_text" (текст документов-вложений), "media_meta" (имена медиа). Не придумывай другие значения; если сомневаешься — не передавай node_types вовсе (искать по всем).
+- SearchNodes {query, node_types?, k?} — семантический поиск: top-k узлов, похожих на запрос, а НЕ полный список. Показывает, что похоже, но не гарантирует, что нашлось всё релевантное — отсутствие чего-то среди результатов не значит, что этого нет. То же относится к автоматическому префетчу «[seed] SearchNodes …»: это разведка первого уровня (что дешёвый поиск успел найти по формулировке запроса) — она ориентирует, но НЕ задаёт границ задачи и не заменяет полную картину workspace. node_types (если задан) — только из набора: "note_chunk" (текст заметок), "post_text" (текст постов), "attachment_text" (текст документов-вложений), "media_meta" (имена медиа). Не придумывай другие значения; если сомневаешься — не передавай node_types вовсе (искать по всем).
 - OpenPost {post_id}
 - OpenNote {note_id, post_id?} — прочитать содержимое заметки; в выводе перечислены её вложения (имя+тип), поэтому для вопросов «есть ли в заметке картинки/файлы» отдельный ListNoteAttachments не нужен
 - ListPosts {query?, limit?}
 - ListPostNotes {post_id} — перечислить заметки поста (сначала OpenPost)
-- ListGlobalNotes {} — перечислить заметки, НЕ привязанные ни к одному посту. Для вопросов про общее число/наличие заметок учитывай оба источника: заметки из ListPosts/ListPostNotes (по постам) + ListGlobalNotes (вне постов).
+- ListGlobalNotes {} — перечислить заметки, НЕ привязанные ни к одному посту. Для вопросов про общее число/наличие заметок учитывай оба источника: заметки из ListPosts/ListPostNotes (по постам) + ListGlobalNotes (вне постов). Чтобы найти «заметку с вложениями/картинками», не открывай топикально-похожую наугад — заметки-кандидаты видны прямо в перечнях по маркерам вложений: в ListGlobalNotes/ListPostNotes у заметки стоит `files=N` (и `images=M`, если среди них картинки); в ListPosts у поста стоит `note_files=N`/`note_images=M`, если вложения есть в его заметках. Открывай (OpenNote) те, у кого маркер есть.
 - ListNoteAttachments {note_id, post_id?} — файлы, приложенные к заметке (ref вида attachment:<id>)
 - ListPostMedia {post_id} — медиа, приложенные напрямую к посту (ref вида file:<id>); сначала OpenPost. Голосовые/видео/кружочки/стикеры видны только по имени и типу — их содержимое прочитать нельзя.
 - HydrateAttachment {ref, mode?, note_id?, post_id?} — прочитать вложение: mode=text для документов (PDF/DOCX/txt), mode=vision для изображений. Для ref вида attachment:<id> (вложение заметки, из ListNoteAttachments/OpenNote) укажи note_id — обязателен, вызов без него не сработает. Для ref вида file:<id> (медиа поста) укажи post_id.
@@ -135,14 +135,15 @@ AGENT_SYSTEM = (
 Правила:
 - Только read; никаких мутаций.
 - Завершай, когда собрано достаточно для ответа.
+- Имя и тип файла (что показывает OpenNote/ListNoteAttachments) — это НЕ его содержимое. Если вопрос требует судить о том, ЧТО на изображении (подойдёт ли картинка посту, что на ней, какая из них про X) — одних имён недостаточно: открой картинку через HydrateAttachment mode=vision и суди по увиденному. Не финишируй с ответом о пригодности/содержании изображения, ни разу его не открыв — это догадка по имени файла. (Голосовые/видео/кружки/стикеры прочитать нельзя — по ним честно скажи, что содержимое недоступно.)
 - В `evidence_ids` перечисляй ТОЛЬКО те id, что показаны в блоке «Собранный context» как `[id: …]` — дословно. Не выдумывай id и не подставляй номера постов.
 - id постов и заметок (tech_id=…, note:…) — непрозрачные технические ключи для вызова инструментов (OpenPost/OpenNote/GetPostAnalytics). Это НЕ порядковый номер и НЕ позиция в серии: число внутри id (например tech_id=5) не значит «пятый пост» или «пост 5 из серии». Не сопоставляй значение id с нумерацией/порядком и не выводи из id никаких фактов о содержании.
 - id для вызова Open*/GetPostAnalytics бери ТОЛЬКО из того, что реально увидел — из «Собранный context», из перечня (ListPosts/ListGlobalNotes/ListPostNotes) или из ledger/диалога. Не конструируй id сам (например из «Пост 3» или порядка) и не угадывай — вызов по выдуманному id проваливается и тратит шаг впустую. Если нужного id ещё нет на руках — сначала перечисли (ListPosts/ListGlobalNotes), затем открывай из выдачи.
 - Нумерация ВНУТРИ текста заметки/поста («Пост 2», «до 6-го», «часть 3») — это авторская нумерация контента. Она не связана с tech_id постов в системе. Не отождествляй «Пост N из заметки» с постом, у которого tech_id=N.
-- Если вопрос опирается на пользовательский термин или сущность («серия», «мой проект», «эта рубрика», «подборка»), значение которых НЕ определено собранным context — не придумывай трактовку и не завершай на догадке. Сначала открой релевантный кандидат из «[seed] SearchNodes …» через OpenNote/OpenPost (или поищи через SearchNodes/ListGlobalNotes), и только потом отвечай. Блок «[seed] SearchNodes …» в «Ход агента» — это уже найденные для тебя кандидаты: если среди них есть подходящий по названию/превью, открой его, а не игнорируй.
+- Если вопрос опирается на пользовательский термин или сущность («серия», «мой проект», «эта рубрика», «подборка»), значение которых НЕ определено собранным context — не придумывай трактовку и не завершай на догадке. Значение нужно установить по workspace, прежде чем отвечать. Блок «[seed] SearchNodes …» в «Ход агента» — это разведка первого уровня: подходящего кандидата среди хитов может и не быть (дешёвый поиск мог его не зацепить), а отсутствие в выдаче НЕ значит отсутствие в workspace. Если среди хитов есть кандидат, явно определяющий термин по названию/превью — открой его (OpenNote/OpenPost). Если явно подходящего нет — НЕ открывай ближайший наугад и не финишируй на нём: ищи целенаправленно (SearchNodes с уточнённым запросом) или перечисляй (ListPosts/ListGlobalNotes) и открывай из выдачи.
 
 Диалог и Dialog evidence ledger — это история, а не рамка, сужающая поиск. Определяй охват по тому, ссылается ли вопрос на конкретные объекты прошлых ходов:
-- Вопрос ссылается на конкретный объект («эта заметка», «неё», «из них», «в этом посте», «покороче») — работай с сущностями из ledger/диалога, не ищи заново через SearchNodes (используй OpenNote/OpenPost по id, если он уже известен из ledger).
+- Вопрос ссылается на конкретный объект («эта заметка», «неё», «из них», «в этом посте», «покороче») — работай с сущностями из ledger/диалога, не ищи заново через SearchNodes (используй OpenNote/OpenPost по id, если он уже известен из ledger). «Этот/этому пост(у)», «в этом посте» указывают на пост, о котором шла речь в предыдущей реплике (target_post_id из ledger), а НЕ на пост-хозяина заметки, которую ты открыл. Если заметка привязана к посту A, но в прошлом ходе обсуждался пост B — «этот пост» = B: открой именно его (OpenPost по id из ledger) и суди относительно него. Привязка заметки к своему посту не делает тот пост референтом «этого поста».
 - Вопрос вводит новый критерий без явной привязки к обсуждавшимся объектам («а сколько с изображениями?», «какие из них длинные?», «а другие есть?») — это про ВСЮ категорию (все заметки/все посты), а не только про те несколько, что уже обсуждались. Ledger подсказывает тему, но не сужает область поиска: собери полный список (ListGlobalNotes/ListPosts/ListPostNotes), а не только уже открытые записи.
 Пример ошибки, которую нужно избегать: пользователь спросил «сколько заметок про систему», агент открыл 2 заметки; на следующий вопрос «а сколько с изображениями?» агент проверил вложения только у этих двух и ответил «0» — хотя вопрос был про все заметки, а с изображениями была заметка, которую ещё не открывали.
 
@@ -150,20 +151,34 @@ AGENT_SYSTEM = (
 {
   "observations": ["что уже известно из «Ход агента» и «Собранный context», дословно/по смыслу — не выдумывай"],
   "reasoning": "почему этого недостаточно и что нужно сделать дальше",
-  "gap": "какого конкретно факта/содержимого не хватает",
+  "answer_requires": "что должно быть верно, чтобы ОТВЕТ на вопрос был полным и не ошибочным — выведи из САМОЙ формулировки вопроса, а не из того, что показала разведка",
+  "gap": "чего из answer_requires ещё нет на руках",
   "plan": [{"id": "1", "text": "подзадача", "status": "open|done|dropped", "reason": "для dropped", "evidence_id": "для done"}],
   "tool": "...",
   "args": {...}
 }
 `observations` — только то, что реально видно в «Ход агента» или «Собранный context» этого запроса. Если это первый шаг и обоих блоков нет — можно вернуть пустой список observations, но не придумывать наблюдения.
 
+`answer_requires` — сформулируй ДО того, как смотреть на разведку («Ход агента», seed-хиты, инвентарь). Спроси себя: при каком условии мой ответ будет полным и его нельзя будет назвать ошибочным? Ответ выводится из вопроса, а не из того, что подвернулось под руку. Примеры: «порекомендуй тему поста» → ответ ошибочен, если тема уже покрыта существующим постом ⇒ answer_requires = «знать все уже написанные посты, чтобы не предложить дубль». «сократи эту заметку» → зависит только от самой заметки ⇒ answer_requires = «содержимое этой заметки». `gap` считай ОТНОСИТЕЛЬНО answer_requires: если ответ требует полной картины (все посты/все заметки), а разведка дала лишь пару кандидатов — этого НЕ достаточно, полноту собери сам. НО полнота ≠ «открыть всё подряд». Различай ШИРИНУ и ГЛУБИНУ:
+— ШИРИНА (какие записи вообще есть и о чём они) берётся ДЁШЕВО перечнем: ListPosts/ListGlobalNotes дают по КАЖДОЙ записи заголовок+превью (+число заметок). Этого достаточно, чтобы судить «какие темы уже покрыты / что вообще есть», НЕ открывая каждую.
+— ГЛУБИНА (полный текст записи) нужна только для тех записей, от содержимого которых реально зависит ответ. Открывай (OpenPost/OpenNote) ТОЧЕЧНО — те, что перечень или RAG показал релевантными, а не подряд.
+Пример: «порекомендуй тему поста» → перечисли посты (ListPosts) ради тем + открой 1–2 самых близких кандидата, чтобы исключить дубль; открывать все посты подряд — это не «полнота», а трата шагов на нерелевантное. Если можешь обосновать ответ по перечню + точечным открытиям — не открывай остальное.
+
 `plan` — твой план работы, который живёт весь ран и переносится между шагами (см. блок «План» во входе, если он есть):
-- На ПЕРВОМ шаге разбей задачу на подзадачи (например: «прочитать все посты», «проверить заметки вне постов через ListGlobalNotes», «сформировать идею»). Дай каждой короткий стабильный `id`.
+- На ПЕРВОМ шаге разбей задачу на подзадачи от answer_requires, а не «на всякий случай». Формулируй по ширине/глубине: сначала дешёвая ширина, потом точечная глубина. Например для «порекомендуй тему»: «перечислить посты (ListPosts) — увидеть покрытые темы», «открыть 1–2 близких кандидата — исключить дубль», «проверить заметки вне постов (ListGlobalNotes)», «сформировать идею». Не ставь пунктом «открыть все посты/заметки», если ответ не требует полного текста каждого. Дай каждой подзадаче короткий стабильный `id`.
 - На КАЖДОМ шаге возвращай ПОЛНЫЙ план со статусами. Можно добавлять новые пункты и менять статусы. НО пункт нельзя просто удалить: он уходит из работы только явным переходом.
 - `status:"done"` требует `evidence_id` — id из блока «Собранный context», который реально закрывает пункт. Без валидного evidence_id пункт останется open.
 - `status:"dropped"` требует `reason` (почему пункт больше не нужен — например «ListGlobalNotes вернул пусто»). Без причины пункт останется open.
 - FinishRetrieval НЕ сработает, пока есть хоть один пункт со `status:"open"`. Если считаешь, что пора завершать, но пункт ещё open — либо выполни его (вызови нужный tool), либо закрой явно (done/dropped). Нельзя «забыть» о намеченном пункте.
 - Если задача по ходу изменилась — не бросай старые пункты молча, помечай их dropped с причиной (например «superseded: пользователь спрашивал про структуру, а не идею») и добавляй новые.
+
+OUTPUT LANGUAGE RULES (performance optimization — do not skip):
+Write the values of these JSON fields in English:
+  observations (each list item), reasoning, answer_requires, gap, plan[].text, plan[].reason
+This reduces output token count ~3x and speeds up each planning step significantly.
+Exception — the following MUST stay in the user's language (Russian):
+  all values inside `args` (especially SearchNodes `query`) — must match the knowledge base language
+  and embedding space. tool names are fixed identifiers, do not translate them.
 
 """
     + UNTRUSTED_SYSTEM_NOTE
@@ -183,6 +198,12 @@ class ToolAction:
     args: dict[str, Any]
     observations: tuple[str, ...] = ()
     reasoning: str = ""
+    # Success condition derived from the QUESTION before looking at recon
+    # (workspace-inventory §): what must be true for the answer to be complete
+    # and not wrong. `gap` is then measured against THIS, not against what the
+    # seed prefetch happened to surface — that reframing is the whole fix for
+    # the planner anchoring its scope to cheap-RAG hits (chat 38e115df).
+    answer_requires: str = ""
     gap: str = ""
     # Full plan the planner re-emits this step (persistent-plan). None means the
     # model said nothing about the plan → carry the previous plan unchanged;
@@ -209,6 +230,7 @@ def parse_tool_action(raw: str) -> ToolAction | None:
     return ToolAction(
         observations=observations,
         reasoning=str(payload.get("reasoning") or ""),
+        answer_requires=str(payload.get("answer_requires") or ""),
         gap=str(payload.get("gap") or ""),
         tool=tool,
         args=args,
@@ -404,6 +426,56 @@ def _l1_summary(l1_results: list[dict[str, Any]] | None) -> str:
     return "L1 hits:\n" + "\n".join(previews)
 
 
+async def _workspace_inventory(session, user_id) -> str:
+    """Minimal landscape snapshot for the planner's first step (workspace-inventory §).
+
+    NOT citable evidence — a transcript line, not a context block: the planner
+    still has to ListPosts/OpenPost to ground anything. Its only job is to make
+    the existence of posts/notes impossible to miss, so a recommend/"what's
+    missing" question can't silently answer off the seed hits alone while whole
+    categories sit unseen (chat 38e115df: recommended an already-drafted post
+    because the seed matched only plan-notes and posts were never looked at).
+    Counts only — no titles/previews — so it can't be mistaken for the content
+    itself and tempt an answer without opening the real records.
+    """
+    from sqlalchemy import func, select
+
+    from app.db.models import GlobalNote, Post
+
+    posts = (await session.scalars(select(Post).where(Post.user_id == user_id))).all()
+    by_status: dict[str, int] = {}
+    local_notes = 0
+    for row in posts:
+        data = row.data if isinstance(row.data, dict) else {}
+        status = str(data.get("status") or "draft").strip().lower()
+        if status == "deleted":
+            continue
+        by_status[status] = by_status.get(status, 0) + 1
+        # Notes attached to a post (data["notes"]) — the "по постам" source the
+        # prompt (§ ListGlobalNotes) counts alongside global notes. Skipped for
+        # deleted posts by the continue above: a note dies with its post, so it
+        # must not inflate the landscape the planner reasons about.
+        local_notes += len(data.get("notes") or [])
+    total_posts = sum(by_status.values())
+    global_notes = (
+        await session.scalar(
+            select(func.count()).select_from(GlobalNote).where(GlobalNote.user_id == user_id)
+        )
+    ) or 0
+    total_notes = local_notes + global_notes
+    if not total_posts and not total_notes:
+        return ""
+    status_str = ", ".join(f"{k}:{v}" for k, v in sorted(by_status.items())) or "—"
+    return (
+        f"[workspace] База знаний (инвентарь, не содержимое): "
+        f"посты — {total_posts} ({status_str}); "
+        f"заметки — {total_notes} (по постам: {local_notes}, глобальные: {global_notes}). "
+        f"Это разведка нулевого уровня: чтобы использовать что-то — перечисли "
+        f"(ListPosts/ListPostNotes/ListGlobalNotes) и открой нужное; "
+        f"инвентарь не цитируемое evidence."
+    )
+
+
 async def research_seed_node(state: AgentGraphState, config: RunnableConfig) -> dict[str, Any]:
     ctx: RuntimeContext = config["configurable"]["runtime_context"]
     inp = _planner_inputs(config)
@@ -413,6 +485,15 @@ async def research_seed_node(state: AgentGraphState, config: RunnableConfig) -> 
     transcript = list(state.get("research_transcript") or [])
     async with ctx.session_factory() as session:
         agent_state = ctx.bind_agent_state(session)
+        # Best-effort: the inventory is a decorative transcript line, not citable
+        # evidence (see _workspace_inventory docstring). A DB error building it
+        # must not abort the whole research run — degrade to no inventory.
+        try:
+            inventory = await _workspace_inventory(session, ctx.user_id)
+        except Exception:
+            inventory = ""
+        if inventory:
+            transcript.append(inventory)
         if seed_ref and str(seed_ref).startswith("note:"):
             note_id = str(seed_ref)[len("note:") :].strip()
             outcome = await tool_open_note(agent_state, note_id=note_id, post_id=seed_post_id)
@@ -552,6 +633,7 @@ async def research_planner_node(state: AgentGraphState, config: RunnableConfig) 
         "step": steps,
         "observations": list(action.observations),
         "reasoning": action.reasoning,
+        "answer_requires": action.answer_requires,
         "gap": action.gap,
         "tool": action.tool,
         "args": action.args,
@@ -709,6 +791,48 @@ async def research_verify_node(state: AgentGraphState, config: RunnableConfig) -
                 ],
                 "verification_ok": False,
             }
+    # Fuzzy-repair truncated UUID paths (chat 9f3d5fdf): the planner sometimes
+    # drops the last 4–8 chars of a UUID segment when constructing evidence_ids
+    # in FinishRetrieval — e.g. "…3db81d/attachment/…" instead of the full
+    # "…3db81d9b4a7f/attachment/…". The tool summary now includes the canonical
+    # "[id: ...]" path so the planner can copy it verbatim; this repair is a
+    # defensive backstop for when it still truncates.
+    # Repair: replace each evidence_id that doesn't resolve to a real record with
+    # the longest real-record path that starts with a prefix of the bad id
+    # (up to the first truncation point).
+    raw_ids: list[str] = list(candidate.get("evidence_ids") or [])
+    if raw_ids and records:
+        repaired: list[str] = []
+        changed = False
+        for eid in raw_ids:
+            if eid in records:
+                repaired.append(eid)
+                continue
+            # Find the longest real record key that has a common prefix with eid.
+            best: str | None = None
+            best_len = 0
+            for real_key in records:
+                # Check if eid is a truncated prefix of real_key, or vice-versa.
+                shorter, longer = (eid, real_key) if len(eid) <= len(real_key) else (real_key, eid)
+                common = 0
+                for a, b in zip(shorter, longer):
+                    if a == b:
+                        common += 1
+                    else:
+                        break
+                # Require at least 20 chars of common prefix (enough to confirm
+                # same note/file, not just coincidentally similar paths).
+                if common >= 20 and common > best_len:
+                    best = real_key
+                    best_len = common
+            if best is not None:
+                repaired.append(best)
+                changed = True
+            else:
+                repaired.append(eid)
+        if changed:
+            candidate = {**candidate, "evidence_ids": repaired}
+
     verdict = verify_evidence(
         finish=candidate,
         records=records,
