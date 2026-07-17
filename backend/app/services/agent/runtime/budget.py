@@ -16,6 +16,7 @@ from __future__ import annotations
 
 import asyncio
 import time
+from typing import AsyncIterator
 
 from app.services.agent.runtime.context import RuntimeContext
 from app.services.ai import llm
@@ -45,3 +46,39 @@ async def call_llm_with_deadline(ctx: RuntimeContext, **kwargs) -> str:
         return await asyncio.wait_for(llm.complete_chat_completion(**kwargs), timeout=remaining)
     except asyncio.TimeoutError as exc:
         raise RunDeadlineExceeded("run wall-clock budget exhausted during LLM call") from exc
+
+
+async def stream_llm_with_deadline(ctx: RuntimeContext, **kwargs) -> AsyncIterator[str]:
+    """Stream tokens from stream_chat_completion_tokens, bounded by the run's
+    wall-clock deadline — the streaming twin of call_llm_with_deadline.
+
+    The deadline caps the whole token stream, not each token: no budget left
+    before the first token → RunDeadlineExceeded without dialing the provider;
+    the deadline crossed mid-stream → RunDeadlineExceeded on the next token.
+    asyncio.wait_for wraps each __anext__ so a stalled provider is cut off at
+    the remaining budget, same guarantee the non-streaming path gives.
+    """
+    deadline = ctx.deadline_monotonic
+    stream = llm.stream_chat_completion_tokens(**kwargs)
+    agen = stream.__aiter__()
+    try:
+        while True:
+            if deadline is None:
+                timeout = None
+            else:
+                timeout = deadline - time.monotonic()
+                if timeout <= 0:
+                    raise RunDeadlineExceeded("run wall-clock budget exhausted during LLM stream")
+            try:
+                token = await asyncio.wait_for(agen.__anext__(), timeout=timeout)
+            except StopAsyncIteration:
+                return
+            except asyncio.TimeoutError as exc:
+                raise RunDeadlineExceeded(
+                    "run wall-clock budget exhausted during LLM stream"
+                ) from exc
+            yield token
+    finally:
+        aclose = getattr(agen, "aclose", None)
+        if aclose is not None:
+            await aclose()

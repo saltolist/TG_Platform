@@ -183,7 +183,11 @@ async def stream_agent_events(
                 idle_rounds += 1
                 if idle_rounds % 40 == 0:
                     yield ": keepalive\n\n"
-            await asyncio.sleep(0.5)
+            # 0.2s (not 0.5s): answer_node streams partial "answer" events as
+            # tokens arrive, and this poll interval is the floor on how chunky
+            # the streamed reply looks to the user — tighter interval, smoother
+            # chunked streaming. Still one indexed SELECT per tick, cheap.
+            await asyncio.sleep(0.2)
 
     return StreamingResponse(_gen(), media_type="text/event-stream", headers=_SSE_HEADERS)
 

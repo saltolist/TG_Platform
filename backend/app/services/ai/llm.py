@@ -55,6 +55,8 @@ async def stream_chat_completion_tokens(
     model: str,
     api_key: str,
     messages: list[dict[str, str]],
+    temperature: float | None = None,
+    max_tokens: int | None = None,
     client: httpx.AsyncClient | None = None,
 ) -> AsyncIterator[str]:
     """Yield text tokens from provider streaming API."""
@@ -63,11 +65,15 @@ async def stream_chat_completion_tokens(
         "Authorization": f"Bearer {api_key}",
         "Content-Type": "application/json",
     }
-    body = {
+    body: dict[str, Any] = {
         "model": model,
         "messages": messages,
         "stream": True,
     }
+    if temperature is not None:
+        body["temperature"] = temperature
+    if max_tokens is not None:
+        body["max_tokens"] = max_tokens
 
     owns_client = client is None
     if client is None:

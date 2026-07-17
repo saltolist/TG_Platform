@@ -600,6 +600,74 @@ async def test_execute_agent_run_emits_workspace_step_for_finish(
 
 
 @pytest.mark.asyncio
+async def test_execute_agent_run_streams_partial_answer_events(
+    writer_user,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """answer_node streams the reply token-by-token; the executor must surface
+    growing partial "answer" events (marked partial=True) as the tokens arrive,
+    then a terminal "answer" event with the full text + claims. This is what
+    makes the chat render the reply progressively instead of all at once."""
+    from app.services.agent.runtime import events as event_service
+
+    monkeypatch.setattr("app.db.session.async_session_factory", TestSessionLocal)
+
+    # The answer JSON, chunked into tokens the way a provider streams it.
+    answer_tokens = [
+        '{"answer":"',
+        "Срок ",
+        "— ию",
+        "ль ме",
+        "сяц.",
+        '","claims":[]}',
+    ]
+
+    async def _fake_stream(**kwargs):
+        for tok in answer_tokens:
+            yield tok
+
+    async with TestSessionLocal() as session:
+        run, _ = await start_run(
+            session, user=writer_user, thread_id="stream-answer-test", scope="global",
+        )
+        ctx = await rebuild_runtime_context_for_run(session, run, "Когда запуск?")
+        ctx.reasoner_spec = ProviderSpec("OpenAI", "https://api.openai.com")
+        ctx.reasoner_model = "gpt-4o-mini"
+        ctx.reasoner_api_key = "test-key"
+
+        # Classifier + planner still go through complete_chat_completion; only
+        # the answer step streams. Patch the stream directly (overrides the
+        # conftest shim) to feed real token chunks.
+        with (
+            patch("app.services.ai.llm.complete_chat_completion",
+                  new_callable=AsyncMock, side_effect=['{"type": "finish"}']),
+            patch("app.services.ai.llm.stream_chat_completion_tokens", _fake_stream),
+        ):
+            await execute_agent_run(
+                session, run=run, user=writer_user,
+                user_text="Когда запуск?", runtime_context=ctx,
+            )
+            await session.commit()
+
+        events = await event_service.list_events(session, run_id=run.id)
+
+    answer_events = [evt for evt in events if evt.event_type == "answer"]
+    # At least one partial + the terminal event.
+    assert len(answer_events) >= 2
+    partials = [e for e in answer_events if e.payload.get("partial")]
+    terminal = [e for e in answer_events if not e.payload.get("partial")]
+    assert partials, "expected at least one partial answer event"
+    assert len(terminal) == 1
+    # Partials grow monotonically and are prefixes of the final answer.
+    texts = [e.payload["text"] for e in partials]
+    assert texts == sorted(texts, key=len)
+    final_text = terminal[0].payload["text"]
+    assert final_text == "Срок — июль месяц."
+    for t in texts:
+        assert final_text.startswith(t)
+
+
+@pytest.mark.asyncio
 async def test_execute_agent_run_marks_deadline_exceeded(writer_user, monkeypatch) -> None:
     """A spent wall-clock budget must terminate the run as failed with an
     explicit deadline_exceeded reason, not a generic crash — and must not

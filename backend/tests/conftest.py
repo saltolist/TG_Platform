@@ -68,6 +68,37 @@ async def _override_db_session() -> None:
 
 
 @pytest.fixture(autouse=True)
+def _shim_answer_stream_to_complete(request):
+    """answer_node streams the reply via stream_chat_completion_tokens now, not
+    the single-shot complete_chat_completion. Agent tests still mock the
+    single-shot call (answer JSON as the last side_effect entry). Rather than
+    rewrite every one, delegate the token stream to whatever
+    complete_chat_completion resolves to at call time and yield its result as a
+    single token — preserving the existing mock lists and call order.
+
+    Real streaming granularity is covered directly by test_answer_stream.py
+    (pure extractor) and a dedicated answer_node streaming test. test_llm.py
+    exercises the real stream_chat_completion_tokens, so it opts out."""
+    if "test_llm" in str(request.node.fspath):
+        yield
+        return
+    from unittest.mock import patch as _patch
+
+    from app.services.ai import llm as _llm
+
+    async def _fake_stream(**kwargs):
+        # temperature/max_tokens/client are stream-only kwargs; the single-shot
+        # signature doesn't take a client, so drop them before delegating.
+        kwargs.pop("temperature", None)
+        kwargs.pop("max_tokens", None)
+        kwargs.pop("client", None)
+        yield await _llm.complete_chat_completion(**kwargs)
+
+    with _patch("app.services.ai.llm.stream_chat_completion_tokens", _fake_stream):
+        yield
+
+
+@pytest.fixture(autouse=True)
 async def _clean_db() -> None:
     yield
     async with TestSessionLocal() as session:

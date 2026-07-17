@@ -66,6 +66,28 @@ def _workspace_step_payload(data: dict[str, Any]) -> dict[str, Any] | None:
     return {"tool": tool}
 
 
+async def _emit_answer_partial(session, *, run_id: uuid.UUID, data: dict[str, Any]) -> None:
+    """Emit a partial "answer" event from a custom stream tick, if it carries one.
+
+    answer_node streams the decoded answer text as {"answer_partial": <text>}
+    via the graph's custom stream writer (workspace_graph.py). We surface each
+    tick as a normal "answer" event so the frontend — which already renders the
+    latest answer event's text into the streaming reply — fills in progressively
+    instead of receiving the whole answer at once at the end of the run. The
+    terminal "answer" event (with claims) still follows and is the source of
+    truth; these partials carry no claims (empty), which is fine mid-stream.
+    """
+    partial = data.get("answer_partial")
+    if not isinstance(partial, str) or not partial:
+        return
+    await emit_run_event(
+        session,
+        run_id=run_id,
+        event_type="answer",
+        payload={"text": partial, "claims": [], "evidence_ids": [], "partial": True},
+    )
+
+
 def _tool_outcome_payload(data: dict[str, Any]) -> dict[str, Any] | None:
     """Extract the newest tool result from a "tool" node "updates" event's data.
 
@@ -216,12 +238,14 @@ async def execute_agent_run(
         async for event in graph.astream(
             graph_input,
             cfg,
-            stream_mode=["values", "updates"],
+            stream_mode=["values", "updates", "custom"],
             version="v2",
         ):
             mode = event["type"]
             data = event["data"]
-            if mode == "values" and isinstance(data, dict):
+            if mode == "custom" and isinstance(data, dict):
+                await _emit_answer_partial(session, run_id=run.id, data=data)
+            elif mode == "values" and isinstance(data, dict):
                 final_state = data
                 await emit_run_event(
                     session,
@@ -381,12 +405,14 @@ async def resume_agent_graph(
     async for event in graph.astream(
         Command(resume=resume_value),
         cfg,
-        stream_mode=["values", "updates"],
+        stream_mode=["values", "updates", "custom"],
         version="v2",
     ):
         mode = event["type"]
         data = event["data"]
-        if mode == "values" and isinstance(data, dict):
+        if mode == "custom" and isinstance(data, dict):
+            await _emit_answer_partial(session, run_id=run.id, data=data)
+        elif mode == "values" and isinstance(data, dict):
             final_state = data
             interrupt_payload = _extract_interrupt(event.get("interrupts") or ())
             if interrupt_payload is not None:

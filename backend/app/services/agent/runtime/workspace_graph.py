@@ -8,6 +8,7 @@ import uuid
 from typing import Any, Literal
 
 from langchain_core.runnables import RunnableConfig
+from langgraph.config import get_stream_writer
 from langgraph.graph import END, StateGraph
 from langgraph.types import interrupt
 
@@ -26,7 +27,8 @@ from app.services.agent.research.graph import (
     route_research_verify,
 )
 from app.services.agent.research.trust import UNTRUSTED_SYSTEM_NOTE
-from app.services.agent.runtime.budget import call_llm_with_deadline
+from app.services.agent.runtime.answer_stream import extract_partial_answer
+from app.services.agent.runtime.budget import call_llm_with_deadline, stream_llm_with_deadline
 from app.services.agent.runtime.checkpoint import ensure_checkpointer_ready, get_checkpointer
 from app.services.agent.runtime.context import RuntimeContext
 from app.services.agent.runtime.state import AgentGraphState
@@ -258,7 +260,24 @@ async def answer_node(state: AgentGraphState, config: RunnableConfig) -> dict[st
         answer = rag_context or "Для ответа не требуется дополнительный контекст."
         return {**state, "answer_text": answer, "claims": []}
 
-    raw = await call_llm_with_deadline(
+    # Stream the answer tokens as they arrive so the chat renders the reply
+    # progressively (real chunked streaming), instead of dropping the whole
+    # text at once when the run finishes. We forward ONLY the decoded "answer"
+    # field mid-stream (never raw JSON syntax); the authoritative parse of both
+    # answer and claims still happens once at the end from the full raw string,
+    # so the grounding contract (claims ⊆ evidence) is unchanged.
+    #
+    # get_stream_writer() is a no-op when the "custom" stream mode isn't
+    # subscribed, but it raises when called with no runnable context at all
+    # (answer_node invoked directly in unit tests, not via graph.astream). Fall
+    # back to a no-op writer there so the streaming path stays test-friendly.
+    try:
+        writer = get_stream_writer()
+    except RuntimeError:
+        writer = lambda _chunk: None  # noqa: E731 — trivial no-op sink
+    raw_parts: list[str] = []
+    last_emitted = ""
+    async for token in stream_llm_with_deadline(
         ctx,
         messages=[
             {"role": "system", "content": system_text},
@@ -269,7 +288,17 @@ async def answer_node(state: AgentGraphState, config: RunnableConfig) -> dict[st
         api_key=ctx.reasoner_api_key,
         temperature=0.1,
         max_tokens=1200,
-    )
+    ):
+        raw_parts.append(token)
+        partial = extract_partial_answer("".join(raw_parts))
+        # Throttle: only emit when the visible text actually grew by a few
+        # chars, so we don't write a DB event per token (the executor commits
+        # each custom event for the live SSE reader).
+        if partial is not None and len(partial) - len(last_emitted) >= 12:
+            last_emitted = partial
+            writer({"answer_partial": partial})
+
+    raw = "".join(raw_parts)
     parsed = extract_json_object(raw) or {}
     claims = parsed.get("claims") if isinstance(parsed.get("claims"), list) else []
     return {
