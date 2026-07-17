@@ -18,6 +18,7 @@ import { useCallback, useMemo, useState } from "react";
 import type { KbCite, WebCite } from "@/shared/api/schemas/post";
 import type { AgentProposal } from "@/shared/api/schemas/agentRun";
 import { useAgentRunContext } from "@/widgets/agent/model/AgentRunContext";
+import { selectCurrentToolLabel } from "@/widgets/agent/lib/agentActivityLabel";
 import { getCachedPost } from "@/entities/post/lib/getCachedPost";
 import { useQueryClient } from "@tanstack/react-query";
 import { AgentProposalCard } from "@/widgets/agent/ui/AgentProposalCard";
@@ -91,6 +92,17 @@ export default function ChatAiMessage({
   const showFooter = !isStreaming || showMultiStreamingNav;
 
   const agentRun = useAgentRunContext();
+  const agentRunId = agentRun?.runId ?? null;
+  const agentIsRunning = agentRun?.run?.status === "running";
+  const agentEvents = agentRun?.events;
+  // While the agent runs, the inline typing indicator carries the live step
+  // phrase (workspace_step/planner_step/tool_result) — the single source of
+  // "what's happening now". For plain LLM streaming (no agent run / no events)
+  // there's no step to show, so it stays as bare dots.
+  const typingLabel = useMemo(() => {
+    if (!agentRunId || !agentIsRunning || !agentEvents) return undefined;
+    return selectCurrentToolLabel(agentEvents);
+  }, [agentRunId, agentIsRunning, agentEvents]);
   const queryClient = useQueryClient();
   const [collapsed, setCollapsed] = useState(true);
   const decide = useCallback(
@@ -132,7 +144,7 @@ export default function ChatAiMessage({
           )
         ) : null}
         {showTyping ? (
-          <AiTypingIndicator />
+          <AiTypingIndicator label={typingLabel} />
         ) : plainAi.trim() ? (
           <div className="msg-text">
             <ChatMarkdown

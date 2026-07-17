@@ -46,6 +46,26 @@ def _planner_step_payload(data: dict[str, Any]) -> dict[str, Any] | None:
     return dict(latest) if isinstance(latest, dict) else None
 
 
+def _workspace_step_payload(data: dict[str, Any]) -> dict[str, Any] | None:
+    """Extract the workspace classifier's decision from a "workspace_agent" update.
+
+    workspace_agent_node classifies each turn into one of read/finish/
+    post_proposal/media_proposal and stores it in `current_tool` (see
+    workspace_graph.py). The research planner only emits planner_step events
+    for the `read` branch, so without this the activity indicator has nothing
+    to show for finish/post_proposal/media_proposal turns (and nothing during
+    classification itself) — it just sits on the default label. Emitting the
+    classifier decision as its own step gives the UI a real, per-turn phrase.
+    """
+    node_update = data.get("workspace_agent")
+    if not isinstance(node_update, dict):
+        return None
+    tool = node_update.get("current_tool")
+    if not isinstance(tool, str) or not tool:
+        return None
+    return {"tool": tool}
+
+
 def _tool_outcome_payload(data: dict[str, Any]) -> dict[str, Any] | None:
     """Extract the newest tool result from a "tool" node "updates" event's data.
 
@@ -116,6 +136,15 @@ async def emit_run_event(
         event_type=event_type,
         payload=payload,
     )
+    # Commit each event as it's produced so the /events/ SSE reader (a separate
+    # session that only sees committed rows) streams live progress — the
+    # activity indicator's step phrase, and the answer, appear as the graph
+    # runs instead of all at once when the whole task finally commits. The
+    # executor's session is dedicated to events + run status (graph nodes use
+    # their own sessions from RuntimeContext.session_factory), so committing
+    # mid-run never persists a partial graph state. Append is its own advisory-
+    # locked sequence allocation, so per-event commits stay ordered.
+    await session.commit()
     return evt.sequence
 
 
@@ -218,6 +247,14 @@ async def execute_agent_run(
                         payload=interrupt_payload,
                     )
             elif mode == "updates" and isinstance(data, dict):
+                workspace_step = _workspace_step_payload(data)
+                if workspace_step is not None:
+                    await emit_run_event(
+                        session,
+                        run_id=run.id,
+                        event_type="workspace_step",
+                        payload=workspace_step,
+                    )
                 planner_step = _planner_step_payload(data)
                 if planner_step is not None:
                     await emit_run_event(
@@ -355,6 +392,14 @@ async def resume_agent_graph(
             if interrupt_payload is not None:
                 pending_interrupt = interrupt_payload
         elif mode == "updates" and isinstance(data, dict):
+            workspace_step = _workspace_step_payload(data)
+            if workspace_step is not None:
+                await emit_run_event(
+                    session,
+                    run_id=run.id,
+                    event_type="workspace_step",
+                    payload=workspace_step,
+                )
             planner_step = _planner_step_payload(data)
             if planner_step is not None:
                 await emit_run_event(

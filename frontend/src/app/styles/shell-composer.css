@@ -633,9 +633,18 @@
 .ai-typing-indicator {
   display: inline-flex;
   align-items: center;
-  gap: 5px;
+  gap: 8px;
   padding: 10px 0;
   min-height: 28px;
+}
+.ai-typing-label {
+  color: var(--text3);
+  font-size: 13px;
+}
+.ai-typing-dots {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
 }
 .ai-typing-dot {
   width: 7px;
@@ -649,19 +658,6 @@
 @keyframes aiTypingBounce {
   0%, 60%, 100% { transform: translateY(0); opacity: 0.45; }
   30% { transform: translateY(-4px); opacity: 1; }
-}
-
-.agent-activity-indicator {
-  display: flex;
-  align-items: center;
-  gap: 6px;
-  padding: 6px 0;
-  color: var(--text3);
-  font-size: 13px;
-}
-.agent-activity-indicator .ai-typing-indicator {
-  padding: 0;
-  min-height: auto;
 }
 
 /* ── Chat messages (shared) ── */

@@ -47,6 +47,10 @@ def _fmt_planner_step(p: Mapping[str, Any]) -> list[str]:
     return lines
 
 
+def _fmt_workspace_step(p: Mapping[str, Any]) -> list[str]:
+    return [f"workspace → {p.get('tool') or '?'}"]
+
+
 def _fmt_tool_result(p: Mapping[str, Any]) -> list[str]:
     head = f"tool  {p.get('tool') or '?'} → {_preview(p.get('summary'), 160)}"
     lines = [head]
@@ -90,6 +94,7 @@ def _event_fields(evt: Any) -> tuple[int, str, Mapping[str, Any]]:
 # event_type → formatter. Lifecycle noise (graph_state per value-tick) is
 # folded into the header/terminal, not rendered per-line.
 _FORMATTERS = {
+    "workspace_step": _fmt_workspace_step,
     "planner_step": _fmt_planner_step,
     "tool_result": _fmt_tool_result,
     "answer": _fmt_answer,

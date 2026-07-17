@@ -552,6 +552,54 @@ async def test_execute_agent_run_emits_tool_result_events(writer_user, monkeypat
 
 
 @pytest.mark.asyncio
+async def test_execute_agent_run_emits_workspace_step_for_finish(
+    writer_user,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """The workspace classifier's decision must surface as a "workspace_step"
+    event even on the non-research paths (here: "finish"). Without it the
+    activity indicator has no step to show and sits on the default label the
+    whole run — the "just hangs on Работаю над ответом…" bug."""
+    from app.services.agent.runtime import events as event_service
+
+    monkeypatch.setattr("app.db.session.async_session_factory", TestSessionLocal)
+
+    async with TestSessionLocal() as session:
+        run, _ = await start_run(
+            session, user=writer_user, thread_id="workspace-step-test", scope="global",
+        )
+        ctx = await rebuild_runtime_context_for_run(session, run, "Привет, что умеешь?")
+        ctx.reasoner_spec = ProviderSpec("OpenAI", "https://api.openai.com")
+        ctx.reasoner_model = "gpt-4o-mini"
+        ctx.reasoner_api_key = "test-key"
+
+        # "finish" skips the research loop entirely (no planner_step /
+        # tool_result), so workspace_step is the only step signal there is.
+        llm_responses = [
+            '{"type": "finish"}',
+            '{"answer": "Помогаю с постами и заметками.", "claims": []}',
+        ]
+        with patch(
+            "app.services.ai.llm.complete_chat_completion",
+            new_callable=AsyncMock,
+            side_effect=llm_responses,
+        ):
+            await execute_agent_run(
+                session, run=run, user=writer_user,
+                user_text="Привет, что умеешь?", runtime_context=ctx,
+            )
+            await session.commit()
+
+        events = await event_service.list_events(session, run_id=run.id)
+
+    workspace_events = [evt for evt in events if evt.event_type == "workspace_step"]
+    assert len(workspace_events) == 1
+    assert workspace_events[0].payload["tool"] == "finish"
+    # No research steps on this path — proves the label would otherwise be stuck.
+    assert not [evt for evt in events if evt.event_type == "planner_step"]
+
+
+@pytest.mark.asyncio
 async def test_execute_agent_run_marks_deadline_exceeded(writer_user, monkeypatch) -> None:
     """A spent wall-clock budget must terminate the run as failed with an
     explicit deadline_exceeded reason, not a generic crash — and must not
