@@ -54,6 +54,19 @@ class AgentGraphState(TypedDict, total=False):
     step_refunds: int
     research_transcript: list[str]
     research_hints: list[str]
+    # Self-contained search query the workspace classifier resolved from the raw
+    # user_text + dialog (anaphora expanded, e.g. "а сколько там?" → "сколько
+    # постов в серии"). Seeds the semantic prefetch so relevant notes/posts
+    # surface before the planner's first step, instead of the planner having to
+    # guess to search (agent note-prefetch). Falls back to user_text when empty.
+    search_query: str
+    # Structured semantic-prefetch hits from the seed node: [{ref, label,
+    # similarity, node_type}]. Powers the finish-gate guard — a FinishRetrieval
+    # is bounced once if a relevant hit here was never opened into evidence.
+    prefetch_hits: list[dict[str, Any]]
+    # Bounded counter for finish-gate bounces caused by unopened prefetch hits,
+    # separate from plan_repair_count so the two gates don't starve each other.
+    prefetch_repair_count: int
     tool_action: dict[str, Any] | None
     # Accumulated planner decisions {step, observations, reasoning, gap, tool,
     # args, repair_hint?} for SSE emission and golden inspection

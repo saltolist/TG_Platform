@@ -9,6 +9,7 @@ from uuid import UUID
 from telethon.tl.types import MessageMediaDocument, MessageMediaPhoto
 
 from app.core.config import Settings
+from app.db.seed_ids import user_scoped_entity_uuid
 from app.services.telegram.media_storage import resolve_group_media, save_message_media
 from app.services.telegram.text_formatting import apply_message_text_fields, extract_plain_text
 
@@ -180,8 +181,19 @@ async def map_group_to_post(
     )
 
     views = getattr(primary, "views", None)
+    telegram_message_id = str(getattr(primary, "id", ""))
+    # data["id"] must be the opaque UUID primary key (same value used at insert:
+    # user_scoped_entity_uuid(..., f"tg-{msg_id}")), NOT the Telegram message_id.
+    # The small-int message_id lives solely in telegramMessageId; reusing it as
+    # data["id"] let the agent mistake authorial numbering ("Пост 2") for a real
+    # tech_id and fabricate OpenPost calls (see 018_normalize_post_uuid_ids).
+    canonical_id = (
+        str(user_scoped_entity_uuid(user_id, "post", f"tg-{telegram_message_id}"))
+        if telegram_message_id
+        else ""
+    )
     post: dict[str, Any] = {
-        "id": str(getattr(primary, "id", "")),
+        "id": canonical_id,
         "status": "published",
         "date": iso_date,
         "rubric": None,
@@ -191,7 +203,7 @@ async def map_group_to_post(
         "chats": [],
         "comments": [],
         "source": "telegram",
-        "telegramMessageId": str(getattr(primary, "id", "")),
+        "telegramMessageId": telegram_message_id,
     }
     if media_items:
         post["media"] = media_items

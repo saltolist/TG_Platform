@@ -171,7 +171,10 @@ def build_top_posts(posts: list[Post], period: str) -> list[dict[str, Any]]:
         comments = len(data.get("comments") or [])
         rows.append(
             {
-                "id": str(data.get("id") or post.id),
+                # UUID primary key, consistent with normalize_post_for_api and
+                # OpenPost/GetPostAnalytics resolution (post.data["id"] is now the
+                # same UUID, but post.id is the canonical source of truth here).
+                "id": str(post.id),
                 "title": post_title(str(data.get("text") or "")),
                 # Per-post subscriber attribution is not available from Telegram.
                 "subscribers": 0,

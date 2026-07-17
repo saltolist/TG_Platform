@@ -78,6 +78,10 @@ class AgentState:
 class ToolOutcome:
     summary: str
     error: str | None = None
+    # Structured search hits [{ref, label, similarity, node_type}], populated
+    # only by tool_search_nodes. Lets the seed prefetch record candidates for
+    # the finish-gate guard without re-parsing the human-readable summary.
+    hits: tuple[dict[str, Any], ...] = ()
 
 
 def _already_visited(state: AgentState, ref: str) -> ToolOutcome | None:
@@ -227,13 +231,22 @@ async def tool_search_nodes(
         return ToolOutcome(summary="Поиск не дал результатов.")
 
     lines = ["Результаты поиска:"]
+    hits: list[dict[str, Any]] = []
     for item in results[: k or state.search_k]:
         label = _node_label(item)
         similarity = float(item.get("similarity") or 0.0)
         chunk = str(item.get("chunk_text") or "").strip()
         preview = chunk[:120] + ("…" if len(chunk) > 120 else "")
         lines.append(f"- {label} similarity={similarity:.2f} preview={preview!r}")
-    return ToolOutcome(summary="\n".join(lines))
+        hits.append(
+            {
+                "ref": label,
+                "label": label,
+                "similarity": similarity,
+                "node_type": str(item.get("node_type") or ""),
+            }
+        )
+    return ToolOutcome(summary="\n".join(lines), hits=tuple(hits))
 
 
 async def tool_open_post(state: AgentState, *, post_id: str) -> ToolOutcome:

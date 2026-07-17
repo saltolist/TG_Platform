@@ -64,6 +64,42 @@ MAX_STEP_REFUNDS = 3
 # allowed through (the step budget is the ultimate backstop). Prevents a plan the
 # model refuses to close from wedging the run (persistent-plan).
 MAX_PLAN_REPAIRS = 2
+# Finish-gate for the semantic prefetch (agent note-prefetch): a FinishRetrieval
+# is bounced this many times while a *relevant* prefetch hit (a note/post surfaced
+# by the seed SearchNodes) was never opened into citable evidence. One bounce is
+# usually enough to nudge the planner to OpenNote; the cap stops a planner that
+# refuses to open (e.g. genuinely irrelevant hit) from wedging the run.
+MAX_PREFETCH_REPAIRS = 1
+# Similarity floor for treating a prefetch hit as "should have been opened".
+# Retrieval already filters at min_similarity=0.38; this higher gate keeps the
+# guard from bouncing a legitimate finish over a marginal, tangential hit.
+PREFETCH_GUARD_MIN_SIMILARITY = 0.45
+# Only notes/posts are cheap to open blind (OpenNote/OpenPost by id). Attachment/
+# media hits need a parent context to hydrate, so they don't drive the guard.
+_PREFETCH_GUARD_TYPES = frozenset({"note_chunk", "post_text"})
+
+
+def unopened_prefetch_hits(
+    hits: list[dict[str, Any]],
+    records: dict[str, "EvidenceRecord"],
+) -> list[dict[str, Any]]:
+    """Prefetch hits (notes/posts, above the guard similarity) whose id never
+    made it into an evidence record — i.e. surfaced as a candidate but never
+    opened. Evidence is keyed by citation path (/note/global/<id>/, /post/<id>/)
+    and a hit ref is <type>:<id>, so an id absent from every key means unopened."""
+    keys = " ".join(records.keys())
+    out: list[dict[str, Any]] = []
+    for h in hits:
+        if str(h.get("node_type") or "") not in _PREFETCH_GUARD_TYPES:
+            continue
+        if float(h.get("similarity") or 0.0) < PREFETCH_GUARD_MIN_SIMILARITY:
+            continue
+        ref = str(h.get("ref") or "")
+        hit_id = ref.split(":", 1)[1].strip() if ":" in ref else ref.strip()
+        if hit_id and hit_id not in keys:
+            out.append(h)
+    return out
+
 
 READ_TOOLS = frozenset(
     {
@@ -84,7 +120,7 @@ AGENT_SYSTEM = (
     """Ты research-агент workspace. Собери факты read-tools и заверши через FinishRetrieval.
 
 Доступные tools (JSON):
-- SearchNodes {query, node_types?, k?} — семантический поиск. node_types (если задан) — только из набора: "note_chunk" (текст заметок), "post_text" (текст постов), "attachment_text" (текст документов-вложений), "media_meta" (имена медиа). Не придумывай другие значения; если сомневаешься — не передавай node_types вовсе (искать по всем).
+- SearchNodes {query, node_types?, k?} — семантический поиск: top-k узлов, похожих на запрос, а НЕ полный список. Показывает, что похоже, но не гарантирует, что нашлось всё релевантное — отсутствие чего-то среди результатов не значит, что этого нет. То же относится к автоматическому префетчу «[seed] SearchNodes …»: это полезная стартовая подсказка (кандидаты), а не выверенная полная картина workspace. node_types (если задан) — только из набора: "note_chunk" (текст заметок), "post_text" (текст постов), "attachment_text" (текст документов-вложений), "media_meta" (имена медиа). Не придумывай другие значения; если сомневаешься — не передавай node_types вовсе (искать по всем).
 - OpenPost {post_id}
 - OpenNote {note_id, post_id?} — прочитать содержимое заметки; в выводе перечислены её вложения (имя+тип), поэтому для вопросов «есть ли в заметке картинки/файлы» отдельный ListNoteAttachments не нужен
 - ListPosts {query?, limit?}
@@ -101,7 +137,9 @@ AGENT_SYSTEM = (
 - Завершай, когда собрано достаточно для ответа.
 - В `evidence_ids` перечисляй ТОЛЬКО те id, что показаны в блоке «Собранный context» как `[id: …]` — дословно. Не выдумывай id и не подставляй номера постов.
 - id постов и заметок (tech_id=…, note:…) — непрозрачные технические ключи для вызова инструментов (OpenPost/OpenNote/GetPostAnalytics). Это НЕ порядковый номер и НЕ позиция в серии: число внутри id (например tech_id=5) не значит «пятый пост» или «пост 5 из серии». Не сопоставляй значение id с нумерацией/порядком и не выводи из id никаких фактов о содержании.
+- id для вызова Open*/GetPostAnalytics бери ТОЛЬКО из того, что реально увидел — из «Собранный context», из перечня (ListPosts/ListGlobalNotes/ListPostNotes) или из ledger/диалога. Не конструируй id сам (например из «Пост 3» или порядка) и не угадывай — вызов по выдуманному id проваливается и тратит шаг впустую. Если нужного id ещё нет на руках — сначала перечисли (ListPosts/ListGlobalNotes), затем открывай из выдачи.
 - Нумерация ВНУТРИ текста заметки/поста («Пост 2», «до 6-го», «часть 3») — это авторская нумерация контента. Она не связана с tech_id постов в системе. Не отождествляй «Пост N из заметки» с постом, у которого tech_id=N.
+- Если вопрос опирается на пользовательский термин или сущность («серия», «мой проект», «эта рубрика», «подборка»), значение которых НЕ определено собранным context — не придумывай трактовку и не завершай на догадке. Сначала открой релевантный кандидат из «[seed] SearchNodes …» через OpenNote/OpenPost (или поищи через SearchNodes/ListGlobalNotes), и только потом отвечай. Блок «[seed] SearchNodes …» в «Ход агента» — это уже найденные для тебя кандидаты: если среди них есть подходящий по названию/превью, открой его, а не игнорируй.
 
 Диалог и Dialog evidence ledger — это история, а не рамка, сужающая поиск. Определяй охват по тому, ссылается ли вопрос на конкретные объекты прошлых ходов:
 - Вопрос ссылается на конкретный объект («эта заметка», «неё», «из них», «в этом посте», «покороче») — работай с сущностями из ledger/диалога, не ищи заново через SearchNodes (используй OpenNote/OpenPost по id, если он уже известен из ledger).
@@ -395,11 +433,25 @@ async def research_seed_node(state: AgentGraphState, config: RunnableConfig) -> 
         )
         if seeded:
             transcript.append(f"[seed] ledger attachments: {', '.join(seeded)}")
+        # Semantic prefetch: surface relevant notes/posts as candidates BEFORE
+        # the planner's first step, so it can't close the run on a guessed
+        # meaning of a workspace term (e.g. "серия") without ever discovering
+        # the note that defines it. Discovery-only — tool_search_nodes doesn't
+        # write context_blocks, so hits are NOT citable evidence yet; the
+        # planner must still OpenNote/OpenPost to ground them (agent note-prefetch).
+        prefetch_hits: list[dict[str, Any]] = []
+        search_query = str(state.get("search_query") or "").strip() or user_text
+        if search_query:
+            search_outcome = await tool_search_nodes(agent_state, query=search_query)
+            if search_outcome.hits:
+                prefetch_hits = [dict(h) for h in search_outcome.hits]
+                transcript.append(f"[seed] SearchNodes {search_query!r}:\n{search_outcome.summary}")
         records = records_from_agent_state(agent_state)
         await session.commit()
     return {
         **state,
         "research_transcript": transcript,
+        "prefetch_hits": prefetch_hits,
         "evidence_records": {key: rec.to_dict() for key, rec in records.items()},
         "step_count": 0,
         "repair_count": 0,
@@ -420,6 +472,10 @@ async def research_planner_node(state: AgentGraphState, config: RunnableConfig) 
         key: EvidenceRecord.from_dict(value)
         for key, value in (state.get("evidence_records") or {}).items()
     }
+    # None only in the reasoner-less branch (deterministic FinishRetrieval, never
+    # an unparsed emission); the unparsed-output hint below keys off `parsed is
+    # None` so it must exist for both branches.
+    parsed: ToolAction | None = None
     if spec is None or not model or not api_key:
         action = ToolAction(
             tool="FinishRetrieval",
@@ -451,9 +507,15 @@ async def research_planner_node(state: AgentGraphState, config: RunnableConfig) 
             model=model,
             api_key=api_key,
             temperature=0.1,
-            max_tokens=700,
+            # 700 truncated the JSON mid-object once the re-emitted plan grew
+            # (Cyrillic ≈2 tokens/char): the tail was cut, parse_tool_action
+            # returned None → Invalid → a wasted round-trip that repeated until
+            # the step budget drained. A full planner turn here is ~1k tokens;
+            # 1500 leaves headroom so the object closes (agent-invalid-loop).
+            max_tokens=1500,
         )
-        action = parse_tool_action(raw) or ToolAction(tool="Invalid", args={})
+        parsed = parse_tool_action(raw)
+        action = parsed or ToolAction(tool="Invalid", args={})
     steps = int(state.get("step_count") or 0) + 1
     trace_step("7. rag.L2.langgraph", [f"step={steps}/{max_steps}", f"tool={action.tool}"])
     fabricated = validate_observations(
@@ -462,6 +524,17 @@ async def research_planner_node(state: AgentGraphState, config: RunnableConfig) 
         records=records,
     )
     hints = list(state.get("research_hints") or [])
+    # Parse failure (no JSON / no tool key) yields Invalid. Without a corrective
+    # hint the planner re-runs on the same context and fails identically, looping
+    # until the budget drains. One explicit "return strict JSON" hint lets a
+    # single bad emission self-correct next step (agent-invalid-loop).
+    if parsed is None and action.tool == "Invalid":
+        hints.append(
+            "repair: unparsed_output — предыдущий ответ не распарсился как JSON "
+            "(вероятно оборван). Верни РОВНО один компактный JSON-объект по схеме, "
+            "без markdown-обёртки и пояснений; сократи observations/reasoning, "
+            "если ответ длинный."
+        )
     if fabricated:
         hints.append(f"repair: cosmetic_observations:{'; '.join(fabricated)}")
     # Merge the re-emitted plan onto the persisted one, enforcing the
@@ -611,6 +684,31 @@ async def research_verify_node(state: AgentGraphState, config: RunnableConfig) -
             ],
             "verification_ok": False,
         }
+    # Prefetch finish-gate (agent note-prefetch): refuse an explicit finish while
+    # the seed surfaced a relevant note/post that was never opened into evidence —
+    # the "guessed the meaning of a workspace term instead of reading the note
+    # that defines it" failure. Bounded by MAX_PREFETCH_REPAIRS and skipped on
+    # budget exhaustion, so a planner that legitimately shouldn't open the hit
+    # still terminates.
+    prefetch_repairs = int(state.get("prefetch_repair_count") or 0)
+    if (
+        tool_name == "FinishRetrieval"
+        and not budget_exhausted
+        and prefetch_repairs < MAX_PREFETCH_REPAIRS
+    ):
+        missed = unopened_prefetch_hits(list(state.get("prefetch_hits") or []), records)
+        if missed:
+            names = "; ".join(str(h.get("label")) for h in missed)
+            return {
+                **state,
+                "prefetch_repair_count": prefetch_repairs + 1,
+                "research_hints": [
+                    *(state.get("research_hints") or []),
+                    "repair: unopened_prefetch — открой релевантный кандидат из поиска "
+                    f"через OpenNote/OpenPost прежде чем завершать: {names}",
+                ],
+                "verification_ok": False,
+            }
     verdict = verify_evidence(
         finish=candidate,
         records=records,

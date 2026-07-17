@@ -431,6 +431,68 @@ async def test_verify_node_does_not_salvage_on_explicit_finish() -> None:
     assert result["verification_ok"] is False
 
 
+@pytest.mark.asyncio
+async def test_verify_node_bounces_finish_on_unopened_prefetch_hit() -> None:
+    """agent note-prefetch: the seed surfaced a relevant note, but the planner
+    tried to FinishRetrieval without ever opening it (the "серия" failure). The
+    prefetch gate must refuse the finish once and emit an OpenNote repair hint."""
+    from app.services.agent.research.graph import research_verify_node
+
+    rec = EvidenceRecord(
+        id="/posts/",
+        kind="search_hit",
+        source_ref="/posts/",
+        content="Посты пользователя",
+        citation_path="/posts/",
+        citation_title="Посты",
+    )
+    state = {
+        "evidence_records": {"/posts/": rec.to_dict()},
+        "tool_action": {"tool": "FinishRetrieval", "args": {"status": "ready", "evidence_ids": ["/posts/"]}},
+        "prefetch_hits": [
+            {"ref": "note:27a2f06d", "label": "note:27a2f06d", "similarity": 0.72, "node_type": "note_chunk"},
+        ],
+        "repair_count": 0,
+        "max_steps": 8,
+        "step_count": 2,
+    }
+    result = await research_verify_node(state, config={})
+    assert result["verification_ok"] is False
+    assert result["prefetch_repair_count"] == 1
+    assert any("unopened_prefetch" in h for h in result["research_hints"])
+
+
+@pytest.mark.asyncio
+async def test_verify_node_allows_finish_when_prefetch_hit_opened() -> None:
+    """Once the surfaced note is opened into evidence, the prefetch gate must not
+    fire — a cited finish over materialized evidence goes straight through."""
+    from app.services.agent.research.graph import research_verify_node
+
+    note = EvidenceRecord(
+        id="/note/global/27a2f06d/",
+        kind="note_chunk",
+        source_ref="/note/global/27a2f06d/",
+        content="Серия постов до 6-го: Пост 2… Пост 6.",
+        citation_path="/note/global/27a2f06d/",
+        citation_title="Серия постов до 6-го",
+    )
+    state = {
+        "evidence_records": {"/note/global/27a2f06d/": note.to_dict()},
+        "tool_action": {
+            "tool": "FinishRetrieval",
+            "args": {"status": "ready", "evidence_ids": ["/note/global/27a2f06d/"]},
+        },
+        "prefetch_hits": [
+            {"ref": "note:27a2f06d", "label": "note:27a2f06d", "similarity": 0.72, "node_type": "note_chunk"},
+        ],
+        "repair_count": 0,
+        "max_steps": 8,
+        "step_count": 3,
+    }
+    result = await research_verify_node(state, config={})
+    assert result["verification_ok"] is True
+
+
 def test_records_from_agent_state_uses_natural_ids() -> None:
     """agent-runtime-sprints §1.2: records key on citation path, no hash indirection."""
     from types import SimpleNamespace
@@ -687,6 +749,35 @@ async def test_planner_node_flags_fabricated_observation_with_repair_hint() -> N
     step = result["planner_steps"][0]
     assert "repair_hint" in step
     assert any("cosmetic_observations" in hint for hint in result["research_hints"])
+
+
+@pytest.mark.asyncio
+async def test_planner_node_emits_unparsed_repair_hint_on_invalid() -> None:
+    """agent-invalid-loop: an unparseable planner emission (e.g. JSON truncated
+    at max_tokens) becomes tool=Invalid, and must append an unparsed_output
+    repair hint so the next turn self-corrects instead of looping the same
+    broken output until the step budget drains."""
+    ctx = _reasoner_ctx()
+    state = {
+        "user_text": "Про что мне написать пост?",
+        "research_transcript": ["step 1: ListPosts → 5 постов"],
+        "evidence_records": {},
+        "research_hints": [],
+        "step_count": 1,
+        "max_steps": 10,
+    }
+    config = {"configurable": {"runtime_context": ctx}}
+    # Truncated mid-object — no closing brace, unparseable (the real failure).
+    truncated = '{"observations": ["5 постов"], "reasoning": "нужно открыть", "tool": "OpenNote", "args":'
+    with patch(
+        "app.services.ai.llm.complete_chat_completion",
+        new_callable=AsyncMock,
+        return_value=truncated,
+    ):
+        result = await research_planner_node(state, config)
+
+    assert result["planner_steps"][0]["tool"] == "Invalid"
+    assert any("unparsed_output" in hint for hint in result["research_hints"])
 
 
 @pytest.mark.asyncio

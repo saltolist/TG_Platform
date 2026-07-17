@@ -176,9 +176,11 @@ async def upsert_telegram_post(
         return
 
     await _shift_positions(session, user_id, 1)
+    pk = user_scoped_entity_uuid(user_id, "post", f"tg-{msg_id}")
+    post_data = {**post_data, "id": str(pk)}  # invariant: data["id"] mirrors PK
     session.add(
         Post(
-            id=user_scoped_entity_uuid(user_id, "post", f"tg-{msg_id}"),
+            id=pk,
             user_id=user_id,
             position=0,
             data=post_data,
@@ -322,6 +324,10 @@ async def update_telegram_post(
 
     previous_data = dict(existing.data)
     merged = _merge_telegram_post_payload(existing.data, post_data)
+    # Invariant: data["id"] mirrors the row PK. post_data (from map_group_to_post)
+    # carries a deterministic tg-UUID guess that diverges from a draft's original
+    # PK; the merge would otherwise overwrite the correct id with that guess.
+    merged["id"] = str(existing.id)
     if post_data.get("date"):
         merged["date"] = post_data["date"]
     if merged.get("status") == "published" and merged.get("source") == "telegram":
@@ -364,6 +370,7 @@ async def mark_post_published(
     if post is None or post.user_id != user_id:
         return {}
     data = dict(post.data)
+    data["id"] = str(post.id)  # invariant: data["id"] mirrors the row PK
     data["status"] = "published"
     data["date"] = datetime.now(timezone.utc).isoformat()
     data["telegramMessageId"] = telegram_message_id
@@ -400,7 +407,10 @@ async def finalize_published_from_telegram(
     existing = dict(post.data)
     merged: dict[str, Any] = {
         **telegram_payload,
-        "id": existing.get("id") or str(post_id),
+        # Invariant: data["id"] always mirrors the row PK. telegram_payload["id"]
+        # is a deterministic tg-UUID guess that does NOT match a draft's original
+        # (random) PK, so stamp the authoritative post_id here.
+        "id": str(post_id),
         "notes": existing.get("notes") or [],
         "chats": existing.get("chats") or [],
         "comments": telegram_payload.get("comments") or existing.get("comments") or [],
