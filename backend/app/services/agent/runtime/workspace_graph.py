@@ -125,6 +125,14 @@ def route_workspace_call(
     # lossy repackaging of evidence_records (agent-runtime-sprints §1.0).
     call = state.get("tool_call") or {}
     call_type = str(call.get("type") or "read")
+    scope = str(state.get("scope") or "global")
+
+    # Post-mutation proposals require a post context. In global scope the agent
+    # has no post to mutate, so treat any post_proposal as a plain "finish" and
+    # route straight to the answer node — no proposal card is ever created.
+    if call_type == "post_proposal" and scope != "post":
+        return "answer"
+
     if call_type == "post_proposal" and str(call.get("command") or "") == "schedule_post":
         # schedule_post needs an actual instant before a proposal is worth
         # creating — the classifier never computes one (it's a 600-token
