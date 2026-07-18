@@ -239,7 +239,54 @@ Target определяется до retrieval в bootstrap-фазе и може
   "task_profile": "comparison",
   "goal": "сопоставить правила из заметки с опубликованными постами",
   "target_contract_ref": "target-contract-id",
-  "required_sources": ["notes", "posts"],
+  "source_requirements": [
+    {
+      "source_id": "source-note-rules",
+      "kind": "notes",
+      "role": "source",
+      "required": true,
+      "query_goal": "получить полный текст правил из указанной заметки",
+      "scope": {
+        "mode": "targets",
+        "target_ids": ["note-uuid"],
+        "statuses": ["active"]
+      },
+      "freshness": {
+        "mode": "exact_revision",
+        "revision": 4,
+        "max_age_seconds": null
+      },
+      "budget": {
+        "search_calls": 0,
+        "rewrite_calls": 0,
+        "candidate_limit": 1,
+        "deep_reads": 1
+      }
+    },
+    {
+      "source_id": "source-post-comparison",
+      "kind": "posts",
+      "role": "comparison",
+      "required": true,
+      "query_goal": "найти опубликованные реализации правил заметки",
+      "scope": {
+        "mode": "corpus",
+        "corpus": "feed_posts",
+        "owner": "current_user",
+        "statuses": ["published"]
+      },
+      "freshness": {
+        "mode": "latest_available",
+        "max_age_seconds": null
+      },
+      "budget": {
+        "search_calls": 2,
+        "rewrite_calls": 1,
+        "candidate_limit": 5,
+        "deep_reads": 2
+      }
+    }
+  ],
   "evidence_requirements": ["note_rules", "matching_post_examples"],
   "answer_requires": ["overlaps", "differences", "evidence_citations"],
   "output_schema": "comparison.v1",
@@ -270,13 +317,63 @@ Target определяется до retrieval в bootstrap-фазе и може
 
 Для `channel_profile_draft` output schema требует готовые значения полей профиля. Ответ вида «вам следует написать...» считается нарушением контракта.
 
-### 6.3 EvidenceRequirement
+### 6.3 SourceRequirement
+
+`SourceRequirement` — единица multi-source планирования. Это не просто тип данных, а контракт того, зачем, где, насколько свежо и в каком объёме искать конкретный источник:
+
+```json
+{
+  "source_id": "source-post-comparison",
+  "kind": "posts",
+  "role": "comparison",
+  "required": true,
+  "query_goal": "найти опубликованные реализации правил заметки",
+  "scope": {
+    "mode": "corpus",
+    "corpus": "feed_posts",
+    "owner": "current_user",
+    "statuses": ["published"]
+  },
+  "freshness": {
+    "mode": "latest_available",
+    "max_age_seconds": null
+  },
+  "budget": {
+    "search_calls": 2,
+    "rewrite_calls": 1,
+    "candidate_limit": 5,
+    "deep_reads": 2
+  }
+}
+```
+
+Семантика полей:
+
+- `kind` — тип источника: `notes`, `posts`, `analytics`, `comments`, `attachments`, `images` или `dialog`;
+- `role` — роль в задаче: `source`, `comparison`, `style_reference` или `context`;
+- `required` — блокирует ли отсутствие источника статус `ready`;
+- `query_goal` — какой evidence должен дать источник; это стабильная смысловая цель, а не raw search query;
+- `scope` — targets/corpus, tenant/owner, статусы и другие обязательные границы поиска;
+- `freshness` — `exact_revision` с обязательной revision, `latest_available`, `max_age` с возрастом или `historical_snapshot` с моментом времени;
+- `budget` — локальные лимиты search, rewrite, candidates и deep reads для этого источника; `search_calls` включает все попытки, а `rewrite_calls` является его подмножеством.
+
+Инварианты:
+
+1. Один `kind` может присутствовать несколько раз с разными ролями и `query_goal`; такие требования не объединяются только по типу.
+2. Каждый search intent ссылается на конкретный `source_id`.
+3. `required=false` разрешает использовать полезный источник, но его отсутствие не блокирует `ready`.
+4. Локальные budgets не могут превышать общий TurnContract budget; общий budget является жёстким потолком суммы операций.
+5. Scope и freshness применяются внутри retrieval tool и повторно проверяются при создании EvidencePack.
+6. Изменение `query_goal`, scope или freshness создаёт новую revision TurnContract, а не незаметно меняет активный intent.
+
+### 6.4 EvidenceRequirement
 
 ```json
 {
   "requirement_id": "note_rules",
   "kind": "full_text",
-  "source_kind": "note",
+  "source_kind": "notes",
+  "source_requirement_ids": ["source-note-rules"],
   "target_ids": ["note-uuid"],
   "required": true,
   "status": "open",
@@ -289,11 +386,12 @@ Target определяется до retrieval в bootstrap-фазе и може
 
 Planner не закрывает requirement текстовым обещанием. Его статус вычисляет validator по реальным evidence records.
 
-### 6.4 SearchIntentLedger
+### 6.5 SearchIntentLedger
 
 ```json
 {
   "intent_id": "intent-01",
+  "source_requirement_id": "source-post-comparison",
   "intent_key": "posts:comparison:topic-normalized:current-user",
   "source_kind": "posts",
   "purpose": "найти реализации правил заметки в публикациях",
@@ -311,13 +409,14 @@ Planner не закрывает requirement текстовым обещание�
 Инварианты ledger:
 
 - `intent_key` строится из source, purpose, scope и нормализованной смысловой цели, а не из raw query;
+- каждый intent расходует budget только своего `source_requirement_id` и одновременно учитывается в общем TurnContract budget;
 - изменение формулировки запроса не создаёт новое намерение;
 - успешный или пустой повтор с тем же tool signature не выполняется повторно;
 - допускается максимум один rewrite, если validator указал конкретный recoverable gap;
 - после пустого rewrite intent становится `exhausted`;
 - ledger сохраняется внутри run state, а полезные targets/evidence переносятся между репликами диалога с revision/provenance.
 
-### 6.5 CandidateRecord
+### 6.6 CandidateRecord
 
 ```json
 {
@@ -331,6 +430,7 @@ Planner не закрывает requirement текстовым обещание�
   "status": "published",
   "updated_at": "2026-07-18T10:00:00Z",
   "index_revision": 4,
+  "source_requirement_ids": ["source-post-comparison"],
   "source_intent_ids": ["intent-01"],
   "scores": {
     "lexical": 0.71,
@@ -344,7 +444,7 @@ Planner не закрывает requirement текстовым обещание�
 
 `read_status`: `summary_only | chunk_read | full_read | rejected`.
 
-### 6.6 Compact PlannerDecision
+### 6.7 Compact PlannerDecision
 
 Planner получает state snapshot, но возвращает только решение, а не полный пересказ плана:
 
@@ -382,7 +482,7 @@ Planner получает state snapshot, но возвращает только 
 
 Целевой output budget planner после перехода на schema: 300–500 токенов. Сначала сокращается контракт ответа, затем `max_tokens`. Простое снижение лимита при старом формате повысит invalid JSON rate.
 
-### 6.7 SufficiencyResult
+### 6.8 SufficiencyResult
 
 ```json
 {
@@ -400,7 +500,7 @@ Planner получает state snapshot, но возвращает только 
 
 `ready` возможен только когда:
 
-1. обязательные sources представлены;
+1. каждый `SourceRequirement` с `required=true` представлен evidence нужного scope и freshness;
 2. explicit targets открыты в нужной полноте;
 3. summary-кандидаты, влияющие на ответ, прочитаны полностью или контекстными чанками;
 4. нужные attachments/vision hydrated;
@@ -408,7 +508,7 @@ Planner получает state snapshot, но возвращает только 
 6. нет незавершённых search intents;
 7. EvidencePack позволяет заполнить output schema.
 
-### 6.8 Output schemas
+### 6.9 Output schemas
 
 Каждый профиль результата получает versioned schema. Минимальные примеры:
 
@@ -540,16 +640,17 @@ Summary создаётся асинхронно. Пока не готово, fal
 
 ### 9.4 Candidate-first алгоритм
 
-1. Из `required_sources` создать отдельный intent на каждый source/role.
-2. Сформировать разные запросы, например `notes_query` для правил и `posts_query` для реализаций.
-3. Выполнить независимые discovery queries параллельно.
-4. Получить не более 5 object candidates на источник.
-5. Объединить lexical/vector результаты через rank fusion, затем применить metadata filters и rerank.
-6. Deduplicate по canonical object ID и revision.
-7. Выбрать для deep read 1–3 объекта суммарно или по explicit budget профиля.
-8. Выполнить hybrid chunk search только внутри выбранных объектов.
-9. Полностью открыть короткие заметки/посты; для больших документов сначала читать релевантные chunks и соседний контекст.
-10. Открывать attachment или vision только для конкретного незакрытого EvidenceRequirement.
+1. Из `source_requirements` создать отдельный intent на каждый `source_id` и `query_goal`.
+2. Сформировать разные запросы, например `notes_query` для правил и `posts_query` для реализаций; raw query не заменяет стабильный `query_goal`.
+3. Применить scope и freshness соответствующего `SourceRequirement` внутри retrieval.
+4. Выполнить независимые discovery queries параллельно.
+5. Получить не больше object candidates, чем разрешает `budget.candidate_limit` источника; рекомендуемый interactive default — 5.
+6. Объединить lexical/vector результаты через rank fusion, затем применить metadata filters и rerank.
+7. Deduplicate по canonical object ID и revision, сохранив ссылки на все `source_requirement_ids`, которым соответствует кандидат.
+8. Выбрать объекты для deep read в пределах локальных source budgets и общего TurnContract budget.
+9. Выполнить hybrid chunk search только внутри выбранных объектов.
+10. Полностью открыть короткие заметки/посты; для больших документов сначала читать релевантные chunks и соседний контекст.
+11. Открывать attachment или vision только для конкретного незакрытого EvidenceRequirement.
 
 ### 9.5 Выравнивание текущих retrieval paths
 
@@ -809,7 +910,7 @@ Streaming progress улучшает perceived latency, но не заменяе�
 - `queue_wait_ms`, `bootstrap_ms`, `discovery_ms`, `deep_read_ms`, `answer_ms`;
 - planner calls/run и tokens/decision;
 - searches/intent, rewrite rate, exhausted rate;
-- candidates/source, opened/candidate ratio;
+- candidates/source requirement, opened/candidate ratio и budget utilization;
 - duplicate suppression count;
 - evidence coverage и groundedness;
 - fast/compact/deep/batch distribution;
@@ -826,7 +927,8 @@ Streaming progress улучшает perceived latency, но не заменяе�
 
 - user turns и UI scope;
 - ожидаемый `target_mode`, targets, roles и corpora;
-- required sources/evidence kinds;
+- ожидаемые `SourceRequirement`: kind, role, required, query goal, scope, freshness и budget;
+- required evidence kinds;
 - объекты, которые должны быть открыты;
 - объекты, которые не должны быть открыты;
 - обязательные/запрещённые tool calls;
@@ -854,7 +956,11 @@ Trace grading используется для локализации ошибк�
 | «Эта заметка» после создания | target из recent object/ledger, без semantic drift |
 | Два конкретных поста | `target_mode=set`, batch open, оба в evidence |
 | Заметка + «мои посты» | `mixed`: note target + posts corpus, separate intents |
-| Сравнение notes/posts | отдельные queries, оба required sources закрыты |
+| Сравнение notes/posts | отдельные `SourceRequirement` и queries; оба required source contracts закрыты |
+| Один kind в двух ролях | два source contracts с разными `query_goal`; результаты не смешиваются по одному только kind |
+| Optional source пуст | `required=false` не блокирует `ready` и не вызывает лишний rewrite |
+| Source вышел за budget | новые search/deep-read запрещены только для этого `source_id`; общий budget также соблюдён |
+| Evidence устарел | freshness validator требует актуальную revision или фиксирует explicit gap |
 | Один query переформулирован planner | тот же `intent_key`, максимум один rewrite |
 | Search пуст дважды | `exhausted`, честный gap, без третьего поиска |
 | Summary релевантен, full text нет | summary не попадает в evidence, кандидат отклонён |
@@ -925,27 +1031,31 @@ Exit criteria:
 
 Ожидаемый impact: минус 25–30 с для первого запроса; минус 4–10 с на affected retries; существенное снижение p95/p99.
 
-### Фаза 2. Typed TurnContract и multi-target bootstrap
+### Фаза 2. Typed TurnContract, multi-target и multi-source bootstrap
 
 **Срок:** 4–7 дней.  
 **Зависимости:** фаза 0; может идти параллельно с фазой 1 после фиксации интерфейсов.
 
 Работы:
 
-1. Версионировать `TargetContract`, `TurnContract`, roles и modes.
+1. Версионировать `TargetContract`, `TurnContract`, `SourceRequirement`, roles и modes.
 2. Реализовать deterministic resolution explicit ID/link/open/recent/ledger.
 3. Разделить targets, corpora и candidates.
 4. Добавить multi-target и ambiguity policy.
 5. Переносить goal/targets между turns с provenance/revision.
 6. Расширить распознавание ссылок на notes/posts.
-7. Добавить execution mode и budgets по task profile.
+7. Заменить строковый список источников структурированными `SourceRequirement` с kind, role, required, query goal, scope, freshness и локальным budget.
+8. Добавить execution mode и общий budget по task profile; валидировать его против суммы локальных source budgets.
 
 Exit criteria:
 
 - explicit IDs: 100% correct;
 - golden target accuracy >= 95%;
 - semantic hits никогда не становятся target без resolution event;
-- multi-target scenarios не теряют объекты между nodes/turns.
+- multi-target scenarios не теряют объекты между nodes/turns;
+- каждый required source имеет отдельный проверяемый контракт, а optional source не блокирует `ready`;
+- scope/freshness не могут быть незаметно расширены planner;
+- локальные и общие budgets согласованы и проходят schema validation.
 
 Риск: regex/deterministic rules разрастаются.  
 Снижение риска: deterministic rules покрывают только high-confidence signals; сложное resolution остаётся одним bounded fallback, а не цепочкой resolvers.
@@ -955,11 +1065,11 @@ Exit criteria:
 ### Фаза 3. Search ledger и устранение повторов
 
 **Срок:** 3–5 дней.  
-**Зависимости:** TurnContract.
+**Зависимости:** TurnContract и SourceRequirement.
 
 Работы:
 
-1. Добавить `SearchIntentLedger` в run state/checkpoint.
+1. Добавить `SearchIntentLedger` в run state/checkpoint и связать каждый intent с `source_requirement_id`.
 2. Ввести semantic `intent_key` и canonical tool signatures.
 3. Реализовать states `planned/running/satisfied/exhausted`.
 4. Разрешить только один gap-linked rewrite.
@@ -1200,7 +1310,7 @@ AGENT_BATCH_PATH_V1
 
 | Область | Основные файлы |
 |---|---|
-| Turn/target contracts | `backend/app/services/agent/runtime/turn_contract.py`, при необходимости `runtime/target_contract.py` |
+| Turn/target/source contracts | `backend/app/services/agent/runtime/turn_contract.py`, при необходимости `runtime/target_contract.py` или `runtime/source_requirement.py` |
 | Run state/checkpoint | `backend/app/services/agent/runtime/state.py`, `runs.py`, `checkpoint.py` |
 | Execution modes/budgets | `backend/app/services/agent/runtime/executor.py`, `budget.py`, `workspace_graph.py` |
 | Planner protocol | `backend/app/services/agent/research/graph.py`, `plan.py` |
@@ -1221,19 +1331,20 @@ AGENT_BATCH_PATH_V1
 
 1. Все critical golden scenarios проходят deterministic и semantic gates.
 2. Explicit и multi-target resolution соответствует ожидаемому контракту.
-3. Targets, corpora, candidates и evidence не смешиваются.
-4. Один search intent не повторяется бесконтрольно.
-5. Relevant summary candidate полностью/контекстно прочитан до использования в ответе.
-6. Retrieval завершается первым deterministic `ready`, без LLM finish ping-pong.
-7. Empty/insufficient evidence приводит к явному gap, а не выдуманному факту.
-8. Output соответствует task-specific schema.
-9. Planner и answer model выбираются независимо.
-10. Нет cross-loop runtime errors и embedding cold start на принятом interactive run.
-11. P95 соответствует SLO по каждому классу задач.
-12. Trace объясняет время и решение каждого run без хранения скрытого reasoning.
-13. Mutation выполняется только после approval и resume того же persisted state.
-14. Exhaustive задачи выполняются batch-путём.
-15. Старый planner path удалён после успешного rollout; временные flags имеют дату удаления.
+3. Каждый source представлен структурированным `SourceRequirement`; required/optional, role, scope, freshness и budgets реально соблюдаются runtime.
+4. Targets, corpora, source requirements, candidates и evidence не смешиваются.
+5. Один search intent не повторяется бесконтрольно.
+6. Relevant summary candidate полностью/контекстно прочитан до использования в ответе.
+7. Retrieval завершается первым deterministic `ready`, без LLM finish ping-pong.
+8. Empty/insufficient evidence приводит к явному gap, а не выдуманному факту.
+9. Output соответствует task-specific schema.
+10. Planner и answer model выбираются независимо.
+11. Нет cross-loop runtime errors и embedding cold start на принятом interactive run.
+12. P95 соответствует SLO по каждому классу задач.
+13. Trace объясняет время и решение каждого run без хранения скрытого reasoning.
+14. Mutation выполняется только после approval и resume того же persisted state.
+15. Exhaustive задачи выполняются batch-путём.
+16. Старый planner path удалён после успешного rollout; временные flags имеют дату удаления.
 
 ## 22. Решение по «костылям» и риску деградации
 
