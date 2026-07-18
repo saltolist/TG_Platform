@@ -603,6 +603,20 @@ async def test_execute_agent_run_emits_planner_step_events(
     assert first["args"] == {"note_id": "n1"}
     assert first["observations"] == []
     assert second["tool"] == "FinishRetrieval"
+    metrics_events = [evt for evt in events if evt.event_type == "run_metrics"]
+    assert len(metrics_events) == 1
+    metrics = metrics_events[0].payload
+    assert metrics["llm_calls"] == 4
+    assert metrics["prompt_tokens"] > 0
+    assert metrics["completion_tokens"] > 0
+    assert metrics["total_tokens"] == metrics["prompt_tokens"] + metrics["completion_tokens"]
+    assert metrics["token_method"] == "chars_div_4_estimate"
+    assert [call["phase"] for call in metrics["calls"]] == [
+        "bootstrap.classifier",
+        "research.planner",
+        "research.planner",
+        "answer.generate",
+    ]
 
 
 @pytest.mark.asyncio

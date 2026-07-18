@@ -74,6 +74,10 @@ class RuntimeContext:
     # Created in execute_agent_run and threaded through budget.py into llm.py.
     # None falls back to the old per-call client behaviour (safe default).
     llm_client: httpx.AsyncClient | None = None
+    # Per-call phase/timing/token estimates collected by budget.py and emitted
+    # once as a durable run_metrics event. Never checkpointed and contains no
+    # prompt/response text or API keys.
+    llm_metrics: list[dict[str, Any]] = field(default_factory=list)
 
     def bind_agent_state(self, session: AsyncSession) -> AgentState:
         if self.agent_tool_state is not None:

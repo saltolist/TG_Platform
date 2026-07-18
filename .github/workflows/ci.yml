@@ -60,6 +60,10 @@ jobs:
           DATABASE_URL: postgresql+asyncpg://tg:tg@localhost:5432/tg_test
         run: alembic upgrade head
 
+      - name: Workspace Agent phase 0 quality freeze
+        working-directory: backend
+        run: pytest -v tests/test_agent_phase0_baseline.py tests/test_agent_budget.py
+
       - name: Run tests
         working-directory: backend
         run: pytest -v -m "not golden"

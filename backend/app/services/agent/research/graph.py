@@ -691,6 +691,7 @@ async def research_planner_node(state: AgentGraphState, config: RunnableConfig) 
         messages[-1]["content"] += "\n\nСобранный context:\n" + evidence_text
         raw = await call_llm_with_deadline(
             ctx,
+            phase="research.planner",
             messages=messages,
             spec=spec,
             model=model,

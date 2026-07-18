@@ -147,6 +147,31 @@ def _record_run_metrics(final_state: dict[str, Any]) -> None:
     AGENT_STOPPED_REASON.labels(str(final_state.get("stopped_reason") or "unknown")).inc()
 
 
+def _llm_metrics_payload(runtime_context: RuntimeContext, *, duration_ms: float) -> dict[str, Any]:
+    calls = [dict(item) for item in runtime_context.llm_metrics]
+    return {
+        "duration_ms": round(duration_ms, 1),
+        "llm_calls": len(calls),
+        "prompt_tokens": sum(int(item.get("prompt_tokens") or 0) for item in calls),
+        "completion_tokens": sum(int(item.get("completion_tokens") or 0) for item in calls),
+        "total_tokens": sum(int(item.get("total_tokens") or 0) for item in calls),
+        "token_method": "chars_div_4_estimate",
+        "calls": calls,
+    }
+
+
+async def _emit_llm_metrics(session, *, run_id: uuid.UUID, runtime_context: RuntimeContext, started_at: float) -> None:
+    await emit_run_event(
+        session,
+        run_id=run_id,
+        event_type="run_metrics",
+        payload=_llm_metrics_payload(
+            runtime_context,
+            duration_ms=(time.perf_counter() - started_at) * 1000,
+        ),
+    )
+
+
 async def _persist_turn_memory(
     session,
     *,
@@ -375,6 +400,12 @@ async def execute_agent_run(
                         "evidence_ids": final_state.get("evidence_ids") or [],
                     },
                 )
+            await _emit_llm_metrics(
+                session,
+                run_id=run.id,
+                runtime_context=runtime_context,
+                started_at=started_at,
+            )
             await emit_run_event(
                 session,
                 run_id=run.id,
@@ -398,6 +429,12 @@ async def execute_agent_run(
                 status="failed",
                 error="deadline_exceeded",
             )
+            await _emit_llm_metrics(
+                session,
+                run_id=run.id,
+                runtime_context=runtime_context,
+                started_at=started_at,
+            )
             await emit_run_event(
                 session,
                 run_id=run.id,
@@ -416,6 +453,12 @@ async def execute_agent_run(
                 run,
                 status="failed",
                 error=str(exc),
+            )
+            await _emit_llm_metrics(
+                session,
+                run_id=run.id,
+                runtime_context=runtime_context,
+                started_at=started_at,
             )
             await emit_run_event(
                 session,
@@ -439,6 +482,7 @@ async def resume_agent_graph(
 ) -> dict[str, Any]:
     from app.services.agent.runtime.runs import rebuild_runtime_context_for_run
 
+    started_at = time.perf_counter()
     await ensure_checkpointer_ready()
     graph = get_compiled_workspace_graph()
     # Resume must carry runtime_context — nodes downstream of the interrupt
@@ -446,6 +490,7 @@ async def resume_agent_graph(
     # (agent-runtime-sprints §1.5).
     if runtime_context is None:
         runtime_context = await rebuild_runtime_context_for_run(session, run)
+    runtime_context.llm_metrics.clear()
     # Fresh wall-clock budget for the resumed leg (agent-runtime-sprints §6).
     runtime_context.deadline_monotonic = (
         time.monotonic() + runtime_context.settings.rag_agent_deadline_s
@@ -538,6 +583,12 @@ async def resume_agent_graph(
                 "evidence_ids": final_state.get("evidence_ids") or [],
             },
         )
+    await _emit_llm_metrics(
+        session,
+        run_id=run.id,
+        runtime_context=runtime_context,
+        started_at=started_at,
+    )
     await emit_run_event(
         session,
         run_id=run.id,

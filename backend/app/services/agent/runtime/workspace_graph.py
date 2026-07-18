@@ -109,6 +109,7 @@ async def workspace_agent_node(
         user_content = "\n\n".join(content_parts)
         raw = await call_llm_with_deadline(
             ctx,
+            phase="bootstrap.classifier",
             messages=[
                 {"role": "system", "content": WORKSPACE_SYSTEM},
                 {"role": "user", "content": user_content},
@@ -392,6 +393,7 @@ async def answer_node(state: AgentGraphState, config: RunnableConfig) -> dict[st
     max_answer_tokens = min(6000, max(1200, requested_chars * 3 + 600))
     async for token in stream_llm_with_deadline(
         ctx,
+        phase="answer.generate",
         messages=[
             {"role": "system", "content": system_text},
             {"role": "user", "content": prompt},
@@ -429,6 +431,7 @@ async def answer_node(state: AgentGraphState, config: RunnableConfig) -> dict[st
         )
         repaired_raw = await call_llm_with_deadline(
             ctx,
+            phase="answer.format_repair",
             messages=[
                 {"role": "system", "content": system_text},
                 {"role": "user", "content": repair_prompt},
@@ -592,6 +595,7 @@ async def _generate_edited_post_html(
     edit_system = f"{_EDIT_POST_SYSTEM}\n\n{channel_block}" if channel_block else _EDIT_POST_SYSTEM
     raw = await call_llm_with_deadline(
         ctx,
+        phase="action.edit_post",
         messages=[
             {"role": "system", "content": edit_system},
             {"role": "user", "content": prompt},

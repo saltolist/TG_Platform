@@ -113,6 +113,7 @@ async def resolve_schedule_time(
 
     raw = await call_llm_with_deadline(
         ctx,
+        phase="action.schedule_time",
         messages=[
             {"role": "system", "content": _SYSTEM_PROMPT},
             {"role": "user", "content": "\n\n".join(prompt_parts)},

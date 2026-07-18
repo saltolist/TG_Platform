@@ -12,6 +12,7 @@ human-readable ``reason``; ``ok`` on a batch is the AND of all results.
 
 from __future__ import annotations
 
+import json
 from dataclasses import dataclass, field
 from typing import Any, Mapping, Sequence
 
@@ -276,3 +277,180 @@ def grade_run(
     if must_call:
         results.append(grade_trajectory_includes(state, must_call=must_call))
     return GraderReport(results=results)
+
+
+# --------------------------------------------------------------------------- #
+# Durable trace graders (Workspace Agent performance plan, phase 0)
+# --------------------------------------------------------------------------- #
+
+
+def _trace_event_fields(event: Any) -> tuple[str, Mapping[str, Any]]:
+    if isinstance(event, Mapping):
+        event_type = str(event.get("event_type") or event.get("type") or "")
+        payload = event.get("payload")
+    else:
+        event_type = str(getattr(event, "event_type", "") or "")
+        payload = getattr(event, "payload", None)
+    return event_type, payload if isinstance(payload, Mapping) else {}
+
+
+def _planner_tool_calls(events: Sequence[Any]) -> list[tuple[str, Mapping[str, Any]]]:
+    calls: list[tuple[str, Mapping[str, Any]]] = []
+    for event in events:
+        event_type, payload = _trace_event_fields(event)
+        if event_type != "planner_step":
+            continue
+        tool = str(payload.get("tool") or "")
+        args = payload.get("args")
+        calls.append((tool, args if isinstance(args, Mapping) else {}))
+    return calls
+
+
+def grade_no_duplicate_tool_calls(events: Sequence[Any]) -> GraderResult:
+    """The same non-terminal tool with the same args may not run twice."""
+    seen: set[tuple[str, str]] = set()
+    duplicates: list[str] = []
+    for tool, args in _planner_tool_calls(events):
+        if not tool or tool == "FinishRetrieval":
+            continue
+        key = (tool, json.dumps(dict(args), ensure_ascii=True, sort_keys=True, default=str))
+        if key in seen:
+            duplicates.append(f"{tool}({key[1]})")
+        seen.add(key)
+    if duplicates:
+        return GraderResult(
+            name="no_duplicate_tool_calls",
+            passed=False,
+            reason=f"duplicate calls: {duplicates}",
+        )
+    return GraderResult(
+        name="no_duplicate_tool_calls",
+        passed=True,
+        reason="no duplicate non-terminal tool calls",
+    )
+
+
+def grade_valid_finish_evidence_ids(events: Sequence[Any]) -> GraderResult:
+    """FinishRetrieval may cite only IDs observed in prior tool results."""
+    observed: set[str] = set()
+    invalid: list[str] = []
+    finish_calls = 0
+    for event in events:
+        event_type, payload = _trace_event_fields(event)
+        if event_type == "tool_result":
+            record_ids = payload.get("record_ids")
+            if isinstance(record_ids, Sequence) and not isinstance(record_ids, str):
+                observed.update(str(item) for item in record_ids)
+            continue
+        if event_type != "planner_step" or str(payload.get("tool") or "") != "FinishRetrieval":
+            continue
+        finish_calls += 1
+        args = payload.get("args")
+        evidence_ids = args.get("evidence_ids") if isinstance(args, Mapping) else []
+        if isinstance(evidence_ids, Sequence) and not isinstance(evidence_ids, str):
+            invalid.extend(str(item) for item in evidence_ids if str(item) not in observed)
+        elif evidence_ids:
+            invalid.append("<non-list evidence_ids>")
+    if invalid:
+        return GraderResult(
+            name="valid_finish_evidence_ids",
+            passed=False,
+            reason=f"FinishRetrieval cites unobserved evidence: {invalid}",
+        )
+    return GraderResult(
+        name="valid_finish_evidence_ids",
+        passed=True,
+        reason=f"all evidence IDs valid across {finish_calls} finish call(s)",
+    )
+
+
+def grade_no_finish_loops(events: Sequence[Any]) -> GraderResult:
+    finishes = sum(
+        1
+        for tool, _args in _planner_tool_calls(events)
+        if tool == "FinishRetrieval"
+    )
+    if finishes > 1:
+        return GraderResult(
+            name="no_finish_loops",
+            passed=False,
+            reason=f"FinishRetrieval repeated {finishes} times",
+        )
+    return GraderResult(
+        name="no_finish_loops",
+        passed=True,
+        reason=f"FinishRetrieval calls={finishes}",
+    )
+
+
+def grade_output_event_schema(events: Sequence[Any]) -> GraderResult:
+    """Validate the final, non-partial answer event without judging wording."""
+    terminal_status = ""
+    final_answer: Mapping[str, Any] | None = None
+    for event in events:
+        event_type, payload = _trace_event_fields(event)
+        if event_type == "answer" and not payload.get("partial"):
+            final_answer = payload
+        if event_type in {"run_completed", "run_failed", "run_interrupted", "run_cancelled"}:
+            terminal_status = str(payload.get("status") or event_type.removeprefix("run_"))
+    if not terminal_status:
+        return GraderResult(
+            name="output_event_schema",
+            passed=True,
+            reason="non-terminal trace has no required answer yet",
+        )
+    if terminal_status in {"failed", "interrupted", "cancelled"}:
+        return GraderResult(
+            name="output_event_schema",
+            passed=True,
+            reason=f"terminal status {terminal_status} has no required answer",
+        )
+    if final_answer is None:
+        return GraderResult(
+            name="output_event_schema",
+            passed=False,
+            reason="completed trace has no final answer event",
+        )
+    text = final_answer.get("text")
+    claims = final_answer.get("claims")
+    evidence_ids = final_answer.get("evidence_ids")
+    issues: list[str] = []
+    if not isinstance(text, str):
+        issues.append("text must be a string")
+    if not isinstance(claims, list):
+        issues.append("claims must be a list")
+    else:
+        for index, claim in enumerate(claims):
+            if not isinstance(claim, Mapping):
+                issues.append(f"claims[{index}] must be an object")
+                continue
+            if not isinstance(claim.get("text"), str):
+                issues.append(f"claims[{index}].text must be a string")
+            cited = claim.get("evidence_ids")
+            if not isinstance(cited, list) or not all(isinstance(item, str) for item in cited):
+                issues.append(f"claims[{index}].evidence_ids must be string[]")
+    if not isinstance(evidence_ids, list) or not all(isinstance(item, str) for item in evidence_ids):
+        issues.append("evidence_ids must be string[]")
+    if issues:
+        return GraderResult(
+            name="output_event_schema",
+            passed=False,
+            reason="; ".join(issues),
+        )
+    return GraderResult(
+        name="output_event_schema",
+        passed=True,
+        reason="final answer event matches the phase-0 schema",
+    )
+
+
+def grade_trace(events: Sequence[Any]) -> GraderReport:
+    """Run deterministic trajectory/output checks over a durable trace."""
+    return GraderReport(
+        results=[
+            grade_no_duplicate_tool_calls(events),
+            grade_valid_finish_evidence_ids(events),
+            grade_no_finish_loops(events),
+            grade_output_event_schema(events),
+        ]
+    )

@@ -15,7 +15,11 @@ from types import SimpleNamespace
 import pytest
 
 from app.services.agent.runtime import budget
-from app.services.agent.runtime.budget import RunDeadlineExceeded, call_llm_with_deadline
+from app.services.agent.runtime.budget import (
+    RunDeadlineExceeded,
+    call_llm_with_deadline,
+    stream_llm_with_deadline,
+)
 
 _CALL_KWARGS = dict(messages=[], spec=None, model="m", api_key="k")
 
@@ -67,3 +71,58 @@ async def test_overrunning_call_is_cut_off(monkeypatch) -> None:
     ctx = SimpleNamespace(deadline_monotonic=time.monotonic() + 0.01)
     with pytest.raises(RunDeadlineExceeded):
         await call_llm_with_deadline(ctx, **_CALL_KWARGS)
+
+
+@pytest.mark.asyncio
+async def test_call_records_phase_timing_and_token_estimates(monkeypatch) -> None:
+    async def fake(**kwargs):
+        return "done"
+
+    monkeypatch.setattr(budget.llm, "complete_chat_completion", fake)
+    ctx = SimpleNamespace(deadline_monotonic=None, llm_client=None, llm_metrics=[])
+    result = await call_llm_with_deadline(
+        ctx,
+        phase="research.planner",
+        **{**_CALL_KWARGS, "messages": [{"role": "user", "content": "12345678"}]},
+    )
+    assert result == "done"
+    assert ctx.llm_metrics == [
+        {
+            "phase": "research.planner",
+            "duration_ms": pytest.approx(0, abs=50),
+            "prompt_tokens": 2,
+            "completion_tokens": 1,
+            "total_tokens": 3,
+            "token_method": "chars_div_4_estimate",
+            "success": True,
+            "streaming": False,
+            "provider": "unknown",
+            "model": "m",
+        }
+    ]
+
+
+@pytest.mark.asyncio
+async def test_stream_records_one_aggregate_metric(monkeypatch) -> None:
+    async def fake_stream(**kwargs):
+        yield "ab"
+        yield "cd"
+
+    monkeypatch.setattr(budget.llm, "stream_chat_completion_tokens", fake_stream)
+    ctx = SimpleNamespace(deadline_monotonic=None, llm_client=None, llm_metrics=[])
+    chunks = [
+        chunk
+        async for chunk in stream_llm_with_deadline(
+            ctx,
+            phase="answer.generate",
+            **{**_CALL_KWARGS, "messages": [{"role": "user", "content": "12345678"}]},
+        )
+    ]
+    assert chunks == ["ab", "cd"]
+    assert len(ctx.llm_metrics) == 1
+    assert ctx.llm_metrics[0]["phase"] == "answer.generate"
+    assert ctx.llm_metrics[0]["prompt_tokens"] == 2
+    assert ctx.llm_metrics[0]["completion_tokens"] == 1
+    assert ctx.llm_metrics[0]["total_tokens"] == 3
+    assert ctx.llm_metrics[0]["success"] is True
+    assert ctx.llm_metrics[0]["streaming"] is True

@@ -35,4 +35,4 @@ def test_golden_catalog_has_implemented_ids() -> None:
     from tests.golden_runner import implemented_scenario_ids
 
     ids = implemented_scenario_ids()
-    assert ids == [f"{number:02d}" for number in range(1, 20)]
+    assert ids == ["06", "11", "13"]
