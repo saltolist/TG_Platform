@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import json
 import logging
 import uuid
 from dataclasses import dataclass
@@ -23,6 +24,7 @@ from app.services.agent.research.trust import UNTRUSTED_SYSTEM_NOTE, wrap_untrus
 from app.services.agent.research.verifier import verify_evidence
 from app.services.agent.runtime.context import RuntimeContext
 from app.services.agent.runtime.state import AgentGraphState
+from app.services.agent.runtime.turn_contract import render_turn_contract
 from app.services.ai.note_citations import NoteCite
 from app.services.ai.providers import ProviderSpec
 from app.services.ai.rag_dialog_ledger import (
@@ -135,6 +137,13 @@ AGENT_SYSTEM = (
 Правила:
 - Только read; никаких мутаций.
 - Завершай, когда собрано достаточно для ответа.
+- Блок «Контракт результата» авторитетен: target и corpus нельзя расширять или
+  подменять семантически похожим объектом. Если corpus=feed_posts, заметки не
+  являются источником ответа. Если corpus=exact_note, не открывай соседние заметки.
+- Прошлые ответы ассистента в «Диалог» — не подтверждённые факты и не список
+  обязательных действий. Не превращай прежнюю рекомендацию в план, пока её не
+  поддерживает текущий контракт и доступные tools. В частности, не планируй
+  «связать заметку с постами/файлами»: такого действия в workspace нет.
 - Имя и тип файла (что показывает OpenNote/ListNoteAttachments) — это НЕ его содержимое. Если вопрос требует судить о том, ЧТО на изображении (подойдёт ли картинка посту, что на ней, какая из них про X) — одних имён недостаточно: открой картинку через HydrateAttachment mode=vision и суди по увиденному. Не финишируй с ответом о пригодности/содержании изображения, ни разу его не открыв — это догадка по имени файла. (Голосовые/видео/кружки/стикеры прочитать нельзя — по ним честно скажи, что содержимое недоступно.)
 - В `evidence_ids` перечисляй ТОЛЬКО те id, что показаны в блоке «Собранный context» как `[id: …]` — дословно. Не выдумывай id и не подставляй номера постов.
 - id постов и заметок (tech_id=…, note:…) — непрозрачные технические ключи для вызова инструментов (OpenPost/OpenNote/GetPostAnalytics). Это НЕ порядковый номер и НЕ позиция в серии: число внутри id (например tech_id=5) не значит «пятый пост» или «пост 5 из серии». Не сопоставляй значение id с нумерацией/порядком и не выводи из id никаких фактов о содержании.
@@ -291,9 +300,16 @@ def _build_messages(
     dialog_context: str,
     ledger_text: str,
     l1_summary: str,
+    turn_contract: dict[str, Any] | None = None,
     plan_text: str = "",
 ) -> list[dict[str, str]]:
     parts = [f"Вопрос:\n{user_text.strip()}"]
+    if turn_contract:
+        parts.append(
+            "Контракт результата (авторитетен; не расширяй target/corpus и не "
+            "подменяй критерии соседней темой):\n"
+            + render_turn_contract(turn_contract)
+        )
     if dialog_context.strip():
         parts.append(f"Диалог:\n{dialog_context.strip()}")
     if ledger_text.strip():
@@ -340,7 +356,17 @@ async def _execute_tool(state: AgentState, action: ToolAction) -> ToolOutcome:
             limit=int(args.get("limit") or 8),
         )
     if tool == "ListPostNotes":
-        return tool_list_post_notes(state, post_id=str(args.get("post_id") or ""))
+        post_id = str(args.get("post_id") or "")
+        outcome = tool_list_post_notes(state, post_id=post_id)
+        if outcome.error == "post_not_open" and post_id:
+            opened = await tool_open_post(state, post_id=post_id)
+            if not opened.error:
+                listed = tool_list_post_notes(state, post_id=post_id)
+                return ToolOutcome(
+                    summary=f"{opened.summary} {listed.summary}",
+                    error=listed.error,
+                )
+        return outcome
     if tool == "ListGlobalNotes":
         return await tool_list_global_notes(state)
     if tool == "ListNoteAttachments":
@@ -392,6 +418,7 @@ def _planner_inputs(config: RunnableConfig) -> dict[str, Any]:
         "l1_results": conf.get("l1_results"),
         "seed_ref": conf.get("seed_ref"),
         "seed_post_id": conf.get("seed_post_id"),
+        "turn_contract": dict(conf.get("turn_contract") or {}),
     }
 
 
@@ -424,6 +451,45 @@ def _l1_summary(l1_results: list[dict[str, Any]] | None) -> str:
         for item in l1_results[:6]
     ]
     return "L1 hits:\n" + "\n".join(previews)
+
+
+def _contract_evidence_ids(
+    contract: dict[str, Any],
+    records: dict[str, EvidenceRecord],
+) -> list[str]:
+    """Keep only evidence from the corpus fixed by the turn contract."""
+    corpus = str(contract.get("corpus") or "workspace")
+    if corpus == "feed_posts":
+        return [
+            record_id
+            for record_id, record in records.items()
+            if record.kind == "post_text" or record_id.startswith("/posts/")
+        ]
+    if corpus == "exact_note":
+        target = dict(contract.get("target") or {})
+        note_id = str(target.get("id") or "")
+        if not note_id:
+            return []
+        return [
+            record_id
+            for record_id in records
+            if f"/note/global/{note_id}/" in record_id
+            or f"/note/post/" in record_id and f"/{note_id}/" in record_id
+        ]
+    return list(records)
+
+
+def _contract_fast_finish_ids(
+    contract: dict[str, Any],
+    records: dict[str, EvidenceRecord],
+) -> list[str]:
+    ids = _contract_evidence_ids(contract, records)
+    corpus = str(contract.get("corpus") or "workspace")
+    if corpus == "exact_note" and ids:
+        return ids
+    if corpus == "feed_posts" and any(records[eid].kind == "post_text" for eid in ids):
+        return ids
+    return []
 
 
 async def _workspace_inventory(session, user_id) -> str:
@@ -481,6 +547,8 @@ async def research_seed_node(state: AgentGraphState, config: RunnableConfig) -> 
     inp = _planner_inputs(config)
     seed_ref = inp["seed_ref"]
     seed_post_id = inp["seed_post_id"]
+    contract = dict(inp.get("turn_contract") or state.get("turn_contract") or {})
+    contract_target = dict(contract.get("target") or {})
     user_text = str(state.get("user_text") or "")
     transcript = list(state.get("research_transcript") or [])
     async with ctx.session_factory() as session:
@@ -494,6 +562,34 @@ async def research_seed_node(state: AgentGraphState, config: RunnableConfig) -> 
             inventory = ""
         if inventory:
             transcript.append(inventory)
+        if (
+            contract_target.get("kind") in {"recent_note", "ledger_note"}
+            and contract_target.get("id")
+        ):
+            note_id = str(contract_target["id"])
+            outcome = await tool_open_note(agent_state, note_id=note_id)
+            transcript.append(
+                f"[contract] authoritative recent note {note_id}: {outcome.summary}"
+            )
+        if contract.get("corpus") == "feed_posts":
+            listing = await tool_list_posts(agent_state, status="published", limit=8)
+            transcript.append(f"[contract] feed corpus: {listing.summary}")
+            style_only = bool((contract.get("output") or {}).get("match_reference_style"))
+            opened = 0
+            for item in agent_state.catalog_posts:
+                if str(item.get("status") or "") != "published":
+                    continue
+                text_value = str(item.get("text") or "").strip()
+                if style_only and len(text_value) < 120:
+                    continue
+                outcome = await tool_open_post(
+                    agent_state,
+                    post_id=str(item.get("id") or ""),
+                )
+                transcript.append(f"[contract] feed OpenPost: {outcome.summary}")
+                opened += 1
+                if opened >= (4 if style_only else 8):
+                    break
         if seed_ref and str(seed_ref).startswith("note:"):
             note_id = str(seed_ref)[len("note:") :].strip()
             outcome = await tool_open_note(agent_state, note_id=note_id, post_id=seed_post_id)
@@ -522,6 +618,8 @@ async def research_seed_node(state: AgentGraphState, config: RunnableConfig) -> 
         # planner must still OpenNote/OpenPost to ground them (agent note-prefetch).
         prefetch_hits: list[dict[str, Any]] = []
         search_query = str(state.get("search_query") or "").strip() or user_text
+        if contract.get("corpus") in {"exact_note", "feed_posts"}:
+            search_query = ""
         if search_query:
             search_outcome = await tool_search_nodes(agent_state, query=search_query)
             if search_outcome.hits:
@@ -557,7 +655,16 @@ async def research_planner_node(state: AgentGraphState, config: RunnableConfig) 
     # an unparsed emission); the unparsed-output hint below keys off `parsed is
     # None` so it must exist for both branches.
     parsed: ToolAction | None = None
-    if spec is None or not model or not api_key:
+    contract = dict(inp.get("turn_contract") or state.get("turn_contract") or {})
+    fast_finish_ids = _contract_fast_finish_ids(contract, records)
+    if fast_finish_ids:
+        action = ToolAction(
+            tool="FinishRetrieval",
+            args={"status": "ready", "evidence_ids": fast_finish_ids},
+            answer_requires="; ".join(str(item) for item in contract.get("success_criteria") or []),
+            plan=[],
+        )
+    elif spec is None or not model or not api_key:
         action = ToolAction(
             tool="FinishRetrieval",
             args={
@@ -577,6 +684,7 @@ async def research_planner_node(state: AgentGraphState, config: RunnableConfig) 
             dialog_context=inp["dialog_context"],
             ledger_text=ledger_text,
             l1_summary=_l1_summary(inp["l1_results"]),
+            turn_contract=inp["turn_contract"],
             plan_text=render_plan_for_planner(list(state.get("plan") or [])),
         )
         evidence_text = _format_evidence_for_planner(records)
@@ -672,6 +780,20 @@ async def research_tool_node(state: AgentGraphState, config: RunnableConfig) -> 
         records = records_from_agent_state(agent_state)
         await session.commit()
     step = int(state.get("step_count", 0) or 0)
+    signature = json.dumps(
+        {"tool": action.tool, "args": action.args},
+        ensure_ascii=False,
+        sort_keys=True,
+        default=str,
+    )
+    previous_outcomes = list(state.get("tool_outcomes") or [])
+    repeated = any(
+        str(item.get("signature") or "") == signature
+        for item in previous_outcomes[-3:]
+    )
+    new_record_ids = sorted(set(records) - set(existing_records))
+    made_progress = bool(new_record_ids or outcome.hits)
+    no_progress_count = 0 if made_progress else int(state.get("no_progress_count") or 0) + 1
     # Refund the step consumed by the planner when the tool only returned
     # recoverable precondition guidance (e.g. "сначала OpenPost"), capped at
     # MAX_STEP_REFUNDS so a repeating broken call can't loop for free. The
@@ -681,6 +803,7 @@ async def research_tool_node(state: AgentGraphState, config: RunnableConfig) -> 
         outcome.error in REFUNDABLE_TOOL_ERRORS
         and refunds < MAX_STEP_REFUNDS
         and step > 0
+        and not repeated
     ):
         step -= 1
         refunds += 1
@@ -699,11 +822,15 @@ async def research_tool_node(state: AgentGraphState, config: RunnableConfig) -> 
         "summary": outcome.summary[:500],
         "error": outcome.error,
         "record_ids": sorted(str(key) for key in records),
+        "new_record_ids": new_record_ids,
+        "signature": signature,
+        "no_progress_count": no_progress_count,
     }
     return {
         **state,
         "step_count": step,
         "step_refunds": refunds,
+        "no_progress_count": no_progress_count,
         "research_transcript": transcript,
         "tool_outcomes": [*(state.get("tool_outcomes") or []), outcome_record],
         "evidence_records": {
@@ -739,7 +866,11 @@ async def research_verify_node(state: AgentGraphState, config: RunnableConfig) -
             candidate = {
                 "status": "partial",
                 "evidence_ids": salvaged_ids,
-                "unresolved": ["step_budget_exhausted"],
+                "unresolved": [
+                    "no_progress_guard"
+                    if int(state.get("no_progress_count") or 0) >= 2
+                    else "step_budget_exhausted"
+                ],
             }
     # Finish-gate (persistent-plan): an explicit FinishRetrieval is refused while
     # plan items are still `open` — the planner must act on them or close them
@@ -833,6 +964,22 @@ async def research_verify_node(state: AgentGraphState, config: RunnableConfig) -
         if changed:
             candidate = {**candidate, "evidence_ids": repaired}
 
+    contract = dict(
+        state.get("turn_contract")
+        or ((config or {}).get("configurable", {}) or {}).get("turn_contract")
+        or {}
+    )
+    if contract.get("corpus") in {"feed_posts", "exact_note"}:
+        allowed_ids = set(_contract_evidence_ids(contract, records))
+        candidate = {
+            **candidate,
+            "evidence_ids": [
+                str(eid)
+                for eid in (candidate.get("evidence_ids") or [])
+                if str(eid) in allowed_ids
+            ],
+        }
+
     verdict = verify_evidence(
         finish=candidate,
         records=records,
@@ -861,6 +1008,14 @@ async def research_pack_node(state: AgentGraphState, config: RunnableConfig) -> 
     # into an honest refusal rather than ungrounded text (agent-runtime-sprints §1.3).
     finish = dict(state.get("finish_retrieval") or {})
     evidence_ids = [str(item) for item in (finish.get("evidence_ids") or [])]
+    contract = dict(
+        state.get("turn_contract")
+        or ((config or {}).get("configurable", {}) or {}).get("turn_contract")
+        or {}
+    )
+    if contract.get("corpus") in {"feed_posts", "exact_note"}:
+        allowed_ids = set(_contract_evidence_ids(contract, records))
+        evidence_ids = [eid for eid in evidence_ids if eid in allowed_ids]
     unresolved_items = [str(item) for item in (finish.get("unresolved") or [])]
     packed, cites = build_evidence_pack(
         records=records,
@@ -894,7 +1049,10 @@ def route_research_plan(state: AgentGraphState) -> Literal["planner", "tool", "v
 def route_research_after_tool(state: AgentGraphState) -> Literal["planner", "verify"]:
     return (
         "verify"
-        if int(state.get("step_count") or 0) >= int(state.get("max_steps") or 4)
+        if (
+            int(state.get("step_count") or 0) >= int(state.get("max_steps") or 4)
+            or int(state.get("no_progress_count") or 0) >= 2
+        )
         else "planner"
     )
 
@@ -970,6 +1128,7 @@ async def run_research_graph(
         "repair_count": 0,
         "step_count": 0,
         "max_steps": max_steps,
+        "no_progress_count": 0,
         "research_transcript": [],
         "research_hints": research_hints,
     }

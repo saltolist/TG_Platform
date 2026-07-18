@@ -35,6 +35,7 @@ class AgentGraphState(TypedDict, total=False):
     tool_call: dict[str, Any] | None
     answer_text: str
     claims: list[dict[str, Any]]
+    result_contract_issues: list[str]
     step_count: int
     max_steps: int
     # Persistent research plan (agent-runtime persistent-plan): list of
@@ -52,6 +53,8 @@ class AgentGraphState(TypedDict, total=False):
     # ("сначала OpenPost") rather than a real result. Capped so a planner that
     # keeps repeating the same broken call can't loop forever on free steps.
     step_refunds: int
+    # Consecutive tool calls that produced no new evidence.
+    no_progress_count: int
     research_transcript: list[str]
     research_hints: list[str]
     # Self-contained search query the workspace classifier resolved from the raw
@@ -60,6 +63,8 @@ class AgentGraphState(TypedDict, total=False):
     # surface before the planner's first step, instead of the planner having to
     # guess to search (agent note-prefetch). Falls back to user_text when empty.
     search_query: str
+    # Deterministic goal, referent, corpus and output requirements for the turn.
+    turn_contract: dict[str, Any]
     # Structured semantic-prefetch hits from the seed node: [{ref, label,
     # similarity, node_type}]. Powers the finish-gate guard — a FinishRetrieval
     # is bounced once if a relevant hit here was never opened into evidence.

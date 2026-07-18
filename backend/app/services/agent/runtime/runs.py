@@ -9,7 +9,7 @@ from fastapi import HTTPException
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.db.models import AgentRun, Profile, User
+from app.db.models import AgentRun, GlobalNote, Profile, User
 from app.db.resolve import get_owned_chat, get_owned_post
 from app.services.agent.runtime import events as event_service
 from app.services.agent.runtime.context import RuntimeContext
@@ -135,8 +135,14 @@ async def rebuild_runtime_context_for_run(
     from app.core.config import get_settings
     from app.db.session import async_session_factory
     from app.services.ai.embeddings import resolve_embedding_backend
+    from app.services.ai.rag_dialog_ledger import (
+        chat_ledger_key,
+        ledger_chat_id,
+        load_ledger,
+    )
     from app.services.ai.rag_query import build_planner_dialog_context
     from app.services.ai.rag_reasoner import resolve_rag_reasoner_llm
+    from app.services.agent.runtime.turn_contract import build_turn_contract
 
     settings = get_settings()
     user = await session.scalar(select(User).where(User.id == run.user_id))
@@ -193,6 +199,40 @@ async def rebuild_runtime_context_for_run(
                 else f"Ранее в диалоге: {older_summary}"
             )
     last_proposed_post_html = extract_last_proposed_edit(history) if history else None
+    recent_note_row = await session.scalar(
+        select(GlobalNote)
+        .where(GlobalNote.user_id == user.id)
+        .order_by(GlobalNote.created_at.desc())
+        .limit(1)
+    )
+    recent_note: dict[str, Any] | None = None
+    if recent_note_row is not None:
+        recent_note = {
+            **dict(recent_note_row.data or {}),
+            "id": str(recent_note_row.id),
+            "created_at": recent_note_row.created_at.isoformat(),
+        }
+    ledger_key = chat_ledger_key(
+        scope=run.scope,
+        chat_id=ledger_chat_id(
+            scope=run.scope,
+            chat_id=run.chat_id,
+            post_chat_id=run.post_chat_id,
+        ),
+        post_id=str((post_data or {}).get("id") or run.post_id or "") or None,
+    )
+    dialog_ledger = await load_ledger(
+        session,
+        user_id=user.id,
+        chat_key=ledger_key,
+    )
+    turn_contract = build_turn_contract(
+        user_text=user_text,
+        history=history,
+        scope=run.scope,
+        recent_note=recent_note,
+        dialog_ledger=dialog_ledger,
+    )
     return RuntimeContext(
         session_factory=async_session_factory,
         user_id=user.id,
@@ -209,6 +249,9 @@ async def rebuild_runtime_context_for_run(
         reasoner_model=reasoner[1] if reasoner else "",
         reasoner_api_key=reasoner[2] if reasoner else "",
         dialog_context=dialog_context,
+        turn_contract=turn_contract,
+        dialog_ledger=dialog_ledger,
+        ledger_key=ledger_key,
         last_proposed_post_html=last_proposed_post_html,
         user_timezone=run.timezone,
     )

@@ -12,6 +12,7 @@ from app.services.agent.runtime.graders import (
     grade_claims_subset_evidence,
     grade_empty_pack_no_claim,
     grade_image_claim_backed,
+    grade_result_contract,
     grade_run,
     grade_trajectory_includes,
 )
@@ -182,3 +183,17 @@ def test_grounded_run_has_no_image_affirmation() -> None:
     # Sanity: the healthy fixture makes no image claim, so grade_run stays green.
     result = grade_image_claim_backed(_grounded_run())
     assert result.passed is True
+
+
+def test_feed_post_contract_rejects_note_evidence() -> None:
+    state = {
+        "turn_contract": {"corpus": "feed_posts", "output": {"kind": "answer"}},
+        "evidence_ids": ["/note/global/series/"],
+        "evidence_records": {
+            "/note/global/series/": {"kind": "note_chunk", "content": "План серии"}
+        },
+        "answer_text": "Он пересекается с заметкой.",
+    }
+    result = grade_result_contract(state)
+    assert result.passed is False
+    assert "feed_posts corpus violation" in result.reason

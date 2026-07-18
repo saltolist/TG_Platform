@@ -31,7 +31,12 @@ from app.services.agent.runtime.answer_stream import extract_partial_answer
 from app.services.agent.runtime.budget import call_llm_with_deadline, stream_llm_with_deadline
 from app.services.agent.runtime.checkpoint import ensure_checkpointer_ready, get_checkpointer
 from app.services.agent.runtime.context import RuntimeContext
+from app.services.agent.runtime.result_quality import (
+    build_style_profile,
+    validate_result_contract,
+)
 from app.services.agent.runtime.state import AgentGraphState
+from app.services.agent.runtime.turn_contract import render_turn_contract
 
 logger = logging.getLogger(__name__)
 _compiled_graphs: dict[int, tuple[object, Any]] = {}
@@ -43,6 +48,9 @@ WORKSPACE_SYSTEM = """Ты единственный WorkspaceAgent платфо�
 - {"type":"post_proposal","command":"create_post|edit_post|schedule_post|publish_post|cancel_schedule|delete_post|restore_post","payload":{...}};
 - {"type":"media_proposal","kind":"image|video","prompt":"...","options":{},"cost_ceiling":number}.
 Не выполняй мутации напрямую. Выбирай только тип вызова, без keyword routing.
+Не предлагай функций, которых нет в перечисленных tools. В частности, в платформе
+нет действия «связать заметку с постами или файлами»; заметки и файлы уже являются
+частью workspace и доступны AI после сохранения.
 При любой неоднозначности выбирай "read": если запрос ссылается на посты, заметки, метрики, охваты или любые факты workspace — это "read". "finish" — только для явно общих/не-фактических запросов (приветствие, объяснение возможностей, вопрос не про данные workspace).
 Если передан блок "Диалог" — используй его, чтобы понять контекст запроса. Короткая правка твоего предыдущего ответа без новых фактических вопросов (перефразируй, покороче, на другом языке, другим тоном) — это "finish", даже если предыдущий ответ был по фактам workspace: факты уже собраны и лежат в диалоге, повторный поиск не нужен.
 Если передан блок "Текущий пост" и пользователь просит изменить его текст (убрать/добавить/переформулировать что-то в посте) — верни ровно {"type":"post_proposal","command":"edit_post","payload":{}}. Полный текст поста и его id проставляются отдельным детерминированным шагом — тебе НЕ нужно возвращать ни текст, ни id здесь, только классифицировать запрос как edit_post.
@@ -74,10 +82,21 @@ async def workspace_agent_node(
         # research pass with nothing new to retrieve (agent-runtime-sprints
         # §2.1 — canon requires both planner and answer to see history).
         dialog_context = str((config["configurable"] or {}).get("dialog_context") or "")
+        turn_contract = dict(
+            state.get("turn_contract")
+            or (config["configurable"] or {}).get("turn_contract")
+            or ctx.turn_contract
+            or {}
+        )
         user_text = str(state.get("user_text") or "")
         content_parts: list[str] = []
         if dialog_context.strip():
             content_parts.append(f"Диалог:\n{dialog_context.strip()}")
+        if turn_contract:
+            content_parts.append(
+                "Контракт результата (авторитетен):\n"
+                + render_turn_contract(turn_contract)
+            )
         # The classifier must see the post it's being asked to edit — without
         # this it cannot produce a correct edit_post payload and silently
         # falls back to "read"/"finish" (a plain text answer, no proposal).
@@ -101,13 +120,25 @@ async def workspace_agent_node(
             max_tokens=600,
         )
         call = extract_json_object(raw) or {"type": "read"}
+    turn_contract = dict(
+        state.get("turn_contract")
+        or (config["configurable"] or {}).get("turn_contract")
+        or ctx.turn_contract
+        or {}
+    )
+    if turn_contract.get("requires_workspace") and str(call.get("type") or "") == "finish":
+        call = {**call, "type": "read"}
+    if turn_contract.get("intent") in {"write_post", "compare_with_feed_posts", "inspect_note"}:
+        if str(call.get("type") or "") != "read" and ctx.scope != "post":
+            call = {**call, "type": "read"}
     call_type = str(call.get("type") or "read")
     if call_type not in {"read", "finish", "post_proposal", "media_proposal"}:
         call = {"type": "read"}
         call_type = "read"
     # Resolved search query for the seed prefetch (anaphora expanded). Fall back
     # to raw user_text when the classifier omitted or emptied it.
-    search_query = str(call.get("search_query") or "").strip() or str(state.get("user_text") or "")
+    contract_query = str(turn_contract.get("search_query") or "").strip()
+    search_query = contract_query or str(call.get("search_query") or "").strip() or str(state.get("user_text") or "")
     return {
         **state,
         "current_tool": call_type,
@@ -175,8 +206,15 @@ async def answer_node(state: AgentGraphState, config: RunnableConfig) -> dict[st
 
     ctx: RuntimeContext = config["configurable"]["runtime_context"]
     dialog_context = str((config["configurable"] or {}).get("dialog_context") or "")
+    turn_contract = dict(
+        state.get("turn_contract")
+        or (config["configurable"] or {}).get("turn_contract")
+        or ctx.turn_contract
+        or {}
+    )
     evidence_ids = state.get("evidence_ids") or []
     rag_context = str(state.get("rag_context") or "").strip()
+    style_profile = build_style_profile(dict(state.get("evidence_records") or {}))
     came_through_research = str((state.get("tool_call") or {}).get("type") or "") == "read"
 
     # Answer guard (code-gate, not prompt): if the request went through research
@@ -192,6 +230,17 @@ async def answer_node(state: AgentGraphState, config: RunnableConfig) -> dict[st
         }
 
     prompt_parts: list[str] = []
+    if turn_contract:
+        prompt_parts.append(
+            "Контракт результата (авторитетен; выполни target, corpus, output и "
+            "success_criteria буквально):\n"
+            + render_turn_contract(turn_contract)
+        )
+    if style_profile:
+        prompt_parts.append(
+            "Измеренный профиль референсных постов:\n"
+            + render_turn_contract(style_profile)
+        )
     if dialog_context.strip():
         prompt_parts.append(f"Диалог:\n{dialog_context.strip()}")
     # Post-scope: the current post is a deictic reference ("этот пост") that
@@ -294,6 +343,11 @@ async def answer_node(state: AgentGraphState, config: RunnableConfig) -> dict[st
             "предложить/написать материал, а на эту тему в evidence уже есть "
             "пост/черновик/заметка — не предлагай писать заново: сошлись на "
             "существующий и предложи доработать или опубликовать его.\n"
+            "Не рекомендуй несуществующие действия. В частности, заметку нельзя "
+            "и не нужно «связывать с постами и файлами»: после сохранения она уже "
+            "доступна AI в workspace.\n"
+            "Контракт результата в user-сообщении авторитетен: не подменяй target, "
+            "не добавляй evidence из другого corpus и соблюдай требования output.\n"
             + UNTRUSTED_SYSTEM_NOTE
         )
     else:
@@ -307,7 +361,8 @@ async def answer_node(state: AgentGraphState, config: RunnableConfig) -> dict[st
             + "Отвечай на разговорный запрос, используя диалог выше и текущий пост "
             "(если он передан) как контекст — например, если это правка твоего "
             "предыдущего ответа или вопрос про сам пост. Не выдумывай факты о "
-            "workspace, которых нет в этом контексте."
+            "workspace, которых нет в этом контексте. Не предлагай функций вне "
+            "supported_capabilities из контракта результата."
         )
     prompt = "\n\n".join(prompt_parts)
 
@@ -332,6 +387,9 @@ async def answer_node(state: AgentGraphState, config: RunnableConfig) -> dict[st
         writer = lambda _chunk: None  # noqa: E731 — trivial no-op sink
     raw_parts: list[str] = []
     last_emitted = ""
+    output_contract = dict(turn_contract.get("output") or {})
+    requested_chars = int(output_contract.get("min_chars") or 0)
+    max_answer_tokens = min(6000, max(1200, requested_chars * 3 + 600))
     async for token in stream_llm_with_deadline(
         ctx,
         messages=[
@@ -342,7 +400,7 @@ async def answer_node(state: AgentGraphState, config: RunnableConfig) -> dict[st
         model=ctx.reasoner_model,
         api_key=ctx.reasoner_api_key,
         temperature=0.1,
-        max_tokens=1200,
+        max_tokens=max_answer_tokens,
     ):
         raw_parts.append(token)
         partial = extract_partial_answer("".join(raw_parts))
@@ -356,10 +414,47 @@ async def answer_node(state: AgentGraphState, config: RunnableConfig) -> dict[st
     raw = "".join(raw_parts)
     parsed = extract_json_object(raw) or {}
     claims = parsed.get("claims") if isinstance(parsed.get("claims"), list) else []
+    answer_text = str(parsed.get("answer") or raw)
+    quality_issues = validate_result_contract(
+        answer_text,
+        turn_contract,
+        style_profile=style_profile,
+    )
+    if quality_issues:
+        repair_prompt = (
+            f"{prompt}\n\nПредыдущий черновик не прошёл детерминированную проверку: "
+            f"{quality_issues}. Исправь только эти нарушения, сохрани смысл и верни "
+            "тот же JSON-контракт ответа.\n\nПредыдущий черновик:\n"
+            f"{answer_text}"
+        )
+        repaired_raw = await call_llm_with_deadline(
+            ctx,
+            messages=[
+                {"role": "system", "content": system_text},
+                {"role": "user", "content": repair_prompt},
+            ],
+            spec=ctx.reasoner_spec,
+            model=ctx.reasoner_model,
+            api_key=ctx.reasoner_api_key,
+            temperature=0.0,
+            max_tokens=max_answer_tokens,
+        )
+        repaired = extract_json_object(repaired_raw) or {}
+        repaired_text = str(repaired.get("answer") or repaired_raw).strip()
+        repaired_issues = validate_result_contract(
+            repaired_text,
+            turn_contract,
+            style_profile=style_profile,
+        )
+        if repaired_text and len(repaired_issues) < len(quality_issues):
+            answer_text = repaired_text
+            quality_issues = repaired_issues
+            claims = repaired.get("claims") if isinstance(repaired.get("claims"), list) else claims
     return {
         **state,
-        "answer_text": str(parsed.get("answer") or raw),
+        "answer_text": answer_text,
         "claims": claims,
+        "result_contract_issues": quality_issues,
     }
 
 
@@ -389,6 +484,32 @@ _EDIT_POST_SYSTEM = (
     "об этом явно — но не переусердствуй и не меняй стиль поста без причины. "
     "Не добавляй пояснений — только сам текст поста в виде HTML."
 )
+
+
+def _deterministic_followup_edit(
+    *,
+    current_html: str,
+    instruction: str,
+    last_proposed_post_html: str | None,
+) -> str | None:
+    """Apply unambiguous punctuation follow-ups without another interpretation.
+
+    If the previous proposal changed only the final punctuation, "put it after
+    the period" has one stable referent: that introduced punctuation mark.
+    """
+    lowered = (instruction or "").lower()
+    if "после точки" not in lowered or not last_proposed_post_html:
+        return None
+    current = current_html.rstrip()
+    previous = last_proposed_post_html.rstrip()
+    if not current.endswith(".") or len(previous) < 2:
+        return None
+    introduced = previous[-1]
+    if introduced not in "?!":
+        return None
+    if previous[:-1] != current[:-1]:
+        return None
+    return current + introduced
 
 
 async def _generate_edited_post_html(
@@ -435,6 +556,13 @@ async def _generate_edited_post_html(
 
     if not ctx.reasoner_spec or not ctx.reasoner_model or not ctx.reasoner_api_key:
         return None
+    deterministic = _deterministic_followup_edit(
+        current_html=current_html,
+        instruction=instruction,
+        last_proposed_post_html=last_proposed_post_html,
+    )
+    if deterministic is not None:
+        return deterministic
     edit_base = current_html
     proposal_block = ""
     if last_proposed_post_html and last_proposed_post_html.strip() != current_html.strip():
@@ -446,6 +574,9 @@ async def _generate_edited_post_html(
             "сохранённый в системе, ниже (для справки, на случай если это "
             "первое сообщение в цепочке правок):\n"
             f"{current_html}\n\n"
+            "Предыдущий предложенный вариант отличается от сохранённого текста. "
+            "Считай эту разницу авторитетным объектом местоимений «его/её/это» "
+            "в новой инструкции.\n\n"
         )
     # Budget the completion to comfortably exceed the source text: Cyrillic runs
     # ~1 token/char, HTML tags add overhead on top, and an edit can only grow

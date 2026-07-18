@@ -10,6 +10,7 @@ import pytest
 from app.services.ai.note_citations import NoteCite
 from app.services.ai.rag_dialog_ledger import (
     append_turn,
+    build_snapshot_from_evidence_records,
     build_snapshot_from_agent_state,
     chat_ledger_key,
     clear_ledger,
@@ -234,6 +235,24 @@ def test_is_referential_distinguishes_same_instance_vs_new_predicate() -> None:
     assert not is_referential("А сколько с изображениями?")
     assert not is_referential("Сколько всего у меня заметок?")
     assert not is_referential("Какие посты самые популярные?")
+
+
+def test_evidence_snapshot_keeps_full_assistant_artifact() -> None:
+    draft = "Заголовок\n\n" + ("Полный текст поста. " * 80)
+    snapshot = build_snapshot_from_evidence_records(
+        user_text="Напиши пост",
+        evidence_ids=[],
+        records={},
+        answer_text=draft,
+        artifact_kind="post_draft",
+        turn_id=str(uuid4()),
+    )
+
+    artifact = next(entity for entity in snapshot.entities if entity.entity_type == "post_draft")
+    assert artifact.content == draft.strip()
+    assert len(artifact.content or "") > 400
+    rendered = format_ledger_for_planner((snapshot,))
+    assert "Полный текст поста" in rendered
 
 
 def test_referential_hints_from_ledger_only_for_referential_followups() -> None:

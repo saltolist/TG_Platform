@@ -147,6 +147,40 @@ def _record_run_metrics(final_state: dict[str, Any]) -> None:
     AGENT_STOPPED_REASON.labels(str(final_state.get("stopped_reason") or "unknown")).inc()
 
 
+async def _persist_turn_memory(
+    session,
+    *,
+    run: AgentRun,
+    runtime_context: RuntimeContext,
+    final_state: dict[str, Any],
+) -> None:
+    """Persist grounded entities and the full answer artifact once per run."""
+    if not runtime_context.ledger_key:
+        return
+    from app.services.ai.rag_dialog_ledger import (
+        append_turn,
+        build_snapshot_from_evidence_records,
+    )
+
+    contract = dict(final_state.get("turn_contract") or runtime_context.turn_contract or {})
+    output = dict(contract.get("output") or {})
+    snapshot = build_snapshot_from_evidence_records(
+        user_text=str(final_state.get("user_text") or ""),
+        evidence_ids=[str(item) for item in (final_state.get("evidence_ids") or [])],
+        records=dict(final_state.get("evidence_records") or {}),
+        target_post_id=str(final_state.get("post_id") or run.post_id or "") or None,
+        answer_text=str(final_state.get("answer_text") or ""),
+        artifact_kind=str(output.get("kind") or "assistant_artifact"),
+        turn_id=str(run.id),
+    )
+    await append_turn(
+        session,
+        user_id=run.user_id,
+        chat_key=runtime_context.ledger_key,
+        snapshot=snapshot,
+    )
+
+
 async def emit_run_event(
     session,
     *,
@@ -194,9 +228,15 @@ async def execute_agent_run(
             "thread_id": str(run.id),
             "runtime_context": runtime_context,
             "dialog_context": runtime_context.dialog_context,
+            "dialog_ledger": runtime_context.dialog_ledger,
+            "turn_contract": runtime_context.turn_contract,
             **(configurable or {}),
         }
     }
+    contract_max_steps = int(runtime_context.turn_contract.get("max_steps") or 0)
+    max_steps = runtime_context.settings.rag_agent_max_steps
+    if contract_max_steps > 0:
+        max_steps = min(max_steps, contract_max_steps)
     initial = {
         "run_id": str(run.id),
         "user_id": str(user.id),
@@ -207,7 +247,9 @@ async def execute_agent_run(
         "evidence_records": {},
         "evidence_ids": [],
         "repair_count": 0,
-        "max_steps": runtime_context.settings.rag_agent_max_steps,
+        "max_steps": max_steps,
+        "no_progress_count": 0,
+        "turn_contract": dict(runtime_context.turn_contract),
     }
     await emit_run_event(
         session,
@@ -308,6 +350,13 @@ async def execute_agent_run(
                 status = "interrupted"
             elif status not in {"failed", "cancelled"}:
                 status = "completed"
+            if status == "completed":
+                await _persist_turn_memory(
+                    session,
+                    run=run,
+                    runtime_context=runtime_context,
+                    final_state=final_state,
+                )
             await event_service.update_run_status(
                 session,
                 run,
@@ -406,6 +455,8 @@ async def resume_agent_graph(
             "thread_id": str(run.id),
             "runtime_context": runtime_context,
             "dialog_context": runtime_context.dialog_context,
+            "dialog_ledger": runtime_context.dialog_ledger,
+            "turn_contract": runtime_context.turn_contract,
         }
     }
     final_state: dict[str, Any] = {}
@@ -455,6 +506,13 @@ async def resume_agent_graph(
     )
     if status not in {"interrupted", "failed", "cancelled"}:
         status = "completed"
+    if status == "completed":
+        await _persist_turn_memory(
+            session,
+            run=run,
+            runtime_context=runtime_context,
+            final_state=final_state,
+        )
     await event_service.update_run_status(
         session,
         run,

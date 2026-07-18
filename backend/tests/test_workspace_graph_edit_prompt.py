@@ -117,3 +117,24 @@ async def test_prior_proposal_identical_to_current_edits_current_html() -> None:
     sent_messages = mock_llm.call_args.kwargs["messages"]
     user_content = next(m["content"] for m in sent_messages if m["role"] == "user")
     assert "цепочке правок" not in user_content
+
+
+@pytest.mark.asyncio
+async def test_question_mark_followup_after_period_is_deterministic() -> None:
+    """Regression for chat 21613326: the router understood the referent, but
+    the edit model returned the original period. The prior proposal's only
+    delta is '?' so 'after the period' must produce '.?' without an LLM call."""
+    ctx = _ctx()
+    with patch(
+        "app.services.ai.llm.complete_chat_completion",
+        new_callable=AsyncMock,
+    ) as mock_llm:
+        result = await _generate_edited_post_html(
+            ctx,
+            current_html="Убери цифру 2 в конце этого поста.",
+            instruction="Сделай его после точки",
+            last_proposed_post_html="Убери цифру 2 в конце этого поста?",
+        )
+
+    assert result == "Убери цифру 2 в конце этого поста.?"
+    mock_llm.assert_not_awaited()

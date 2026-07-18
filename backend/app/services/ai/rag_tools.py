@@ -533,8 +533,18 @@ async def tool_list_global_notes(state: AgentState) -> ToolOutcome:
         note_id = str(item.get("id") or "").strip()
         if not note_id:
             continue
-        title = str(item.get("title") or note_id).strip() or note_id
-        lines.append(f"- note:{note_id} title={title!r}{_attachment_suffix(item.get('files'))}")
+        title_lines = [
+            line.strip()
+            for line in str(item.get("title") or note_id).splitlines()
+            if line.strip()
+        ]
+        title = (title_lines[0] if title_lines else note_id) or note_id
+        created_at = str(item.get("_created_at") or item.get("date") or "").strip()
+        date_suffix = f" created_at={created_at!r}" if created_at else ""
+        lines.append(
+            f"- note:{note_id} title={title!r}{date_suffix}"
+            f"{_attachment_suffix(item.get('files'))}"
+        )
     return _record_listing(
         state, path=listing_path, title=listing_title, body="\n".join(lines),
     )
@@ -1309,4 +1319,3 @@ async def tool_get_post_analytics(
 
     state.context_blocks.append((cite, body))
     return ToolOutcome(summary=f"Загружена аналитика поста {post_id} за период {period}.")
-

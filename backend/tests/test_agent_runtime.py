@@ -8,10 +8,14 @@ from unittest.mock import AsyncMock, patch
 import pytest
 from httpx import ASGITransport, AsyncClient
 
-from app.db.models import GlobalChat, Post
+from app.db.models import GlobalChat, GlobalNote, Post
 from app.db.resolve import get_owned_post
 from app.main import app
-from app.services.agent.runtime.executor import execute_agent_run, resume_agent_graph
+from app.services.agent.runtime.executor import (
+    _persist_turn_memory,
+    execute_agent_run,
+    resume_agent_graph,
+)
 from app.services.agent.runtime.runs import rebuild_runtime_context_for_run, start_run
 from app.services.ai.providers import ProviderSpec
 from tests.conftest import TestSessionLocal, sample_global_chat, sample_post
@@ -186,6 +190,108 @@ async def test_rebuild_runtime_context_empty_dialog_context_without_chat(
         context = await rebuild_runtime_context_for_run(session, run, "Привет")
 
     assert context.dialog_context == ""
+
+
+@pytest.mark.asyncio
+async def test_rebuild_runtime_context_targets_latest_created_note(
+    writer_user,
+) -> None:
+    """Regression for chat 67122906: the latest note was indexed before the
+    request, but the router used finish and later opened an older semantic hit."""
+    chat_id = str(uuid.uuid4())
+    note_id = uuid.uuid4()
+    history = [
+        {"role": "user", "text": "Я создал заметку по этой теме. Что дальше?"},
+        {"role": "ai", "text": "Посмотрю."},
+        {"role": "user", "text": "Посмотри на эту заметку и скажи конкретно"},
+    ]
+    async with TestSessionLocal() as session:
+        session.add(
+            GlobalChat(
+                id=uuid.UUID(chat_id),
+                user_id=writer_user.id,
+                data={**sample_global_chat(chat_id), "history": history},
+            )
+        )
+        session.add(
+            GlobalNote(
+                id=note_id,
+                user_id=writer_user.id,
+                data={
+                    "id": str(note_id),
+                    "title": "Интерактивная пространственная система",
+                    "body": "Три слоя системы.",
+                },
+            )
+        )
+        await session.commit()
+        run, _ = await start_run(
+            session,
+            user=writer_user,
+            thread_id="recent-note-contract",
+            scope="global",
+            chat_id=chat_id,
+        )
+
+        context = await rebuild_runtime_context_for_run(
+            session,
+            run,
+            "Посмотри на эту заметку и скажи конкретно",
+        )
+
+    assert context.turn_contract["corpus"] == "exact_note"
+    assert context.turn_contract["target"]["id"] == str(note_id)
+    assert context.turn_contract["requires_workspace"] is True
+
+
+@pytest.mark.asyncio
+async def test_completed_run_persists_full_artifact_to_dialog_ledger(
+    writer_user,
+) -> None:
+    from app.services.ai.rag_dialog_ledger import load_ledger
+
+    chat_id = str(uuid.uuid4())
+    draft = "Заголовок\n\n" + ("Полный текст поста. " * 80)
+    async with TestSessionLocal() as session:
+        run, _ = await start_run(
+            session,
+            user=writer_user,
+            thread_id="persist-artifact",
+            scope="global",
+            chat_id=chat_id,
+        )
+        context = await rebuild_runtime_context_for_run(session, run, "Напиши пост")
+        context.turn_contract = {"output": {"kind": "post_draft"}}
+        final_state = {
+            "user_text": "Напиши пост",
+            "answer_text": draft,
+            "evidence_ids": [],
+            "evidence_records": {},
+            "turn_contract": context.turn_contract,
+        }
+        await _persist_turn_memory(
+            session,
+            run=run,
+            runtime_context=context,
+            final_state=final_state,
+        )
+        # A resume/retry of the same run is idempotent.
+        await _persist_turn_memory(
+            session,
+            run=run,
+            runtime_context=context,
+            final_state=final_state,
+        )
+        await session.commit()
+        ledger = await load_ledger(
+            session,
+            user_id=writer_user.id,
+            chat_key=context.ledger_key,
+        )
+
+    assert len(ledger) == 1
+    artifact = next(entity for entity in ledger[0].entities if entity.entity_type == "post_draft")
+    assert artifact.content == draft.strip()
 
 
 @pytest.mark.asyncio

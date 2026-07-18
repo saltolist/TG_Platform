@@ -43,6 +43,13 @@ class RuntimeContext:
     # for the research planner (agent-runtime-sprints §2.1). Deliberately a
     # string, not native state["messages"] — see agent-runtime-remaining.md §2.
     dialog_context: str = ""
+    # One deterministic goal/referent contract shared by classifier, planner
+    # and answer generation for this turn.
+    turn_contract: dict[str, Any] = field(default_factory=dict)
+    # Durable cross-turn entity/artifact memory. It stays outside checkpoints
+    # with the rest of RuntimeContext and is passed through configurable.
+    dialog_ledger: tuple[Any, ...] = ()
+    ledger_key: str | None = None
     # HTML body of the most recently proposed edit_post action in this thread
     # (approved, rejected, or pending), if any. dialog_context above only
     # carries display text and drops the `proposal` payload, so a follow-up

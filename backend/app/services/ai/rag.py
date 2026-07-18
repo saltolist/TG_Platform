@@ -702,9 +702,18 @@ async def list_global_notes(
         return await list_tenant_notes(session, user_id, tenant_key, "global")
 
     result = await session.execute(
-        select(GlobalNote).where(GlobalNote.user_id == user_id).order_by(GlobalNote.created_at)
+        select(GlobalNote)
+        .where(GlobalNote.user_id == user_id)
+        .order_by(GlobalNote.created_at.desc())
     )
-    return [dict(row.data) for row in result.scalars().all()]
+    return [
+        {
+            **dict(row.data),
+            "id": str(row.id),
+            "_created_at": row.created_at.isoformat(),
+        }
+        for row in result.scalars().all()
+    ]
 
 
 async def resolve_post_data(

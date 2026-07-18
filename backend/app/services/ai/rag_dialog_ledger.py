@@ -92,6 +92,10 @@ class LedgerEntity:
     filename: str | None = None
     vision_preview: str | None = None
     hydrated: bool = False
+    # Full user-visible artifact (for example a generated post draft). Stored
+    # in JSONB so follow-up turns do not depend on the 400-character transcript
+    # snippet used for conversational context.
+    content: str | None = None
 
 
 @dataclass(frozen=True)
@@ -132,6 +136,7 @@ def _entity_to_dict(entity: LedgerEntity) -> dict[str, Any]:
         "filename": entity.filename,
         "vision_preview": entity.vision_preview,
         "hydrated": entity.hydrated,
+        "content": entity.content,
     }
 
 
@@ -146,6 +151,7 @@ def _entity_from_dict(raw: Mapping[str, Any]) -> LedgerEntity:
         filename=raw.get("filename"),
         vision_preview=raw.get("vision_preview"),
         hydrated=bool(raw.get("hydrated")),
+        content=str(raw.get("content") or "") or None,
     )
 
 
@@ -188,11 +194,11 @@ async def load_ledger(
             DialogEvidenceTurn.user_id == user_id,
             DialogEvidenceTurn.ledger_key == chat_key,
         )
-        .order_by(DialogEvidenceTurn.recorded_at.asc())
+        .order_by(DialogEvidenceTurn.recorded_at.desc())
         .limit(_MAX_TURNS)
     )
     rows = (await session.scalars(stmt)).all()
-    return tuple(_row_to_snapshot(row) for row in rows)
+    return tuple(_row_to_snapshot(row) for row in reversed(rows))
 
 
 async def append_turn(
@@ -205,6 +211,8 @@ async def append_turn(
     if not chat_key:
         return
     turn_id = uuid.UUID(str(snapshot.turn_id))
+    if await session.get(DialogEvidenceTurn, turn_id) is not None:
+        return
     row = DialogEvidenceTurn(
         id=turn_id,
         user_id=user_id,
@@ -392,6 +400,9 @@ def build_snapshot_from_evidence_records(
     evidence_ids: list[str],
     records: dict[str, dict],
     target_post_id: str | None = None,
+    answer_text: str = "",
+    artifact_kind: str | None = None,
+    turn_id: str | None = None,
 ) -> TurnSnapshot:
     """Ledger turn from EvidenceRecord dicts (ADR-012 schema v2)."""
     entities: list[LedgerEntity] = []
@@ -400,12 +411,39 @@ def build_snapshot_from_evidence_records(
         path = str(rec.get("citation_path") or rec.get("source_ref") or "")
         kind = str(rec.get("kind") or "")
         if kind in {"note_chunk", "attachment_text"} and "/note/" in path:
-            note_id = path.rstrip("/").split("/")[-2] if "/attachment/" in path else path.rstrip("/").split("/")[-1]
-            entities.append(LedgerEntity(entity_type="note", note_id=note_id, post_id=target_post_id))
+            match = _NOTE_PATH_RE.search(path)
+            note_id = match.group(2) if match else None
+            post_id = (match.group(1) if match else None) or target_post_id
+            if note_id:
+                entities.append(
+                    LedgerEntity(
+                        entity_type="note",
+                        note_id=note_id,
+                        post_id=post_id,
+                        title=str(rec.get("citation_title") or "") or None,
+                    )
+                )
         elif kind == "post_text":
-            entities.append(LedgerEntity(entity_type="post", post_id=target_post_id, title=rec.get("citation_title")))
+            path_parts = [part for part in path.split("/") if part]
+            post_id = path_parts[1] if len(path_parts) >= 2 and path_parts[0] == "post" else target_post_id
+            entities.append(
+                LedgerEntity(
+                    entity_type="post",
+                    post_id=post_id,
+                    title=rec.get("citation_title"),
+                )
+            )
+    artifact = (answer_text or "").strip()
+    if artifact:
+        entities.append(
+            LedgerEntity(
+                entity_type=artifact_kind or "assistant_artifact",
+                title=artifact_kind or "assistant answer",
+                content=artifact[:12000],
+            )
+        )
     return TurnSnapshot(
-        turn_id=str(uuid.uuid4()),
+        turn_id=turn_id or str(uuid.uuid4()),
         recorded_at=datetime.now(timezone.utc).isoformat(),
         user_text=(user_text or "").strip(),
         target_post_id=target_post_id,
@@ -443,6 +481,11 @@ def format_ledger_for_planner(
                     f"  attachment ref={entity.ref!r} hydrated={entity.hydrated} "
                     f"post_id={entity.post_id!r} note_id={entity.note_id!r} "
                     f"filename={entity.filename!r} vision_preview={preview!r}"
+                )
+            elif entity.content:
+                lines.append(
+                    f"  artifact type={entity.entity_type!r} title={entity.title!r}\n"
+                    f"    content={entity.content[:6000]!r}"
                 )
     return "\n".join(lines)
 

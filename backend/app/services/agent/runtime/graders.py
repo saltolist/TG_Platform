@@ -15,6 +15,11 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from typing import Any, Mapping, Sequence
 
+from app.services.agent.runtime.result_quality import (
+    build_style_profile,
+    validate_result_contract,
+)
+
 
 @dataclass(frozen=True)
 class GraderResult:
@@ -201,6 +206,58 @@ def grade_trajectory_includes(
     )
 
 
+def grade_result_contract(state: Mapping[str, Any]) -> GraderResult:
+    """Target corpus and requested output shape must survive to the answer."""
+    contract = dict(state.get("turn_contract") or {})
+    if not contract:
+        return GraderResult(
+            name="result_contract",
+            passed=True,
+            reason="no turn contract — grader not applicable",
+        )
+    evidence_ids = [str(item) for item in (state.get("evidence_ids") or [])]
+    records = dict(state.get("evidence_records") or {})
+    corpus = str(contract.get("corpus") or "workspace")
+    if corpus == "feed_posts":
+        out_of_scope = [eid for eid in evidence_ids if "/note/" in eid or eid.startswith("/global/")]
+        has_post = any(
+            str((records.get(eid) or {}).get("kind") or "") == "post_text"
+            for eid in evidence_ids
+        )
+        if out_of_scope or not has_post:
+            return GraderResult(
+                name="result_contract",
+                passed=False,
+                reason=f"feed_posts corpus violation: out_of_scope={out_of_scope} has_post={has_post}",
+            )
+    if corpus == "exact_note":
+        note_id = str((contract.get("target") or {}).get("id") or "")
+        wrong = [eid for eid in evidence_ids if note_id and f"/{note_id}/" not in eid]
+        if wrong or not any(note_id and f"/{note_id}/" in eid for eid in evidence_ids):
+            return GraderResult(
+                name="result_contract",
+                passed=False,
+                reason=f"exact_note corpus violation: target={note_id!r} wrong={wrong}",
+            )
+    style_profile = build_style_profile(records)
+    issues = validate_result_contract(
+        str(state.get("answer_text") or ""),
+        contract,
+        style_profile=style_profile,
+    )
+    if issues:
+        return GraderResult(
+            name="result_contract",
+            passed=False,
+            reason=f"output contract violations: {issues}",
+        )
+    return GraderResult(
+        name="result_contract",
+        passed=True,
+        reason="target corpus and output requirements satisfied",
+    )
+
+
 def grade_run(
     state: Mapping[str, Any],
     *,
@@ -214,6 +271,7 @@ def grade_run(
         grade_claims_subset_evidence(state),
         grade_empty_pack_no_claim(state),
         grade_image_claim_backed(state),
+        grade_result_contract(state),
     ]
     if must_call:
         results.append(grade_trajectory_includes(state, must_call=must_call))

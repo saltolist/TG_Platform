@@ -12,6 +12,7 @@ from app.services.agent.research.evidence import EvidenceRecord
 from app.services.agent.research.graph import (
     parse_tool_action,
     research_planner_node,
+    route_research_after_tool,
     run_research_graph,
     validate_observations,
 )
@@ -27,6 +28,12 @@ def test_parse_tool_action_finish() -> None:
     action = parse_tool_action('{"tool": "FinishRetrieval", "args": {"status": "ready", "evidence_ids": []}}')
     assert action is not None
     assert action.tool == "FinishRetrieval"
+
+
+def test_no_progress_guard_stops_repeated_tool_loop() -> None:
+    assert route_research_after_tool(
+        {"step_count": 2, "max_steps": 10, "no_progress_count": 2}
+    ) == "verify"
 
 
 @pytest.mark.asyncio
@@ -203,6 +210,56 @@ async def test_research_tool_node_does_not_refund_real_result() -> None:
 
     assert result["step_count"] == 3
     assert result["step_refunds"] == 0
+
+
+@pytest.mark.asyncio
+async def test_exact_note_contract_finishes_without_planner_llm() -> None:
+    """An authoritative recent-note target is already grounded by seed, so a
+    semantic planner must not wander into neighboring notes."""
+    from app.services.ai.providers import ProviderSpec
+
+    ctx = _tool_node_ctx()
+    ctx.reasoner_spec = ProviderSpec("OpenAI", "https://api.openai.com")
+    ctx.reasoner_model = "gpt-4o-mini"
+    ctx.reasoner_api_key = "test-key"
+    note_path = "/note/global/new-note/"
+    state = {
+        "user_text": "Прочитай эту заметку",
+        "step_count": 0,
+        "max_steps": 4,
+        "evidence_records": {
+            note_path: EvidenceRecord(
+                id=note_path,
+                kind="note_chunk",
+                source_ref=note_path,
+                content="Новая стратегия канала.",
+                citation_path=note_path,
+                citation_title="Стратегия",
+            ).to_dict()
+        },
+        "turn_contract": {
+            "corpus": "exact_note",
+            "target": {"kind": "recent_note", "id": "new-note"},
+            "success_criteria": ["use exact note"],
+        },
+    }
+    with patch(
+        "app.services.ai.llm.complete_chat_completion",
+        new_callable=AsyncMock,
+    ) as mock_llm:
+        result = await research_planner_node(
+            state,
+            {
+                "configurable": {
+                    "runtime_context": ctx,
+                    "turn_contract": state["turn_contract"],
+                }
+            },
+        )
+
+    assert result["tool_action"]["tool"] == "FinishRetrieval"
+    assert result["tool_action"]["args"]["evidence_ids"] == [note_path]
+    mock_llm.assert_not_awaited()
 
 
 def test_parse_tool_action_preserves_reasoning() -> None:
@@ -585,6 +642,40 @@ async def test_workspace_agent_node_forwards_dialog_context_to_classifier_prompt
     user_content = messages[1]["content"]
     assert "Охват 1200 просмотров" in user_content
     assert "Покороче можешь?" in user_content
+
+
+@pytest.mark.asyncio
+async def test_workspace_contract_forces_recent_note_request_to_read() -> None:
+    from app.services.agent.runtime.workspace_graph import workspace_agent_node
+
+    ctx = _reasoner_ctx()
+    contract = {
+        "intent": "inspect_note",
+        "corpus": "exact_note",
+        "target": {"kind": "recent_note", "id": "n-new"},
+        "requires_workspace": True,
+        "search_query": "Открыть конкретную заметку n-new",
+    }
+    ctx.turn_contract = contract
+    state = {
+        "user_text": "Я создал заметку. Что дальше?",
+        "turn_contract": contract,
+    }
+    config = {
+        "configurable": {
+            "runtime_context": ctx,
+            "turn_contract": contract,
+        }
+    }
+    with patch(
+        "app.services.ai.llm.complete_chat_completion",
+        new_callable=AsyncMock,
+        return_value='{"type": "finish", "search_query": "общий совет"}',
+    ):
+        result = await workspace_agent_node(state, config)
+
+    assert result["current_tool"] == "read"
+    assert result["search_query"] == "Открыть конкретную заметку n-new"
 
 
 @pytest.mark.asyncio
