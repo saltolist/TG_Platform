@@ -7,7 +7,7 @@ import time
 from contextlib import contextmanager
 from typing import Iterator
 
-from prometheus_client import Counter, Histogram
+from prometheus_client import Counter, Gauge, Histogram
 
 logger = logging.getLogger("agent.runtime")
 
@@ -44,6 +44,20 @@ AGENT_STOPPED_REASON = Counter(
     "agent_stopped_reason_total",
     "Terminal stopped_reason of WorkspaceAgent runs",
     ("reason",),
+)
+AGENT_WORKER_READY = Gauge(
+    "agent_worker_ready",
+    "Whether the current Celery worker child completed runtime initialization",
+)
+AGENT_WORKER_WARMUP = Histogram(
+    "agent_worker_embedding_warmup_seconds",
+    "Embedding initialization and first real embed duration",
+    buckets=(0.1, 1, 2, 5, 10, 30, 60, 120),
+)
+AGENT_WORKER_FIRST_EMBED = Histogram(
+    "agent_worker_first_embed_seconds",
+    "First real embedding duration after model construction",
+    buckets=(0.01, 0.1, 0.5, 1, 2, 5, 10, 30),
 )
 
 

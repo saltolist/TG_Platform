@@ -21,7 +21,10 @@ def main() -> int:
     try:
         from fastembed import TextEmbedding
 
-        TextEmbedding(model_name=model_name)
+        model = TextEmbedding(model_name=model_name)
+        # Model construction alone does not initialize every ONNX execution
+        # path. Consume one result so this probe measures a real embedding.
+        next(iter(model.embed(["workspace agent readiness probe"])))
     except Exception as exc:
         logger.error(
             "Failed to load embedding model %r (cache=%s): %s",

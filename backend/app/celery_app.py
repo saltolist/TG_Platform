@@ -15,6 +15,7 @@ racing for the same MTProto session (see ``session_guard.py``).
 from __future__ import annotations
 
 from celery import Celery
+from celery.signals import worker_process_init, worker_process_shutdown
 
 from app.core.config import get_settings
 
@@ -38,7 +39,38 @@ celery_app.conf.update(
     task_default_retry_delay=30,
     timezone="UTC",
     enable_utc=True,
+    # fastembed construction can exceed billiard's 4s child-alive default on
+    # a cold host; the child must finish real warmup before it accepts work.
+    worker_proc_alive_timeout=90.0,
+    task_default_queue="telegram-io",
+    task_routes={
+        "app.tasks.agent_runs.execute_agent_run_task": {"queue": "agent-interactive"},
+        "media_generation.run_job": {"queue": "agent-heavy"},
+        "media_generation.cancel_provider_operation": {"queue": "agent-heavy"},
+        "app.tasks.analytics_snapshot.capture_all_channel_snapshots": {"queue": "analytics"},
+        "app.tasks.publish.publish_scheduled_post": {"queue": "telegram-io"},
+    }
+    if settings.agent_runtime_phase1_enabled
+    else {},
 )
+
+
+@worker_process_init.connect
+def _initialize_worker_process(**_kwargs):
+    if not settings.agent_runtime_phase1_enabled:
+        return
+    from app.tasks.async_runtime import initialize_worker_process
+
+    initialize_worker_process()
+
+
+@worker_process_shutdown.connect
+def _shutdown_worker_process(**_kwargs):
+    if not settings.agent_runtime_phase1_enabled:
+        return
+    from app.tasks.async_runtime import shutdown_worker_process
+
+    shutdown_worker_process()
 
 if settings.telegram_analytics_snapshot_seconds > 0:
     celery_app.conf.beat_schedule = {

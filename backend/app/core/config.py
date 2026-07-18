@@ -217,6 +217,7 @@ class Settings(BaseSettings):
 
     # Unified agent runtime (ADR-012)
     agent_runtime_engine: Literal["legacy", "langgraph"] = "langgraph"
+    agent_runtime_phase1_enabled: bool = True
     rag_l2_engine: Literal["legacy", "langgraph"] = "langgraph"
     agent_actions_enabled: bool = False
     agent_media_enabled: bool = False
@@ -241,6 +242,7 @@ class Settings(BaseSettings):
         "rag_agent_plan_alignment_llm",
         "agent_actions_enabled",
         "agent_media_enabled",
+        "agent_runtime_phase1_enabled",
         "cookie_secure",
         "telegram_live_sync_enabled",
         "telegram_reconcile_enabled",

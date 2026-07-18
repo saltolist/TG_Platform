@@ -8,11 +8,11 @@ RPC finishes or the TTL expires. Comment push/delete uses ``comment_sync_pending
 
 from __future__ import annotations
 
-import logging
 import asyncio
+import logging
 import time
-from contextlib import asynccontextmanager
 from collections.abc import AsyncIterator
+from contextlib import asynccontextmanager
 from typing import Any
 from uuid import UUID
 
@@ -41,6 +41,9 @@ def _set_key(user_id: UUID) -> str:
 
 async def _get_redis() -> Any | None:
     loop_key = asyncio.get_running_loop()
+    for stale_loop in [loop for loop in _redis_clients if loop.is_closed()]:
+        _redis_clients.pop(stale_loop, None)
+        _redis_unavailable.discard(stale_loop)
     if loop_key in _redis_unavailable:
         return None
     if loop_key in _redis_clients:
@@ -151,15 +154,18 @@ async def telegram_sync_pending(
 
 async def reset_sync_pending_storage() -> None:
     """Test helper — drop in-memory state and redis connection."""
-    global _redis_client, _redis_unavailable
     _memory_store.clear()
-    if _redis_client is not None:
+    loop = asyncio.get_running_loop()
+    current_client = _redis_clients.pop(loop, None)
+    # Never await a Redis client owned by another loop. Closed-loop clients are
+    # only stale references and are discarded with the cache below.
+    _redis_clients.clear()
+    _redis_unavailable.clear()
+    if current_client is not None:
         try:
-            await _redis_client.aclose()
+            await current_client.aclose()
         except Exception:  # noqa: BLE001
             pass
-    _redis_client = None
-    _redis_unavailable = False
 
 
 __all__ = [

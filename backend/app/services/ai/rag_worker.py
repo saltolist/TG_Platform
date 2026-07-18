@@ -588,15 +588,19 @@ async def _process_job(
 
 async def startup_backfill_all(session_factory: async_sessionmaker[AsyncSession]) -> None:
     """Enqueue indexing jobs for notes/posts missing embeddings."""
+    from app.services.ai.embeddings import resolve_embedding_backend
+
     settings = get_settings()
     if not settings.rag_enabled:
         return
 
     async with session_factory() as session:
         async with session.begin():
-            users = (await session.execute(select(User.id))).scalars().all()
+            users = (await session.execute(select(User))).scalars().all()
             enqueued = 0
-            for user_id in users:
+            for user in users:
+                user_id = user.id
+                model_key = resolve_embedding_backend(user, {}, settings).model_key
                 gn_rows = (
                     await session.execute(
                         select(GlobalNote).where(GlobalNote.user_id == user_id)
@@ -608,9 +612,14 @@ async def startup_backfill_all(session_factory: async_sessionmaker[AsyncSession]
                         text(
                             "SELECT 1 FROM note_embeddings "
                             "WHERE user_id = :uid AND scope = 'global' AND note_id = :nid "
-                            "AND node_type = :nt LIMIT 1"
+                            "AND node_type = :nt AND model_key = :mk LIMIT 1"
                         ),
-                        {"uid": str(user_id), "nid": note_id, "nt": NODE_NOTE_CHUNK},
+                        {
+                            "uid": str(user_id),
+                            "nid": note_id,
+                            "nt": NODE_NOTE_CHUNK,
+                            "mk": model_key,
+                        },
                     )
                     if exists.fetchone() is None:
                         await enqueue_note_job(session, user_id, "upsert", "global", note_id)
@@ -633,9 +642,14 @@ async def startup_backfill_all(session_factory: async_sessionmaker[AsyncSession]
                             text(
                                 "SELECT 1 FROM note_embeddings "
                                 "WHERE user_id = :uid AND scope = 'post' AND note_id = :nid "
-                                "AND node_type = :nt LIMIT 1"
+                                "AND node_type = :nt AND model_key = :mk LIMIT 1"
                             ),
-                            {"uid": str(user_id), "nid": note_id, "nt": NODE_NOTE_CHUNK},
+                            {
+                                "uid": str(user_id),
+                                "nid": note_id,
+                                "nt": NODE_NOTE_CHUNK,
+                                "mk": model_key,
+                            },
                         )
                         if exists.fetchone() is None:
                             await enqueue_note_job(
@@ -647,9 +661,14 @@ async def startup_backfill_all(session_factory: async_sessionmaker[AsyncSession]
                         text(
                             "SELECT 1 FROM note_embeddings "
                             "WHERE user_id = :uid AND scope = 'global' AND note_id = :pid "
-                            "AND node_type = :nt LIMIT 1"
+                            "AND node_type = :nt AND model_key = :mk LIMIT 1"
                         ),
-                        {"uid": str(user_id), "pid": canonical_id, "nt": NODE_POST_TEXT},
+                        {
+                            "uid": str(user_id),
+                            "pid": canonical_id,
+                            "nt": NODE_POST_TEXT,
+                            "mk": model_key,
+                        },
                     )
                     canonical_exists = exists_canonical.fetchone() is not None
                     has_stale_alias = False

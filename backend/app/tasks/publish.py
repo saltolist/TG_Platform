@@ -7,7 +7,6 @@ for why immediate publish and edit-sync stay synchronous in the API process.
 
 from __future__ import annotations
 
-import asyncio
 import logging
 from datetime import datetime, timezone
 from typing import Any
@@ -23,23 +22,13 @@ from app.db.models import Post
 from app.db.session import async_session_factory
 from app.services.telegram.net import TelegramAuthError
 from app.services.telegram.publish_flow import publish_post
+from app.tasks.async_runtime import run_async
 
 logger = logging.getLogger(__name__)
 
-_worker_loop: asyncio.AbstractEventLoop | None = None
-
-
 def _run_async(coro: Any) -> Any:
-    """Run async code on one event loop per Celery worker process.
-
-    Repeated ``asyncio.run()`` calls create fresh loops while SQLAlchemy/asyncpg
-    connections stay bound to the first loop, which breaks error handlers.
-    """
-    global _worker_loop
-    if _worker_loop is None or _worker_loop.is_closed():
-        _worker_loop = asyncio.new_event_loop()
-        asyncio.set_event_loop(_worker_loop)
-    return _worker_loop.run_until_complete(coro)
+    """Backward-compatible alias to the shared Celery worker loop."""
+    return run_async(coro)
 
 
 async def _record_publish_error(post_id: UUID, user_id: UUID, error: str) -> None:

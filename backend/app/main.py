@@ -65,8 +65,13 @@ async def lifespan(app: FastAPI):
     # Schema is managed by Alembic (see scripts/entrypoint.sh and `alembic upgrade head`).
     await _check_byok_key_guard(async_session_factory)
     if settings.agent_runtime_engine == "langgraph":
-        from app.services.agent.runtime.checkpoint import ensure_checkpointer_ready
+        from app.services.agent.runtime.checkpoint import (
+            ensure_checkpointer_ready,
+            mark_checkpointer_loop_persistent,
+        )
 
+        if settings.agent_runtime_phase1_enabled:
+            mark_checkpointer_loop_persistent()
         await ensure_checkpointer_ready()
     if settings.telegram_clock_sync_enabled:
         await log_container_clock_skew()

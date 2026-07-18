@@ -13,6 +13,7 @@
 - [Unified Agent Runtime (ADR-012)](adr/012-unified-agent-runtime.md) — LangGraph runs, HITL, media jobs
 - [Baseline metrics (pre-migration)](agent-baseline-metrics.md) — legacy L2 пороги для canary
 - [Workspace Agent phase 0 baseline](workspace-agent-phase0-baseline.md) — production traces, p50/p95/p99, graders и quality freeze
+- [Workspace Agent phase 1 runtime](workspace-agent-phase1-runtime.md) — event-loop ownership, fork-safe pools, worker warmup и queue isolation
 - [Сценарий: Agentic Graph RAG (legacy)](agentic-rag-scenario.md) — deprecated, legacy L2
 - [Сценарий: сводки, ветки и окно LLM](summary-branch-scenario.md) — эталонное поведение при форках и 3+ поколениях bundle
 - [Метки сводок `1-2-3`](summary-version-labels.md) — каталог версий и метки на сообщениях

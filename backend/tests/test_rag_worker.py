@@ -7,9 +7,20 @@ import uuid
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
+from sqlalchemy import text
 
-from app.db.models import Post, User
-from app.services.ai.rag import NODE_ATTACHMENT_TEXT, NODE_MEDIA_META, NODE_POST_TEXT
+from app.core.config import get_settings
+from app.db.models import GlobalNote, Post, User
+from app.services.ai.embeddings import (
+    DEFAULT_LOCAL_EMBEDDING_MODEL,
+    local_embedding_model_key,
+)
+from app.services.ai.rag import (
+    NODE_ATTACHMENT_TEXT,
+    NODE_MEDIA_META,
+    NODE_POST_TEXT,
+    index_note,
+)
 from app.services.ai.rag_worker import (
     _index_note_file_nodes,
     _index_post_media_nodes,
@@ -17,8 +28,9 @@ from app.services.ai.rag_worker import (
     enqueue_post_rag_delete_jobs,
     enqueue_post_text_job,
     is_post_deleted,
+    startup_backfill_all,
 )
-from tests.conftest import TestSessionLocal
+from tests.conftest import TestSessionLocal, sample_global_note
 
 
 @pytest.mark.asyncio
@@ -49,6 +61,69 @@ async def test_enqueue_post_text_job_skips_when_rag_disabled() -> None:
         mock_settings.return_value.rag_enabled = False
         await enqueue_post_text_job(session, uuid.uuid4(), "p1")
     session.execute.assert_not_awaited()
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    ("stored_model_key", "expected_jobs"),
+    [
+        (f"local:{DEFAULT_LOCAL_EMBEDDING_MODEL}", 1),
+        (local_embedding_model_key(DEFAULT_LOCAL_EMBEDDING_MODEL), 0),
+    ],
+)
+async def test_startup_backfill_is_model_fingerprint_aware(
+    writer_user: User,
+    stored_model_key: str,
+    expected_jobs: int,
+) -> None:
+    note_id = "fingerprint-note"
+    note_data = sample_global_note(note_id)
+    stored_backend = MagicMock()
+    stored_backend.model_key = stored_model_key
+    stored_backend.dim = 4
+    stored_backend.embed_passages = AsyncMock(return_value=[[0.1, 0.2, 0.3, 0.4]])
+
+    async with TestSessionLocal() as session:
+        session.add(
+            GlobalNote(
+                id=uuid.uuid4(),
+                user_id=writer_user.id,
+                data=note_data,
+            )
+        )
+        await session.flush()
+        await index_note(
+            session,
+            writer_user.id,
+            "global",
+            note_id,
+            note_data["title"],
+            note_data["body"],
+            stored_backend,
+        )
+        await session.commit()
+
+    current_backend = MagicMock()
+    current_backend.model_key = local_embedding_model_key(DEFAULT_LOCAL_EMBEDDING_MODEL)
+    settings = get_settings().model_copy(update={"rag_enabled": True})
+    with (
+        patch("app.services.ai.rag_worker.get_settings", return_value=settings),
+        patch(
+            "app.services.ai.embeddings.resolve_embedding_backend",
+            return_value=current_backend,
+        ),
+    ):
+        await startup_backfill_all(TestSessionLocal)
+
+    async with TestSessionLocal() as session:
+        jobs = await session.scalar(
+            text(
+                "SELECT count(*) FROM embedding_jobs "
+                "WHERE user_id = :uid AND note_id = :nid AND node_type = :nt"
+            ),
+            {"uid": str(writer_user.id), "nid": note_id, "nt": "note_chunk"},
+        )
+    assert jobs == expected_jobs
 
 
 @pytest.mark.asyncio

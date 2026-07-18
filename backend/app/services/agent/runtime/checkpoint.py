@@ -10,16 +10,32 @@ from langgraph.checkpoint.memory import MemorySaver
 
 logger = logging.getLogger(__name__)
 
-_loop_savers: dict[int, object] = {}
+_loop_savers: dict[asyncio.AbstractEventLoop, object] = {}
+_persistent_loops: set[asyncio.AbstractEventLoop] = set()
 _sync_memory_saver = MemorySaver()
+
+
+def reset_checkpointer_after_fork() -> None:
+    """Discard loop-bound checkpointers inherited by a prefork child."""
+    _loop_savers.clear()
+    _persistent_loops.clear()
+
+
+def mark_checkpointer_loop_persistent() -> None:
+    """Allow pooling only on an explicitly owned, long-lived runtime loop."""
+    _persistent_loops.add(asyncio.get_running_loop())
+
 
 def get_checkpointer():
     """Create a long-lived checkpointer; connection opening is explicit."""
     try:
-        loop_key = id(asyncio.get_running_loop())
+        loop = asyncio.get_running_loop()
     except RuntimeError:
         return _sync_memory_saver
-    cached = _loop_savers.get(loop_key)
+    for stale_loop in [item for item in _loop_savers if item.is_closed()]:
+        _loop_savers.pop(stale_loop, None)
+        _persistent_loops.discard(stale_loop)
+    cached = _loop_savers.get(loop)
     if cached is not None:
         return cached
     try:
@@ -27,7 +43,7 @@ def get_checkpointer():
     except ImportError:
         logger.warning("langgraph-checkpoint-postgres unavailable — using MemorySaver")
         saver = MemorySaver()
-        _loop_savers[loop_key] = saver
+        _loop_savers[loop] = saver
         return saver
 
     from app.core.config import get_settings
@@ -37,16 +53,22 @@ def get_checkpointer():
     parsed = urlparse(raw_url)
     if not parsed.scheme.startswith("postgres"):
         saver = MemorySaver()
-        _loop_savers[loop_key] = saver
+        _loop_savers[loop] = saver
         return saver
 
     try:
         from psycopg.rows import dict_row
-        from psycopg_pool import AsyncConnectionPool
+        from psycopg_pool import AsyncConnectionPool, AsyncNullConnectionPool
 
-        pool = AsyncConnectionPool(
+        pool_class = (
+            AsyncConnectionPool
+            if not settings.agent_runtime_phase1_enabled or loop in _persistent_loops
+            else AsyncNullConnectionPool
+        )
+        pool = pool_class(
             conninfo=raw_url,
-            max_size=10,
+            max_size=max(1, settings.db_pool_size),
+            min_size=0,
             open=False,
             kwargs={
                 "autocommit": True,
@@ -58,12 +80,12 @@ def get_checkpointer():
         setattr(saver, "_tg_pool", pool)
         setattr(saver, "_tg_ready", False)
         setattr(saver, "_tg_setup_lock", asyncio.Lock())
-        _loop_savers[loop_key] = saver
+        _loop_savers[loop] = saver
         return saver
     except Exception as exc:  # pragma: no cover - env specific
         logger.warning("Postgres checkpointer init failed (%s) — MemorySaver", exc)
         saver = MemorySaver()
-        _loop_savers[loop_key] = saver
+        _loop_savers[loop] = saver
         return saver
 
 
@@ -85,10 +107,11 @@ async def ensure_checkpointer_ready():
 
 
 async def close_checkpointer() -> None:
-    loop_key = id(asyncio.get_running_loop())
+    loop = asyncio.get_running_loop()
     saver = get_checkpointer()
     pool = getattr(saver, "_tg_pool", None)
     if pool is not None and getattr(saver, "_tg_ready", False):
         await pool.close()
         setattr(saver, "_tg_ready", False)
-    _loop_savers.pop(loop_key, None)
+    _loop_savers.pop(loop, None)
+    _persistent_loops.discard(loop)
