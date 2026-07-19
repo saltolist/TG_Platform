@@ -41,7 +41,7 @@ Held-out production check (read-only, local source database): из 8 anonymized 
 ## Остаточные риски
 
 - Explicit prose IDs короче восьми символов намеренно остаются planner candidates; для таких формулировок нужен следующий resolution path или UI link context.
-- Legacy graph продолжает читать compatibility fields (`target`, `corpus`, `max_steps`), поэтому новые nested contracts пока дублируют часть state.
+- Phase-1 compatibility path продолжает читать compatibility fields (`target`, `corpus`, `max_steps`), поэтому новые nested contracts пока дублируют часть state.
 - Held-out target check измерен на локальных production traces (`4/4` target-bearing), но label artifact не коммитится из-за raw production content; перед внешним rollout нужен защищённый повторяемый annotation/eval job и canary сравнение target/evidence/latency.
 - Общий backend suite не подтверждён зелёным; оставшиеся non-agent failures вынесены за пределы phase-2 agent release gate.
 
