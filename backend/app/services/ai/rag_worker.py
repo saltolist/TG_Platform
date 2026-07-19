@@ -31,9 +31,14 @@ from app.services.ai.rag import (
     NODE_ATTACHMENT_TEXT,
     NODE_MEDIA_META,
     NODE_NOTE_CHUNK,
+    NODE_NOTE_SUMMARY,
     NODE_POST_TEXT,
+    NODE_POST_SUMMARY,
+    discovery_keywords,
+    index_discovery_summary,
     index_note,
     index_text_node,
+    object_index_revision,
     remove_file_nodes_for_parent,
     remove_note,
     remove_text_node,
@@ -94,6 +99,9 @@ async def purge_post_text_embeddings(
             continue
         await remove_text_node(
             session, user_id, "global", NODE_POST_TEXT, value, tenant_key=""
+        )
+        await remove_text_node(
+            session, user_id, "global", NODE_POST_SUMMARY, value, tenant_key=""
         )
         await remove_file_nodes_for_parent(
             session,
@@ -456,6 +464,11 @@ async def _process_job(
         canonical_id = canonical_post_content_id(post_row)
         await purge_post_text_embeddings(session, user_id, aliases)
         text_value = str(post_data.get("text") or "").strip()
+        post_title = str(post_data.get("title") or "").strip()
+        if not post_title and text_value:
+            post_title = text_value.splitlines()[0].strip()[:160]
+        post_status = str(post_data.get("status") or "draft").strip().lower()
+        post_revision = object_index_revision(post_data)
         if text_value:
             await index_text_node(
                 session,
@@ -468,10 +481,32 @@ async def _process_job(
                 backend,
                 post_id=canonical_id,
                 max_chars=max_chars,
+                object_title=post_title,
+                object_status=post_status,
+                index_revision=post_revision,
+                keywords=discovery_keywords(f"{post_title} {text_value}"),
+            )
+            await index_discovery_summary(
+                session,
+                user_id,
+                "global",
+                NODE_POST_SUMMARY,
+                canonical_id,
+                post_title,
+                text_value,
+                backend,
+                post_id=canonical_id,
+                object_status=post_status,
+                index_revision=post_revision,
+                keywords=discovery_keywords(f"{post_title} {text_value}"),
+                max_chars=max_chars,
             )
         else:
             await remove_text_node(
                 session, user_id, "global", NODE_POST_TEXT, canonical_id, tenant_key=""
+            )
+            await remove_text_node(
+                session, user_id, "global", NODE_POST_SUMMARY, canonical_id, tenant_key=""
             )
         await _index_post_media_nodes(
             session, user_id, canonical_id, post_data, backend, max_chars=max_chars
@@ -495,6 +530,8 @@ async def _process_job(
             post_id=post_id or note_data.get("postId"),
             max_chars=max_chars,
             tenant_key=tenant_key,
+            object_status=str(note_data.get("status") or "active"),
+            index_revision=object_index_revision(note_data),
         )
         await _index_note_file_nodes(
             session,
@@ -529,6 +566,8 @@ async def _process_job(
             note_data.get("body", ""),
             backend,
             max_chars=max_chars,
+            object_status=str(note_data.get("status") or "active"),
+            index_revision=object_index_revision(note_data),
         )
         await _index_note_file_nodes(
             session,
@@ -571,6 +610,8 @@ async def _process_job(
                     backend,
                     post_id=post_id,
                     max_chars=max_chars,
+                    object_status=str(note_data.get("status") or "active"),
+                    index_revision=object_index_revision(note_data),
                 )
                 await _index_note_file_nodes(
                     session,
@@ -608,20 +649,31 @@ async def startup_backfill_all(session_factory: async_sessionmaker[AsyncSession]
                 ).scalars().all()
                 for note in gn_rows:
                     note_id = str(note.data.get("id") or note.id)
+                    expected_revision = object_index_revision(
+                        {**dict(note.data), "status": note.data.get("status") or "active"}
+                    )
                     exists = await session.execute(
                         text(
-                            "SELECT 1 FROM note_embeddings "
+                            "SELECT node_type, index_revision FROM note_embeddings "
                             "WHERE user_id = :uid AND scope = 'global' AND note_id = :nid "
-                            "AND node_type = :nt AND model_key = :mk LIMIT 1"
+                            "AND node_type IN (:chunk_nt, :summary_nt) AND model_key = :mk"
                         ),
                         {
                             "uid": str(user_id),
                             "nid": note_id,
-                            "nt": NODE_NOTE_CHUNK,
+                            "chunk_nt": NODE_NOTE_CHUNK,
+                            "summary_nt": NODE_NOTE_SUMMARY,
                             "mk": model_key,
                         },
                     )
-                    if exists.fetchone() is None:
+                    indexed = {
+                        (str(row.node_type), int(row.index_revision or 1))
+                        for row in exists.fetchall()
+                    }
+                    if (
+                        (NODE_NOTE_CHUNK, expected_revision) not in indexed
+                        or (NODE_NOTE_SUMMARY, expected_revision) not in indexed
+                    ):
                         await enqueue_note_job(session, user_id, "upsert", "global", note_id)
                         enqueued += 1
 
@@ -638,39 +690,59 @@ async def startup_backfill_all(session_factory: async_sessionmaker[AsyncSession]
                         note_id = str(note.get("id") or "")
                         if not note_id:
                             continue
+                        expected_revision = object_index_revision(
+                            {**dict(note), "status": note.get("status") or "active"}
+                        )
                         exists = await session.execute(
                             text(
-                                "SELECT 1 FROM note_embeddings "
+                                "SELECT node_type, index_revision FROM note_embeddings "
                                 "WHERE user_id = :uid AND scope = 'post' AND note_id = :nid "
-                                "AND node_type = :nt AND model_key = :mk LIMIT 1"
+                                "AND node_type IN (:chunk_nt, :summary_nt) AND model_key = :mk"
                             ),
                             {
                                 "uid": str(user_id),
                                 "nid": note_id,
-                                "nt": NODE_NOTE_CHUNK,
+                                "chunk_nt": NODE_NOTE_CHUNK,
+                                "summary_nt": NODE_NOTE_SUMMARY,
                                 "mk": model_key,
                             },
                         )
-                        if exists.fetchone() is None:
+                        indexed = {
+                            (str(row.node_type), int(row.index_revision or 1))
+                            for row in exists.fetchall()
+                        }
+                        if (
+                            (NODE_NOTE_CHUNK, expected_revision) not in indexed
+                            or (NODE_NOTE_SUMMARY, expected_revision) not in indexed
+                        ):
                             await enqueue_note_job(
                                 session, user_id, "upsert", "post", note_id, canonical_id
                             )
                             enqueued += 1
 
+                    expected_post_revision = object_index_revision(post_data)
                     exists_canonical = await session.execute(
                         text(
-                            "SELECT 1 FROM note_embeddings "
+                            "SELECT node_type, index_revision FROM note_embeddings "
                             "WHERE user_id = :uid AND scope = 'global' AND note_id = :pid "
-                            "AND node_type = :nt AND model_key = :mk LIMIT 1"
+                            "AND node_type IN (:text_nt, :summary_nt) AND model_key = :mk"
                         ),
                         {
                             "uid": str(user_id),
                             "pid": canonical_id,
-                            "nt": NODE_POST_TEXT,
+                            "text_nt": NODE_POST_TEXT,
+                            "summary_nt": NODE_POST_SUMMARY,
                             "mk": model_key,
                         },
                     )
-                    canonical_exists = exists_canonical.fetchone() is not None
+                    indexed = {
+                        (str(row.node_type), int(row.index_revision or 1))
+                        for row in exists_canonical.fetchall()
+                    }
+                    canonical_exists = (
+                        (NODE_POST_TEXT, expected_post_revision) in indexed
+                        and (NODE_POST_SUMMARY, expected_post_revision) in indexed
+                    )
                     has_stale_alias = False
                     if canonical_exists:
                         for alias in aliases:

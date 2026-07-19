@@ -56,6 +56,7 @@ from app.services.ai.rag_tools import (
     tool_list_posts,
     tool_open_note,
     tool_open_post,
+    tool_search_object_chunks,
     tool_search_nodes,
 )
 from app.services.ai.reply_pipeline_log import trace_step
@@ -89,7 +90,9 @@ MAX_PREFETCH_REPAIRS = 1
 PREFETCH_GUARD_MIN_SIMILARITY = 0.45
 # Only notes/posts are cheap to open blind (OpenNote/OpenPost by id). Attachment/
 # media hits need a parent context to hydrate, so they don't drive the guard.
-_PREFETCH_GUARD_TYPES = frozenset({"note_chunk", "post_text"})
+_PREFETCH_GUARD_TYPES = frozenset(
+    {"note_chunk", "post_text", "note_summary", "post_summary"}
+)
 
 
 def unopened_prefetch_hits(
@@ -117,6 +120,7 @@ def unopened_prefetch_hits(
 READ_TOOLS = frozenset(
     {
         "SearchNodes",
+        "SearchObjectChunks",
         "OpenPost",
         "OpenNote",
         "ListPosts",
@@ -134,6 +138,7 @@ AGENT_SYSTEM = (
 
 Доступные tools (JSON):
 - SearchNodes {query, node_types?, k?} — семантический поиск: top-k узлов, похожих на запрос, а НЕ полный список. Показывает, что похоже, но не гарантирует, что нашлось всё релевантное — отсутствие чего-то среди результатов не значит, что этого нет. То же относится к автоматическому префетчу «[seed] SearchNodes …»: это разведка первого уровня (что дешёвый поиск успел найти по формулировке запроса) — она ориентирует, но НЕ задаёт границ задачи и не заменяет полную картину workspace. node_types (если задан) — только из набора: "note_chunk" (текст заметок), "post_text" (текст постов), "attachment_text" (текст документов-вложений), "media_meta" (имена медиа). Не придумывай другие значения; если сомневаешься — не передавай node_types вовсе (искать по всем).
+- SearchObjectChunks {query, object_ids[], k?} — поиск contextual chunks ТОЛЬКО внутри уже выбранных object_ids; не расширяй список объектов этим tool.
 - OpenPost {post_id}
 - OpenNote {note_id, post_id?} — прочитать содержимое заметки; в выводе перечислены её вложения (имя+тип), поэтому для вопросов «есть ли в заметке картинки/файлы» отдельный ListNoteAttachments не нужен
 - ListPosts {query?, limit?}
@@ -352,6 +357,18 @@ async def _execute_tool(state: AgentState, action: ToolAction) -> ToolOutcome:
             query=str(args.get("query") or ""),
             node_types=args.get("node_types"),
             k=args.get("k"),
+            expected_revisions=args.get("_expected_revisions"),
+            object_statuses=frozenset(args.get("_object_statuses") or ()),
+        )
+    if tool == "SearchObjectChunks":
+        raw_ids = args.get("object_ids") or []
+        return await tool_search_object_chunks(
+            state,
+            query=str(args.get("query") or ""),
+            object_ids=[str(item) for item in raw_ids] if isinstance(raw_ids, list) else [],
+            k=args.get("k"),
+            expected_revisions=args.get("_expected_revisions"),
+            object_statuses=frozenset(args.get("_object_statuses") or ()),
         )
     if tool == "OpenPost":
         return await tool_open_post(state, post_id=str(args.get("post_id") or ""))
@@ -435,7 +452,46 @@ async def _execute_ledgered_tool(
         summary, error, hits = cached_outcome(entry)
         return ToolOutcome(summary=summary, error=error, hits=hits), preparation.ledger, entry, True
 
-    outcome = await _execute_tool(agent_state, action)
+    effective_action = action
+    source_id = str(entry.get("source_requirement_id") or "")
+    for source in (contract or {}).get("source_requirements") or ():
+        if str(source.get("source_id") or "") != source_id:
+            continue
+        freshness = dict(source.get("freshness") or {})
+        statuses = frozenset(
+            str(item).strip().lower()
+            for item in (source.get("scope") or {}).get("statuses") or ()
+            if str(item).strip()
+        )
+        target_ids = [str(item) for item in (source.get("scope") or {}).get("target_ids") or ()]
+        if freshness.get("mode") == "exact_revision" and freshness.get("revision") and target_ids:
+            effective_action = ToolAction(
+                tool=action.tool,
+                args={
+                    **action.args,
+                    "_expected_revisions": {
+                        object_id: int(freshness["revision"]) for object_id in target_ids
+                    },
+                    "_object_statuses": sorted(statuses),
+                },
+                observations=action.observations,
+                reasoning=action.reasoning,
+                answer_requires=action.answer_requires,
+                gap=action.gap,
+                plan=action.plan,
+            )
+        elif statuses:
+            effective_action = ToolAction(
+                tool=action.tool,
+                args={**action.args, "_object_statuses": sorted(statuses)},
+                observations=action.observations,
+                reasoning=action.reasoning,
+                answer_requires=action.answer_requires,
+                gap=action.gap,
+                plan=action.plan,
+            )
+        break
+    outcome = await _execute_tool(agent_state, effective_action)
     records = records_from_agent_state(agent_state)
     updated = finish_intent(
         preparation.ledger,

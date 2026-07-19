@@ -16,6 +16,7 @@
 - [Workspace Agent phase 1 runtime](workspace-agent-phase1-runtime.md) — event-loop ownership, fork-safe pools, worker warmup и queue isolation
 - [Workspace Agent phase 2 contracts](workspace-agent-phase2-contracts.md) — typed targets/sources, multi-target bootstrap, budgets и handoff
 - [Workspace Agent phase 3 search ledger](workspace-agent-phase3-search-ledger.md) — dedupe intent/read, bounded rewrites, validator finish и metrics
+- [Workspace Agent phase 4 discovery retrieval](workspace-agent-phase4-discovery-retrieval.md) — summaries, contextual chunks, rank fusion, freshness и quality gate
 - [Workspace Agent current limitations](workspace-agent-current-limitations.md) — текущие ограничения, release blockers, фаза 3 и оставшиеся работы
 - [Сценарий: Agentic Graph RAG (legacy)](agentic-rag-scenario.md) — deprecated, legacy L2
 - [Сценарий: сводки, ветки и окно LLM](summary-branch-scenario.md) — эталонное поведение при форках и 3+ поколениях bundle

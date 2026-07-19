@@ -15,7 +15,7 @@ from typing import Any, Mapping
 
 INTENT_STATES = frozenset({"planned", "running", "satisfied", "exhausted"})
 TERMINAL_INTENT_STATES = frozenset({"satisfied", "exhausted"})
-SEARCH_TOOLS = frozenset({"SearchNodes"})
+SEARCH_TOOLS = frozenset({"SearchNodes", "SearchObjectChunks"})
 
 _SPACE_RE = re.compile(r"\s+")
 _NODE_TYPE_ALIASES = {
@@ -41,10 +41,10 @@ def _normalized_args(tool: str, args: Mapping[str, Any]) -> dict[str, Any]:
         for key, value in args.items()
         if key not in {"source_requirement_id", "evidence_gap", "rewrite_of"}
     }
-    if tool == "SearchNodes":
+    if tool in SEARCH_TOOLS:
         raw["query"] = _normalized_text(raw.get("query"), fold_case=True)
         node_types = raw.get("node_types")
-        if isinstance(node_types, (list, tuple, set, frozenset)):
+        if tool == "SearchNodes" and isinstance(node_types, (list, tuple, set, frozenset)):
             raw["node_types"] = sorted(
                 {
                     _NODE_TYPE_ALIASES.get(_normalized_text(item, fold_case=True), _normalized_text(item, fold_case=True))
@@ -52,8 +52,16 @@ def _normalized_args(tool: str, args: Mapping[str, Any]) -> dict[str, Any]:
                     if _normalized_text(item)
                 }
             )
-        else:
+        elif tool == "SearchNodes":
             raw.pop("node_types", None)
+        if tool == "SearchObjectChunks":
+            object_ids = raw.get("object_ids")
+            if isinstance(object_ids, (list, tuple, set, frozenset)):
+                raw["object_ids"] = sorted(
+                    {_normalized_text(item) for item in object_ids if _normalized_text(item)}
+                )
+            else:
+                raw.pop("object_ids", None)
         raw["k"] = max(1, int(raw.get("k") or 4))
     elif tool == "HydrateAttachment":
         raw["ref"] = _normalized_text(raw.get("ref"), fold_case=True)
@@ -107,7 +115,7 @@ def resolve_source_requirement_id(
         "GetPostAnalytics": "analytics",
     }
     wanted_kind = kind_by_tool.get(tool)
-    if tool == "SearchNodes":
+    if tool in SEARCH_TOOLS:
         types = set(_normalized_args(tool, args).get("node_types") or ())
         if types and types <= {"note_chunk"}:
             wanted_kind = "notes"
@@ -118,6 +126,7 @@ def resolve_source_requirement_id(
 
     object_id = _normalized_text(
         args.get("note_id") or args.get("post_id") or args.get("ref")
+        or next(iter(args.get("object_ids") or ()), "")
     )
     if object_id:
         for source in sources:
@@ -185,7 +194,7 @@ def _search_family_key(
     contract: Mapping[str, Any] | None,
 ) -> str:
     normalized = _normalized_args(tool, args)
-    if tool == "SearchNodes":
+    if tool in SEARCH_TOOLS:
         normalized.pop("query", None)
         normalized.pop("k", None)
     payload = {

@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import inspect
+import json
 import uuid
 from typing import Any, Mapping
 
@@ -10,6 +11,14 @@ from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.services.ai.embeddings import EmbeddingBackend
+from app.services.ai.rag import (
+    CONTEXTUAL_NODE_TYPES,
+    DISCOVERY_NODE_TYPES,
+    NODE_NOTE_CHUNK,
+    NODE_NOTE_SUMMARY,
+    NODE_POST_TEXT,
+    NODE_POST_SUMMARY,
+)
 from app.services.ai.rag_retrieval_policy import retrieve_for_chat
 
 
@@ -22,13 +31,21 @@ async def fts_search(
     scope: str,
     post_id: str | None,
     k: int = 6,
+    node_types_filter: frozenset[str] | None = None,
+    object_ids: frozenset[str] | None = None,
+    object_statuses: frozenset[str] | None = None,
+    expected_revisions: Mapping[str, int] | None = None,
 ) -> list[dict[str, Any]]:
     """Full-text search over indexed chunk_text (tenant-scoped)."""
     q = (query_text or "").strip()
     if len(q) < 2:
         return []
 
-    tenant_clause = "AND tenant_key IS NOT DISTINCT FROM :tenant_key"
+    tenant_clause = (
+        "AND (tenant_key = :tenant_key OR tenant_key = '')"
+        if tenant_key
+        else "AND tenant_key = ''"
+    )
     scope_clause = ""
     params: dict[str, Any] = {
         "user_id": user_id,
@@ -37,19 +54,44 @@ async def fts_search(
         "limit": k,
     }
     if scope == "post" and post_id:
-        scope_clause = "AND post_id = :post_id"
+        scope_clause = "AND (scope = 'global' OR (scope = 'post' AND post_id = :post_id))"
         params["post_id"] = post_id
+
+    type_clause = ""
+    if node_types_filter:
+        placeholders = ", ".join(f":ft_{i}" for i in range(len(node_types_filter)))
+        type_clause = f"AND node_type IN ({placeholders})"
+        for index, node_type in enumerate(sorted(node_types_filter)):
+            params[f"ft_{index}"] = node_type
+    object_clause = ""
+    if object_ids:
+        placeholders = ", ".join(f":fo_{i}" for i in range(len(object_ids)))
+        object_clause = f"AND note_id IN ({placeholders})"
+        for index, object_id in enumerate(sorted(object_ids)):
+            params[f"fo_{index}"] = object_id
+    status_clause = ""
+    if object_statuses:
+        placeholders = ", ".join(f":fs_{i}" for i in range(len(object_statuses)))
+        status_clause = f"AND object_status IN ({placeholders})"
+        for index, status in enumerate(sorted(object_statuses)):
+            params[f"fs_{index}"] = status
 
     stmt = text(
         f"""
-        SELECT note_id, post_id, node_type, file_id, chunk_text,
-               ts_rank(to_tsvector('simple', chunk_text), plainto_tsquery('simple', :query)) AS rank
+        SELECT note_id, post_id, node_type, file_id, chunk_text, search_text,
+               object_title, object_status, index_revision, keywords,
+               ts_rank(to_tsvector('simple', COALESCE(NULLIF(search_text, ''), chunk_text)),
+                       plainto_tsquery('simple', :query)) AS rank
         FROM note_embeddings
         WHERE user_id = :user_id
           {tenant_clause}
           {scope_clause}
+          {type_clause}
+          {object_clause}
+          {status_clause}
           AND chunk_text <> ''
-          AND to_tsvector('simple', chunk_text) @@ plainto_tsquery('simple', :query)
+          AND to_tsvector('simple', COALESCE(NULLIF(search_text, ''), chunk_text))
+              @@ plainto_tsquery('simple', :query)
         ORDER BY rank DESC
         LIMIT :limit
         """
@@ -74,10 +116,28 @@ async def fts_search(
                 "node_type": row["node_type"],
                 "file_id": row["file_id"],
                 "chunk_text": row["chunk_text"],
+                "search_text": row.get("search_text") or row["chunk_text"],
+                "object_title": row.get("object_title") or "",
+                "object_status": row.get("object_status") or "",
+                "index_revision": int(row.get("index_revision") or 1),
+                "keywords": (
+                    json.loads(row.get("keywords"))
+                    if isinstance(row.get("keywords"), str)
+                    else list(row.get("keywords") or ())
+                ),
+                "is_discovery_node": str(row["node_type"] or "") in DISCOVERY_NODE_TYPES,
                 "similarity": float(row["rank"] or 0),
                 "source": "fts",
             }
         )
+    if expected_revisions:
+        results = [
+            item
+            for item in results
+            if str(item.get("note_id") or "") not in expected_revisions
+            or int(item.get("index_revision") or 1)
+            == int(expected_revisions[str(item.get("note_id"))])
+        ]
     return results
 
 
@@ -99,15 +159,16 @@ def merge_and_rerank(
     top_k: int = 8,
     vector_weight: float = 0.7,
 ) -> list[dict[str, Any]]:
-    """Dedupe by canonical key and rerank blended scores."""
+    """Dedupe by canonical key and rank-fuse vector/lexical result lists."""
     merged: dict[str, dict[str, Any]] = {}
-    for item in vector_results:
+    rank_constant = 60
+    for rank, item in enumerate(vector_results, start=1):
         key = _result_key(item)
-        score = float(item.get("similarity") or 0) * vector_weight
+        score = vector_weight / (rank_constant + rank)
         merged[key] = {**item, "blended_score": score, "sources": ["vector"]}
-    for item in fts_results:
+    for rank, item in enumerate(fts_results, start=1):
         key = _result_key(item)
-        fts_score = float(item.get("similarity") or 0) * (1.0 - vector_weight)
+        fts_score = (1.0 - vector_weight) / (rank_constant + rank)
         if key in merged:
             merged[key]["blended_score"] = merged[key].get("blended_score", 0) + fts_score
             merged[key]["sources"] = list(set(merged[key].get("sources", []) + ["fts"]))
@@ -131,11 +192,16 @@ async def hybrid_prefetch(
     scope_bias: float = 0.04,
     vector_retriever=None,
     node_types_filter: frozenset[str] | None = None,
+    object_ids: frozenset[str] | None = None,
+    object_statuses: frozenset[str] | None = None,
+    expected_revisions: Mapping[str, int] | None = None,
+    query_vec: list[float] | None = None,
 ) -> list[dict[str, Any]]:
     # Dependency injection keeps legacy callers/tests able to replace the
     # vector engine while the hybrid path owns the FTS merge.
     retrieve_vector = vector_retriever or retrieve_for_chat
-    query_vec = await embedding_backend.embed_query(query_text)
+    if query_vec is None:
+        query_vec = await embedding_backend.embed_query(query_text)
     vector = await retrieve_vector(
         session=session,
         user_id=user_id,
@@ -148,6 +214,9 @@ async def hybrid_prefetch(
         tenant_key=tenant_key,
         scope_bias=scope_bias,
         node_types_filter=node_types_filter,
+        object_ids=object_ids,
+        object_statuses=object_statuses,
+        expected_revisions=expected_revisions,
     )
     fts = await fts_search(
         session,
@@ -157,6 +226,10 @@ async def hybrid_prefetch(
         scope=scope,
         post_id=post_id,
         k=top_k,
+        node_types_filter=node_types_filter,
+        object_ids=object_ids,
+        object_statuses=object_statuses,
+        expected_revisions=expected_revisions,
     )
     for item in vector:
         item["source"] = "vector"
@@ -183,9 +256,62 @@ async def retrieve_for_discovery(
     scope_bias: float = 0.04,
     node_types_filter: frozenset[str] | None = None,
     vector_retriever=None,
+    candidate_limit: int = 5,
+    selected_object_ids: frozenset[str] | None = None,
+    expected_revisions: Mapping[str, int] | None = None,
+    object_statuses: frozenset[str] | None = None,
 ) -> list[dict[str, Any]]:
-    """Single discovery policy shared by L1 prefetch and SearchNodes."""
-    return await hybrid_prefetch(
+    """Candidate-first discovery followed by scoped contextual chunk search.
+
+    The first pass fuses object summaries with a bounded contextual fallback.
+    A selected object-id set switches
+    the same policy to chunk-only retrieval, preventing a follow-up query from
+    scanning the whole tenant again.
+    """
+    limit = max(1, min(5, int(candidate_limit or 5)))
+    query_vec = await embedding_backend.embed_query(query_text)
+    if selected_object_ids:
+        return await hybrid_prefetch(
+            session,
+            user_id=user_id,
+            scope=scope,
+            query_text=query_text,
+            embedding_backend=embedding_backend,
+            tenant_key=tenant_key,
+            post_id=post_id,
+            top_k=max(1, int(top_k or 8)),
+            min_similarity=min_similarity,
+            scope_bias=scope_bias,
+            node_types_filter=node_types_filter or CONTEXTUAL_NODE_TYPES,
+            object_ids=selected_object_ids,
+            expected_revisions=expected_revisions,
+            object_statuses=object_statuses,
+            vector_retriever=vector_retriever,
+            query_vec=query_vec,
+        )
+    if node_types_filter is not None:
+        # An explicit type is already a narrow source contract. Preserve the
+        # phase-3 one-pass behavior for planner retries and avoid running a
+        # summary pass that cannot contain the requested node type.
+        return await hybrid_prefetch(
+            session,
+            user_id=user_id,
+            scope=scope,
+            query_text=query_text,
+            embedding_backend=embedding_backend,
+            tenant_key=tenant_key,
+            post_id=post_id,
+            top_k=limit,
+            min_similarity=min_similarity,
+            scope_bias=scope_bias,
+            node_types_filter=node_types_filter,
+            expected_revisions=expected_revisions,
+            object_statuses=object_statuses,
+            vector_retriever=vector_retriever,
+            query_vec=query_vec,
+        )
+
+    summary_hits = await hybrid_prefetch(
         session,
         user_id=user_id,
         scope=scope,
@@ -193,9 +319,88 @@ async def retrieve_for_discovery(
         embedding_backend=embedding_backend,
         tenant_key=tenant_key,
         post_id=post_id,
-        top_k=top_k,
+        top_k=limit,
         min_similarity=min_similarity,
         scope_bias=scope_bias,
-        node_types_filter=node_types_filter,
+        node_types_filter=DISCOVERY_NODE_TYPES,
+        expected_revisions=expected_revisions,
+        object_statuses=object_statuses,
         vector_retriever=vector_retriever,
+        query_vec=query_vec,
     )
+    contextual_hits = await hybrid_prefetch(
+        session,
+        user_id=user_id,
+        scope=scope,
+        query_text=query_text,
+        embedding_backend=embedding_backend,
+        tenant_key=tenant_key,
+        post_id=post_id,
+        top_k=limit,
+        min_similarity=min_similarity,
+        scope_bias=scope_bias,
+        node_types_filter=node_types_filter or CONTEXTUAL_NODE_TYPES,
+        expected_revisions=expected_revisions,
+        object_statuses=object_statuses,
+        vector_retriever=vector_retriever,
+        query_vec=query_vec,
+    )
+
+    def object_key(item: Mapping[str, Any]) -> str:
+        node_type = str(item.get("node_type") or "")
+        kind = (
+            "note"
+            if node_type in {NODE_NOTE_CHUNK, NODE_NOTE_SUMMARY}
+            else "post"
+            if node_type in {NODE_POST_TEXT, NODE_POST_SUMMARY}
+            else node_type
+        )
+        return ":".join(
+            [
+                kind,
+                str(item.get("note_id") or ""),
+                str(item.get("post_id") or ""),
+            ]
+        )
+
+    fused: dict[str, dict[str, Any]] = {}
+    for rank, item in enumerate(summary_hits):
+        key = object_key(item)
+        fused[key] = {
+            **item,
+            "blended_score": float(item.get("blended_score") or item.get("similarity") or 0),
+            "sources": list(item.get("sources") or ["summary"]),
+            "candidate": True,
+            "summary_only": True,
+            "summary_rank": rank + 1,
+            "rank_fusion_score": 1.0 / (60 + rank + 1),
+        }
+    for rank, item in enumerate(contextual_hits):
+        key = object_key(item)
+        current = fused.get(key)
+        score = float(item.get("blended_score") or item.get("similarity") or 0)
+        if current is None:
+            fused[key] = {
+                **item,
+                "blended_score": score,
+                "candidate": True,
+                "context_rank": rank + 1,
+                "rank_fusion_score": 1.0 / (60 + rank + 1),
+            }
+            continue
+        current["blended_score"] = max(float(current.get("blended_score") or 0), score)
+        current["sources"] = sorted(
+            set(current.get("sources") or ()) | set(item.get("sources") or ()) | {"context"}
+        )
+        current["context_rank"] = rank + 1
+        current["rank_fusion_score"] = float(current.get("rank_fusion_score") or 0) + (
+            1.0 / (60 + rank + 1)
+        )
+    return sorted(
+        fused.values(),
+        key=lambda item: (
+            float(item.get("rank_fusion_score") or 0),
+            float(item.get("blended_score") or 0),
+        ),
+        reverse=True,
+    )[:limit]

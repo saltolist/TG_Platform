@@ -15,7 +15,7 @@ import logging
 import math
 import re
 import uuid
-from typing import Any
+from typing import Any, Mapping
 
 from sqlalchemy import select, text
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -30,10 +30,21 @@ NODE_NOTE_CHUNK = "note_chunk"
 NODE_POST_TEXT = "post_text"
 NODE_ATTACHMENT_TEXT = "attachment_text"
 NODE_MEDIA_META = "media_meta"
+NODE_NOTE_SUMMARY = "note_summary"
+NODE_POST_SUMMARY = "post_summary"
 
 TEXT_NODE_TYPES = frozenset(
-    {NODE_NOTE_CHUNK, NODE_POST_TEXT, NODE_ATTACHMENT_TEXT, NODE_MEDIA_META}
+    {
+        NODE_NOTE_CHUNK,
+        NODE_POST_TEXT,
+        NODE_ATTACHMENT_TEXT,
+        NODE_MEDIA_META,
+        NODE_NOTE_SUMMARY,
+        NODE_POST_SUMMARY,
+    }
 )
+DISCOVERY_NODE_TYPES = frozenset({NODE_NOTE_SUMMARY, NODE_POST_SUMMARY})
+CONTEXTUAL_NODE_TYPES = frozenset({NODE_NOTE_CHUNK, NODE_POST_TEXT})
 
 # ──────────────────────────────────────────────────────────────────────────────
 # Markdown → plain text
@@ -140,6 +151,109 @@ def _chunk_text(text: str, max_chars: int) -> list[str]:
     return chunks or [text[:max_chars]]
 
 
+_KEYWORD_RE = re.compile(r"[\w\-]{3,}", re.UNICODE)
+
+
+def _single_line(value: str) -> str:
+    return re.sub(r"\s+", " ", str(value or "")).strip()
+
+
+def build_discovery_summary(
+    title: str,
+    text_value: str,
+    *,
+    max_chars: int = 160,
+) -> str:
+    """Build a deterministic, bounded object summary for async discovery.
+
+    This is deliberately extractive: it is available even when no chat model
+    is configured. A future LLM summary can replace the text while preserving
+    the same ``*_summary`` node contract and fallback behavior.
+    """
+    title_line = _single_line(title)
+    body_line = _single_line(text_value)
+    if title_line and body_line and body_line.casefold() != title_line.casefold():
+        candidate = f"{title_line}: {body_line}"
+    else:
+        candidate = title_line or body_line
+    if len(candidate) <= max_chars:
+        return candidate
+    clipped = candidate[: max(1, max_chars - 1)].rstrip()
+    return f"{clipped}…"
+
+
+def discovery_keywords(text_value: str, *, limit: int = 10) -> list[str]:
+    """Return stable, low-cost terms stored with discovery metadata."""
+    seen: set[str] = set()
+    result: list[str] = []
+    for token in _KEYWORD_RE.findall(_single_line(text_value).casefold()):
+        if token in seen or token.isdigit():
+            continue
+        seen.add(token)
+        result.append(token)
+        if len(result) >= max(1, limit):
+            break
+    return result
+
+
+def contextualize_chunk(
+    chunk: str,
+    *,
+    object_type: str,
+    title: str,
+    section: str = "",
+) -> str:
+    """Prefix a source chunk for retrieval without changing citation text."""
+    kind = "note" if object_type in {NODE_NOTE_CHUNK, NODE_NOTE_SUMMARY, "note"} else "post"
+    context = [f"Document: {kind} {_single_line(title) or 'untitled'}."]
+    section_line = _single_line(section)
+    if not section_line:
+        first_line = _single_line(str(chunk or "").splitlines()[0] if chunk else "")
+        if (
+            first_line.casefold() != _single_line(title).casefold()
+            and len(first_line) <= 120
+            and not first_line.endswith((".", "!", "?", ";", ":"))
+        ):
+            section_line = first_line
+    if section_line:
+        context.append(f"Section: {section_line}.")
+    context.append("This fragment contains source content for the document.")
+    return "\n".join(context) + "\n\n" + str(chunk or "").strip()
+
+
+def object_index_revision(data: Mapping[str, Any] | None, *, fallback: int = 1) -> int:
+    """Resolve a monotonic-ish revision for freshness-aware retrieval.
+
+    Workspace objects do not share one revision field yet. Explicit numeric
+    revisions win; otherwise a stable 63-bit content fingerprint changes when
+    the indexed title/body/status changes and remains serializable in the DB.
+    """
+    raw = (data or {}).get("revision")
+    try:
+        if raw is not None and int(raw) > 0:
+            return int(raw)
+    except (TypeError, ValueError):
+        pass
+    raw_sync = (data or {}).get("syncRevision")
+    try:
+        if raw_sync is not None and int(raw_sync) > 0:
+            return int(raw_sync)
+    except (TypeError, ValueError):
+        pass
+    fingerprint = json.dumps(
+        {
+            "id": str((data or {}).get("id") or ""),
+            "title": str((data or {}).get("title") or ""),
+            "text": str((data or {}).get("text") or (data or {}).get("body") or ""),
+            "status": str((data or {}).get("status") or ""),
+        },
+        ensure_ascii=False,
+        sort_keys=True,
+        separators=(",", ":"),
+    )
+    return int(hashlib.sha256(fingerprint.encode("utf-8")).hexdigest()[:15], 16) or fallback
+
+
 # ──────────────────────────────────────────────────────────────────────────────
 # Index and retrieval
 # ──────────────────────────────────────────────────────────────────────────────
@@ -162,6 +276,11 @@ async def index_text_node(
     max_chars: int = 4000,
     tenant_key: str = "",
     referenced_ids: list[str] | None = None,
+    object_title: str = "",
+    object_status: str = "",
+    index_revision: int = 1,
+    section: str = "",
+    keywords: list[str] | None = None,
 ) -> int:
     """Embed and store a text node. Returns number of chunks written."""
     if node_type not in TEXT_NODE_TYPES:
@@ -170,10 +289,26 @@ async def index_text_node(
         return 0
 
     chunks = _chunk_text(plain_text.strip(), max_chars)
+    is_summary = node_type in DISCOVERY_NODE_TYPES
+    search_chunks = [
+        chunk
+        if is_summary
+        else contextualize_chunk(
+            chunk,
+            object_type=node_type,
+            title=object_title,
+            section=section,
+        )
+        for chunk in chunks
+    ]
     model_key = backend.model_key
     dim = backend.dim
     file_id = file_id or ""
     ref_ids_json = json.dumps(referenced_ids or [])
+    keywords_json = json.dumps(
+        discovery_keywords(object_title) if keywords is None else keywords,
+        ensure_ascii=False,
+    )
 
     await session.execute(
         text(
@@ -192,20 +327,25 @@ async def index_text_node(
         },
     )
 
-    vecs = await backend.embed_passages(chunks)
+    vecs = await backend.embed_passages(search_chunks)
 
-    for i, (chunk, vec) in enumerate(zip(chunks, vecs)):
+    for i, (chunk, search_chunk, vec) in enumerate(zip(chunks, search_chunks, vecs)):
         chash = plain_content_hash(chunk, model_key)
         await session.execute(
             text(
                 "INSERT INTO note_embeddings "
                 "(user_id, tenant_key, scope, node_type, note_id, file_id, post_id, chunk_index, "
-                "model_key, dim, content_hash, chunk_text, referenced_ids, embedding) "
-                "VALUES (:uid, :tk, :scope, :nt, :nid, :fid, :pid, :ci, :mk, :dim, :ch, :ctxt, :rids, :emb) "
+                "model_key, dim, content_hash, chunk_text, search_text, referenced_ids, "
+                "object_title, object_status, index_revision, keywords, embedding) "
+                "VALUES (:uid, :tk, :scope, :nt, :nid, :fid, :pid, :ci, :mk, :dim, :ch, "
+                ":ctxt, :stxt, :rids, :otitle, :ostatus, :irev, :keywords, :emb) "
                 "ON CONFLICT (user_id, tenant_key, scope, node_type, note_id, file_id, "
                 "chunk_index, model_key) DO UPDATE "
                 "SET dim = EXCLUDED.dim, content_hash = EXCLUDED.content_hash, "
-                "chunk_text = EXCLUDED.chunk_text, referenced_ids = EXCLUDED.referenced_ids, "
+                "chunk_text = EXCLUDED.chunk_text, search_text = EXCLUDED.search_text, "
+                "referenced_ids = EXCLUDED.referenced_ids, object_title = EXCLUDED.object_title, "
+                "object_status = EXCLUDED.object_status, index_revision = EXCLUDED.index_revision, "
+                "keywords = EXCLUDED.keywords, "
                 "post_id = EXCLUDED.post_id, "
                 "embedding = EXCLUDED.embedding, updated_at = now()"
             ),
@@ -222,7 +362,12 @@ async def index_text_node(
                 "dim": dim,
                 "ch": chash,
                 "ctxt": chunk,
+                "stxt": search_chunk,
                 "rids": ref_ids_json,
+                "otitle": _single_line(object_title),
+                "ostatus": _single_line(object_status),
+                "irev": max(1, int(index_revision or 1)),
+                "keywords": keywords_json,
                 "emb": _vec_to_pg(vec),
             },
         )
@@ -241,11 +386,21 @@ async def index_note(
     post_id: str | None = None,
     max_chars: int = 4000,
     tenant_key: str = "",
+    object_status: str = "active",
+    index_revision: int | None = None,
+    index_summary: bool = True,
 ) -> int:
-    """Embed and store a note chunk. Returns number of chunks written."""
+    """Embed a note and its discovery summary in the async index."""
     plain = markdown_to_index_text(title, body)
+    effective_revision = int(index_revision or object_index_revision({
+        "id": note_id,
+        "title": title,
+        "body": body,
+        "status": object_status,
+    }))
+    summary = build_discovery_summary(title, plain)
     referenced_ids = extract_referenced_attachment_ids(body)
-    return await index_text_node(
+    count = await index_text_node(
         session,
         user_id,
         scope,
@@ -258,6 +413,75 @@ async def index_note(
         max_chars=max_chars,
         tenant_key=tenant_key,
         referenced_ids=referenced_ids,
+        object_title=title,
+        object_status=object_status,
+        index_revision=effective_revision,
+        keywords=discovery_keywords(summary),
+    )
+    if index_summary:
+        if summary:
+            count += await index_text_node(
+                session,
+                user_id,
+                scope,
+                NODE_NOTE_SUMMARY,
+                note_id,
+                "",
+                summary,
+                backend,
+                post_id=post_id,
+                max_chars=max_chars,
+                tenant_key=tenant_key,
+                object_title=title,
+                object_status=object_status,
+                index_revision=effective_revision,
+                keywords=discovery_keywords(summary),
+            )
+    return count
+
+
+async def index_discovery_summary(
+    session: AsyncSession,
+    user_id: uuid.UUID,
+    scope: str,
+    node_type: str,
+    object_id: str,
+    title: str,
+    text_value: str,
+    backend: EmbeddingBackend,
+    *,
+    post_id: str | None = None,
+    tenant_key: str = "",
+    object_status: str = "",
+    index_revision: int = 1,
+    max_chars: int = 4000,
+    keywords: list[str] | None = None,
+) -> int:
+    """Write one object-level discovery node with a deterministic fallback."""
+    if node_type not in DISCOVERY_NODE_TYPES:
+        raise ValueError(f"Unsupported discovery node_type: {node_type}")
+    summary = build_discovery_summary(title, text_value)
+    if not summary:
+        await remove_text_node(
+            session, user_id, scope, node_type, object_id, tenant_key=tenant_key
+        )
+        return 0
+    return await index_text_node(
+        session,
+        user_id,
+        scope,
+        node_type,
+        object_id,
+        "",
+        summary,
+        backend,
+        post_id=post_id,
+        max_chars=max_chars,
+        tenant_key=tenant_key,
+        object_title=title,
+        object_status=object_status,
+        index_revision=index_revision,
+        keywords=keywords or discovery_keywords(summary),
     )
 
 
@@ -309,16 +533,17 @@ async def remove_note(
     tenant_key: str = "",
 ) -> None:
     """Delete all embeddings for a note (optionally scoped to a model_key)."""
-    await remove_text_node(
-        session,
-        user_id,
-        scope,
-        NODE_NOTE_CHUNK,
-        note_id,
-        "",
-        model_key=model_key,
-        tenant_key=tenant_key,
-    )
+    for node_type in (NODE_NOTE_CHUNK, NODE_NOTE_SUMMARY):
+        await remove_text_node(
+            session,
+            user_id,
+            scope,
+            node_type,
+            note_id,
+            "",
+            model_key=model_key,
+            tenant_key=tenant_key,
+        )
 
 
 async def remove_file_nodes_for_parent(
@@ -463,6 +688,9 @@ async def retrieve_top_k(
     post_id_eq: str | None = None,
     post_id_neq: str | None = None,
     exclude_deleted_posts: bool = True,
+    object_ids: frozenset[str] | None = None,
+    object_statuses: frozenset[str] | None = None,
+    expected_revisions: Mapping[str, int] | None = None,
 ) -> list[dict[str, Any]]:
     """Return top-k text nodes by cosine similarity."""
     try:
@@ -490,6 +718,16 @@ async def retrieve_top_k(
         placeholders = ", ".join(f":nt_{i}" for i in range(len(node_types)))
         node_type_filter = f" AND node_type IN ({placeholders})"
 
+    object_id_filter = ""
+    if object_ids:
+        placeholders = ", ".join(f":oid_{i}" for i in range(len(object_ids)))
+        object_id_filter = f" AND note_id IN ({placeholders})"
+
+    object_status_filter = ""
+    if object_statuses:
+        placeholders = ", ".join(f":ost_{i}" for i in range(len(object_statuses)))
+        object_status_filter = f" AND object_status IN ({placeholders})"
+
     deleted_filter = ""
     if exclude_deleted_posts:
         deleted_filter = (
@@ -503,11 +741,13 @@ async def retrieve_top_k(
 
     sql = text(
         f"SELECT note_id, post_id, chunk_index, tenant_key, node_type, file_id, "
-        f"chunk_text, referenced_ids, scope, "
+        f"chunk_text, search_text, referenced_ids, scope, object_title, object_status, "
+        f"index_revision, keywords, "
         f"1 - (embedding::vector <=> CAST(:qvec AS vector)) AS similarity "
         f"FROM note_embeddings "
         f"WHERE user_id = :uid AND scope = :scope AND model_key = :mk "
-        f"{tenant_filter} {post_filter} {node_type_filter} {deleted_filter} "
+        f"{tenant_filter} {post_filter} {node_type_filter} {object_id_filter} "
+        f"{object_status_filter} {deleted_filter} "
         f"ORDER BY embedding::vector <=> CAST(:qvec AS vector) "
         f"LIMIT :k"
     )
@@ -529,6 +769,12 @@ async def retrieve_top_k(
     if node_types:
         for index, node_type in enumerate(sorted(node_types)):
             params[f"nt_{index}"] = node_type
+    if object_ids:
+        for index, object_id in enumerate(sorted(object_ids)):
+            params[f"oid_{index}"] = object_id
+    if object_statuses:
+        for index, status in enumerate(sorted(object_statuses)):
+            params[f"ost_{index}"] = status
 
     try:
         rows = (await session.execute(sql, params)).fetchall()
@@ -545,12 +791,24 @@ async def retrieve_top_k(
             "node_type": row.node_type or NODE_NOTE_CHUNK,
             "file_id": row.file_id or "",
             "chunk_text": row.chunk_text or "",
+            "search_text": getattr(row, "search_text", "") or row.chunk_text or "",
             "referenced_ids": _parse_referenced_ids(row.referenced_ids),
             "scope": getattr(row, "scope", None) or scope,
+            "object_title": getattr(row, "object_title", "") or "",
+            "object_status": getattr(row, "object_status", "") or "",
+            "index_revision": int(getattr(row, "index_revision", 1) or 1),
+            "keywords": _parse_referenced_ids(getattr(row, "keywords", None)),
+            "is_discovery_node": (row.node_type or NODE_NOTE_CHUNK) in DISCOVERY_NODE_TYPES,
             "similarity": float(row.similarity),
         }
         for row in rows
         if float(row.similarity) >= min_similarity
+        and (
+            not expected_revisions
+            or str(row.note_id) not in expected_revisions
+            or int(getattr(row, "index_revision", 1) or 1)
+            == int(expected_revisions[str(row.note_id)])
+        )
     ]
     seen: dict[tuple[str, str, str], dict[str, Any]] = {}
     for r in results:
@@ -776,6 +1034,11 @@ async def format_rag_context(
 
     for item in results:
         node_type = item.get("node_type") or NODE_NOTE_CHUNK
+        # Object summaries are discovery-only candidates. They intentionally
+        # never become answer evidence, even if a legacy caller passes raw
+        # retrieval rows directly to this formatter.
+        if node_type in DISCOVERY_NODE_TYPES:
+            continue
         note_id = item["note_id"]
         file_id = item.get("file_id") or ""
         item_scope = str(item.get("scope") or scope)

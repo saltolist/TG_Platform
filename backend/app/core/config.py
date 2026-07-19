@@ -221,6 +221,9 @@ class Settings(BaseSettings):
     # Phase-2 typed target/source bootstrap. Disable for immediate rollback to
     # the phase-1 compatibility contract without changing persisted runs.
     agent_turn_contract_v2_enabled: bool = False
+    # Phase-4 candidate-first discovery/contextual retrieval. Disable to fall
+    # back to the phase-3 single hybrid SearchNodes policy after migration.
+    agent_retrieval_phase4_enabled: bool = True
     rag_l2_engine: Literal["legacy", "langgraph"] = "langgraph"
     agent_actions_enabled: bool = False
     agent_media_enabled: bool = False
@@ -247,6 +250,7 @@ class Settings(BaseSettings):
         "agent_media_enabled",
         "agent_runtime_phase1_enabled",
         "agent_turn_contract_v2_enabled",
+        "agent_retrieval_phase4_enabled",
         "cookie_secure",
         "telegram_live_sync_enabled",
         "telegram_reconcile_enabled",

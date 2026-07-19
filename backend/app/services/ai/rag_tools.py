@@ -26,7 +26,9 @@ from app.services.ai.rag import (
     NODE_ATTACHMENT_TEXT,
     NODE_MEDIA_META,
     NODE_NOTE_CHUNK,
+    NODE_NOTE_SUMMARY,
     NODE_POST_TEXT,
+    NODE_POST_SUMMARY,
     get_attachment_extraction,
     get_attachment_extraction_by_hash,
     get_note_data,
@@ -238,9 +240,9 @@ def _node_label(item: dict[str, Any]) -> str:
     node_type = str(item.get("node_type") or "")
     note_id = str(item.get("note_id") or "")
     file_id = str(item.get("file_id") or "")
-    if node_type == NODE_POST_TEXT:
+    if node_type in (NODE_POST_TEXT, NODE_POST_SUMMARY):
         return f"post:{note_id}"
-    if node_type == NODE_NOTE_CHUNK:
+    if node_type in (NODE_NOTE_CHUNK, NODE_NOTE_SUMMARY):
         return f"note:{note_id}"
     if node_type in (NODE_ATTACHMENT_TEXT, NODE_MEDIA_META) and file_id:
         return f"file:{file_id}"
@@ -253,9 +255,18 @@ async def tool_search_nodes(
     query: str,
     node_types: list[str] | None = None,
     k: int | None = None,
+    expected_revisions: Mapping[str, int] | None = None,
+    object_statuses: frozenset[str] | None = None,
 ) -> ToolOutcome:
     types_key = ",".join(sorted(str(nt) for nt in node_types)) if node_types else ""
-    ref = f"search:{query.strip()[:120]}:{types_key}:{k or state.search_k}"
+    status_key = ",".join(sorted(object_statuses or ()))
+    revision_key = ",".join(
+        f"{key}={value}" for key, value in sorted((expected_revisions or {}).items())
+    )
+    ref = (
+        f"search:{query.strip()[:120]}:{types_key}:{k or state.search_k}:"
+        f"{status_key}:{revision_key}"
+    )
     existing = _already_visited(state, ref)
     if existing:
         return existing
@@ -266,22 +277,30 @@ async def tool_search_nodes(
         return ToolOutcome(summary="Пустой поисковый запрос.", error="empty_query")
 
     try:
-        from app.services.agent.research.prefetch import retrieve_for_discovery
+        from app.services.agent.research.prefetch import hybrid_prefetch, retrieve_for_discovery
 
         allowed_filter = _normalize_node_types(node_types)
-        results = await retrieve_for_discovery(
+        candidate_limit = min(5, max(1, int(k or state.search_k)))
+        search = (
+            retrieve_for_discovery
+            if state.settings is None or state.settings.agent_retrieval_phase4_enabled
+            else hybrid_prefetch
+        )
+        results = await search(
             session=state.session,
             user_id=state.user_id,
             scope=state.scope,
             query_text=query_text,
             embedding_backend=state.embedding_backend,
-            top_k=k or state.search_k,
+            top_k=candidate_limit,
             min_similarity=state.min_similarity,
             post_id=str((state.base_post_data or {}).get("id") or "") or None,
             tenant_key=state.tenant_key,
             scope_bias=state.scope_bias,
             node_types_filter=allowed_filter,
             vector_retriever=retrieve_for_chat,
+            expected_revisions=expected_revisions,
+            object_statuses=object_statuses,
         )
     except Exception as exc:
         return ToolOutcome(summary="Поиск не выполнен.", error=str(exc))
@@ -291,7 +310,7 @@ async def tool_search_nodes(
 
     lines = ["Результаты поиска:"]
     hits: list[dict[str, Any]] = []
-    for item in results[: k or state.search_k]:
+    for item in results[: min(5, k or state.search_k)]:
         label = _node_label(item)
         similarity = float(item.get("similarity") or 0.0)
         chunk = str(item.get("chunk_text") or "").strip()
@@ -303,6 +322,90 @@ async def tool_search_nodes(
                 "label": label,
                 "similarity": similarity,
                 "node_type": str(item.get("node_type") or ""),
+                "summary_only": bool(item.get("summary_only")),
+                "index_revision": int(item.get("index_revision") or 1),
+            }
+        )
+    return ToolOutcome(summary="\n".join(lines), hits=tuple(hits))
+
+
+async def tool_search_object_chunks(
+    state: AgentState,
+    *,
+    query: str,
+    object_ids: list[str],
+    k: int | None = None,
+    expected_revisions: Mapping[str, int] | None = None,
+    object_statuses: frozenset[str] | None = None,
+) -> ToolOutcome:
+    """Search contextual chunks only inside already selected objects.
+
+    This is intentionally separate from ``SearchNodes``: object discovery is
+    bounded at five candidates, while a chunk query must carry an explicit
+    selected object set and can never widen back to the tenant corpus.
+    """
+    ids = frozenset(str(item).strip() for item in object_ids if str(item).strip())
+    if not ids:
+        return ToolOutcome(summary="Не указаны выбранные объекты.", error="missing_object_ids")
+    ref = (
+        f"chunk-search:{str(query).strip()[:120]}:{','.join(sorted(ids))}:"
+        f"{','.join(sorted(object_statuses or ()))}:{k or 8}:"
+        f"{','.join(f'{key}={value}' for key, value in sorted((expected_revisions or {}).items()))}"
+    )
+    existing = _already_visited(state, ref)
+    if existing:
+        return existing
+    _mark_visited(state, ref)
+    try:
+        from app.services.agent.research.prefetch import retrieve_for_discovery
+        from app.services.ai.rag import CONTEXTUAL_NODE_TYPES
+
+        results = await retrieve_for_discovery(
+            session=state.session,
+            user_id=state.user_id,
+            scope=state.scope,
+            query_text=str(query or "").strip(),
+            embedding_backend=state.embedding_backend,
+            top_k=max(1, int(k or 8)),
+            min_similarity=state.min_similarity,
+            post_id=str((state.base_post_data or {}).get("id") or "") or None,
+            tenant_key=state.tenant_key,
+            scope_bias=state.scope_bias,
+            node_types_filter=CONTEXTUAL_NODE_TYPES,
+            selected_object_ids=ids,
+            vector_retriever=retrieve_for_chat,
+            expected_revisions=expected_revisions,
+            object_statuses=object_statuses,
+        )
+    except Exception as exc:
+        return ToolOutcome(summary="Поиск фрагментов не выполнен.", error=str(exc))
+
+    if not results:
+        return ToolOutcome(summary="В выбранных объектах фрагменты не найдены.")
+
+    lines = ["Фрагменты выбранных объектов:"]
+    hits: list[dict[str, Any]] = []
+    for item in results[: max(1, int(k or 8))]:
+        label = _node_label(item)
+        chunk = str(item.get("chunk_text") or "").strip()
+        title = str(item.get("object_title") or label)
+        if chunk:
+            if item.get("node_type") == NODE_POST_TEXT:
+                cite_path = f"/post/{item.get('note_id')}/"
+            else:
+                cite_path = f"/note/{state.scope}/{item.get('note_id')}/"
+            state.context_blocks.append((NoteCite(path=cite_path, title=title), chunk))
+        lines.append(
+            f"- {label} similarity={float(item.get('similarity') or 0):.2f} "
+            f"chunk={chunk[:180]!r}"
+        )
+        hits.append(
+            {
+                "ref": label,
+                "label": label,
+                "similarity": float(item.get("similarity") or 0),
+                "node_type": str(item.get("node_type") or ""),
+                "selected_object": True,
             }
         )
     return ToolOutcome(summary="\n".join(lines), hits=tuple(hits))

@@ -12,7 +12,9 @@ from app.services.ai.rag import (
     NODE_ATTACHMENT_TEXT,
     NODE_MEDIA_META,
     NODE_NOTE_CHUNK,
+    NODE_NOTE_SUMMARY,
     NODE_POST_TEXT,
+    NODE_POST_SUMMARY,
     retrieve_top_k,
 )
 
@@ -20,6 +22,7 @@ TEXT_NODE_TYPES = frozenset(
     {NODE_NOTE_CHUNK, NODE_POST_TEXT, NODE_ATTACHMENT_TEXT, NODE_MEDIA_META}
 )
 NOTE_CHUNK_TYPES = frozenset({NODE_NOTE_CHUNK, NODE_ATTACHMENT_TEXT, NODE_MEDIA_META})
+DISCOVERY_NODE_TYPES = frozenset({NODE_NOTE_SUMMARY, NODE_POST_SUMMARY})
 
 
 def effective_post_id(
@@ -149,9 +152,21 @@ async def retrieve_for_chat(
     tenant_key: str | None = None,
     scope_bias: float = 0.04,
     node_types_filter: frozenset[str] | None = None,
+    object_ids: frozenset[str] | None = None,
+    object_statuses: frozenset[str] | None = None,
+    expected_revisions: Mapping[str, int] | None = None,
 ) -> list[dict[str, Any]]:
     """Run all retrieval passes for a chat and return merged top-k."""
-    passes = pools_for_chat(chat_scope, post_id)
+    if node_types_filter and node_types_filter <= DISCOVERY_NODE_TYPES:
+        # Discovery summaries are object-level nodes and intentionally have a
+        # separate pool from answer evidence. Search both global post summaries
+        # and post/global note summaries without widening normal chat retrieval.
+        passes = [
+            RetrievalPass(scope="global", node_types=node_types_filter, is_home=True),
+            RetrievalPass(scope="post", node_types=node_types_filter, is_home=False),
+        ]
+    else:
+        passes = pools_for_chat(chat_scope, post_id)
     pass_results: list[tuple[RetrievalPass, list[dict[str, Any]]]] = []
 
     for pass_cfg in passes:
@@ -178,6 +193,9 @@ async def retrieve_for_chat(
             post_id_eq=pass_cfg.post_id_eq,
             post_id_neq=pass_cfg.post_id_neq,
             exclude_deleted_posts=True,
+            object_ids=object_ids,
+            object_statuses=object_statuses,
+            expected_revisions=expected_revisions,
         )
         pass_results.append((pass_cfg, hits))
 
