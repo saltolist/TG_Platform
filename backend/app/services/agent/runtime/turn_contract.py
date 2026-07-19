@@ -585,8 +585,36 @@ def _target_contract_for(*, legacy: Mapping[str, Any], user_text: str, scope: st
     )
 
 
-def _task_profile(legacy: Mapping[str, Any], target_contract: TargetContract) -> str:
+def _is_exhaustive_request(value: str) -> bool:
+    lowered = value.casefold()
+    return any(
+        marker in lowered
+        for marker in (
+            "проанализируй всё",
+            "проанализируй все",
+            "анализ всех",
+            "инвентаризац",
+            "перечисли всё",
+            "перечисли все",
+            "весь workspace",
+            "всего workspace",
+            "analyze all",
+            "analyse all",
+            "entire workspace",
+            "exhaustive inventory",
+        )
+    )
+
+
+def _task_profile(
+    legacy: Mapping[str, Any],
+    target_contract: TargetContract,
+    *,
+    batch_enabled: bool,
+) -> str:
     intent = str(legacy.get("intent") or "answer")
+    if batch_enabled and _is_exhaustive_request(str(legacy.get("search_query") or "")):
+        return "exhaustive_inventory"
     if intent == "edit_post":
         return "mutation_proposal"
     if intent == "write_post":
@@ -598,8 +626,32 @@ def _task_profile(legacy: Mapping[str, Any], target_contract: TargetContract) ->
     return "topical_answer"
 
 
-def _source_requirements(legacy: Mapping[str, Any], target_contract: TargetContract) -> tuple[SourceRequirement, ...]:
+def _source_requirements(
+    legacy: Mapping[str, Any],
+    target_contract: TargetContract,
+    *,
+    profile: str,
+) -> tuple[SourceRequirement, ...]:
     sources: list[SourceRequirement] = []
+    if profile == "exhaustive_inventory":
+        return tuple(
+            SourceRequirement(
+                source_id=f"batch-workspace-{kind}",
+                kind=kind,
+                role="source",
+                required=True,
+                query_goal=f"materialize every current-user {kind} object",
+                scope=SourceScope(mode="corpus", corpus="workspace"),
+                freshness=Freshness(mode="latest_available"),
+                budget=SourceBudget(
+                    search_calls=0,
+                    rewrite_calls=0,
+                    candidate_limit=1,
+                    deep_reads=0,
+                ),
+            )
+            for kind in ("notes", "posts")
+        )
     for index, target in enumerate(target_contract.targets, start=1):
         if target.kind not in {"note", "post"}:
             continue
@@ -645,6 +697,16 @@ def _source_requirements(legacy: Mapping[str, Any], target_contract: TargetContr
 
 def _run_budget(*, profile: str, target_contract: TargetContract,
                 sources: tuple[SourceRequirement, ...]) -> tuple[ExecutionMode, RunBudget]:
+    if profile == "exhaustive_inventory":
+        return "batch", RunBudget(
+            soft_deadline_ms=30_000,
+            hard_deadline_ms=60_000,
+            planner_calls=0,
+            search_calls=0,
+            search_rewrites_per_intent=0,
+            deep_reads=0,
+            tool_calls=0,
+        )
     exact_reads = sum(source.budget.deep_reads for source in sources)
     if profile == "exact_lookup" and target_contract.target_mode in {"exact", "set"}:
         return "fast", RunBudget(
@@ -663,14 +725,15 @@ def _run_budget(*, profile: str, target_contract: TargetContract,
 
 def _upgrade_contract_v2(*, legacy: dict[str, Any], user_text: str, scope: str,
                          open_post: Mapping[str, Any] | None, dialog_ledger: tuple[Any, ...],
-                         prior_contract: Mapping[str, Any] | None) -> dict[str, Any]:
+                         prior_contract: Mapping[str, Any] | None,
+                         batch_enabled: bool) -> dict[str, Any]:
     prior_target = dict((prior_contract or {}).get("target_contract") or {})
     target_contract = _target_contract_for(
         legacy=legacy, user_text=user_text, scope=scope, open_post=open_post,
         dialog_ledger=dialog_ledger, prior_contract=prior_target,
     )
-    profile = _task_profile(legacy, target_contract)
-    sources = _source_requirements(legacy, target_contract)
+    profile = _task_profile(legacy, target_contract, batch_enabled=batch_enabled)
+    sources = _source_requirements(legacy, target_contract, profile=profile)
     execution_mode, budgets = _run_budget(profile=profile, target_contract=target_contract, sources=sources)
     revision = target_contract.revision
     prior_revision = int((prior_contract or {}).get("revision") or 0) or None
@@ -688,7 +751,11 @@ def _upgrade_contract_v2(*, legacy: dict[str, Any], user_text: str, scope: str,
             f"{source.source_id}:grounded_evidence" for source in sources if source.required
         ),
         answer_requires=tuple(str(item) for item in legacy.get("success_criteria") or ()),
-        output_schema=f"{(legacy.get('output') or {}).get('kind', 'answer')}.v1",
+        output_schema=(
+            "exhaustive_inventory.v1"
+            if profile == "exhaustive_inventory"
+            else f"{(legacy.get('output') or {}).get('kind', 'answer')}.v1"
+        ),
         execution_mode=execution_mode, budgets=budgets,
         **compatibility,
     )
@@ -705,6 +772,7 @@ def build_turn_contract(
     open_post: Mapping[str, Any] | None = None,
     prior_contract: Mapping[str, Any] | None = None,
     v2_enabled: bool = True,
+    batch_enabled: bool = True,
 ) -> dict[str, Any]:
     current = (user_text or "").strip()
     lowered = current.lower()
@@ -875,6 +943,7 @@ def build_turn_contract(
         open_post=open_post,
         dialog_ledger=dialog_ledger,
         prior_contract=prior_contract,
+        batch_enabled=batch_enabled,
     )
 
 

@@ -30,6 +30,7 @@ celery_app = Celery(
         "app.tasks.analytics_snapshot",
         "app.tasks.media_generation",
         "app.tasks.agent_runs",
+        "app.tasks.agent_batch",
     ],
 )
 
@@ -45,6 +46,7 @@ celery_app.conf.update(
     task_default_queue="telegram-io",
     task_routes={
         "app.tasks.agent_runs.execute_agent_run_task": {"queue": "agent-interactive"},
+        "app.tasks.agent_batch.execute_agent_batch_task": {"queue": "agent-batch"},
         "media_generation.run_job": {"queue": "agent-heavy"},
         "media_generation.cancel_provider_operation": {"queue": "agent-heavy"},
         "app.tasks.analytics_snapshot.capture_all_channel_snapshots": {"queue": "analytics"},

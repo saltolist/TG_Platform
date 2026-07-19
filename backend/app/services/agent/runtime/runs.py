@@ -257,6 +257,7 @@ async def rebuild_runtime_context_for_run(
         open_post=post_data,
         prior_contract=prior_contract,
         v2_enabled=settings.agent_turn_contract_v2_enabled,
+        batch_enabled=settings.agent_batch_path_v1_enabled,
     )
     if not user_text and isinstance(persisted_contract, dict) and persisted_contract:
         turn_contract = dict(persisted_contract)

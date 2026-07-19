@@ -199,6 +199,69 @@ class AgentRun(Base):
     completed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
 
 
+class AgentBatchJob(Base):
+    """Durable exhaustive-workspace job executed outside the interactive queue."""
+
+    __tablename__ = "agent_batch_jobs"
+
+    id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    run_id: Mapped[uuid.UUID | None] = mapped_column(
+        ForeignKey("agent_runs.id", ondelete="SET NULL"), unique=True, nullable=True
+    )
+    user_id: Mapped[uuid.UUID] = mapped_column(
+        ForeignKey("users.id", ondelete="CASCADE"), nullable=False
+    )
+    tenant_key: Mapped[str] = mapped_column(Text, nullable=False, default="")
+    job_type: Mapped[str] = mapped_column(String(64), nullable=False)
+    scope: Mapped[str] = mapped_column(String(32), nullable=False, default="global")
+    query: Mapped[str] = mapped_column(Text, nullable=False, default="")
+    status: Mapped[str] = mapped_column(String(32), nullable=False, default="queued")
+    page_size: Mapped[int] = mapped_column(Integer, nullable=False, default=100)
+    max_items: Mapped[int] = mapped_column(Integer, nullable=False, default=10000)
+    max_db_calls: Mapped[int] = mapped_column(Integer, nullable=False, default=128)
+    max_llm_calls: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    cursor: Mapped[dict] = mapped_column(JSONB, nullable=False, default=dict)
+    checkpoint: Mapped[dict] = mapped_column(JSONB, nullable=False, default=dict)
+    result_summary: Mapped[dict] = mapped_column(JSONB, nullable=False, default=dict)
+    processed_items: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    total_items: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    db_calls: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    llm_calls: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    celery_task_id: Mapped[str | None] = mapped_column(String(128), nullable=True)
+    error: Mapped[str | None] = mapped_column(Text, nullable=True)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now(), nullable=False
+    )
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now(), onupdate=func.now(), nullable=False
+    )
+    completed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+
+
+class AgentBatchItem(Base):
+    """Materialized, idempotent result row produced by an AgentBatchJob."""
+
+    __tablename__ = "agent_batch_items"
+    __table_args__ = (
+        UniqueConstraint(
+            "job_id", "object_kind", "source_id", name="uq_agent_batch_items_source"
+        ),
+    )
+
+    id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    job_id: Mapped[uuid.UUID] = mapped_column(
+        ForeignKey("agent_batch_jobs.id", ondelete="CASCADE"), nullable=False
+    )
+    sequence: Mapped[int] = mapped_column(Integer, nullable=False)
+    object_kind: Mapped[str] = mapped_column(String(32), nullable=False)
+    source_id: Mapped[str] = mapped_column(Text, nullable=False)
+    source_revision: Mapped[int] = mapped_column(BigInteger, nullable=False, default=1)
+    payload: Mapped[dict] = mapped_column(JSONB, nullable=False, default=dict)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now(), nullable=False
+    )
+
+
 class AgentEvent(Base):
     __tablename__ = "agent_events"
     __table_args__ = (UniqueConstraint("run_id", "sequence", name="uq_agent_events_run_sequence"),)

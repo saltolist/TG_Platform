@@ -21,6 +21,13 @@ from app.services.ai.rag import (
 )
 from app.services.ai.rag_retrieval_policy import retrieve_for_chat
 
+DISCOVERY_FTS_DOCUMENT_SQL = """to_tsvector(
+    'simple'::regconfig,
+    COALESCE(object_title, '') || ' ' ||
+    COALESCE(NULLIF(search_text, ''), chunk_text) || ' ' ||
+    COALESCE(keywords::text, '')
+)"""
+
 
 async def fts_search(
     session: AsyncSession,
@@ -80,7 +87,7 @@ async def fts_search(
         f"""
         SELECT note_id, post_id, node_type, file_id, chunk_text, search_text,
                object_title, object_status, index_revision, keywords,
-               ts_rank(to_tsvector('simple', COALESCE(NULLIF(search_text, ''), chunk_text)),
+               ts_rank({DISCOVERY_FTS_DOCUMENT_SQL},
                        plainto_tsquery('simple', :query)) AS rank
         FROM note_embeddings
         WHERE user_id = :user_id
@@ -90,7 +97,7 @@ async def fts_search(
           {object_clause}
           {status_clause}
           AND chunk_text <> ''
-          AND to_tsvector('simple', COALESCE(NULLIF(search_text, ''), chunk_text))
+          AND {DISCOVERY_FTS_DOCUMENT_SQL}
               @@ plainto_tsquery('simple', :query)
         ORDER BY rank DESC
         LIMIT :limit

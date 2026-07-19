@@ -92,7 +92,7 @@ async def initialize_worker_runtime() -> dict[str, Any]:
     mark_checkpointer_loop_persistent()
     started = time.perf_counter()
     try:
-        if os.environ.get("TG_CELERY_WORKER_KIND", "interactive") == "heavy":
+        if os.environ.get("TG_CELERY_WORKER_KIND", "interactive") != "interactive":
             result: dict[str, Any] = {
                 "ready": True,
                 "status": "ready_non_interactive",

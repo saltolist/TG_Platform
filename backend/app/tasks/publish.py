@@ -8,6 +8,7 @@ for why immediate publish and edit-sync stay synchronous in the API process.
 from __future__ import annotations
 
 import logging
+import os
 from datetime import datetime, timezone
 from typing import Any
 from uuid import UUID
@@ -25,6 +26,7 @@ from app.services.telegram.publish_flow import publish_post
 from app.tasks.async_runtime import run_async
 
 logger = logging.getLogger(__name__)
+
 
 def _run_async(coro: Any) -> Any:
     """Backward-compatible alias to the shared Celery worker loop."""
@@ -96,6 +98,8 @@ async def _reconcile_overdue_scheduled_posts() -> None:
 
 @worker_ready.connect
 def _on_worker_ready(**_kwargs: Any) -> None:
+    if os.environ.get("TG_CELERY_WORKER_KIND", "interactive") != "interactive":
+        return
     try:
         _run_async(_reconcile_overdue_scheduled_posts())
     except Exception:  # noqa: BLE001 — must not prevent the worker from starting

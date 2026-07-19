@@ -37,6 +37,24 @@ groups:
           summary: "Cold Workspace Agent runs are slow"
           description: "Cold-run p95 exceeds 30 seconds; check worker readiness and embedding warmup."
 
+      - alert: WorkspaceAgentBatchPageSlow
+        expr: histogram_quantile(0.95, sum by (le) (rate(agent_batch_page_duration_seconds_bucket[10m]))) > 0.25
+        for: 15m
+        labels:
+          severity: warning
+        annotations:
+          summary: "Workspace Agent batch page p95 exceeds its DB budget"
+          description: "Batch page p95 is {{ $value | humanizeDuration }}; inspect DB plans and page size."
+
+      - alert: WorkspaceAgentBatchFailed
+        expr: sum(rate(agent_batch_pages_total{status="failed"}[10m])) > 0
+        for: 5m
+        labels:
+          severity: warning
+        annotations:
+          summary: "Workspace Agent batch jobs are failing"
+          description: "At least one batch page is exhausting retries or a job budget."
+
   - name: analytics_snapshot
     rules:
       - alert: AnalyticsSnapshotChannelOverdue

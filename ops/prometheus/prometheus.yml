@@ -27,3 +27,8 @@ scrape_configs:
     static_configs:
       - targets:
           - celery-heavy-worker:9108
+
+  - job_name: celery-batch-worker
+    static_configs:
+      - targets:
+          - celery-batch-worker:9108

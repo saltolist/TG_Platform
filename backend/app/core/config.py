@@ -229,6 +229,8 @@ class Settings(BaseSettings):
     agent_planner_phase5_enabled: bool = True
     # Phase-6 verified EvidencePack, answer-model separation and output schema.
     agent_answer_phase6_enabled: bool = True
+    # Phase-8 exhaustive work is checkpointed and routed to a dedicated queue.
+    agent_batch_path_v1_enabled: bool = True
     rag_l2_engine: Literal["legacy", "langgraph"] = "langgraph"
     agent_actions_enabled: bool = False
     agent_media_enabled: bool = False
@@ -258,6 +260,7 @@ class Settings(BaseSettings):
         "agent_retrieval_phase4_enabled",
         "agent_planner_phase5_enabled",
         "agent_answer_phase6_enabled",
+        "agent_batch_path_v1_enabled",
         "cookie_secure",
         "telegram_live_sync_enabled",
         "telegram_reconcile_enabled",

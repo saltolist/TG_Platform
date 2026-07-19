@@ -61,6 +61,40 @@ async def _execute_agent_run(run_id: uuid.UUID, user_text: str) -> None:
         # Single source of truth for context assembly, shared with HITL resume
         # (agent-runtime-sprints §1.5). user_text feeds dialog_context (§2.1).
         context = await rebuild_runtime_context_for_run(session, run, user_text)
+        if context.turn_contract.get("execution_mode") == "batch":
+            from app.services.agent.runtime.batch import create_batch_job, serialize_batch_job
+            from app.tasks.agent_batch import execute_agent_batch_task
+
+            job, created = await create_batch_job(
+                session,
+                run=run,
+                query=user_text,
+                tenant_key=context.tenant_key,
+            )
+            payload = serialize_batch_job(job)
+            run.snapshot = {
+                "schema": "workspace.agent-run-batch/v1",
+                "user_text": user_text,
+                "turn_contract": dict(context.turn_contract),
+                "target_contract": dict(context.turn_contract.get("target_contract") or {}),
+                "batch_job": payload,
+            }
+            if created:
+                await event_service.append_event(
+                    session,
+                    run_id=run.id,
+                    event_type="batch_enqueued",
+                    payload=payload,
+                )
+            await session.commit()
+            if created or job.status == "queued":
+                result = execute_agent_batch_task.apply_async(
+                    args=[str(job.id)],
+                    task_id=f"agent-batch:{job.id}:0",
+                )
+                job.celery_task_id = result.id
+                await session.commit()
+            return
         await execute_agent_run(
             session,
             run=run,

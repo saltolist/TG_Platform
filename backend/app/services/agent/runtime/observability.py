@@ -47,6 +47,21 @@ AGENT_DUPLICATE_SUPPRESSIONS = Counter(
     "agent_duplicate_tool_suppressions_total",
     "Tool calls served from the run ledger/cache instead of the provider",
 )
+AGENT_BATCH_PAGES = Counter(
+    "agent_batch_pages_total",
+    "Durable Workspace Agent batch pages by result status",
+    ("status",),
+)
+AGENT_BATCH_PAGE_DURATION = Histogram(
+    "agent_batch_page_duration_seconds",
+    "Duration of one checkpointed Workspace Agent batch page",
+    buckets=(0.01, 0.05, 0.1, 0.25, 0.5, 1, 2, 5, 10, 30),
+)
+AGENT_BATCH_ITEMS = Counter(
+    "agent_batch_items_total",
+    "Materialized Workspace Agent batch items",
+    ("kind",),
+)
 MEDIA_JOBS = Counter(
     "agent_media_jobs_total",
     "Durable media jobs by kind and status",

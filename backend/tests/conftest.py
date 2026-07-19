@@ -123,6 +123,8 @@ async def _clean_db() -> None:
             "media_assets",
             "media_jobs",
             "action_proposals",
+            "agent_batch_items",
+            "agent_batch_jobs",
             "agent_events",
             "agent_runs",
             "ai_model_usage_events",

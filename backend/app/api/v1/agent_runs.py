@@ -12,7 +12,7 @@ from sqlalchemy import select
 
 from app.core.config import get_settings
 from app.core.deps import CurrentUser, DbSession
-from app.db.models import ActionProposal, MediaAsset
+from app.db.models import ActionProposal, AgentBatchJob, MediaAsset
 from app.schemas.requests import StartAgentRunRequest
 from app.services.agent.actions.executors import execute_approved_proposal
 from app.services.agent.actions.proposals import approve_proposal
@@ -126,6 +126,112 @@ async def get_agent_run_trace(
         "event_count": len(events),
         "trace": render_run_trace(events, run_id=str(run_id)),
     }
+
+
+@router.get("/{run_id}/batch/")
+async def get_agent_batch(
+    run_id: uuid.UUID,
+    user: CurrentUser,
+    session: DbSession,
+) -> dict[str, Any]:
+    from app.services.agent.runtime.batch import serialize_batch_job
+
+    run = await event_service.get_run(session, user_id=user.id, run_id=run_id)
+    if run is None:
+        raise HTTPException(status_code=404, detail="Run not found")
+    job = await session.scalar(
+        select(AgentBatchJob).where(
+            AgentBatchJob.run_id == run.id,
+            AgentBatchJob.user_id == user.id,
+        )
+    )
+    if job is None:
+        raise HTTPException(status_code=404, detail="Batch job not found")
+    return serialize_batch_job(job)
+
+
+@router.get("/{run_id}/batch/items/")
+async def get_agent_batch_items(
+    run_id: uuid.UUID,
+    user: CurrentUser,
+    session: DbSession,
+    after: int = Query(default=0, ge=0),
+    limit: int = Query(default=100, ge=1, le=200),
+) -> dict[str, Any]:
+    from app.services.agent.runtime.batch import list_batch_items
+
+    run = await event_service.get_run(session, user_id=user.id, run_id=run_id)
+    if run is None:
+        raise HTTPException(status_code=404, detail="Run not found")
+    job = await session.scalar(
+        select(AgentBatchJob).where(
+            AgentBatchJob.run_id == run.id,
+            AgentBatchJob.user_id == user.id,
+        )
+    )
+    if job is None:
+        raise HTTPException(status_code=404, detail="Batch job not found")
+    rows = await list_batch_items(
+        session,
+        job_id=job.id,
+        after_sequence=after,
+        limit=limit,
+    )
+    return {
+        "job_id": str(job.id),
+        "items": [
+            {
+                "sequence": row.sequence,
+                "object_kind": row.object_kind,
+                "source_id": row.source_id,
+                "source_revision": row.source_revision,
+                "payload": row.payload,
+            }
+            for row in rows
+        ],
+        "next_after": rows[-1].sequence if rows else after,
+    }
+
+
+@router.post("/{run_id}/batch/resume/")
+async def resume_agent_batch(
+    run_id: uuid.UUID,
+    user: CurrentUser,
+    session: DbSession,
+) -> dict[str, Any]:
+    from app.services.agent.runtime.batch import resume_batch_job, serialize_batch_job
+    from app.tasks.agent_batch import execute_agent_batch_task
+
+    run = await event_service.get_run(session, user_id=user.id, run_id=run_id)
+    if run is None:
+        raise HTTPException(status_code=404, detail="Run not found")
+    job = await session.scalar(
+        select(AgentBatchJob).where(
+            AgentBatchJob.run_id == run.id,
+            AgentBatchJob.user_id == user.id,
+        )
+    )
+    if job is None:
+        raise HTTPException(status_code=404, detail="Batch job not found")
+    if job.status not in {"failed", "paused"}:
+        raise HTTPException(status_code=409, detail=f"Batch job not resumable: {job.status}")
+    await resume_batch_job(session, job)
+    run.completed_at = None
+    await event_service.update_run_status(session, run, status="running", error="")
+    await event_service.append_event(
+        session,
+        run_id=run.id,
+        event_type="batch_resumed",
+        payload={"batch_job_id": str(job.id), "cursor": dict(job.cursor or {})},
+    )
+    await session.commit()
+    result = execute_agent_batch_task.apply_async(
+        args=[str(job.id)],
+        task_id=f"agent-batch:{job.id}:resume:{(job.cursor or {}).get('page', 0)}",
+    )
+    job.celery_task_id = result.id
+    await session.commit()
+    return serialize_batch_job(job)
 
 
 @router.get("/{run_id}/events/")
@@ -307,6 +413,18 @@ async def cancel_agent_run(
         job = await get_media_job(session, user_id=user.id, job_id=uuid.UUID(job_id))
         if job is not None:
             await cancel_media_job(session, job)
+
+    batch = await session.scalar(
+        select(AgentBatchJob).where(
+            AgentBatchJob.run_id == run.id,
+            AgentBatchJob.user_id == user.id,
+        )
+    )
+    if batch is not None and batch.status not in {"completed", "cancelled"}:
+        from datetime import datetime, timezone
+
+        batch.status = "cancelled"
+        batch.completed_at = datetime.now(timezone.utc)
 
     await event_service.update_run_status(session, run, status="cancelled")
     await event_service.append_event(

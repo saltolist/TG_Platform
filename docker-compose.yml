@@ -71,6 +71,7 @@ services:
       AGENT_RUNTIME_ENGINE: ${AGENT_RUNTIME_ENGINE:-langgraph}
       AGENT_RUNTIME_PHASE1_ENABLED: ${AGENT_RUNTIME_PHASE1_ENABLED:-1}
       AGENT_TURN_CONTRACT_V2_ENABLED: ${AGENT_TURN_CONTRACT_V2_ENABLED:-0}
+      AGENT_BATCH_PATH_V1_ENABLED: ${AGENT_BATCH_PATH_V1_ENABLED:-1}
       RAG_L2_ENGINE: ${RAG_L2_ENGINE:-langgraph}
       AGENT_ACTIONS_ENABLED: ${AGENT_ACTIONS_ENABLED:-0}
       AGENT_MEDIA_ENABLED: ${AGENT_MEDIA_ENABLED:-0}
@@ -181,6 +182,33 @@ services:
       retries: 3
       start_period: 30s
 
+  celery-batch-worker:
+    image: tg-platform-backend:local
+    entrypoint: ./scripts/entrypoint-celery.sh
+    command: batch
+    restart: unless-stopped
+    environment:
+      <<: *backend-env
+      PROMETHEUS_PUSHGATEWAY_URL: ${PROMETHEUS_PUSHGATEWAY_URL:-http://pushgateway:9091}
+      PROMETHEUS_MULTIPROC_DIR: /tmp/prometheus_multiproc
+      PROMETHEUS_METRICS_PORT: 9108
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      pushgateway:
+        condition: service_started
+    volumes:
+      - media-data:/app/media
+      - /etc/localtime:/etc/localtime:ro
+    healthcheck:
+      test: ["CMD-SHELL", "celery -A app.celery_app inspect ping --destination=celery@$$HOSTNAME --timeout=5 | grep -q pong"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 30s
+
   pushgateway:
     image: prom/pushgateway:v1.9.0
     restart: unless-stopped
@@ -205,6 +233,7 @@ services:
       - alertmanager
       - celery-worker
       - celery-heavy-worker
+      - celery-batch-worker
 
   alertmanager:
     image: prom/alertmanager:v0.27.0

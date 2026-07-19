@@ -37,13 +37,31 @@
       "title": "Typed tool errors",
       "type": "timeseries",
       "fieldConfig": {"defaults": {"unit": "ops"}, "overrides": []}
+    },
+    {
+      "datasource": {"type": "prometheus", "uid": "prometheus"},
+      "gridPos": {"h": 7, "w": 12, "x": 0, "y": 14},
+      "id": 5,
+      "targets": [{"expr": "histogram_quantile(0.95, sum by (le) (rate(agent_batch_page_duration_seconds_bucket[10m])))", "legendFormat": "batch page p95", "refId": "A"}],
+      "title": "Batch page p95",
+      "type": "timeseries",
+      "fieldConfig": {"defaults": {"unit": "s"}, "overrides": []}
+    },
+    {
+      "datasource": {"type": "prometheus", "uid": "prometheus"},
+      "gridPos": {"h": 7, "w": 12, "x": 12, "y": 14},
+      "id": 6,
+      "targets": [{"expr": "sum by (kind) (rate(agent_batch_items_total[10m]))", "legendFormat": "{{kind}}", "refId": "A"}],
+      "title": "Batch materialization throughput",
+      "type": "timeseries",
+      "fieldConfig": {"defaults": {"unit": "ops"}, "overrides": []}
     }
   ],
   "refresh": "30s",
   "schemaVersion": 39,
-  "tags": ["agent", "workspace", "phase7"],
+  "tags": ["agent", "workspace", "phase7", "phase8"],
   "time": {"from": "now-6h", "to": "now"},
   "title": "Workspace Agent Runtime",
   "uid": "workspace-agent-runtime",
-  "version": 1
+  "version": 2
 }
