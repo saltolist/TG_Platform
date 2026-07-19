@@ -130,6 +130,7 @@ async def hybrid_prefetch(
     min_similarity: float = 0.38,
     scope_bias: float = 0.04,
     vector_retriever=None,
+    node_types_filter: frozenset[str] | None = None,
 ) -> list[dict[str, Any]]:
     # Dependency injection keeps legacy callers/tests able to replace the
     # vector engine while the hybrid path owns the FTS merge.
@@ -146,6 +147,7 @@ async def hybrid_prefetch(
         post_id=post_id,
         tenant_key=tenant_key,
         scope_bias=scope_bias,
+        node_types_filter=node_types_filter,
     )
     fts = await fts_search(
         session,
@@ -158,4 +160,42 @@ async def hybrid_prefetch(
     )
     for item in vector:
         item["source"] = "vector"
+    if node_types_filter is not None:
+        fts = [
+            item
+            for item in fts
+            if str(item.get("node_type") or "") in node_types_filter
+        ]
     return merge_and_rerank(vector_results=vector, fts_results=fts, top_k=top_k)
+
+
+async def retrieve_for_discovery(
+    session: AsyncSession,
+    *,
+    user_id: uuid.UUID,
+    scope: str,
+    query_text: str,
+    embedding_backend: EmbeddingBackend,
+    tenant_key: str | None,
+    post_id: str | None = None,
+    top_k: int = 8,
+    min_similarity: float = 0.38,
+    scope_bias: float = 0.04,
+    node_types_filter: frozenset[str] | None = None,
+    vector_retriever=None,
+) -> list[dict[str, Any]]:
+    """Single discovery policy shared by L1 prefetch and SearchNodes."""
+    return await hybrid_prefetch(
+        session,
+        user_id=user_id,
+        scope=scope,
+        query_text=query_text,
+        embedding_backend=embedding_backend,
+        tenant_key=tenant_key,
+        post_id=post_id,
+        top_k=top_k,
+        min_similarity=min_similarity,
+        scope_bias=scope_bias,
+        node_types_filter=node_types_filter,
+        vector_retriever=vector_retriever,
+    )

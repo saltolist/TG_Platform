@@ -280,6 +280,9 @@ async def execute_agent_run(
         "resolution_events": list(
             (runtime_context.turn_contract.get("target_contract") or {}).get("resolution_events") or []
         ),
+        "search_ledger": [],
+        "finish_retrieval_attempted": False,
+        "validator_events": [],
     }
     await emit_run_event(
         session,

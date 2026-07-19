@@ -19,6 +19,12 @@ from app.services.agent.research.plan import (
     parse_plan,
     render_plan_for_planner,
 )
+from app.services.agent.research.search_ledger import (
+    cached_outcome,
+    finish_intent,
+    prepare_intent,
+    render_search_ledger_for_planner,
+)
 from app.services.agent.research.result import ResearchResult
 from app.services.agent.research.trust import UNTRUSTED_SYSTEM_NOTE, wrap_untrusted_block
 from app.services.agent.research.verifier import verify_evidence
@@ -307,6 +313,7 @@ def _build_messages(
     l1_summary: str,
     turn_contract: dict[str, Any] | None = None,
     plan_text: str = "",
+    search_ledger_text: str = "",
 ) -> list[dict[str, str]]:
     parts = [f"Вопрос:\n{user_text.strip()}"]
     if turn_contract:
@@ -323,6 +330,8 @@ def _build_messages(
         parts.append(l1_summary.strip())
     if plan_text.strip():
         parts.append(plan_text.strip())
+    if search_ledger_text.strip():
+        parts.append(search_ledger_text.strip())
     if hints:
         parts.append("Подсказки: " + "; ".join(hints))
     if transcript:
@@ -357,6 +366,7 @@ async def _execute_tool(state: AgentState, action: ToolAction) -> ToolOutcome:
         # that the planner was never told about (agent-runtime-sprints §1.4).
         return await tool_list_posts(
             state,
+            status=str(args.get("status") or "all") or None,
             query=str(args.get("query") or "") or None,
             limit=int(args.get("limit") or 8),
         )
@@ -403,6 +413,42 @@ async def _execute_tool(state: AgentState, action: ToolAction) -> ToolOutcome:
             period=str(args.get("period") or "7d"),
         )
     return ToolOutcome(summary=f"Неизвестный tool: {tool}", error="unknown_tool")
+
+
+async def _execute_ledgered_tool(
+    agent_state: AgentState,
+    action: ToolAction,
+    *,
+    ledger: list[dict[str, Any]],
+    contract: dict[str, Any] | None,
+) -> tuple[ToolOutcome, list[dict[str, Any]], dict[str, Any], bool]:
+    """Execute a read action once per canonical intent and return cache metadata."""
+    preparation = prepare_intent(
+        ledger,
+        tool=action.tool,
+        args=action.args,
+        contract=contract,
+        evidence_gap=action.gap,
+    )
+    entry = preparation.entry
+    if not preparation.execute:
+        summary, error, hits = cached_outcome(entry)
+        return ToolOutcome(summary=summary, error=error, hits=hits), preparation.ledger, entry, True
+
+    outcome = await _execute_tool(agent_state, action)
+    records = records_from_agent_state(agent_state)
+    updated = finish_intent(
+        preparation.ledger,
+        intent_key=str(entry.get("intent_key") or ""),
+        summary=outcome.summary,
+        error=outcome.error,
+        hits=outcome.hits,
+        record_ids=list(records),
+    )
+    final_entry = next(
+        item for item in reversed(updated) if item.get("intent_key") == entry.get("intent_key")
+    )
+    return outcome, updated, final_entry, False
 
 
 # ---------------------------------------------------------------------------
@@ -575,8 +621,19 @@ async def research_seed_node(state: AgentGraphState, config: RunnableConfig) -> 
     contract_target = dict(contract.get("target") or {})
     user_text = str(state.get("user_text") or "")
     transcript = list(state.get("research_transcript") or [])
+    search_ledger = list(state.get("search_ledger") or [])
     async with ctx.session_factory() as session:
         agent_state = ctx.bind_agent_state(session)
+
+        async def seed_action(action: ToolAction) -> ToolOutcome:
+            nonlocal search_ledger
+            outcome, search_ledger, _entry, _cached = await _execute_ledgered_tool(
+                agent_state,
+                action,
+                ledger=search_ledger,
+                contract=contract,
+            )
+            return outcome
         # Best-effort: the inventory is a decorative transcript line, not citable
         # evidence (see _workspace_inventory docstring). A DB error building it
         # must not abort the whole research run — degrade to no inventory.
@@ -592,14 +649,20 @@ async def research_seed_node(state: AgentGraphState, config: RunnableConfig) -> 
             if not target_id:
                 continue
             if target.get("kind") == "note":
-                outcome = await tool_open_note(
-                    agent_state,
-                    note_id=target_id,
-                    post_id=str(target.get("parent_post_id") or "") or None,
+                outcome = await seed_action(
+                    ToolAction(
+                        tool="OpenNote",
+                        args={
+                            "note_id": target_id,
+                            "post_id": str(target.get("parent_post_id") or "") or None,
+                        },
+                    )
                 )
                 transcript.append(f"[contract] OpenNote {target_id}: {outcome.summary}")
             elif target.get("kind") == "post":
-                outcome = await tool_open_post(agent_state, post_id=target_id)
+                outcome = await seed_action(
+                    ToolAction(tool="OpenPost", args={"post_id": target_id})
+                )
                 transcript.append(f"[contract] OpenPost {target_id}: {outcome.summary}")
         if (
             contract_target.get("kind") in {"recent_note", "ledger_note"}
@@ -607,12 +670,14 @@ async def research_seed_node(state: AgentGraphState, config: RunnableConfig) -> 
             and not normalized_targets
         ):
             note_id = str(contract_target["id"])
-            outcome = await tool_open_note(agent_state, note_id=note_id)
+            outcome = await seed_action(ToolAction(tool="OpenNote", args={"note_id": note_id}))
             transcript.append(
                 f"[contract] authoritative recent note {note_id}: {outcome.summary}"
             )
         if contract.get("corpus") == "feed_posts":
-            listing = await tool_list_posts(agent_state, status="published", limit=8)
+            listing = await seed_action(
+                ToolAction(tool="ListPosts", args={"status": "published", "limit": 8})
+            )
             transcript.append(f"[contract] feed corpus: {listing.summary}")
             style_only = bool((contract.get("output") or {}).get("match_reference_style"))
             opened = 0
@@ -622,9 +687,8 @@ async def research_seed_node(state: AgentGraphState, config: RunnableConfig) -> 
                 text_value = str(item.get("text") or "").strip()
                 if style_only and len(text_value) < 120:
                     continue
-                outcome = await tool_open_post(
-                    agent_state,
-                    post_id=str(item.get("id") or ""),
+                outcome = await seed_action(
+                    ToolAction(tool="OpenPost", args={"post_id": str(item.get("id") or "")})
                 )
                 transcript.append(f"[contract] feed OpenPost: {outcome.summary}")
                 opened += 1
@@ -632,7 +696,9 @@ async def research_seed_node(state: AgentGraphState, config: RunnableConfig) -> 
                     break
         if seed_ref and str(seed_ref).startswith("note:"):
             note_id = str(seed_ref)[len("note:") :].strip()
-            outcome = await tool_open_note(agent_state, note_id=note_id, post_id=seed_post_id)
+            outcome = await seed_action(
+                ToolAction(tool="OpenNote", args={"note_id": note_id, "post_id": seed_post_id})
+            )
             transcript.append(f"[seed] OpenNote: {outcome.summary}")
         if ctx.scope == "post":
             post_id = (
@@ -640,7 +706,7 @@ async def research_seed_node(state: AgentGraphState, config: RunnableConfig) -> 
                 or str((ctx.post_data or {}).get("id") or "").strip()
             )
             if post_id:
-                outcome = await tool_open_post(agent_state, post_id=post_id)
+                outcome = await seed_action(ToolAction(tool="OpenPost", args={"post_id": post_id}))
                 transcript.append(f"[seed] OpenPost: {outcome.summary}")
                 agent_state.resolved_target_post_id = post_id
         seeded = seed_hydrated_attachments_from_ledger(
@@ -660,8 +726,47 @@ async def research_seed_node(state: AgentGraphState, config: RunnableConfig) -> 
         search_query = str(state.get("search_query") or "").strip() or user_text
         if contract.get("corpus") in {"exact_note", "feed_posts"}:
             search_query = ""
-        if search_query:
-            search_outcome = await tool_search_nodes(agent_state, query=search_query)
+        if search_query and inp.get("l1_results"):
+            # retrieve_rag_for_reply already ran the canonical hybrid/vector
+            # policy. Reuse those candidates instead of embedding/searching a
+            # second time before the planner starts.
+            for item in list(inp.get("l1_results") or ())[:8]:
+                node_type = str(item.get("node_type") or "")
+                object_id = str(item.get("note_id") or item.get("file_id") or "")
+                prefix = (
+                    "note" if node_type == "note_chunk"
+                    else "post" if node_type == "post_text"
+                    else "file"
+                )
+                if object_id:
+                    prefetch_hits.append(
+                        {
+                            "ref": f"{prefix}:{object_id}",
+                            "label": f"{prefix}:{object_id}",
+                            "similarity": float(item.get("similarity") or 0.0),
+                            "node_type": node_type,
+                        }
+                    )
+            prefetch_action = ToolAction(tool="SearchNodes", args={"query": search_query})
+            preparation = prepare_intent(
+                search_ledger,
+                tool=prefetch_action.tool,
+                args=prefetch_action.args,
+                contract=contract,
+            )
+            if preparation.execute:
+                search_ledger = finish_intent(
+                    preparation.ledger,
+                    intent_key=str(preparation.entry.get("intent_key") or ""),
+                    summary="[cache] L1/hybrid retrieval reused",
+                    error=None,
+                    hits=prefetch_hits,
+                )
+            transcript.append(f"[seed] reused L1/hybrid SearchNodes {search_query!r}")
+        elif search_query:
+            search_outcome = await seed_action(
+                ToolAction(tool="SearchNodes", args={"query": search_query})
+            )
             if search_outcome.hits:
                 prefetch_hits = [dict(h) for h in search_outcome.hits]
                 transcript.append(f"[seed] SearchNodes {search_query!r}:\n{search_outcome.summary}")
@@ -671,6 +776,7 @@ async def research_seed_node(state: AgentGraphState, config: RunnableConfig) -> 
         **state,
         "research_transcript": transcript,
         "prefetch_hits": prefetch_hits,
+        "search_ledger": search_ledger,
         "evidence_records": {key: rec.to_dict() for key, rec in records.items()},
         "step_count": 0,
         "repair_count": 0,
@@ -726,6 +832,9 @@ async def research_planner_node(state: AgentGraphState, config: RunnableConfig) 
             l1_summary=_l1_summary(inp["l1_results"]),
             turn_contract=inp["turn_contract"],
             plan_text=render_plan_for_planner(list(state.get("plan") or [])),
+            search_ledger_text=render_search_ledger_for_planner(
+                list(state.get("search_ledger") or [])
+            ),
         )
         evidence_text = _format_evidence_for_planner(records)
         messages[-1]["content"] += "\n\nСобранный context:\n" + evidence_text
@@ -746,6 +855,21 @@ async def research_planner_node(state: AgentGraphState, config: RunnableConfig) 
         )
         parsed = parse_tool_action(raw)
         action = parsed or ToolAction(tool="Invalid", args={})
+    validator_source = False
+    if action.tool == "FinishRetrieval" and state.get("finish_retrieval_attempted"):
+        # The first FinishRetrieval is a planner proposal. If its validator
+        # rejects it, a later planner finish is converted into an internal
+        # event; it is validated without another FinishRetrieval tool call.
+        validator_source = True
+        action = ToolAction(
+            tool="ValidatorEvent",
+            args={**action.args, "validator_source": "finish_repair"},
+            observations=action.observations,
+            reasoning=action.reasoning,
+            answer_requires=action.answer_requires,
+            gap=action.gap,
+            plan=action.plan,
+        )
     steps = int(state.get("step_count") or 0) + 1
     trace_step("7. rag.L2.langgraph", [f"step={steps}/{max_steps}", f"tool={action.tool}"])
     fabricated = validate_observations(
@@ -790,6 +914,8 @@ async def research_planner_node(state: AgentGraphState, config: RunnableConfig) 
     }
     if fabricated:
         step_record["repair_hint"] = f"cosmetic_observations:{'; '.join(fabricated)}"
+    if validator_source:
+        step_record["validator_source"] = "finish_repair"
     return {
         **state,
         "step_count": steps,
@@ -812,28 +938,40 @@ async def research_tool_node(state: AgentGraphState, config: RunnableConfig) -> 
     action = ToolAction(
         tool=str(raw_action.get("tool") or ""),
         args=dict(raw_action.get("args") or {}),
+        gap=str(raw_action.get("gap") or ""),
     )
     transcript = list(state.get("research_transcript") or [])
     existing_records = dict(state.get("evidence_records") or {})
+    contract = dict(
+        state.get("turn_contract")
+        or ((config or {}).get("configurable", {}) or {}).get("turn_contract")
+        or {}
+    )
+    search_ledger = list(state.get("search_ledger") or [])
     async with ctx.session_factory() as session:
         agent_state = ctx.bind_agent_state(session)
-        outcome = await _execute_tool(agent_state, action)
+        outcome, search_ledger, ledger_entry, cached = await _execute_ledgered_tool(
+            agent_state,
+            action,
+            ledger=search_ledger,
+            contract=contract,
+        )
         records = records_from_agent_state(agent_state)
         await session.commit()
     step = int(state.get("step_count", 0) or 0)
-    signature = json.dumps(
+    signature = str(ledger_entry.get("signature") or json.dumps(
         {"tool": action.tool, "args": action.args},
         ensure_ascii=False,
         sort_keys=True,
         default=str,
-    )
+    ))
     previous_outcomes = list(state.get("tool_outcomes") or [])
     repeated = any(
         str(item.get("signature") or "") == signature
         for item in previous_outcomes[-3:]
     )
     new_record_ids = sorted(set(records) - set(existing_records))
-    made_progress = bool(new_record_ids or outcome.hits)
+    made_progress = not cached and bool(new_record_ids or outcome.hits)
     no_progress_count = 0 if made_progress else int(state.get("no_progress_count") or 0) + 1
     # Refund the step consumed by the planner when the tool only returned
     # recoverable precondition guidance (e.g. "сначала OpenPost"), capped at
@@ -865,6 +1003,11 @@ async def research_tool_node(state: AgentGraphState, config: RunnableConfig) -> 
         "record_ids": sorted(str(key) for key in records),
         "new_record_ids": new_record_ids,
         "signature": signature,
+        "intent_key": ledger_entry.get("intent_key"),
+        "source_requirement_id": ledger_entry.get("source_requirement_id"),
+        "intent_state": ledger_entry.get("state"),
+        "exhausted_reason": ledger_entry.get("exhausted_reason"),
+        "cached": cached,
         "no_progress_count": no_progress_count,
     }
     return {
@@ -874,6 +1017,7 @@ async def research_tool_node(state: AgentGraphState, config: RunnableConfig) -> 
         "no_progress_count": no_progress_count,
         "research_transcript": transcript,
         "tool_outcomes": [*(state.get("tool_outcomes") or []), outcome_record],
+        "search_ledger": search_ledger,
         "evidence_records": {
             **existing_records,
             **{key: rec.to_dict() for key, rec in records.items()},
@@ -891,6 +1035,9 @@ async def research_verify_node(state: AgentGraphState, config: RunnableConfig) -
     # everything" (agent-runtime-sprints §1.3). The model must choose its cites.
     tool_name = str((state.get("tool_action") or {}).get("tool") or "")
     candidate = dict((state.get("tool_action") or {}).get("args") or {})
+    validator_event = tool_name == "ValidatorEvent"
+    if tool_name == "FinishRetrieval" and not state.get("finish_retrieval_attempted"):
+        state = {**state, "finish_retrieval_attempted": True}
     # Budget-exhaustion salvage: verify is reachable two ways — the planner chose
     # FinishRetrieval, or the step budget ran out mid-exploration (route_* forces
     # verify). In the latter case `candidate` is the last read-tool's args (e.g.
@@ -901,7 +1048,7 @@ async def research_verify_node(state: AgentGraphState, config: RunnableConfig) -
     # collected so far. This is NOT "cite everything" (§1.3): it fires only when
     # the planner never got its turn to finish, salvaging gathered evidence
     # instead of discarding it.
-    if tool_name != "FinishRetrieval" and records:
+    if tool_name not in {"FinishRetrieval", "ValidatorEvent"} and records:
         salvaged_ids = [rid for rid, rec in records.items() if rec.content.strip()]
         if salvaged_ids:
             candidate = {
@@ -962,6 +1109,25 @@ async def research_verify_node(state: AgentGraphState, config: RunnableConfig) -
                     f"через OpenNote/OpenPost прежде чем завершать: {names}",
                 ],
                 "verification_ok": False,
+            }
+    if validator_event:
+        # Validator events are terminal for control flow, but they must still
+        # disclose obligations that the first finish tried to skip.
+        validator_gaps: list[str] = []
+        if still_open:
+            validator_gaps.append(
+                "unfinished_plan_items:" + ", ".join(str(item.get("text")) for item in still_open)
+            )
+        missed = unopened_prefetch_hits(list(state.get("prefetch_hits") or []), records)
+        if missed:
+            validator_gaps.append(
+                "unopened_prefetch:" + ", ".join(str(item.get("label")) for item in missed)
+            )
+        if validator_gaps:
+            candidate = {
+                **candidate,
+                "status": "partial",
+                "unresolved": [*(candidate.get("unresolved") or []), *validator_gaps],
             }
     # Fuzzy-repair truncated UUID paths (chat 9f3d5fdf): the planner sometimes
     # drops the last 4–8 chars of a UUID segment when constructing evidence_ids
@@ -1047,14 +1213,53 @@ async def research_verify_node(state: AgentGraphState, config: RunnableConfig) -
             "status": "partial",
             "unresolved": [*(candidate.get("unresolved") or []), f"required_source_gap:{gap_text}"],
         }
+    elif required_gaps and validator_event:
+        gap_text = ", ".join(required_gaps)
+        candidate = {
+            **candidate,
+            "status": "partial",
+            "unresolved": [
+                *(candidate.get("unresolved") or []),
+                f"required_source_gap:{gap_text}",
+            ],
+        }
 
     verdict = verify_evidence(
         finish=candidate,
         records=records,
         repair_count=int(state.get("repair_count") or 0),
     )
+    if validator_event and not verdict.ok:
+        # A second planner finish is an internal validator event, never another
+        # FinishRetrieval repair loop. Preserve grounded records and expose the
+        # exact validator errors to the answer as unresolved gaps.
+        fallback_ids = [rid for rid, rec in records.items() if rec.content.strip()]
+        candidate = {
+            "status": "partial",
+            "evidence_ids": fallback_ids,
+            "unresolved": [
+                *(candidate.get("unresolved") or []),
+                *[str(error) for error in verdict.errors],
+                "validator_event_exhausted",
+            ],
+        }
+        return {
+            **state,
+            "finish_retrieval": candidate,
+            "verification_ok": True,
+            "validator_events": [
+                *(state.get("validator_events") or []),
+                {"kind": "finish_repair", "errors": list(verdict.errors)},
+            ],
+        }
     if verdict.ok or not verdict.repair_allowed:
-        return {**state, "finish_retrieval": candidate, "verification_ok": True}
+        result = {**state, "finish_retrieval": candidate, "verification_ok": True}
+        if validator_event:
+            result["validator_events"] = [
+                *(state.get("validator_events") or []),
+                {"kind": "finish_repair", "errors": []},
+            ]
+        return result
     return {
         **state,
         "repair_count": int(state.get("repair_count") or 0) + 1,
@@ -1104,7 +1309,7 @@ async def research_pack_node(state: AgentGraphState, config: RunnableConfig) -> 
 def route_research_plan(state: AgentGraphState) -> Literal["planner", "tool", "verify"]:
     action = state.get("tool_action") or {}
     tool = str(action.get("tool") or "")
-    if tool == "FinishRetrieval":
+    if tool in {"FinishRetrieval", "ValidatorEvent"}:
         return "verify"
     # Hard-stop on step budget still routes through verify, never straight to
     # pack — the collected evidence must clear the gate before it can ground an
@@ -1185,6 +1390,7 @@ async def run_research_graph(
             "l1_results": l1_results,
             "seed_ref": seed_ref,
             "seed_post_id": seed_post_id,
+            "turn_contract": dict(ctx.turn_contract or {}),
         }
     }
     initial: AgentGraphState = {
@@ -1199,6 +1405,10 @@ async def run_research_graph(
         "no_progress_count": 0,
         "research_transcript": [],
         "research_hints": research_hints,
+        "turn_contract": dict(ctx.turn_contract or {}),
+        "search_ledger": [],
+        "finish_retrieval_attempted": False,
+        "validator_events": [],
     }
     final_state = initial
     async for value in compiled.astream(initial, config, stream_mode="values"):

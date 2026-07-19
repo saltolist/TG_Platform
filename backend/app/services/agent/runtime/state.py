@@ -76,6 +76,14 @@ class AgentGraphState(TypedDict, total=False):
     # Bounded counter for finish-gate bounces caused by unopened prefetch hits,
     # separate from plan_repair_count so the two gates don't starve each other.
     prefetch_repair_count: int
+    # SearchIntentLedger: run-scoped canonical tool intents. Entries are plain
+    # dicts so checkpoints remain JSON serializable and resumable.
+    search_ledger: list[dict[str, Any]]
+    # Set after the first LLM FinishRetrieval candidate is validated. A second
+    # attempt becomes an internal ValidatorEvent instead of another planner
+    # finish call.
+    finish_retrieval_attempted: bool
+    validator_events: list[dict[str, Any]]
     tool_action: dict[str, Any] | None
     # Accumulated planner decisions {step, observations, reasoning, gap, tool,
     # args, repair_hint?} for SSE emission and golden inspection

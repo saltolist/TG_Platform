@@ -266,20 +266,22 @@ async def tool_search_nodes(
         return ToolOutcome(summary="Пустой поисковый запрос.", error="empty_query")
 
     try:
-        query_vec = await state.embedding_backend.embed_query(query_text)
+        from app.services.agent.research.prefetch import retrieve_for_discovery
+
         allowed_filter = _normalize_node_types(node_types)
-        results = await retrieve_for_chat(
+        results = await retrieve_for_discovery(
             session=state.session,
             user_id=state.user_id,
-            chat_scope=state.scope,
-            query_vec=query_vec,
+            scope=state.scope,
+            query_text=query_text,
             embedding_backend=state.embedding_backend,
-            k=k or state.search_k,
+            top_k=k or state.search_k,
             min_similarity=state.min_similarity,
             post_id=str((state.base_post_data or {}).get("id") or "") or None,
             tenant_key=state.tenant_key,
             scope_bias=state.scope_bias,
             node_types_filter=allowed_filter,
+            vector_retriever=retrieve_for_chat,
         )
     except Exception as exc:
         return ToolOutcome(summary="Поиск не выполнен.", error=str(exc))

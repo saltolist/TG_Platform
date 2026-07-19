@@ -3,7 +3,7 @@
 **Дата:** 2026-07-19  
 **Текущий baseline:** `0b69a06`  
 **План:** [workspace-agent-intelligence-performance-plan.md](workspace-agent-intelligence-performance-plan.md)  
-**Статус:** фазы 1 и 2 реализованы; фаза 3 ещё не реализована
+**Статус:** фазы 1–3 реализованы; phase-3 production canary и phase-4 retrieval quality остаются следующими release gates
 
 Этот файл является handoff и рабочим списком ограничений. Он не отменяет
 exit criteria завершённых фаз и не является разрешением ослаблять runtime или
@@ -20,6 +20,8 @@ quality gates.
   pooling strategy.
 - Фаза 2: typed `TargetContract`/`TurnContract`, deterministic resolution,
   multi-target/multi-source bootstrap, budgets и evidence-boundary checks.
+- Фаза 3: run-scoped `SearchIntentLedger`, canonical signatures, one
+  gap-linked rewrite, read/empty-result cache, L1/hybrid reuse и validator event.
 - Phase-2 compatibility flag `AGENT_TURN_CONTRACT_V2_ENABLED` остаётся для
   canary/rollback.
 - Локальный ignored `docker-compose.override.yml` настроен так, чтобы
@@ -38,19 +40,20 @@ production rollout.
 | Static Prometheus targets | При scaling одного service Prometheus может не скрапить каждый replica | Docker/Kubernetes service discovery и проверка всех replicas |
 | Stale live gauges после `SIGKILL` | `mark_process_dead` не вызывается при жёстком убийстве процесса | Restart cleanup policy плюс alert на scrape health/worker readiness |
 
-## Фаза 3: SearchIntentLedger
+## Фаза 3: SearchIntentLedger (реализовано)
 
-Это следующий основной engineering scope. Существующие `TargetContract`,
-`SourceRequirement`, `resolution_events`, `revision` и budgets менять нельзя.
+Реализация описана в [phase-3 handoff](workspace-agent-phase3-search-ledger.md).
+Существующие `TargetContract`, `SourceRequirement`, `resolution_events`,
+`revision` и budgets не менялись.
 
-1. Добавить `SearchIntentLedger` в run state/checkpoint.
-2. Привязать каждый intent к `source_requirement_id`, scope и freshness revision.
-3. Ввести canonical tool signatures и semantic `intent_key`.
-4. Реализовать состояния `planned`, `running`, `satisfied`, `exhausted`.
-5. Разрешить максимум один gap-linked rewrite для intent.
-6. Кэшировать успешные reads и empty search outcomes внутри run.
-7. Убрать повторный LLM `FinishRetrieval`; завершать через validator event.
-8. Согласовать `hybrid_prefetch` и `retrieve_for_chat` с ledger.
+1. `SearchIntentLedger` хранится в run state/checkpoint.
+2. Каждый intent связан с `source_requirement_id`, scope и freshness revision.
+3. Canonical tool signatures и semantic `intent_key` детерминированы.
+4. Состояния `planned`, `running`, `satisfied`, `exhausted` сериализуются.
+5. Для intent разрешён максимум один gap-linked rewrite.
+6. Успешные reads и empty search outcomes кэшируются внутри run.
+7. Повторный LLM `FinishRetrieval` заменяется validator event.
+8. `hybrid_prefetch` и `retrieve_for_chat` используют общий discovery policy.
 
 ### Exit criteria фазы 3
 
