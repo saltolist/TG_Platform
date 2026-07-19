@@ -31,6 +31,7 @@ async def create_run(
     now = datetime.now(timezone.utc)
     run = AgentRun(
         id=uuid.uuid4(),
+        assistant_message_id=str(uuid.uuid4()),
         user_id=user_id,
         thread_id=thread_id,
         scope=scope,

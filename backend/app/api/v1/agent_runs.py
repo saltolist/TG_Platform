@@ -46,6 +46,20 @@ class ResumeRequest(BaseModel):
     proposal_id: str | None = None
 
 
+@router.get("/message-context/{message_id}/")
+async def get_message_context_by_message(
+    message_id: str,
+    user: CurrentUser,
+    session: DbSession,
+) -> dict[str, Any]:
+    from app.services.agent.runtime.message_context import load_message_context
+
+    row = await load_message_context(session, user_id=user.id, message_id=message_id)
+    if row is None:
+        raise HTTPException(status_code=404, detail="Message context not found")
+    return dict(row.manifest or {})
+
+
 @router.post("/", status_code=201)
 async def create_agent_run(
     body: StartRunRequest,
@@ -74,6 +88,7 @@ async def create_agent_run(
         )
     return {
         "id": str(run.id),
+        "assistant_message_id": str(run.assistant_message_id),
         "thread_id": run.thread_id,
         "status": run.status,
         "sequence": seq,
@@ -91,6 +106,7 @@ async def get_agent_run(
         raise HTTPException(status_code=404, detail="Run not found")
     return {
         "id": str(run.id),
+        "assistant_message_id": str(run.assistant_message_id),
         "thread_id": run.thread_id,
         "status": run.status,
         "scope": run.scope,
@@ -104,6 +120,38 @@ async def get_agent_run(
         "updated_at": run.updated_at.isoformat(),
         "completed_at": run.completed_at.isoformat() if run.completed_at else None,
     }
+
+
+@router.get("/{run_id}/context/")
+async def get_agent_message_context(
+    run_id: uuid.UUID,
+    user: CurrentUser,
+    session: DbSession,
+) -> dict[str, Any]:
+    """Return the owner-scoped durable message context manifest."""
+    run = await event_service.get_run(session, user_id=user.id, run_id=run_id)
+    if run is None:
+        raise HTTPException(status_code=404, detail="Run not found")
+    from app.services.agent.runtime.message_context import load_message_context
+
+    row = await load_message_context(session, user_id=user.id, run_id=run.id)
+    if row is None:
+        # Legacy runs have no exact manifest; expose the compatibility marker
+        # instead of reconstructing unsupported provenance after the fact.
+        return {
+            "schema": "workspace.message-context/v1",
+            "message_id": str(run.assistant_message_id),
+            "run_id": str(run.id),
+            "source_turn_id": str(run.id),
+            "considered_context": [],
+            "cited_evidence": [],
+            "context_refs": [],
+            "reference_sets": [],
+            "artifacts": [],
+            "stale_refs": [],
+            "provenance": "legacy",
+        }
+    return dict(row.manifest or {})
 
 
 @router.get("/{run_id}/trace/")

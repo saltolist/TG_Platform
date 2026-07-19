@@ -12,6 +12,7 @@ class AgentGraphState(TypedDict, total=False):
 
     messages: Annotated[list[Any], add_messages]
     run_id: str
+    assistant_message_id: str
     user_id: str
     user_text: str
     scope: str
@@ -39,6 +40,8 @@ class AgentGraphState(TypedDict, total=False):
     tool_call: dict[str, Any] | None
     answer_text: str
     claims: list[dict[str, Any]]
+    used_context_refs: list[str]
+    message_context_manifest: dict[str, Any]
     result_contract_issues: list[str]
     output_schema: str
     output_validation: dict[str, Any]

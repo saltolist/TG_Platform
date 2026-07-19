@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 
-import { plannerStepSchema } from "./agentRun";
+import { messageContextManifestSchema, plannerStepSchema } from "./agentRun";
 
 describe("plannerStepSchema", () => {
   it("accepts a full planner decision", () => {
@@ -50,5 +50,26 @@ describe("plannerStepSchema", () => {
       args: {},
     });
     expect(result.success).toBe(false);
+  });
+});
+
+describe("messageContextManifestSchema", () => {
+  const manifest = {
+    schema: "workspace.message-context/v1",
+    message_id: "message-1",
+    run_id: "run-1",
+    source_turn_id: "run-1",
+    context_refs: [{ ref: "post:p1", kind: "post", provenance: "exact", route: "/post/p1/" }],
+    cited_evidence: ["/post/p1/"],
+    artifacts: [],
+    stale_refs: [],
+  };
+
+  it("accepts v1 and preserves source refs", () => {
+    expect(messageContextManifestSchema.parse(manifest).context_refs?.[0]?.ref).toBe("post:p1");
+  });
+
+  it("rejects unknown manifest versions", () => {
+    expect(messageContextManifestSchema.safeParse({ ...manifest, schema: "workspace.message-context/v2" }).success).toBe(false);
   });
 });

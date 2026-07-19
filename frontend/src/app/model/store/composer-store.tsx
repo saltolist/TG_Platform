@@ -48,11 +48,12 @@ import {
   patchPostChatContextMeta,
 } from "@/shared/lib/streaming/patchChatContextMeta";
 import { extractChatContextMeta } from "@/shared/api/schemas/chatContextMeta";
-import { updateLastVisibleAiMessage, findLastVisibleAiMessage } from "@/shared/lib/chatPaths";
+import { updateLastVisibleAiMessage, updateAiMessageById, findLastVisibleAiMessage } from "@/shared/lib/chatPaths";
 import { parseWebCitesFromStreamMeta } from "@/shared/lib/webCitation";
 import type { WebCite } from "@/shared/api/schemas/post";
 import { queryKeys } from "@/shared/api/queryKeys";
 import { startAgentRun, streamAgentRun } from "@/shared/api/agentRuns";
+import { messageContextManifestSchema, type MessageContextManifest } from "@/shared/api/schemas/agentRun";
 import { ApiError } from "@/shared/api/httpClient";
 import type { ChatMessageCtx } from "@/entities/message";
 import type { AssistantRepository } from "@/shared/api/repositories";
@@ -138,8 +139,9 @@ async function runAgentAssistantTurn(params: {
   userText: string;
   signal: AbortSignal;
   onAnswer: (text: string) => void;
+  onContext?: (messageId: string, manifest?: MessageContextManifest) => void;
 }): Promise<string> {
-  const { composerScope, threadId, chatId, postId, userText, signal, onAnswer } = params;
+  const { composerScope, threadId, chatId, postId, userText, signal, onAnswer, onContext } = params;
   const created = await startAgentRun(
     {
       threadId,
@@ -159,6 +161,7 @@ async function runAgentAssistantTurn(params: {
   if (composerScope === "home") {
     useComposerReplyStore.getState().setRunId("gchat", created.id);
   }
+  if (created.assistant_message_id) onContext?.(created.assistant_message_id);
   let answer = "";
   await streamAgentRun(
     created.id,
@@ -166,6 +169,9 @@ async function runAgentAssistantTurn(params: {
       if (event.agent?.type === "answer") {
         answer = String(event.agent.payload.text ?? "");
         onAnswer(answer);
+        const rawManifest = event.agent.payload.message_context_manifest;
+        const parsedManifest = messageContextManifestSchema.safeParse(rawManifest);
+        if (parsedManifest.success) onContext?.(parsedManifest.data.message_id, parsedManifest.data);
       }
       if (event.agent?.type === "run_failed") {
         throw new Error(String(event.agent.payload.error ?? "Agent run failed"));
@@ -451,6 +457,48 @@ export function ComposerProvider({ children }: { children: ReactNode }) {
     [getTarget],
   );
 
+  const persistGlobalAgentContext = useCallback(
+    (chatId: string, messageId: string, manifest?: MessageContextManifest) => {
+      void patchGlobalChatHistory(queryClient, chats, chatId, (history) =>
+        updateAiMessageById(history, messageId, (message) => ({
+          ...message,
+          messageId,
+          ...(manifest
+            ? {
+                contextRefs: manifest.context_refs ?? [],
+                citedEvidence: manifest.cited_evidence ?? [],
+                artifacts: manifest.artifacts ?? [],
+                staleRefs: manifest.stale_refs ?? [],
+                contextProvenance: manifest.provenance,
+              }
+            : {}),
+        })),
+      );
+    },
+    [chats, queryClient],
+  );
+
+  const persistPostAgentContext = useCallback(
+    (postId: string, chatId: string, messageId: string, manifest?: MessageContextManifest) => {
+      void patchPostChatHistory(queryClient, posts, postId, chatId, (history) =>
+        updateAiMessageById(history, messageId, (message) => ({
+          ...message,
+          messageId,
+          ...(manifest
+            ? {
+                contextRefs: manifest.context_refs ?? [],
+                citedEvidence: manifest.cited_evidence ?? [],
+                artifacts: manifest.artifacts ?? [],
+                staleRefs: manifest.stale_refs ?? [],
+                contextProvenance: manifest.provenance,
+              }
+            : {}),
+        })),
+      );
+    },
+    [posts, queryClient],
+  );
+
   const setComposerLlm = useCallback(
     (scope: ComposerScope, llmId: string) => setLlmId(scope, llmId),
     [setLlmId],
@@ -503,6 +551,12 @@ export function ComposerProvider({ children }: { children: ReactNode }) {
           // silently wipe the card.
           proposal: current.proposal,
           proposalDecision: current.proposalDecision,
+          messageId: current.messageId,
+          contextRefs: current.contextRefs,
+          citedEvidence: current.citedEvidence,
+          artifacts: current.artifacts,
+          staleRefs: current.staleRefs,
+          contextProvenance: current.contextProvenance,
         })),
       );
     },
@@ -540,6 +594,12 @@ export function ComposerProvider({ children }: { children: ReactNode }) {
           // agent-run-store's separate SSE subscription racing this finalize.
           proposal: current.proposal,
           proposalDecision: current.proposalDecision,
+          messageId: current.messageId,
+          contextRefs: current.contextRefs,
+          citedEvidence: current.citedEvidence,
+          artifacts: current.artifacts,
+          staleRefs: current.staleRefs,
+          contextProvenance: current.contextProvenance,
         })),
       );
     },
@@ -599,6 +659,8 @@ export function ComposerProvider({ children }: { children: ReactNode }) {
                       signal,
                       onAnswer: (answer) =>
                         patchGlobalChatStreamingText(queryClient, id, answer, accountId),
+                      onContext: (messageId, manifest) =>
+                        persistGlobalAgentContext(id, messageId, manifest),
                     }),
                   () =>
                     streamGlobalAssistantReply({
@@ -639,6 +701,7 @@ export function ComposerProvider({ children }: { children: ReactNode }) {
       getTarget,
       pushMessage,
       queryClient,
+      persistGlobalAgentContext,
       setMobileSidebarOpen,
     ],
   );
@@ -685,6 +748,8 @@ export function ComposerProvider({ children }: { children: ReactNode }) {
                       signal,
                       onAnswer: (answer) =>
                         patchGlobalChatStreamingText(queryClient, chatId, answer, accountId),
+                      onContext: (messageId, manifest) =>
+                        persistGlobalAgentContext(chatId, messageId, manifest),
                     }),
                   () =>
                     streamGlobalAssistantReply({
@@ -715,7 +780,7 @@ export function ComposerProvider({ children }: { children: ReactNode }) {
       });
       return true;
     },
-    [accountId, assertCanSend, assistant, finalizeGlobalReply, getTarget, pushMessage, queryClient],
+    [accountId, assertCanSend, assistant, finalizeGlobalReply, getTarget, pushMessage, queryClient, persistGlobalAgentContext],
   );
 
   const sendPost = useCallback(
@@ -798,6 +863,8 @@ export function ComposerProvider({ children }: { children: ReactNode }) {
                           answer,
                           accountId,
                         ),
+                      onContext: (messageId, manifest) =>
+                        persistPostAgentContext(postId, replyChatId, messageId, manifest),
                     }),
                   () =>
                     streamPostAssistantReply({
@@ -830,7 +897,7 @@ export function ComposerProvider({ children }: { children: ReactNode }) {
 
       return true;
     },
-    [accountId, addLocalChat, assertCanSend, assistant, finalizePostReply, getTarget, pushLocalChatMessage, queryClient],
+    [accountId, addLocalChat, assertCanSend, assistant, finalizePostReply, getTarget, pushLocalChatMessage, queryClient, persistPostAgentContext],
   );
 
   const regenerateAfterUserEdit = useCallback(
@@ -883,6 +950,8 @@ export function ComposerProvider({ children }: { children: ReactNode }) {
                       signal,
                       onAnswer: (answer) =>
                         patchGlobalChatStreamingText(queryClient, ctx.entityId, answer, accountId),
+                      onContext: (messageId, manifest) =>
+                        persistGlobalAgentContext(ctx.entityId, messageId, manifest),
                     }),
                   () =>
                     streamGlobalAssistantReply({
@@ -964,6 +1033,8 @@ export function ComposerProvider({ children }: { children: ReactNode }) {
                           answer,
                           accountId,
                         ),
+                      onContext: (messageId, manifest) =>
+                        persistPostAgentContext(ctx.postId, ctx.entityId, messageId, manifest),
                     }),
                   () =>
                     streamPostAssistantReply({
@@ -1004,6 +1075,8 @@ export function ComposerProvider({ children }: { children: ReactNode }) {
       pushLocalChatMessage,
       pushMessage,
       queryClient,
+      persistGlobalAgentContext,
+      persistPostAgentContext,
     ],
   );
 

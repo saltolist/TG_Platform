@@ -38,6 +38,7 @@ SUPPORTED_CAPABILITIES = (
 
 TURN_CONTRACT_SCHEMA = "workspace.turn/v2"
 TARGET_CONTRACT_SCHEMA = "workspace.target/v2"
+REFERENT_RESOLUTION_SCHEMA = "workspace.referent-resolution/v1"
 
 TargetRole = Literal["subject", "source", "comparison", "style_reference", "context"]
 TargetMode = Literal["exact", "set", "corpus", "mixed", "ambiguous"]
@@ -63,6 +64,7 @@ class TargetRef(_ContractModel):
         "recent_object",
         "dialog_ledger",
         "dialog_artifact",
+        "semantic_resolver",
     ]
     source_turn_id: str | None = None
     title: str | None = None
@@ -91,6 +93,27 @@ class ResolutionEvent(_ContractModel):
     source_turn_id: str | None = None
 
 
+class ReferentReference(_ContractModel):
+    mention: str = Field(min_length=1)
+    target_type: Literal["entity", "entity_set", "artifact"]
+    source_set_ref: str | None = None
+    target_ids: tuple[str, ...] = ()
+    selection_mode: Literal[
+        "all", "explicit_subset", "predicate", "complement", "ambiguous"
+    ]
+    interpretation: str = Field(min_length=1)
+    confidence: float = Field(ge=0.0, le=1.0)
+
+
+class ReferentResolution(_ContractModel):
+    resolution_schema: Literal["workspace.referent-resolution/v1"] = Field(
+        default=REFERENT_RESOLUTION_SCHEMA, alias="schema"
+    )
+    references: tuple[ReferentReference, ...] = ()
+    unresolved: tuple[str, ...] = ()
+    ambiguity: dict[str, Any] | None = None
+
+
 class TargetContract(_ContractModel):
     contract_schema: Literal["workspace.target/v2"] = Field(
         default=TARGET_CONTRACT_SCHEMA, alias="schema"
@@ -102,6 +125,7 @@ class TargetContract(_ContractModel):
     corpora: tuple[CorpusRef, ...] = ()
     ambiguities: tuple[TargetAmbiguity, ...] = ()
     resolution_events: tuple[ResolutionEvent, ...] = ()
+    referent_resolution: ReferentResolution = Field(default_factory=ReferentResolution)
 
     @model_validator(mode="after")
     def validate_mode(self) -> "TargetContract":
@@ -541,10 +565,24 @@ def _ledger_targets(*, user_text: str, dialog_ledger: tuple[Any, ...]) -> tuple[
 
 def _target_contract_for(*, legacy: Mapping[str, Any], user_text: str, scope: str,
                          open_post: Mapping[str, Any] | None, dialog_ledger: tuple[Any, ...],
-                         prior_contract: Mapping[str, Any] | None) -> TargetContract:
+                         prior_contract: Mapping[str, Any] | None,
+                         message_manifests: tuple[Mapping[str, Any], ...] = (),
+                         semantic_referent_enabled: bool = True) -> TargetContract:
+    from app.services.agent.runtime.referent_resolution import (
+        candidate_envelope,
+        previous_selection,
+        resolve_from_candidates,
+    )
+
     explicit = _explicit_targets(user_text)
     ambiguities_raw: list[dict[str, Any]] = []
     targets = explicit
+    referent_resolution_raw: dict[str, Any] = {
+        "schema": REFERENT_RESOLUTION_SCHEMA,
+        "references": [],
+        "unresolved": [],
+        "ambiguity": None,
+    }
     plural_referent = bool(
         re.search(
             r"\b(эти|этих|них|обоих|обеих|все|нескольк|посты|заметки)\b",
@@ -567,6 +605,82 @@ def _target_contract_for(*, legacy: Mapping[str, Any], user_text: str, scope: st
             }]
     if not targets:
         targets, ambiguities_raw = _ledger_targets(user_text=user_text, dialog_ledger=dialog_ledger)
+    # Position/complement/implicit follow-ups are resolved against the bounded
+    # ledger graph. No workspace search is performed here and no ID can be
+    # introduced outside that graph.
+    if (
+        not targets
+        and not ambiguities_raw
+        and (dialog_ledger or message_manifests)
+        and semantic_referent_enabled
+    ):
+        envelope = candidate_envelope(
+            dialog_ledger=dialog_ledger,
+            manifests=message_manifests,
+            open_object=open_post,
+        )
+        artifact_followup = bool(
+            re.search(
+                r"\b(сократ\w*|короче|перепиш\w*|переформулир\w*|его|ответ)\b",
+                user_text.casefold(),
+            )
+        )
+        predicate_followup = bool(
+            re.search(
+                r"\b(?:посты|заметки)\s+(?:про|об|на\s+тему)\b",
+                user_text.casefold(),
+            )
+        )
+        resolution_envelope = (
+            [item for item in envelope if item.get("kind") == "artifact"]
+            if artifact_followup and any(item.get("kind") == "artifact" for item in envelope)
+            else envelope
+        )
+        if resolution_envelope and (
+            re.search(r"\b(перв\w*|втор\w*|трет\w*|четверт\w*|пят\w*|остальн\w*|кроме|эти|они|них|кажд\w*)\b", user_text.casefold())
+            or artifact_followup
+            or predicate_followup
+            or len(resolution_envelope) == 1
+        ):
+            referent_resolution_raw = resolve_from_candidates(
+                user_text,
+                resolution_envelope,
+                previous_selected_refs=previous_selection(dialog_ledger),
+            )
+            reference = next(iter(referent_resolution_raw.get("references") or ()), None)
+            if isinstance(reference, Mapping) and reference.get("target_ids"):
+                by_ref = {str(item.get("ref")): item for item in resolution_envelope}
+                targets = []
+                for target_ref in reference.get("target_ids") or ():
+                    candidate = by_ref.get(str(target_ref))
+                    if not candidate:
+                        continue
+                    candidate_kind = str(candidate.get("kind") or "")
+                    kind, identifier = (
+                        ("dialog_artifact", str(target_ref))
+                        if candidate_kind == "artifact"
+                        else str(target_ref).split(":", 1)
+                    )
+                    targets.append({
+                        "kind": kind,
+                        "id": identifier,
+                        "role": "subject",
+                        "authoritative": True,
+                        "confidence": float(reference.get("confidence") or 0.0),
+                        "resolved_by": "semantic_resolver",
+                        "source_turn_id": candidate.get("source_turn_id"),
+                        "title": candidate.get("title"),
+                    })
+            elif referent_resolution_raw.get("ambiguity"):
+                ambiguity = referent_resolution_raw["ambiguity"]
+                candidate_ids = [str(item) for item in ambiguity.get("candidate_ids") or ()]
+                if len(candidate_ids) >= 2:
+                    ambiguities_raw = [{
+                        "kind": "post" if candidate_ids[0].startswith("post:") else "note",
+                        "candidate_ids": [item.split(":", 1)[-1] for item in candidate_ids],
+                        "reason": "semantic referent resolution is ambiguous",
+                        "question": str(ambiguity.get("question") or "Уточните объект."),
+                    }]
     if not targets and legacy.get("target"):
         raw = dict(legacy["target"])
         kind = "note" if raw.get("kind") in {"recent_note", "ledger_note"} else "dialog_artifact"
@@ -608,6 +722,7 @@ def _target_contract_for(*, legacy: Mapping[str, Any], user_text: str, scope: st
     return TargetContract(
         revision=revision, contract_id=contract_id, target_mode=target_mode, targets=refs,
         corpora=tuple(corpora), ambiguities=ambiguities, resolution_events=events,
+        referent_resolution=ReferentResolution.model_validate(referent_resolution_raw),
     )
 
 
@@ -753,11 +868,15 @@ def _run_budget(*, profile: str, target_contract: TargetContract,
 def _upgrade_contract_v2(*, legacy: dict[str, Any], user_text: str, scope: str,
                          open_post: Mapping[str, Any] | None, dialog_ledger: tuple[Any, ...],
                          prior_contract: Mapping[str, Any] | None,
-                         batch_enabled: bool) -> dict[str, Any]:
+                         batch_enabled: bool,
+                         message_manifests: tuple[Mapping[str, Any], ...] = (),
+                         semantic_referent_enabled: bool = True) -> dict[str, Any]:
     prior_target = dict((prior_contract or {}).get("target_contract") or {})
     target_contract = _target_contract_for(
         legacy=legacy, user_text=user_text, scope=scope, open_post=open_post,
         dialog_ledger=dialog_ledger, prior_contract=prior_target,
+        message_manifests=message_manifests,
+        semantic_referent_enabled=semantic_referent_enabled,
     )
     profile = _task_profile(legacy, target_contract, batch_enabled=batch_enabled)
     sources = _source_requirements(legacy, target_contract, profile=profile)
@@ -799,6 +918,8 @@ def build_turn_contract(
     dialog_ledger: tuple[Any, ...] = (),
     open_post: Mapping[str, Any] | None = None,
     prior_contract: Mapping[str, Any] | None = None,
+    message_manifests: tuple[Mapping[str, Any], ...] = (),
+    semantic_referent_enabled: bool = True,
     v2_enabled: bool = True,
     batch_enabled: bool = True,
 ) -> dict[str, Any]:
@@ -970,6 +1091,8 @@ def build_turn_contract(
         dialog_ledger=dialog_ledger,
         prior_contract=prior_contract,
         batch_enabled=batch_enabled,
+        message_manifests=message_manifests,
+        semantic_referent_enabled=semantic_referent_enabled,
     )
 
 

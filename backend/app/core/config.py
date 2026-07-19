@@ -237,6 +237,9 @@ class Settings(BaseSettings):
     # Adaptive candidate assessment, semantic-card evidence and deterministic
     # multi-batch full reads. Kept off until golden/held-out canary gates pass.
     agent_adaptive_evidence_depth_v1_enabled: bool = False
+    # Durable message-level provenance and bounded semantic referent binding.
+    dialog_message_context_manifest_v1: bool = True
+    semantic_referent_resolution_v1: bool = True
     # Phase-8 exhaustive work is checkpointed and routed to a dedicated queue.
     agent_batch_path_v1_enabled: bool = True
     rag_l2_engine: Literal["legacy", "langgraph"] = "langgraph"
@@ -270,6 +273,8 @@ class Settings(BaseSettings):
         "agent_planner_phase5_enabled",
         "agent_answer_phase6_enabled",
         "agent_adaptive_evidence_depth_v1_enabled",
+        "dialog_message_context_manifest_v1",
+        "semantic_referent_resolution_v1",
         "agent_batch_path_v1_enabled",
         "cookie_secure",
         "telegram_live_sync_enabled",

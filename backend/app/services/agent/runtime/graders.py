@@ -214,6 +214,76 @@ def grade_exact_claims_not_card_only(state: Mapping[str, Any]) -> GraderResult:
     )
 
 
+def grade_context_refs_subset_supplied(state: Mapping[str, Any]) -> GraderResult:
+    """User-facing refs must come from verified context or authoritative targets."""
+    from app.services.agent.runtime.message_context import supplied_object_refs
+
+    manifest = state.get("message_context_manifest") or {}
+    refs = {
+        str(item.get("ref") or "")
+        for item in manifest.get("context_refs") or ()
+        if isinstance(item, Mapping)
+    }
+    supplied = supplied_object_refs(state.get("evidence_pack") or {})
+    target_contract = state.get("target_contract") or (state.get("turn_contract") or {}).get("target_contract") or {}
+    supplied.update(
+        f"{item.get('kind')}:{item.get('id')}"
+        for item in target_contract.get("targets") or ()
+        if isinstance(item, Mapping) and item.get("kind") in {"post", "note"} and item.get("id")
+    )
+    dangling = sorted(refs - supplied)
+    return GraderResult(
+        name="context_refs_subset_supplied",
+        passed=not dangling,
+        reason=f"unsupported context refs: {dangling}" if dangling else "all context refs were supplied",
+    )
+
+
+def grade_referent_targets_bounded(state: Mapping[str, Any]) -> GraderResult:
+    contract = state.get("target_contract") or (state.get("turn_contract") or {}).get("target_contract") or {}
+    resolution = contract.get("referent_resolution") or {}
+    resolved = {
+        str(item)
+        for reference in resolution.get("references") or ()
+        if isinstance(reference, Mapping)
+        for item in reference.get("target_ids") or ()
+    }
+    targets = {
+        f"{item.get('kind')}:{item.get('id')}"
+        for item in contract.get("targets") or ()
+        if isinstance(item, Mapping) and item.get("kind") and item.get("id")
+    }
+    invented = sorted(resolved - targets)
+    return GraderResult(
+        name="referent_targets_bounded",
+        passed=not invented,
+        reason=f"resolution introduced targets outside contract: {invented}" if invented else "resolved targets are contract-bound",
+    )
+
+
+def grade_complete_catalog_coverage(state: Mapping[str, Any]) -> GraderResult:
+    contract = state.get("turn_contract") or {}
+    coverage = state.get("coverage_targets_by_source") or {}
+    sufficiency = state.get("sufficiency") or {}
+    missing: list[str] = []
+    for source in contract.get("source_requirements") or ():
+        if not isinstance(source, Mapping) or not source.get("required") or source.get("coverage") != "complete":
+            continue
+        source_id = str(source.get("source_id") or "")
+        if source_id not in coverage:
+            missing.append(f"{source_id}:catalog")
+    if sufficiency.get("status") == "ready":
+        missing.extend(
+            str(item) for item in sufficiency.get("open_requirements") or ()
+            if str(item).startswith("coverage:")
+        )
+    return GraderResult(
+        name="complete_catalog_coverage",
+        passed=not missing,
+        reason=f"incomplete authoritative catalogs: {missing}" if missing else "complete sources are catalog-bound",
+    )
+
+
 def grade_trajectory_includes(
     state: Mapping[str, Any],
     *,
@@ -303,6 +373,9 @@ def grade_run(
         grade_empty_pack_no_claim(state),
         grade_image_claim_backed(state),
         grade_exact_claims_not_card_only(state),
+        grade_context_refs_subset_supplied(state),
+        grade_referent_targets_bounded(state),
+        grade_complete_catalog_coverage(state),
         grade_result_contract(state),
     ]
     if must_call:

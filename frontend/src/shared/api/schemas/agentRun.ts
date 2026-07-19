@@ -51,8 +51,45 @@ export const agentSsePayloadSchema = z.object({
   meta: z.record(z.string(), z.unknown()).optional(),
 });
 
+export const messageContextRefSchema = z.object({
+  ref: z.string(),
+  kind: z.string(),
+  title: z.string().nullable().optional(),
+  summary: z.string().nullable().optional(),
+  revision: z.number().nullable().optional(),
+  source_turn_id: z.string().nullable().optional(),
+  role: z.string().optional(),
+  provenance: z.enum(["exact", "inferred", "legacy"]).optional(),
+  route: z.string().nullable().optional(),
+});
+
+export const messageArtifactRefSchema = z.object({
+  ref: z.string(),
+  kind: z.string(),
+  content_hash: z.string(),
+  source_turn_id: z.string().nullable().optional(),
+  role: z.string().optional(),
+  title: z.string().nullable().optional(),
+  route: z.string().nullable().optional(),
+});
+
+export const messageContextManifestSchema = z.object({
+  schema: z.literal("workspace.message-context/v1"),
+  message_id: z.string(),
+  run_id: z.string(),
+  source_turn_id: z.string(),
+  considered_context: z.array(z.record(z.string(), z.unknown())).optional(),
+  cited_evidence: z.array(z.string()).optional(),
+  context_refs: z.array(messageContextRefSchema).optional(),
+  reference_sets: z.array(z.record(z.string(), z.unknown())).optional(),
+  artifacts: z.array(messageArtifactRefSchema).optional(),
+  stale_refs: z.array(z.record(z.string(), z.unknown())).optional(),
+  provenance: z.enum(["exact", "inferred", "legacy"]).default("exact"),
+});
+
 export const agentRunSchema = z.object({
   id: z.string(),
+  assistant_message_id: z.string().optional(),
   thread_id: z.string(),
   status: agentRunStatusSchema,
   scope: z.string(),
@@ -72,3 +109,6 @@ export type AgentSsePayload = z.infer<typeof agentSsePayloadSchema>;
 export type AgentProposal = z.infer<typeof agentProposalSchema>;
 export type AgentMediaJob = z.infer<typeof agentMediaJobSchema>;
 export type PlannerStep = z.infer<typeof plannerStepSchema>;
+export type MessageContextRef = z.infer<typeof messageContextRefSchema>;
+export type MessageArtifactRef = z.infer<typeof messageArtifactRefSchema>;
+export type MessageContextManifest = z.infer<typeof messageContextManifestSchema>;

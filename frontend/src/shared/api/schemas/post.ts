@@ -1,6 +1,6 @@
 import { z } from "zod";
 import { chatContextMetaSchema } from "./chatContextMeta";
-import { agentProposalSchema } from "./agentRun";
+import { agentProposalSchema, messageArtifactRefSchema, messageContextRefSchema } from "./agentRun";
 
 export const postStatusSchema = z.enum(["published", "scheduled", "draft", "deleted"]);
 
@@ -145,6 +145,12 @@ export const chatMessageSchema: z.ZodType<{
   proposal?: z.infer<typeof agentProposalSchema>;
   // Null while the card is still awaiting a decision.
   proposalDecision?: z.infer<typeof chatMessageProposalDecisionSchema> | null;
+  messageId?: string;
+  contextRefs?: z.infer<typeof messageContextRefSchema>[];
+  citedEvidence?: string[];
+  artifacts?: z.infer<typeof messageArtifactRefSchema>[];
+  staleRefs?: Array<Record<string, unknown>>;
+  contextProvenance?: "exact" | "inferred" | "legacy";
 }> = z.lazy(() =>
   z.object({
     role: z.enum(["user", "ai"]),
@@ -165,6 +171,12 @@ export const chatMessageSchema: z.ZodType<{
     kbCites: z.array(kbCiteSchema).optional(),
     proposal: agentProposalSchema.optional(),
     proposalDecision: chatMessageProposalDecisionSchema.nullable().optional(),
+    messageId: z.string().optional(),
+    contextRefs: z.array(messageContextRefSchema).optional(),
+    citedEvidence: z.array(z.string()).optional(),
+    artifacts: z.array(messageArtifactRefSchema).optional(),
+    staleRefs: z.array(z.record(z.string(), z.unknown())).optional(),
+    contextProvenance: z.enum(["exact", "inferred", "legacy"]).optional(),
   }),
 );
 

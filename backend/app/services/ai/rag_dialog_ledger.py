@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import hashlib
 import re
 import uuid
 from dataclasses import dataclass
@@ -97,6 +98,9 @@ class LedgerEntity:
     # snippet used for conversational context.
     content: str | None = None
     members: tuple[dict[str, Any], ...] = ()
+    revision: int | None = None
+    provenance: str = "exact"
+    source_ref: str | None = None
 
 
 @dataclass(frozen=True)
@@ -140,6 +144,9 @@ def _entity_to_dict(entity: LedgerEntity) -> dict[str, Any]:
         "hydrated": entity.hydrated,
         "content": entity.content,
         "members": [dict(item) for item in entity.members],
+        "revision": entity.revision,
+        "provenance": entity.provenance,
+        "source_ref": entity.source_ref,
     }
 
 
@@ -158,6 +165,9 @@ def _entity_from_dict(raw: Mapping[str, Any]) -> LedgerEntity:
         members=tuple(
             dict(item) for item in (raw.get("members") or ()) if isinstance(item, Mapping)
         ),
+        revision=(int(raw["revision"]) if raw.get("revision") is not None else None),
+        provenance=str(raw.get("provenance") or "legacy"),
+        source_ref=str(raw.get("source_ref") or "") or None,
     )
 
 
@@ -419,7 +429,24 @@ def build_snapshot_from_evidence_records(
         rec = records.get(eid) or {}
         path = str(rec.get("citation_path") or rec.get("source_ref") or "")
         kind = str(rec.get("kind") or "")
-        if kind in {"note_chunk", "attachment_text"} and "/note/" in path:
+        metadata = rec.get("metadata") if isinstance(rec.get("metadata"), Mapping) else {}
+        try:
+            revision = int(metadata.get("source_revision")) if metadata.get("source_revision") is not None else None
+        except (TypeError, ValueError):
+            revision = None
+        if kind == "attachment_text":
+            entities.append(
+                LedgerEntity(
+                    entity_type="attachment",
+                    ref=path or str(rec.get("source_ref") or "") or None,
+                    post_id=target_post_id,
+                    title=str(rec.get("citation_title") or "") or None,
+                    hydrated=True,
+                    revision=revision,
+                    source_ref=str(rec.get("source_ref") or path) or None,
+                )
+            )
+        if kind == "note_chunk" and "/note/" in path:
             match = _NOTE_PATH_RE.search(path)
             note_id = match.group(2) if match else None
             post_id = (match.group(1) if match else None) or target_post_id
@@ -430,6 +457,8 @@ def build_snapshot_from_evidence_records(
                         note_id=note_id,
                         post_id=post_id,
                         title=str(rec.get("citation_title") or "") or None,
+                        revision=revision,
+                        source_ref=str(rec.get("source_ref") or path) or None,
                     )
                 )
         elif kind == "post_text":
@@ -440,8 +469,26 @@ def build_snapshot_from_evidence_records(
                     entity_type="post",
                     post_id=post_id,
                     title=rec.get("citation_title"),
+                    revision=revision,
+                    source_ref=str(rec.get("source_ref") or path) or None,
                 )
             )
+        elif kind == "semantic_card":
+            source_ref = str(metadata.get("ref") or rec.get("source_ref") or path)
+            entity_kind, _, identifier = source_ref.partition(":")
+            if entity_kind in {"note", "post"} and identifier:
+                entities.append(
+                    LedgerEntity(
+                        entity_type=entity_kind,
+                        note_id=identifier if entity_kind == "note" else None,
+                        post_id=identifier if entity_kind == "post" else target_post_id,
+                        title=str(rec.get("citation_title") or "") or None,
+                        hydrated=False,
+                        revision=revision,
+                        provenance="exact",
+                        source_ref=source_ref,
+                    )
+                )
         elif kind == "catalog":
             members = tuple(
                 dict(item)
@@ -457,15 +504,21 @@ def build_snapshot_from_evidence_records(
                         ref=path,
                         title=str(rec.get("citation_title") or "") or None,
                         members=members[:100],
+                        provenance="exact",
+                        source_ref=path or None,
                     )
                 )
     artifact = (answer_text or "").strip()
     if artifact:
+        digest = hashlib.sha256(artifact.encode("utf-8")).hexdigest()
         entities.append(
             LedgerEntity(
                 entity_type=artifact_kind or "assistant_artifact",
+                ref=f"artifact:sha256:{digest}",
                 title=artifact_kind or "assistant answer",
                 content=artifact[:12000],
+                provenance="exact",
+                source_ref=f"artifact:sha256:{digest}",
             )
         )
     return TurnSnapshot(

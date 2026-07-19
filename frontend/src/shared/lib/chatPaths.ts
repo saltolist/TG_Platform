@@ -260,6 +260,18 @@ export function updateLastVisibleAiMessage(
   return history;
 }
 
+/** Update the assistant turn reserved by the backend, with a legacy fallback. */
+export function updateAiMessageById(
+  history: ChatMessage[],
+  messageId: string,
+  updater: (message: ChatMessage) => ChatMessage,
+): ChatMessage[] {
+  const flat = flattenVisibleWithPaths(history);
+  const exact = flat.find((item) => item.message.role === "ai" && item.message.messageId === messageId);
+  if (exact) return mapMessageAtPath(history, exact.path, updater);
+  return updateLastVisibleAiMessage(history, updater);
+}
+
 /** Добавить сообщение в конец активной ветки. */
 export function appendToActiveHistory(history: ChatMessage[], msg: ChatMessage): ChatMessage[] {
   if (history.length === 0) return [msg];

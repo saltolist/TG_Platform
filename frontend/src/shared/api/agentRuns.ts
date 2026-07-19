@@ -2,8 +2,10 @@ import { apiRequest, apiSseSubscribe } from "@/shared/api/httpClient";
 import {
   agentMediaJobSchema,
   agentSsePayloadSchema,
+  messageContextManifestSchema,
   type AgentMediaJob,
   type AgentSsePayload,
+  type MessageContextManifest,
 } from "@/shared/api/schemas/agentRun";
 
 export type StartAgentRunBody = {
@@ -18,7 +20,7 @@ export type StartAgentRunBody = {
 export async function startAgentRun(
   body: StartAgentRunBody,
   signal?: AbortSignal,
-): Promise<{ id: string; sequence: number }> {
+): Promise<{ id: string; sequence: number; assistant_message_id?: string }> {
   // Browser's IANA zone, e.g. "Europe/Moscow" — lets schedule_post resolve
   // relative phrasing ("сегодня через полчаса") in the user's local time
   // instead of the server's UTC.
@@ -62,3 +64,7 @@ export async function getAgentMediaJob(
   return agentMediaJobSchema.parse(data);
 }
 
+export async function getAgentMessageContext(runId: string): Promise<MessageContextManifest> {
+  const data = await apiRequest<unknown>(`/api/v1/ai/runs/${runId}/context/`);
+  return messageContextManifestSchema.parse(data);
+}

@@ -76,6 +76,17 @@ AGENT_EMPTY_PACK = Counter(
     "agent_empty_pack_total",
     "Runs that finished with no evidence in the pack (grounding gap signal)",
 )
+AGENT_MESSAGE_CONTEXT_ITEMS = Histogram(
+    "agent_message_context_items",
+    "Message context and referent set sizes per completed run",
+    ("kind",),
+    buckets=(0, 1, 2, 3, 5, 8, 13, 21, 50, 100),
+)
+AGENT_REFERENT_CONFIDENCE = Histogram(
+    "agent_referent_resolution_confidence",
+    "Confidence of bounded referent selections",
+    buckets=(0, 0.25, 0.5, 0.7, 0.85, 0.95, 1.0),
+)
 AGENT_STOPPED_REASON = Counter(
     "agent_stopped_reason_total",
     "Terminal stopped_reason of WorkspaceAgent runs",

@@ -31,6 +31,7 @@ class AnswerClaimV1(BaseModel):
 
     text: str = Field(min_length=1)
     evidence_ids: list[str] = Field(min_length=1)
+    claim_scope: str | None = None
 
 
 class AnswerOutputV1(BaseModel):
@@ -38,6 +39,7 @@ class AnswerOutputV1(BaseModel):
 
     answer: str = Field(min_length=1)
     claims: list[AnswerClaimV1] = Field(default_factory=list)
+    used_context_refs: list[str] = Field(default_factory=list)
 
 
 @dataclass(frozen=True)
@@ -46,6 +48,7 @@ class OutputValidation:
     schema: str
     issues: tuple[str, ...] = ()
     claims: tuple[dict[str, Any], ...] = ()
+    used_context_refs: tuple[str, ...] = ()
 
 
 def validate_answer_output(
@@ -54,6 +57,8 @@ def validate_answer_output(
     evidence_ids: set[str],
     factual: bool,
     schema: str = OUTPUT_SCHEMA_V1,
+    supplied_context_refs: set[str] | None = None,
+    evidence_fidelity: Mapping[str, str] | None = None,
 ) -> OutputValidation:
     """Validate schema and require every factual claim to cite verified evidence."""
 
@@ -67,19 +72,40 @@ def validate_answer_output(
         )
 
     issues: list[str] = []
-    claims = tuple(claim.model_dump(mode="json") for claim in parsed.claims)
+    fatal_issues: list[str] = []
+    claims = tuple(claim.model_dump(mode="json", exclude_none=True) for claim in parsed.claims)
     for index, claim in enumerate(claims):
         cited = [str(item) for item in claim.get("evidence_ids") or []]
         dangling = [item for item in cited if item not in evidence_ids]
         if dangling:
-            issues.append(f"claims[{index}].dangling_evidence:{','.join(dangling)}")
+            issue = f"claims[{index}].dangling_evidence:{','.join(dangling)}"
+            issues.append(issue)
+            fatal_issues.append(issue)
+        scope = str(claim.get("claim_scope") or "")
+        if scope in {"exact", "content", "quote", "analytics"} and cited:
+            fidelities = {
+                str((evidence_fidelity or {}).get(eid) or "full_text") for eid in cited
+            }
+            if fidelities == {"semantic_card"}:
+                issue = f"claims[{index}].exact_claim_requires_full_text"
+                issues.append(issue)
+                fatal_issues.append(issue)
     if factual and any(not claim.get("evidence_ids") for claim in claims):
         issues.append("factual_claim_requires_evidence")
+        fatal_issues.append("factual_claim_requires_evidence")
+    used_refs = tuple(dict.fromkeys(str(item) for item in parsed.used_context_refs if str(item)))
+    if supplied_context_refs is not None:
+        dangling_refs = [item for item in used_refs if item not in supplied_context_refs]
+        issues.extend(f"used_context_ref_not_supplied:{item}" for item in dangling_refs)
+        used_refs = tuple(item for item in used_refs if item in supplied_context_refs)
     return OutputValidation(
-        ok=not issues,
+        # Unsupported used refs are stripped and reported, but do not discard a
+        # grounded answer. Claim/evidence violations remain fatal.
+        ok=not fatal_issues,
         schema=schema,
         issues=tuple(issues),
         claims=claims,
+        used_context_refs=used_refs,
     )
 
 

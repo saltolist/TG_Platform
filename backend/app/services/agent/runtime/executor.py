@@ -23,6 +23,8 @@ from app.services.agent.runtime.observability import (
     AGENT_DURATION,
     AGENT_DURATION_BY_MODE,
     AGENT_EMPTY_PACK,
+    AGENT_MESSAGE_CONTEXT_ITEMS,
+    AGENT_REFERENT_CONFIDENCE,
     AGENT_INTERRUPTS,
     AGENT_RUNS,
     AGENT_STEPS,
@@ -241,6 +243,26 @@ def _record_run_metrics(final_state: dict[str, Any]) -> None:
     if not (final_state.get("evidence_ids") or []):
         AGENT_EMPTY_PACK.inc()
     AGENT_STOPPED_REASON.labels(str(final_state.get("stopped_reason") or "unknown")).inc()
+    manifest = final_state.get("message_context_manifest") or {}
+    for kind, field in (
+        ("considered_evidence", "considered_context"),
+        ("cited_evidence", "cited_evidence"),
+        ("context_ref", "context_refs"),
+    ):
+        AGENT_MESSAGE_CONTEXT_ITEMS.labels(kind).observe(len(manifest.get(field) or ()))
+    target_contract = final_state.get("target_contract") or {}
+    targets = target_contract.get("targets") or ()
+    AGENT_MESSAGE_CONTEXT_ITEMS.labels("target_set").observe(len(targets))
+    resolution = target_contract.get("referent_resolution") or {}
+    references = resolution.get("references") or ()
+    selected = [item for ref in references if isinstance(ref, dict) for item in ref.get("target_ids") or ()]
+    AGENT_MESSAGE_CONTEXT_ITEMS.labels("selected_target").observe(len(selected))
+    AGENT_MESSAGE_CONTEXT_ITEMS.labels("unresolved_reference").observe(
+        len(resolution.get("unresolved") or ())
+    )
+    for reference in references:
+        if isinstance(reference, dict):
+            AGENT_REFERENT_CONFIDENCE.observe(float(reference.get("confidence") or 0.0))
 
 
 def _llm_metrics_payload(runtime_context: RuntimeContext, *, duration_ms: float) -> dict[str, Any]:
@@ -375,6 +397,73 @@ async def _persist_turn_memory(
     )
 
 
+async def _persist_message_context(
+    session,
+    *,
+    run: AgentRun,
+    runtime_context: RuntimeContext,
+    final_state: dict[str, Any],
+) -> dict[str, Any]:
+    """Build and persist the authoritative manifest before the final commit."""
+    if not getattr(runtime_context.settings, "dialog_message_context_manifest_v1", True):
+        return {}
+    from app.services.agent.runtime.message_context import (
+        build_message_context_manifest,
+        persist_message_context,
+    )
+
+    contract = dict(final_state.get("turn_contract") or runtime_context.turn_contract or {})
+    unresolved = {
+        str(item)
+        for item in (
+            *tuple(final_state.get("unresolved") or ()),
+            *tuple((final_state.get("evidence_pack") or {}).get("unresolved") or ()),
+            *tuple((final_state.get("sufficiency") or {}).get("open_requirements") or ()),
+        )
+    }
+    stale_refs: list[dict[str, Any]] = []
+    for source in contract.get("source_requirements") or ():
+        if not isinstance(source, dict):
+            continue
+        source_id = str(source.get("source_id") or "")
+        target_ids = [str(item) for item in (source.get("scope") or {}).get("target_ids") or ()]
+        source_missing = source_id in unresolved or any(
+            source_id and source_id in item for item in unresolved
+        )
+        if not source_missing:
+            continue
+        kind = "post" if source.get("kind") == "posts" else "note" if source.get("kind") == "notes" else "object"
+        stale_refs.extend(
+            {"ref": f"{kind}:{identifier}", "kind": kind, "reason": "missing_or_stale_source"}
+            for identifier in target_ids
+        )
+
+    manifest = build_message_context_manifest(
+        message_id=str(getattr(run, "assistant_message_id", "") or run.id),
+        run_id=str(run.id),
+        source_turn_id=str(run.id),
+        evidence_pack=dict(final_state.get("evidence_pack") or {}),
+        claims=[item for item in final_state.get("claims") or () if isinstance(item, dict)],
+        used_context_refs=[str(item) for item in final_state.get("used_context_refs") or ()],
+        target_contract=dict(
+            final_state.get("target_contract")
+            or (final_state.get("turn_contract") or {}).get("target_contract")
+            or {}
+        ),
+        answer_text=str(final_state.get("answer_text") or ""),
+        stale_refs=stale_refs,
+    )
+    await persist_message_context(
+        session,
+        user_id=run.user_id,
+        ledger_key=runtime_context.ledger_key,
+        manifest=manifest,
+    )
+    payload = manifest.model_dump(mode="json", by_alias=True)
+    final_state["message_context_manifest"] = payload
+    return payload
+
+
 async def emit_run_event(
     session,
     *,
@@ -448,6 +537,7 @@ async def execute_agent_run(
         max_steps = min(max_steps, contract_max_steps)
     initial = {
         "run_id": str(run.id),
+        "assistant_message_id": str(getattr(run, "assistant_message_id", "") or run.id),
         "user_id": str(user.id),
         "user_text": user_text,
         "scope": run.scope,
@@ -455,6 +545,8 @@ async def execute_agent_run(
         "status": "running",
         "evidence_records": {},
         "evidence_ids": [],
+        "used_context_refs": [],
+        "message_context_manifest": {},
         "repair_count": 0,
         "max_steps": max_steps,
         "no_progress_count": 0,
@@ -635,6 +727,12 @@ async def execute_agent_run(
                     runtime_context=runtime_context,
                     final_state=final_state,
                 )
+                await _persist_message_context(
+                    session,
+                    run=run,
+                    runtime_context=runtime_context,
+                    final_state=final_state,
+                )
             await event_service.update_run_status(
                 session,
                 run,
@@ -653,6 +751,7 @@ async def execute_agent_run(
                         "evidence_ids": final_state.get("evidence_ids") or [],
                         "output_schema": final_state.get("output_schema") or "",
                         "output_validation": final_state.get("output_validation") or {},
+                        "message_context_manifest": final_state.get("message_context_manifest") or {},
                     },
                 )
             await _emit_llm_metrics(
@@ -874,6 +973,12 @@ async def resume_agent_graph(
             runtime_context=runtime_context,
             final_state=final_state,
         )
+        await _persist_message_context(
+            session,
+            run=run,
+            runtime_context=runtime_context,
+            final_state=final_state,
+        )
     await event_service.update_run_status(
         session,
         run,
@@ -899,6 +1004,7 @@ async def resume_agent_graph(
                 "evidence_ids": final_state.get("evidence_ids") or [],
                 "output_schema": final_state.get("output_schema") or "",
                 "output_validation": final_state.get("output_validation") or {},
+                "message_context_manifest": final_state.get("message_context_manifest") or {},
             },
         )
     await _emit_llm_metrics(

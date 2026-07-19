@@ -244,6 +244,15 @@ async def rebuild_runtime_context_for_run(
         user_id=user.id,
         chat_key=ledger_key,
     )
+    message_manifests: tuple[Mapping[str, Any], ...] = ()
+    if getattr(settings, "dialog_message_context_manifest_v1", True):
+        from app.services.agent.runtime.message_context import load_recent_message_contexts
+
+        message_manifests = await load_recent_message_contexts(
+            session,
+            user_id=user.id,
+            ledger_key=ledger_key,
+        )
     prior_contract = next(
         (dict(turn.turn_contract) for turn in reversed(dialog_ledger) if turn.turn_contract),
         None,
@@ -256,6 +265,10 @@ async def rebuild_runtime_context_for_run(
         dialog_ledger=dialog_ledger,
         open_post=post_data,
         prior_contract=prior_contract,
+        message_manifests=message_manifests,
+        semantic_referent_enabled=bool(
+            getattr(settings, "semantic_referent_resolution_v1", True)
+        ),
         v2_enabled=settings.agent_turn_contract_v2_enabled,
         batch_enabled=settings.agent_batch_path_v1_enabled,
     )

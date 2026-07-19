@@ -43,6 +43,7 @@ from app.services.agent.runtime.output_contract import (
     resolve_output_schema,
     validate_answer_output,
 )
+from app.services.agent.runtime.message_context import supplied_object_refs
 from app.services.agent.runtime.state import AgentGraphState
 from app.services.agent.runtime.turn_contract import render_turn_contract
 
@@ -523,12 +524,41 @@ async def answer_node(state: AgentGraphState, config: RunnableConfig) -> dict[st
     )
     phase6_enabled = bool(getattr(ctx.settings, "agent_answer_phase6_enabled", True))
     output_schema = resolve_output_schema(turn_contract)
+    target_contract = dict(turn_contract.get("target_contract") or {})
+    if target_contract.get("target_mode") == "ambiguous":
+        ambiguity = next(iter(target_contract.get("ambiguities") or ()), {})
+        question = str(
+            ambiguity.get("question")
+            or ((target_contract.get("referent_resolution") or {}).get("ambiguity") or {}).get("question")
+            or "Уточните, какой именно объект нужно использовать."
+        )
+        return {
+            **state,
+            "answer_text": question,
+            "claims": [],
+            "used_context_refs": [],
+            "output_schema": output_schema,
+            "output_validation": {
+                "ok": True,
+                "issues": [],
+                "factual": False,
+                "model": "deterministic_clarification",
+            },
+            "answer_repair_count": 0,
+            "stopped_reason": "referent_ambiguity",
+        }
     evidence_pack = dict(state.get("evidence_pack") or {}) if phase6_enabled else {}
     evidence_ids = list(evidence_pack.get("evidence_ids") or state.get("evidence_ids") or [])
     semantic_card_ids = {
         str(item.get("id") or "")
         for item in evidence_pack.get("items") or ()
         if isinstance(item, dict) and item.get("fidelity") == "semantic_card"
+    }
+    supplied_context_refs = supplied_object_refs(evidence_pack)
+    evidence_fidelity = {
+        str(item.get("id") or ""): str(item.get("fidelity") or "full_text")
+        for item in evidence_pack.get("items") or ()
+        if isinstance(item, dict) and str(item.get("id") or "")
     }
     rag_context = (
         _render_verified_pack(evidence_pack).strip()
@@ -658,7 +688,10 @@ async def answer_node(state: AgentGraphState, config: RunnableConfig) -> dict[st
                 "утверждения допустимы только по full_text."
             )
         prompt_parts.append(
-            'Верни JSON {"answer":"...","claims":[{"text":"...","evidence_ids":[...]}]}.'
+            'Верни JSON {"answer":"...","claims":[{"text":"...","evidence_ids":[...],'
+            '"claim_scope":"topic_only|content|exact"}],"used_context_refs":[...]}. '
+            "used_context_refs может содержать только реально использованные объекты из: "
+            + str(sorted(supplied_context_refs))
         )
         channel_block = _channel_voice_block(ctx)
         system_text = (
@@ -703,7 +736,9 @@ async def answer_node(state: AgentGraphState, config: RunnableConfig) -> dict[st
         # Conversational "finish" path (agent-runtime-sprints §2.1): a
         # follow-up like "покороче" or "на английском?" needs the prior turn
         # from dialog_context, not new evidence — there is none to fetch.
-        prompt_parts.append('Верни JSON {"answer":"...","claims":[]}.')
+        prompt_parts.append(
+            'Верни JSON {"answer":"...","claims":[],"used_context_refs":[]}.'
+        )
         channel_block = _channel_voice_block(ctx)
         system_text = (
             (f"{channel_block}\n\n" if channel_block else "")
@@ -785,6 +820,8 @@ async def answer_node(state: AgentGraphState, config: RunnableConfig) -> dict[st
         evidence_ids=set(evidence_ids),
         factual=factual,
         schema=output_schema,
+        supplied_context_refs=supplied_context_refs,
+        evidence_fidelity=evidence_fidelity,
     )
     answer_text = str(parsed.get("answer") or raw).strip()
     claims = list(validation.claims)
@@ -800,6 +837,8 @@ async def answer_node(state: AgentGraphState, config: RunnableConfig) -> dict[st
                 evidence_ids=set(evidence_ids),
                 factual=False,
                 schema=output_schema,
+                supplied_context_refs=supplied_context_refs,
+                evidence_fidelity=evidence_fidelity,
             )
             if recovered_validation.ok:
                 parsed = recovered
@@ -830,6 +869,8 @@ async def answer_node(state: AgentGraphState, config: RunnableConfig) -> dict[st
                 evidence_ids=set(evidence_ids),
                 factual=True,
                 schema=output_schema,
+                supplied_context_refs=supplied_context_refs,
+                evidence_fidelity=evidence_fidelity,
             )
             if recovered_validation.ok:
                 parsed = recovered
@@ -863,6 +904,8 @@ async def answer_node(state: AgentGraphState, config: RunnableConfig) -> dict[st
             evidence_ids=set(evidence_ids),
             factual=factual,
             schema=output_schema,
+            supplied_context_refs=supplied_context_refs,
+            evidence_fidelity=evidence_fidelity,
         )
         repaired_text = str(repaired.get("answer") or "").strip()
         original_answer = str(
@@ -882,10 +925,12 @@ async def answer_node(state: AgentGraphState, config: RunnableConfig) -> dict[st
     if not validation.ok and factual:
         answer_text = REFUSAL_TEXT
         claims = []
+    used_context_refs = list(validation.used_context_refs) if validation.ok else []
     return {
         **state,
         "answer_text": answer_text,
         "claims": claims,
+        "used_context_refs": used_context_refs,
         "result_contract_issues": quality_issues,
         "output_schema": output_schema,
         "output_validation": {
@@ -1493,6 +1538,7 @@ async def run_workspace_graph(
     graph = get_compiled_workspace_graph()
     initial: AgentGraphState = {
         "run_id": str(run_id),
+        "assistant_message_id": str(run_id),
         "user_id": str(runtime_context.user_id),
         "user_text": user_text,
         "scope": runtime_context.scope,
@@ -1500,6 +1546,8 @@ async def run_workspace_graph(
         "status": "running",
         "evidence_records": {},
         "evidence_ids": [],
+        "used_context_refs": [],
+        "message_context_manifest": {},
         "repair_count": 0,
         "max_steps": runtime_context.settings.rag_agent_max_steps,
         "search_ledger": [],
