@@ -569,9 +569,16 @@ def test_records_from_agent_state_uses_natural_ids() -> None:
 
 
 @pytest.mark.asyncio
-async def test_answer_node_refuses_on_empty_evidence() -> None:
-    """agent-runtime-sprints §1.1: research with no grounded evidence refuses."""
-    from app.services.agent.runtime.workspace_graph import REFUSAL_TEXT, answer_node
+async def test_answer_node_passes_empty_discovery_to_final_generation() -> None:
+    """Empty discovery informs final generation instead of terminating the turn."""
+    from app.services.agent.runtime.workspace_graph import answer_node
+    from app.services.ai.providers import ProviderSpec
+
+    async def stream(_ctx, **_kwargs):
+        yield (
+            '{"answer":"По workspace охват не найден; проверьте доступность аналитики.",'
+            '"claims":[]}'
+        )
 
     ctx = RuntimeContext(
         session_factory=AsyncMock(),
@@ -583,17 +590,40 @@ async def test_answer_node_refuses_on_empty_evidence() -> None:
         scope="global",
         post_data=None,
         ai_profile={},
+        answer_spec=ProviderSpec("DeepSeek", "https://answer"),
+        answer_model="answer-model",
+        answer_api_key="key",
     )
     state = {
         "user_text": "какой охват у поста 3?",
         "tool_call": {"type": "read"},
         "evidence_ids": [],
-        "rag_context": "",
+        "evidence_pack": {
+            "schema": "workspace.evidence-pack/v1",
+            "evidence_ids": [],
+            "items": [],
+            "unresolved": ["analytics_not_found"],
+        },
+        "search_ledger": [
+            {
+                "tool": "SearchNodes",
+                "source_requirement_id": "workspace-analytics",
+            }
+        ],
     }
-    result = await answer_node(state, {"configurable": {"runtime_context": ctx}})
-    assert result["answer_text"] == REFUSAL_TEXT
+    with patch(
+        "app.services.agent.runtime.workspace_graph.stream_llm_with_deadline",
+        side_effect=stream,
+    ) as final_generation:
+        result = await answer_node(state, {"configurable": {"runtime_context": ctx}})
+
+    prompt = final_generation.call_args.kwargs["messages"][1]["content"]
+    assert "no_relevant_workspace_evidence" in prompt
+    assert "analytics_not_found" in prompt
+    assert "какой охват у поста 3?" in prompt
+    assert "проверьте доступность аналитики" in result["answer_text"]
     assert result["claims"] == []
-    assert result["stopped_reason"] == "empty_evidence_refusal"
+    assert result.get("stopped_reason") != "empty_evidence_refusal"
 
 
 def _reasoner_ctx() -> RuntimeContext:

@@ -48,6 +48,49 @@ def _state(**kwargs) -> AgentState:
 
 
 @pytest.mark.asyncio
+async def test_source_searches_reuse_one_query_embedding_and_expose_card_preview() -> None:
+    state = _state(scope="global", base_post_data=None)
+    note_hit = {
+        "note_id": "n1",
+        "node_type": "note_summary",
+        "chunk_text": "Смысловая карточка пространственной системы",
+        "object_title": "Система",
+        "object_status": "active",
+        "similarity": 0.9,
+        "index_revision": 1,
+        "summary_only": True,
+    }
+    post_hit = {
+        **note_hit,
+        "note_id": "p1",
+        "node_type": "post_summary",
+        "object_title": "Пост",
+    }
+    with patch(
+        "app.services.agent.research.prefetch.retrieve_for_discovery",
+        new_callable=AsyncMock,
+        side_effect=[[note_hit], [post_hit]],
+    ):
+        notes = await tool_search_nodes(
+            state,
+            query="пространственная система",
+            node_types=["note_summary", "note_chunk"],
+            k=6,
+        )
+        posts = await tool_search_nodes(
+            state,
+            query="пространственная система",
+            node_types=["post_summary", "post_text"],
+            k=6,
+        )
+
+    state.embedding_backend.embed_query.assert_awaited_once()
+    assert notes.hits[0]["title"] == "Система"
+    assert "пространственной системы" in notes.hits[0]["preview"]
+    assert posts.hits[0]["ref"] == "post:p1"
+
+
+@pytest.mark.asyncio
 async def test_tool_search_nodes_summary_shape() -> None:
     state = _state()
     with patch(
@@ -251,6 +294,8 @@ async def test_list_posts_reports_total_independent_of_preview_limit() -> None:
     assert "total=2" in outcome.summary
     assert "shown=1" in outcome.summary
     assert len(state.catalog_posts) == 1
+    records = records_from_agent_state(state)
+    assert len(records["/posts/"].metadata["members"]) == 2
 
 
 @pytest.mark.asyncio
@@ -313,6 +358,25 @@ async def test_tool_open_note_from_post_scope() -> None:
     cite, text = state.context_blocks[0]
     assert cite.path == "/note/post/post-1/n1/"
     assert "Подробности" in text
+
+
+@pytest.mark.asyncio
+async def test_tool_open_note_normalizes_multiline_title() -> None:
+    state = _state(scope="global", base_post_data=None)
+    with patch(
+        "app.services.ai.rag_tools.get_note_data",
+        new_callable=AsyncMock,
+        return_value={
+            "id": "n1",
+            "title": "Система\nСистема\nСистема",
+            "body": "Подробности",
+            "files": [],
+        },
+    ):
+        outcome = await tool_open_note(state, note_id="n1")
+
+    assert outcome.error is None
+    assert state.context_blocks[0][0].title == "Система"
 
 
 @pytest.mark.asyncio

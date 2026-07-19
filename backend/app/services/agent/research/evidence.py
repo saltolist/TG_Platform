@@ -84,6 +84,14 @@ def records_from_agent_state(agent_state) -> dict[str, EvidenceRecord]:
             kind = "attachment_text"
         elif path.endswith("/post/") or "/post/" in path and "/note/" not in path:
             kind = "post_text"
+        metadata: dict[str, Any] = {"visited": list(agent_state.visited)[-8:]}
+        catalog_members = getattr(agent_state, "catalog_members", {})
+        if kind == "catalog" and isinstance(catalog_members, dict):
+            metadata["members"] = [
+                dict(item)
+                for item in catalog_members.get(path, ())
+                if isinstance(item, dict)
+            ]
         records[path] = EvidenceRecord(
             id=path,
             kind=kind,
@@ -91,7 +99,7 @@ def records_from_agent_state(agent_state) -> dict[str, EvidenceRecord]:
             content=str(plain or ""),
             citation_path=path,
             citation_title=str(cite.title or ""),
-            metadata={"visited": list(agent_state.visited)[-8:]},
+            metadata=metadata,
             producer="rag_tools",
         )
     return records

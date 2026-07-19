@@ -182,6 +182,11 @@ class Settings(BaseSettings):
     rag_min_similarity: float = 0.38
     # Hard cap on note text fed to the embedder (chars); long notes are chunked
     rag_max_note_chars: int = 4000
+    # Background LLM cards used only for post/note discovery. Original source
+    # content remains mandatory evidence for factual answers.
+    rag_semantic_summaries_enabled: bool = True
+    rag_semantic_summary_timeout_seconds: float = 20.0
+    rag_semantic_summary_input_chars: int = 6000
     # Recent dialogue turns to prepend to the RAG embedding query (0 = current message only).
     rag_query_history_turns: int = 2
     # Max chars for the expanded RAG query sent to the embedder.
@@ -218,9 +223,9 @@ class Settings(BaseSettings):
     # Unified agent runtime (ADR-012)
     agent_runtime_engine: Literal["legacy", "langgraph"] = "langgraph"
     agent_runtime_phase1_enabled: bool = True
-    # Phase-2 typed target/source bootstrap. Disable for immediate rollback to
-    # the phase-1 compatibility contract without changing persisted runs.
-    agent_turn_contract_v2_enabled: bool = False
+    # Phase-2 typed target/source bootstrap. Disable only for an explicit
+    # rollback to the phase-1 compatibility contract.
+    agent_turn_contract_v2_enabled: bool = True
     # Phase-4 candidate-first discovery/contextual retrieval. Disable to fall
     # back to the phase-3 single hybrid SearchNodes policy after migration.
     agent_retrieval_phase4_enabled: bool = True
@@ -245,6 +250,7 @@ class Settings(BaseSettings):
 
     @field_validator(
         "rag_enabled",
+        "rag_semantic_summaries_enabled",
         "ai_context_log",
         "ai_context_stamps",
         "rag_query_rewrite_on_miss",

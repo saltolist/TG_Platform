@@ -22,7 +22,7 @@ EXAMPLES_DIR = REPO_ROOT / "docs" / "dev" / "rag-pipeline" / "examples"
 # catalog ids are doc-only (agent-runtime-sprints §4 tail, not a silent gap).
 EXECUTABLE_SCENARIOS: dict[str, str] = {
     "06": "test_golden_notes_with_content",
-    "11": "test_golden_empty_pack_refusal",
+    "11": "test_golden_empty_pack_reaches_final_answer",
     "13": "test_golden_multi_turn_deixis",
 }
 

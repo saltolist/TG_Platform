@@ -73,13 +73,6 @@ def _has_factual_claim(state: Mapping[str, Any]) -> bool:
     return False
 
 
-def _is_refusal(state: Mapping[str, Any]) -> bool:
-    """The runtime's empty-pack answer guard emits a stable refusal marker."""
-    return bool(
-        (state.get("stopped_reason") or "") == "empty_evidence_refusal"
-    ) or not str(state.get("answer_text") or "").strip()
-
-
 # --------------------------------------------------------------------------- #
 # Graders
 # --------------------------------------------------------------------------- #
@@ -105,9 +98,12 @@ def grade_claims_subset_evidence(state: Mapping[str, Any]) -> GraderResult:
 
 
 def grade_empty_pack_no_claim(state: Mapping[str, Any]) -> GraderResult:
-    """Empty pack ⇒ no factual claim. If the run collected no evidence
-    (empty rag_context and no evidence_ids), the answer must be a refusal
-    rather than fabricated text (DoD #1, answer guard §1.1)."""
+    """Empty pack ⇒ no workspace-factual claim.
+
+    The final model may still answer from the user's message, dialog and
+    general knowledge. An empty retrieval result is context, not a terminal
+    refusal; only evidence-backed claim objects are forbidden without evidence.
+    """
     rag = str(state.get("rag_context") or "").strip()
     ids = state.get("evidence_ids") or []
     if rag or ids:
@@ -116,16 +112,16 @@ def grade_empty_pack_no_claim(state: Mapping[str, Any]) -> GraderResult:
             passed=True,
             reason="pack non-empty — grader not applicable",
         )
-    if _has_factual_claim(state) or not _is_refusal(state):
+    if _has_factual_claim(state):
         return GraderResult(
             name="empty_pack_no_claim",
             passed=False,
-            reason="empty pack but answer made a factual claim / did not refuse",
+            reason="empty pack but answer emitted a workspace-factual claim",
         )
     return GraderResult(
         name="empty_pack_no_claim",
         passed=True,
-        reason="empty pack → refusal",
+        reason="empty pack → no workspace-factual claims",
     )
 
 

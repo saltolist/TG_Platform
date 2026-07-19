@@ -198,7 +198,7 @@ async def test_tool_node_does_not_repeat_successful_external_call() -> None:
 
 
 @pytest.mark.asyncio
-async def test_seed_reuses_legacy_l1_hybrid_hits() -> None:
+async def test_seed_executes_source_scoped_discovery_instead_of_mixed_l1() -> None:
     from app.services.agent.research.graph import research_seed_node
 
     ctx = _ctx()
@@ -219,7 +219,14 @@ async def test_seed_reuses_legacy_l1_hybrid_hits() -> None:
     }
     with (
         patch("app.services.agent.research.graph._workspace_inventory", new=AsyncMock(return_value="")),
-        patch("app.services.agent.research.graph._execute_tool", new_callable=AsyncMock) as execute,
+            patch(
+                "app.services.agent.research.graph._execute_tool",
+                new_callable=AsyncMock,
+                return_value=ToolOutcome(
+                    summary="one result",
+                    hits=({"ref": "note:n1", "similarity": 0.81},),
+                ),
+            ) as execute,
     ):
         result = await research_seed_node(
             state,
@@ -232,8 +239,11 @@ async def test_seed_reuses_legacy_l1_hybrid_hits() -> None:
                 }
             },
         )
-    execute.assert_not_awaited()
-    assert result["prefetch_hits"][0]["ref"] == "note:n1"
+        execute.assert_awaited_once()
+    action = execute.await_args.args[1]
+    assert action.tool == "SearchNodes"
+    assert action.args["source_requirement_id"] == "workspace-notes-1"
+    assert action.args["node_types"] == ["note_summary", "note_chunk"]
     assert result["search_ledger"][-1]["state"] == "satisfied"
 
 

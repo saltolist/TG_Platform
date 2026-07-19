@@ -177,18 +177,18 @@ async def test_golden_notes_with_content(writer_user) -> None:
 
 @pytest.mark.golden
 @pytest.mark.asyncio
-async def test_golden_empty_pack_refusal(writer_user) -> None:
+async def test_golden_empty_pack_reaches_final_answer(writer_user) -> None:
     """Scenario 11: search finds nothing, the planner's empty FinishRetrieval
     fails verify twice (repair budget=1) and hard-stops into pack with an
-    empty evidence set — the answer guard must refuse, never invent a fact
+    empty evidence set — final generation must still answer without inventing a fact
     (agent-runtime-sprints §1.1/§1.3 exit criterion)."""
     final_state = await _run_golden(
         writer_user,
         history=[],
         user_text="Какой охват у поста про запуск?",
-        # Exactly 4 LLM calls: classifier + 3 planner (SearchNodes, then two
+        # Exactly 5 LLM calls: classifier + 3 planner (SearchNodes, then two
         # empty FinishRetrieval — the 2nd only because verify's repair budget
-        # is 1). The answer node refuses via code-gate, no 5th call. If
+        # is 1), followed by normal final generation with an empty pack. If
         # verifier.max_repair ever rises above 1 this script runs dry and the
         # graph raises StopIteration — add one more FinishRetrieval per extra
         # repair to keep the flow legible.
@@ -197,13 +197,18 @@ async def test_golden_empty_pack_refusal(writer_user) -> None:
             '{"tool": "SearchNodes", "args": {"query": "охват запуск"}}',
             '{"tool": "FinishRetrieval", "args": {"status": "ready", "evidence_ids": []}}',
             '{"tool": "FinishRetrieval", "args": {"status": "ready", "evidence_ids": []}}',
+            (
+                '{"answer":"По workspace данных об охвате этого поста не найдено. '
+                'Проверьте, опубликован ли он и доступна ли аналитика.","claims":[]}'
+            ),
         ],
         search_results=[],
     )
 
     assert final_state.get("status") == "completed"
-    assert final_state.get("stopped_reason") == "empty_evidence_refusal"
+    assert final_state.get("stopped_reason") != "empty_evidence_refusal"
     assert final_state.get("evidence_ids") == []
     assert final_state.get("claims") == []
+    assert "Проверьте" in str(final_state.get("answer_text") or "")
     report = grade_run(final_state)
     assert report.ok, report.failures

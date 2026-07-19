@@ -92,6 +92,8 @@ def is_factual_profile(contract: Mapping[str, Any], *, researched: bool) -> bool
         return False
     if int(contract.get("version") or 0) < 2 and contract.get("requires_workspace") is not True:
         return False
+    if int(contract.get("version") or 0) >= 2:
+        return not bool(contract.get("answerability_without_evidence", False))
     return str(contract.get("task_profile") or "") not in {
         "artifact_revision",
         "channel_profile_draft",

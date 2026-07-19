@@ -126,6 +126,10 @@ def evaluate_sufficiency(
     remaining_intents = _remaining_intents(list(state.get("search_ledger") or ()), contract)
     hard_budget = _budget_exhausted(state, contract)
     deadline_exhausted = bool(state.get("deadline_exhausted"))
+    source_requirements = tuple(contract.get("source_requirements") or ())
+    optional_discovery_complete = bool(source_requirements) and not any(
+        bool(source.get("required")) for source in source_requirements
+    ) and not bool(state.get("prefetch_hits"))
 
     if requested_status == "ready" and evidence_ids and not missing:
         return SufficiencyResult(
@@ -134,6 +138,15 @@ def evaluate_sufficiency(
     if evidence_ids and not missing and not remaining_intents and requested_status != "partial":
         return SufficiencyResult(
             "ready", satisfied, (), (), (), evidence_ids, "ALL_REQUIRED_EVIDENCE_PRESENT"
+        )
+    if (
+        optional_discovery_complete
+        and not missing
+        and not remaining_intents
+        and requested_status != "partial"
+    ):
+        return SufficiencyResult(
+            "ready", satisfied, (), (), (), (), "OPTIONAL_DISCOVERY_COMPLETE"
         )
     if requested_status == "partial":
         unresolved = tuple(dict.fromkeys((*missing, *remaining_intents)))

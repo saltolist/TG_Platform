@@ -96,6 +96,7 @@ class LedgerEntity:
     # in JSONB so follow-up turns do not depend on the 400-character transcript
     # snippet used for conversational context.
     content: str | None = None
+    members: tuple[dict[str, Any], ...] = ()
 
 
 @dataclass(frozen=True)
@@ -138,6 +139,7 @@ def _entity_to_dict(entity: LedgerEntity) -> dict[str, Any]:
         "vision_preview": entity.vision_preview,
         "hydrated": entity.hydrated,
         "content": entity.content,
+        "members": [dict(item) for item in entity.members],
     }
 
 
@@ -153,6 +155,9 @@ def _entity_from_dict(raw: Mapping[str, Any]) -> LedgerEntity:
         vision_preview=raw.get("vision_preview"),
         hydrated=bool(raw.get("hydrated")),
         content=str(raw.get("content") or "") or None,
+        members=tuple(
+            dict(item) for item in (raw.get("members") or ()) if isinstance(item, Mapping)
+        ),
     )
 
 
@@ -437,6 +442,23 @@ def build_snapshot_from_evidence_records(
                     title=rec.get("citation_title"),
                 )
             )
+        elif kind == "catalog":
+            members = tuple(
+                dict(item)
+                for item in (rec.get("metadata") or {}).get("members") or ()
+                if isinstance(item, Mapping)
+                and str(item.get("kind") or "") in {"note", "post"}
+                and str(item.get("id") or "").strip()
+            )
+            if members:
+                entities.append(
+                    LedgerEntity(
+                        entity_type="entity_set",
+                        ref=path,
+                        title=str(rec.get("citation_title") or "") or None,
+                        members=members[:100],
+                    )
+                )
     artifact = (answer_text or "").strip()
     if artifact:
         entities.append(
@@ -491,6 +513,15 @@ def format_ledger_for_planner(
                 lines.append(
                     f"  artifact type={entity.entity_type!r} title={entity.title!r}\n"
                     f"    content={entity.content[:6000]!r}"
+                )
+            elif entity.entity_type == "entity_set" and entity.members:
+                rendered = [
+                    f"{item.get('kind')}:{item.get('id')} title={item.get('title')!r}"
+                    for item in entity.members[:20]
+                ]
+                lines.append(
+                    f"  entity_set ref={entity.ref!r} count={len(entity.members)} "
+                    f"members={rendered!r}"
                 )
     return "\n".join(lines)
 

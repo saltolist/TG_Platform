@@ -50,19 +50,109 @@ _compiled_graphs: dict[int, tuple[object, Any]] = {}
 
 WORKSPACE_SYSTEM = """Ты единственный WorkspaceAgent платформы.
 Верни один JSON tool call:
-- {"type":"read"} — нужен поиск по workspace;
-- {"type":"finish"} — ответ не требует данных workspace;
+- {"type":"read","requires_evidence":true,"required_sources":["notes|posts|analytics|comments|attachments|images"]} — ответ невозможен без фактов workspace;
+- {"type":"finish","requires_evidence":false,"required_sources":[]} — на сообщение можно полноценно ответить по его тексту, диалогу и общим знаниям;
 - {"type":"post_proposal","command":"create_post|edit_post|schedule_post|publish_post|cancel_schedule|delete_post|restore_post","payload":{...}};
 - {"type":"media_proposal","kind":"image|video","prompt":"...","options":{},"cost_ceiling":number}.
 Не выполняй мутации напрямую. Выбирай только тип вызова, без keyword routing.
 Не предлагай функций, которых нет в перечисленных tools. В частности, в платформе
 нет действия «связать заметку с постами или файлами»; заметки и файлы уже являются
 частью workspace и доступны AI после сохранения.
-При любой неоднозначности выбирай "read": если запрос ссылается на посты, заметки, метрики, охваты или любые факты workspace — это "read". "finish" — только для явно общих/не-фактических запросов (приветствие, объяснение возможностей, вопрос не про данные workspace).
+Обычные answer-turns в любом случае выполняют отдельный ограниченный поиск по заметкам и постам для обогащения ответа. Поэтому НЕ выбирай "read" и НЕ добавляй required_sources только ради полезного контекста. Выбирай "read" лишь когда факты именно из workspace необходимы для выполнения запроса: пользователь просит найти, перечислить, посчитать, проверить или описать свои объекты/метрики. Совет, оценка или общий вопрос, на который можно ответить без утверждений о содержимом workspace, — "finish"; найденные материалы всё равно будут доступны как необязательное обогащение.
 Если передан блок "Диалог" — используй его, чтобы понять контекст запроса. Короткая правка твоего предыдущего ответа без новых фактических вопросов (перефразируй, покороче, на другом языке, другим тоном) — это "finish", даже если предыдущий ответ был по фактам workspace: факты уже собраны и лежат в диалоге, повторный поиск не нужен.
 Если передан блок "Текущий пост" и пользователь просит изменить его текст (убрать/добавить/переформулировать что-то в посте) — верни ровно {"type":"post_proposal","command":"edit_post","payload":{}}. Полный текст поста и его id проставляются отдельным детерминированным шагом — тебе НЕ нужно возвращать ни текст, ни id здесь, только классифицировать запрос как edit_post.
 
 Дополнительно ВСЕГДА добавляй в JSON поле "search_query" — самодостаточную формулировку того, что пользователь ищет, пригодную для семантического поиска по заметкам и постам. Раскрой анафоры и подразумеваемое из блока "Диалог": "а сколько там с картинками?" → "сколько заметок с изображениями"; "покороче" (правка ответа) → повтори тему прошлого ответа своими словами. Если запрос и так самодостаточный — повтори его суть без изменений. Не оставляй "search_query" пустым для "read"-запросов."""
+
+_CLASSIFIER_SOURCE_KINDS = frozenset(
+    {"notes", "posts", "analytics", "comments", "attachments", "images"}
+)
+
+
+def _apply_classifier_source_policy(
+    contract: dict[str, Any],
+    *,
+    required_sources: list[str],
+    classifier_requires_evidence: bool,
+) -> dict[str, Any]:
+    """Make semantic classifier output authoritative for factual grounding.
+
+    Notes/posts stay present as optional enrichment on every corpus turn. The
+    classifier may promote relevant kinds to required without rebuilding the
+    target contract or relying on language-specific marker lists.
+    """
+
+    required = {
+        str(item).strip().lower()
+        for item in required_sources
+        if str(item).strip().lower() in _CLASSIFIER_SOURCE_KINDS
+    }
+    sources = [dict(item) for item in contract.get("source_requirements") or ()]
+    if classifier_requires_evidence and not required:
+        required.update(
+            str(item.get("kind") or "") for item in sources if item.get("required")
+        )
+    existing = {str(item.get("kind") or "") for item in sources}
+    for source in sources:
+        source["required"] = str(source.get("kind") or "") in required
+    for kind in sorted(required - existing):
+        sources.append(
+            {
+                "source_id": f"workspace-{kind}",
+                "kind": kind,
+                "role": "source",
+                "required": True,
+                "query_goal": f"retrieve {kind} required by the current goal",
+                "min_evidence": 1,
+                "evidence_granularity": "full_text",
+                "scope": {
+                    "mode": "corpus",
+                    "target_ids": [],
+                    "corpus": "workspace",
+                    "owner": "current_user",
+                    "statuses": [],
+                },
+                "freshness": {
+                    "mode": "latest_available",
+                    "revision": None,
+                    "max_age_seconds": None,
+                    "snapshot_at": None,
+                },
+                "budget": {
+                    "search_calls": 1,
+                    "rewrite_calls": 0,
+                    "candidate_limit": 6,
+                    "deep_reads": 1,
+                },
+            }
+        )
+    result = {
+        **contract,
+        # V1 contracts predate semantic source classification and may still
+        # carry requires_workspace=False. A classifier "read" decision is the
+        # authoritative signal that the answer needs workspace facts.
+        "requires_workspace": bool(
+            contract.get("requires_workspace") or classifier_requires_evidence
+        ),
+        "source_requirements": sources,
+        "answerability_without_evidence": not classifier_requires_evidence,
+        "evidence_requirements": [
+            f"{item.get('source_id')}:grounded_evidence"
+            for item in sources
+            if item.get("required")
+        ],
+    }
+    budgets = dict(result.get("budgets") or {})
+    budgets["search_calls"] = max(
+        int(budgets.get("search_calls") or 0),
+        sum(int((item.get("budget") or {}).get("search_calls") or 0) for item in sources),
+    )
+    budgets["deep_reads"] = max(
+        int(budgets.get("deep_reads") or 0),
+        sum(int((item.get("budget") or {}).get("deep_reads") or 0) for item in sources),
+    )
+    result["budgets"] = budgets
+    return result
 
 
 async def bootstrap_node(state: AgentGraphState, config: RunnableConfig) -> dict[str, Any]:
@@ -126,9 +216,18 @@ async def workspace_agent_node(
         if dialog_context.strip():
             content_parts.append(f"Диалог:\n{dialog_context.strip()}")
         if turn_contract:
+            target_contract = dict(turn_contract.get("target_contract") or {})
+            classifier_contract = {
+                "goal": turn_contract.get("goal"),
+                "intent": turn_contract.get("intent"),
+                "output": turn_contract.get("output"),
+                "success_criteria": turn_contract.get("success_criteria") or [],
+                "targets": target_contract.get("targets") or [],
+                "ambiguities": target_contract.get("ambiguities") or [],
+            }
             content_parts.append(
-                "Контракт результата (авторитетен):\n"
-                + render_turn_contract(turn_contract)
+                "Задача и явные цели (не политика retrieval):\n"
+                + render_turn_contract(classifier_contract)
             )
         # The classifier must see the post it's being asked to edit — without
         # this it cannot produce a correct edit_post payload and silently
@@ -160,10 +259,39 @@ async def workspace_agent_node(
         or ctx.turn_contract
         or {}
     )
+    classified_type = str(call.get("type") or "read")
+    raw_required_sources = call.get("required_sources")
+    required_sources = (
+        [str(item) for item in raw_required_sources]
+        if isinstance(raw_required_sources, list)
+        else []
+    )
+    deterministic_required = any(
+        bool(item.get("required"))
+        for item in turn_contract.get("source_requirements") or ()
+        if isinstance(item, dict)
+    )
+    explicit_requires_evidence = call.get("requires_evidence")
+    if isinstance(explicit_requires_evidence, bool):
+        semantic_required = explicit_requires_evidence
+    elif int(turn_contract.get("version") or 0) >= 2:
+        # V2 always performs discovery, so `read` is not itself proof that an
+        # answer must be refused on an empty pack. Structured source promotion
+        # is the backwards-compatible factual signal when the new boolean is
+        # omitted by a model.
+        semantic_required = bool(required_sources)
+    else:
+        semantic_required = classified_type == "read"
+    classifier_requires_evidence = deterministic_required or semantic_required
+    turn_contract = _apply_classifier_source_policy(
+        turn_contract,
+        required_sources=required_sources,
+        classifier_requires_evidence=classifier_requires_evidence,
+    )
     if (
         turn_contract.get("requires_workspace")
         and target_mode != "ambiguous"
-        and str(call.get("type") or "") == "finish"
+        and classified_type == "finish"
     ):
         call = {**call, "type": "read"}
     if turn_contract.get("intent") in {"write_post", "compare_with_feed_posts", "inspect_note"}:
@@ -175,13 +303,19 @@ async def workspace_agent_node(
         call_type = "read"
     # Resolved search query for the seed prefetch (anaphora expanded). Fall back
     # to raw user_text when the classifier omitted or emptied it.
+    classifier_query = str(call.get("search_query") or "").strip()
     contract_query = str(turn_contract.get("search_query") or "").strip()
-    search_query = contract_query or str(call.get("search_query") or "").strip() or str(state.get("user_text") or "")
+    search_query = (
+        contract_query or classifier_query or str(state.get("user_text") or "")
+        if target_mode in {"exact", "set"} or str(turn_contract.get("corpus") or "") == "exact_note"
+        else classifier_query or contract_query or str(state.get("user_text") or "")
+    )
     return {
         **state,
         "current_tool": call_type,
         "tool_call": call,
         "search_query": search_query,
+        "turn_contract": turn_contract,
     }
 
 
@@ -223,9 +357,21 @@ REFUSAL_TEXT = (
 )
 
 _GROUNDED_ANSWER_BASE = (
-    "Отвечай только по EvidencePack. Не выдумывай отсутствующие факты. "
-    "Каждый factual claim должен ссылаться только на id из EvidencePack. "
+    "Выполни текущий запрос пользователя с учётом его формулировки и диалога. "
+    "EvidencePack — дополнительный контекст и единственный источник фактов именно "
+    "о workspace, а не готовый ответ и не замена задачи пользователя. Используй "
+    "только относящиеся к запросу материалы и не превращай ответ в отчёт о поиске "
+    "или пересказ EvidencePack. Не выдумывай отсутствующие workspace-факты; каждый "
+    "такой factual claim должен ссылаться только на id из EvidencePack. Общие "
+    "объяснения и рассуждения могут опираться на сам запрос, диалог и общие знания. "
     "Контракт результата авторитетен: не меняй target/corpus/output."
+)
+_ENRICHED_ANSWER_BASE = (
+    "Сначала полноценно ответь на вопрос пользователя по его формулировке и диалогу. "
+    "EvidencePack — дополнительный контекст: используй только относящиеся к вопросу "
+    "материалы и не превращай ответ в отчёт о поиске. Факты именно о workspace не "
+    "выдумывай и связывай только с id из EvidencePack; общие рассуждения и советы "
+    "могут опираться на сам вопрос и общие знания."
 )
 _ANSWER_COUNTING_RULE = (
     "При подсчете применяй критерий вопроса к каждому объекту, а не используй "
@@ -304,24 +450,17 @@ async def answer_node(state: AgentGraphState, config: RunnableConfig) -> dict[st
     style_profile = build_style_profile(
         {eid: evidence_records[eid] for eid in evidence_ids if eid in evidence_records}
     )
-    came_through_research = str((state.get("tool_call") or {}).get("type") or "") == "read"
+    came_through_research = (
+        str((state.get("tool_call") or {}).get("type") or "") == "read"
+        or bool(state.get("search_ledger"))
+        or bool(state.get("finish_retrieval_attempted"))
+    )
     has_grounded_evidence = bool(evidence_ids and rag_context)
-    factual = is_factual_profile(turn_contract, researched=came_through_research)
-
-    # Answer guard (code-gate, not prompt): if the request went through research
-    # and cannot be answered without workspace facts, refuse instead of letting
-    # the model invent those facts. Advisory profiles remain answerable from
-    # the user's question/dialog even when discovery found no usable evidence.
-    if came_through_research and (factual or not turn_contract) and not has_grounded_evidence:
-        return {
-            **state,
-            "answer_text": REFUSAL_TEXT,
-            "claims": [],
-            "stopped_reason": "empty_evidence_refusal",
-            "output_schema": output_schema,
-            "output_validation": {"ok": True, "issues": [], "factual": True},
-            "answer_repair_count": 0,
-        }
+    research_expected = came_through_research or bool(
+        turn_contract.get("requires_workspace")
+        and not turn_contract.get("answerability_without_evidence", False)
+    )
+    factual = is_factual_profile(turn_contract, researched=research_expected)
 
     prompt_parts: list[str] = []
     if turn_contract:
@@ -335,7 +474,7 @@ async def answer_node(state: AgentGraphState, config: RunnableConfig) -> dict[st
             "Измеренный профиль референсных постов:\n"
             + render_turn_contract(style_profile)
         )
-    if dialog_context.strip() and (not came_through_research or not has_grounded_evidence):
+    if dialog_context.strip():
         prompt_parts.append(f"Диалог:\n{dialog_context.strip()}")
     # Post-scope: the current post is a deictic reference ("этот пост") that
     # research/RAG cannot resolve — there is nothing to search for by meaning.
@@ -348,6 +487,30 @@ async def answer_node(state: AgentGraphState, config: RunnableConfig) -> dict[st
         if post_id and post_text:
             prompt_parts.append(f"Текущий пост (tech_id={post_id}):\n{post_text}")
     prompt_parts.append(f"Вопрос:\n{state.get('user_text', '')}")
+    if came_through_research and not has_grounded_evidence:
+        searched_sources = list(
+            dict.fromkeys(
+                str(item.get("source_requirement_id") or "unscoped")
+                for item in (state.get("search_ledger") or [])
+                if str(item.get("tool") or "")
+                in {"SearchNodes", "SearchObjectChunks", "ListPosts", "ListGlobalNotes"}
+            )
+        )
+        prompt_parts.append(
+            "Результат workspace discovery (служебные данные, не готовый ответ):\n"
+            + render_turn_contract(
+                {
+                    "status": "no_relevant_workspace_evidence",
+                    "searched_sources": searched_sources,
+                    "unresolved": list(evidence_pack.get("unresolved") or state.get("unresolved") or []),
+                    "instruction": (
+                        "Ответь на сообщение по его смыслу и диалогу. Не выдумывай факты "
+                        "workspace. Упомяни отсутствие данных только если пользователь "
+                        "действительно просил найти, проверить или сообщить такой факт."
+                    ),
+                }
+            )
+        )
     if came_through_research and has_grounded_evidence:
         # Grounded path: cite only the retrieved evidence, same contract as before.
         evidence_titles = [str(t) for t in (state.get("evidence_titles") or []) if str(t).strip()]
@@ -392,7 +555,7 @@ async def answer_node(state: AgentGraphState, config: RunnableConfig) -> dict[st
         channel_block = _channel_voice_block(ctx)
         system_text = (
             (f"{channel_block}\n\n" if channel_block else "")
-            + _GROUNDED_ANSWER_BASE + "\n"
+            + (_GROUNDED_ANSWER_BASE if factual else _ENRICHED_ANSWER_BASE) + "\n"
             # Counting/filtering guard: a listing block (перечень заметок/постов)
             # gives the TOTAL number of items, not the number matching the
             # question. For «сколько X про Y» / «какие из них Y» не бери общее
@@ -481,7 +644,7 @@ async def answer_node(state: AgentGraphState, config: RunnableConfig) -> dict[st
     last_emitted = ""
     output_contract = dict(turn_contract.get("output") or {})
     requested_chars = int(output_contract.get("min_chars") or 0)
-    max_answer_tokens = min(6000, max(1200, requested_chars * 3 + 600))
+    max_answer_tokens = min(6000, max(2400, requested_chars * 3 + 600))
     async for token in stream_llm_with_deadline(
         ctx,
         phase="answer.generate",
@@ -500,11 +663,14 @@ async def answer_node(state: AgentGraphState, config: RunnableConfig) -> dict[st
         # Throttle: only emit when the visible text actually grew by a few
         # chars, so we don't write a DB event per token (the executor commits
         # each custom event for the live SSE reader).
-        if partial is not None and len(partial) - len(last_emitted) >= 12:
+        if partial is not None and len(partial) - len(last_emitted) >= 48:
             last_emitted = partial
             writer({"answer_partial": partial})
 
     raw = "".join(raw_parts)
+    final_partial = extract_partial_answer(raw)
+    if final_partial is not None and final_partial != last_emitted:
+        writer({"answer_partial": final_partial})
     parsed = extract_json_object(raw) or {}
     validation = validate_answer_output(
         parsed,
@@ -532,6 +698,36 @@ async def answer_node(state: AgentGraphState, config: RunnableConfig) -> dict[st
                 validation = recovered_validation
                 answer_text = recovered_answer
                 claims = []
+    if (
+        not validation.ok
+        and factual
+        and evidence_ids
+        and "answer" in validation.issues
+    ):
+        # Some providers finish the complete `answer` string but hit the token
+        # limit while serializing the claims array. Preserve that useful answer
+        # and bind it to the already verified pack instead of replacing it with
+        # an empty-evidence refusal. Do not salvage a partial answer string: it
+        # may end mid-sentence and would hide a real generation failure.
+        recovered_answer = str(extract_complete_answer(raw) or "").strip()
+        if recovered_answer:
+            recovered = {
+                "answer": recovered_answer,
+                "claims": [
+                    {"text": recovered_answer, "evidence_ids": list(evidence_ids)}
+                ],
+            }
+            recovered_validation = validate_answer_output(
+                recovered,
+                evidence_ids=set(evidence_ids),
+                factual=True,
+                schema=output_schema,
+            )
+            if recovered_validation.ok:
+                parsed = recovered
+                validation = recovered_validation
+                answer_text = recovered_answer
+                claims = list(validation.claims)
     if not validation.ok:
         repair_count = 1
         repair_prompt = (

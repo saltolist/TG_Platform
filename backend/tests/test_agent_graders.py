@@ -98,6 +98,18 @@ def test_empty_pack_refusal_passes() -> None:
     assert result.passed is True
 
 
+def test_empty_pack_useful_nonfactual_answer_passes() -> None:
+    state = {
+        "rag_context": "",
+        "evidence_ids": [],
+        "answer_text": "Да, переходите к тестированию; начните с основного сценария.",
+        "claims": [],
+        "stopped_reason": "ready",
+    }
+    result = grade_empty_pack_no_claim(state)
+    assert result.passed is True
+
+
 def test_empty_pack_hallucination_fails() -> None:
     result = grade_empty_pack_no_claim(_empty_pack_hallucinated_run())
     assert result.passed is False

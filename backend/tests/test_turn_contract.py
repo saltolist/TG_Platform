@@ -90,23 +90,21 @@ def test_recent_created_note_is_authoritative_exact_target() -> None:
     assert contract["requires_workspace"] is True
 
 
-def test_recommendation_contract_requires_notes_and_posts_context() -> None:
+def test_every_corpus_turn_discovers_notes_and_posts_without_request_markers() -> None:
     contract = build_turn_contract(
-        user_text=(
-            "Мне надо изменить профиль канала под новое направление в целом "
-            "пространственной системы. Что посоветуешь?"
-        ),
+        user_text="Идти тестировать?",
         history=[],
         scope="global",
     )
 
-    assert contract["task_profile"] == "recommendation"
+    assert contract["task_profile"] == "topical_answer"
     assert contract["requires_workspace"] is True
     assert contract["execution_mode"] == "compact"
     assert {
         (source["kind"], source["required"])
         for source in contract["source_requirements"]
-    } == {("notes", True), ("posts", True)}
+    } == {("notes", False), ("posts", False)}
+    assert contract["answerability_without_evidence"] is True
 
 
 def test_current_message_creation_targets_latest_note_immediately() -> None:

@@ -86,17 +86,56 @@ def test_ledger_multi_target_and_equal_candidate_ambiguity() -> None:
     assert ambiguous["target_contract"]["ambiguities"][0]["candidate_ids"] == ["p1", "p2"]
 
 
+def test_catalog_entity_set_resolves_referential_followup_to_the_same_objects() -> None:
+    ledger = (
+        SimpleNamespace(
+            turn_id="turn-catalog",
+            entities=(
+                SimpleNamespace(
+                    entity_type="entity_set",
+                    members=tuple(
+                        {"kind": "post", "id": f"p{index}", "title": f"P{index}"}
+                        for index in range(1, 6)
+                    ),
+                ),
+            ),
+        ),
+    )
+    contract = build_turn_contract(
+        user_text="Что это за посты?", history=[], scope="global", dialog_ledger=ledger
+    )
+
+    assert contract["target_contract"]["target_mode"] == "set"
+    assert [item["id"] for item in contract["target_contract"]["targets"]] == [
+        "p1", "p2", "p3", "p4", "p5"
+    ]
+    assert contract["execution_mode"] == "fast"
+
+
 def test_required_and_optional_sources_have_independent_contracts() -> None:
+    from app.services.agent.runtime.workspace_graph import _apply_classifier_source_policy
+
     contract = build_turn_contract(
         user_text="Сколько постов и изображений в workspace?", history=[], scope="global"
     )
+    contract = _apply_classifier_source_policy(
+        contract,
+        required_sources=["posts", "images"],
+        classifier_requires_evidence=True,
+    )
     sources = {source["kind"]: source for source in contract["source_requirements"]}
     assert sources["posts"]["required"] is True
-    assert sources["images"]["required"] is False
+    assert sources["notes"]["required"] is False
+    assert sources["images"]["required"] is True
     assert contract["budgets"]["search_calls"] >= sum(
         source["budget"]["search_calls"] for source in contract["source_requirements"]
     )
-    assert missing_required_sources(contract, {sources["posts"]["source_id"]}) == ()
+    assert missing_required_sources(contract, {sources["posts"]["source_id"]}) == (
+        sources["images"]["source_id"],
+    )
+    assert missing_required_sources(
+        contract, {sources["posts"]["source_id"], sources["images"]["source_id"]}
+    ) == ()
 
 
 def test_contract_revision_and_goal_are_carried_across_referential_turn() -> None:
@@ -194,8 +233,15 @@ def test_scope_and_freshness_are_rechecked_at_evidence_boundary() -> None:
 
 
 def test_required_source_gap_blocks_ready_but_optional_gap_does_not() -> None:
+    from app.services.agent.runtime.workspace_graph import _apply_classifier_source_policy
+
     contract = build_turn_contract(
         user_text="Сколько постов и изображений в workspace?", history=[], scope="global"
+    )
+    contract = _apply_classifier_source_policy(
+        contract,
+        required_sources=["posts"],
+        classifier_requires_evidence=True,
     )
     sources = {source["kind"]: source for source in contract["source_requirements"]}
     records = {
@@ -233,6 +279,100 @@ async def test_exact_link_skips_classifier_llm() -> None:
 
     assert result["tool_call"]["type"] == "read"
     mock_llm.assert_not_awaited()
+
+
+@pytest.mark.asyncio
+async def test_classifier_promotes_only_semantically_required_source() -> None:
+    contract = build_turn_contract(
+        user_text="Сколько у меня постов?", history=[], scope="global"
+    )
+    ctx = SimpleNamespace(
+        reasoner_spec=object(),
+        reasoner_model="planner",
+        reasoner_api_key="secret",
+        turn_contract=contract,
+        scope="global",
+        post_data=None,
+        deadline_monotonic=None,
+        llm_client=None,
+        llm_metrics=[],
+    )
+    with patch(
+        "app.services.agent.runtime.workspace_graph.call_llm_with_deadline",
+        new_callable=AsyncMock,
+        return_value=(
+            '{"type":"read","required_sources":["posts"],'
+            '"search_query":"полный каталог постов пользователя"}'
+        ),
+    ):
+        result = await workspace_agent_node(
+            {"user_text": "Сколько у меня постов?", "turn_contract": contract},
+            {"configurable": {"runtime_context": ctx, "turn_contract": contract}},
+        )
+
+    sources = {item["kind"]: item for item in result["turn_contract"]["source_requirements"]}
+    assert result["tool_call"]["type"] == "read"
+    assert result["search_query"] == "полный каталог постов пользователя"
+    assert sources["posts"]["required"] is True
+    assert sources["notes"]["required"] is False
+    assert result["turn_contract"]["answerability_without_evidence"] is False
+
+
+@pytest.mark.asyncio
+async def test_classifier_finish_still_runs_optional_workspace_enrichment() -> None:
+    contract = build_turn_contract(user_text="Идти тестировать?", history=[], scope="global")
+    ctx = SimpleNamespace(
+        reasoner_spec=object(), reasoner_model="planner", reasoner_api_key="secret",
+        turn_contract=contract, scope="global", post_data=None,
+        deadline_monotonic=None, llm_client=None, llm_metrics=[],
+    )
+    with patch(
+        "app.services.agent.runtime.workspace_graph.call_llm_with_deadline",
+        new_callable=AsyncMock,
+        return_value=(
+            '{"type":"finish","required_sources":[],'
+            '"search_query":"тестирование текущего направления"}'
+        ),
+    ) as classifier:
+        result = await workspace_agent_node(
+            {"user_text": "Идти тестировать?", "turn_contract": contract},
+            {"configurable": {"runtime_context": ctx, "turn_contract": contract}},
+        )
+
+    assert result["tool_call"]["type"] == "read"
+    assert result["turn_contract"]["answerability_without_evidence"] is True
+    classifier_prompt = classifier.await_args.kwargs["messages"][1]["content"]
+    assert "requires_workspace" not in classifier_prompt
+    assert "source_requirements" not in classifier_prompt
+
+
+@pytest.mark.asyncio
+async def test_v2_read_without_required_sources_remains_optional_enrichment() -> None:
+    contract = build_turn_contract(user_text="Идти тестировать?", history=[], scope="global")
+    ctx = SimpleNamespace(
+        reasoner_spec=object(), reasoner_model="planner", reasoner_api_key="secret",
+        turn_contract=contract, scope="global", post_data=None,
+        deadline_monotonic=None, llm_client=None, llm_metrics=[],
+    )
+    with patch(
+        "app.services.agent.runtime.workspace_graph.call_llm_with_deadline",
+        new_callable=AsyncMock,
+        return_value=(
+            '{"type":"read","requires_evidence":false,"required_sources":[],'
+            '"search_query":"стоит ли переходить к тестированию"}'
+        ),
+    ):
+        result = await workspace_agent_node(
+            {"user_text": "Идти тестировать?", "turn_contract": contract},
+            {"configurable": {"runtime_context": ctx, "turn_contract": contract}},
+        )
+
+    assert result["tool_call"]["type"] == "read"
+    assert result["turn_contract"]["answerability_without_evidence"] is True
+    assert all(
+        item["required"] is False
+        for item in result["turn_contract"]["source_requirements"]
+    )
 
 
 def test_phase2_golden_target_accuracy_is_at_least_95_percent() -> None:

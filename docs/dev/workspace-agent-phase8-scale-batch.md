@@ -54,12 +54,12 @@ Local PostgreSQL 16 result on the required 1000+1000 corpus:
 | Metric | Seq-scan baseline | Phase 8 | Change |
 |---|---:|---:|---:|
 | recall@5 | 1.000 | 1.000 | 0 |
-| FTS p50 | 11.870 ms | 0.821 ms | -93.1% |
-| FTS p95 | 19.624 ms | 1.712 ms | -91.3% |
+| FTS p50 | 10.536 ms | 0.889 ms | -91.6% |
+| FTS p95 | 14.245 ms | 2.467 ms | -82.7% |
 
 EXPLAIN used `ix_note_embeddings_discovery_fts` and
 `ix_note_embeddings_retrieval_metadata`. In the 80/20 mix, interactive DB p95
-was 14.286 ms, batch page p95 was 7.055 ms and errors were zero. The absolute
+was 14.236 ms, batch page p95 was 3.402 ms and errors were zero. The absolute
 interactive p95 remains far inside the 150 ms topical DB budget; queue
 isolation prevents batch jobs from consuming interactive worker slots.
 
@@ -72,7 +72,7 @@ would violate the phase criterion.
 
 | Criterion | Result |
 |---|---|
-| Interactive SLO holds on benchmark corpus | Met: indexed p95 1.712 ms; mixed p95 14.286 ms vs 150 ms DB budget |
+| Interactive SLO holds on benchmark corpus | Met: indexed p95 2.467 ms; mixed p95 14.236 ms vs 150 ms DB budget |
 | Query plans use expected indexes | Met: both new index names appear in EXPLAIN ANALYZE |
 | Batch does not consume interactive error budget | Met locally: separate queue/worker; mixed-load p95 inside budget, zero errors |
 | HNSW only with proven advantage | Met: not added; current storage cannot support a valid index without redesign |
@@ -82,6 +82,10 @@ would violate the phase criterion.
 - Measurements are local PostgreSQL/DB load, not a production Celery/provider
   soak. Rollout must rebuild the worker image, start `celery-batch-worker`, and
   repeat the 80/20 mix against production-like CPU, pool and broker limits.
+- The latest local 80/20 run measured 4.468x relative interactive p95 inflation
+  against a 3.186 ms single-load baseline, while the mixed absolute p95 stayed
+  at 14.236 ms versus the 150 ms budget. Production soak should gate on both
+  absolute SLO and sustained error-budget impact, not this noisy local ratio alone.
 - The index build is concurrent but still consumes I/O and leaves an invalid
   index if PostgreSQL terminates it. Deployment automation must inspect
   `pg_index.indisvalid` before enabling the flag.

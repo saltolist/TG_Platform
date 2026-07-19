@@ -91,10 +91,10 @@ async def test_indexing_embeds_context_but_persists_original_chunk() -> None:
 
 
 @pytest.mark.asyncio
-async def test_candidate_first_fuses_summary_and_context_and_caps_at_five() -> None:
+async def test_candidate_first_fuses_summary_and_context_and_caps_at_eight() -> None:
     backend = AsyncMock()
     backend.embed_query.return_value = [0.1, 0.2]
-    summary = [_hit(NODE_NOTE_SUMMARY, f"n{i}", 1 - i / 20) for i in range(5)]
+    summary = [_hit(NODE_NOTE_SUMMARY, f"n{i}", 1 - i / 20) for i in range(8)]
     contextual = [
         _hit("note_chunk", "n0", 0.99),
         _hit("note_chunk", "rare", 0.80),
@@ -114,8 +114,8 @@ async def test_candidate_first_fuses_summary_and_context_and_caps_at_five() -> N
             candidate_limit=99,
         )
 
-    assert len(results) == 5
-    assert len({item["note_id"] for item in results}) == 5
+    assert len(results) == 8
+    assert len({item["note_id"] for item in results}) == 8
     assert results[0]["note_id"] == "n0"
     assert "context" in results[0]["sources"]
     assert hybrid.await_count == 2

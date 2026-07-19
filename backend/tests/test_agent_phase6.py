@@ -115,6 +115,7 @@ async def test_advisory_answer_salvages_complete_text_from_truncated_claims() ->
         "turn_contract": {
             "version": 2,
             "requires_workspace": True,
+            "answerability_without_evidence": True,
             "task_profile": "recommendation",
             "output": {"kind": "answer"},
         },
@@ -141,6 +142,113 @@ async def test_advisory_answer_salvages_complete_text_from_truncated_claims() ->
     repair.assert_not_awaited()
 
 
+@pytest.mark.asyncio
+async def test_factual_answer_salvages_complete_text_from_truncated_claims() -> None:
+    from app.core.config import Settings
+    from app.services.agent.runtime.context import RuntimeContext
+    from app.services.agent.runtime.workspace_graph import answer_node
+
+    async def stream(_ctx, **_kwargs):
+        yield '{"answer":"Рекомендация опирается на найденную заметку.","claims":['
+
+    ctx = RuntimeContext(
+        session_factory=AsyncMock(), user_id=__import__("uuid").uuid4(), user=None,
+        tenant_key=None, settings=Settings(), embedding_backend=AsyncMock(), scope="global",
+        post_data=None, ai_profile={},
+        answer_spec=ProviderSpec("DeepSeek", "https://answer"),
+        answer_model="answer-model", answer_api_key="a",
+    )
+    state = {
+        "user_text": "Что посоветуешь?", "tool_call": {"type": "read"},
+        "turn_contract": {
+            "version": 2, "requires_workspace": True,
+            "answerability_without_evidence": False,
+            "task_profile": "topical_answer", "output": {"kind": "answer"},
+        },
+        "evidence_ids": ["/note/n1/"],
+        "rag_context": "fact",
+    }
+    with (
+        patch(
+            "app.services.agent.runtime.workspace_graph.stream_llm_with_deadline",
+            side_effect=stream,
+        ),
+        patch(
+            "app.services.agent.runtime.workspace_graph.call_llm_with_deadline",
+            new_callable=AsyncMock,
+        ) as repair,
+    ):
+        result = await answer_node(state, {"configurable": {"runtime_context": ctx}})
+
+    assert result["answer_text"].startswith("Рекомендация опирается")
+    assert result["output_validation"]["ok"] is True
+    assert result["claims"][0]["evidence_ids"] == ["/note/n1/"]
+    assert result["answer_repair_count"] == 0
+    repair.assert_not_awaited()
+
+
+@pytest.mark.asyncio
+async def test_optional_enrichment_answers_normally_when_workspace_has_no_match() -> None:
+    from app.core.config import Settings
+    from app.services.agent.runtime.context import RuntimeContext
+    from app.services.agent.runtime.workspace_graph import answer_node
+
+    async def stream(_ctx, **_kwargs):
+        yield '{"answer":"Да, запускай проверку основного сценария.","claims":[]}'
+
+    ctx = RuntimeContext(
+        session_factory=AsyncMock(),
+        user_id=__import__("uuid").uuid4(),
+        user=None,
+        tenant_key=None,
+        settings=Settings(),
+        embedding_backend=AsyncMock(),
+        scope="global",
+        post_data=None,
+        ai_profile={},
+        answer_spec=ProviderSpec("DeepSeek", "https://answer"),
+        answer_model="answer-model",
+        answer_api_key="a",
+    )
+    state = {
+        "user_text": "Стоит ли уже запускать проверку?",
+        "tool_call": {"type": "read"},
+        "turn_contract": {
+            "version": 2,
+            "requires_workspace": True,
+            "answerability_without_evidence": True,
+            "task_profile": "topical_answer",
+            "output": {"kind": "answer"},
+        },
+        "evidence_ids": [],
+        "rag_context": "",
+    }
+    with patch(
+        "app.services.agent.runtime.workspace_graph.stream_llm_with_deadline",
+        side_effect=stream,
+    ) as final_generation:
+        result = await answer_node(
+            state,
+            {
+                "configurable": {
+                    "runtime_context": ctx,
+                    "dialog_context": "Реализация завершена, осталась проверка.",
+                }
+            },
+        )
+
+    messages = final_generation.call_args.kwargs["messages"]
+    system_prompt = str(messages[0]["content"])
+    user_prompt = str(messages[1]["content"])
+    assert result["answer_text"].startswith("Да, запускай проверку")
+    assert "Стоит ли уже запускать проверку?" in user_prompt
+    assert "Реализация завершена, осталась проверка." in user_prompt
+    assert "no_relevant_workspace_evidence" in user_prompt
+    assert "всё равно дай полезный ответ из общих знаний" in system_prompt
+    assert "Упоминай отсутствие конкретных данных только когда пользователь явно" in system_prompt
+    assert result.get("stopped_reason") != "empty_evidence_refusal"
+
+
 def test_answer_resolver_prefers_active_user_llm_over_orchestrator() -> None:
     from app.core.config import Settings
     from app.db.models import User
@@ -161,7 +269,7 @@ def test_answer_resolver_prefers_active_user_llm_over_orchestrator() -> None:
 
 
 @pytest.mark.asyncio
-async def test_answer_uses_answer_model_and_verified_pack_without_dialog_transcript() -> None:
+async def test_answer_uses_answer_model_verified_pack_and_dialog_context() -> None:
     from app.services.agent.runtime.context import RuntimeContext
     from app.services.agent.runtime.workspace_graph import answer_node
     from app.core.config import Settings
@@ -194,11 +302,18 @@ async def test_answer_uses_answer_model_and_verified_pack_without_dialog_transcr
         )
     assert result["answer_text"] == "Fact"
     assert call.call_args.kwargs["model"] == "answer-model"
-    prompt = " ".join(str(item["content"]) for item in call.call_args.kwargs["messages"])
-    assert "старый assistant факт" not in prompt
+    messages = call.call_args.kwargs["messages"]
+    system_prompt = str(messages[0]["content"])
+    prompt = " ".join(str(item["content"]) for item in messages)
+    assert "старый assistant факт" in prompt
+    assert "Что в заметке?" in prompt
     assert "RAW CURRENT POST" not in prompt
     assert "UNSELECTED" not in prompt
     assert "workspace_data" in prompt
+    assert "Выполни текущий запрос пользователя с учётом его формулировки и диалога" in system_prompt
+    assert "не готовый ответ и не замена задачи пользователя" in system_prompt
+    assert "единственный источник фактов именно о workspace" in system_prompt
+    assert "Отвечай только по EvidencePack" not in system_prompt
 
 
 @pytest.mark.asyncio

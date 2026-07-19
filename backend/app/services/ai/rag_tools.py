@@ -34,6 +34,7 @@ from app.services.ai.rag import (
     get_note_data,
     list_global_notes,
     markdown_to_index_text,
+    object_index_revision,
     resolve_post_data,
     upsert_attachment_extraction,
     _post_title_from_text,
@@ -95,6 +96,8 @@ class AgentState:
     visited: set[str] = field(default_factory=set)
     context_blocks: list[tuple[NoteCite, str]] = field(default_factory=list)
     opened_posts: dict[str, dict[str, Any]] = field(default_factory=dict)
+    query_vector_cache: dict[str, list[float]] = field(default_factory=dict)
+    catalog_members: dict[str, list[dict[str, Any]]] = field(default_factory=dict)
     vision_calls_used: int = 0
     hydrated_text_files: set[str] = field(default_factory=set)
     listed_image_attachment_refs: list[str] = field(default_factory=list)
@@ -139,7 +142,14 @@ def _mark_visited(state: AgentState, ref: str) -> None:
     state.visited.add(ref)
 
 
-def _record_listing(state: AgentState, *, path: str, title: str, body: str) -> ToolOutcome:
+def _record_listing(
+    state: AgentState,
+    *,
+    path: str,
+    title: str,
+    body: str,
+    members: list[dict[str, Any]] | None = None,
+) -> ToolOutcome:
     """Make a listing tool's output first-class citable evidence (§1.4 tail).
 
     List tools used to return only a `summary` — visible to the planner via the
@@ -153,7 +163,9 @@ def _record_listing(state: AgentState, *, path: str, title: str, body: str) -> T
     recorded; error/guidance returns are not — they are control flow, not facts.
     """
     state.context_blocks.append((NoteCite(path=path, title=title), body))
-    return ToolOutcome(summary=body)
+    if members is not None:
+        state.catalog_members[path] = [dict(item) for item in members[:100]]
+    return ToolOutcome(summary=body, items=tuple(members or ()))
 
 
 def _attachment_suffix(files: Any) -> str:
@@ -217,12 +229,14 @@ _NODE_TYPE_ALIASES: dict[str, str] = {
     "note": NODE_NOTE_CHUNK,
     "notes": NODE_NOTE_CHUNK,
     "note_chunk": NODE_NOTE_CHUNK,
+    "note_summary": NODE_NOTE_SUMMARY,
     "заметка": NODE_NOTE_CHUNK,
     "заметки": NODE_NOTE_CHUNK,
     "post": NODE_POST_TEXT,
     "posts": NODE_POST_TEXT,
     "пост": NODE_POST_TEXT,
     "посты": NODE_POST_TEXT,
+    "post_summary": NODE_POST_SUMMARY,
     "attachment": NODE_ATTACHMENT_TEXT,
     "attachment_text": NODE_ATTACHMENT_TEXT,
     "document": NODE_ATTACHMENT_TEXT,
@@ -291,7 +305,12 @@ async def tool_search_nodes(
         from app.services.agent.research.prefetch import hybrid_prefetch, retrieve_for_discovery
 
         allowed_filter = _normalize_node_types(node_types)
-        candidate_limit = min(5, max(1, int(k or state.search_k)))
+        candidate_limit = min(8, max(1, int(k or state.search_k)))
+        query_cache_key = " ".join(query_text.casefold().split())
+        query_vec = state.query_vector_cache.get(query_cache_key)
+        if query_vec is None:
+            query_vec = await state.embedding_backend.embed_query(query_text)
+            state.query_vector_cache[query_cache_key] = query_vec
         search = (
             retrieve_for_discovery
             if state.settings is None or state.settings.agent_retrieval_phase4_enabled
@@ -312,6 +331,7 @@ async def tool_search_nodes(
             vector_retriever=retrieve_for_chat,
             expected_revisions=expected_revisions,
             object_statuses=object_statuses,
+            query_vec=query_vec,
         )
     except Exception as exc:
         return ToolOutcome(summary="Поиск не выполнен.", error=str(exc))
@@ -321,11 +341,11 @@ async def tool_search_nodes(
 
     lines = ["Результаты поиска:"]
     hits: list[dict[str, Any]] = []
-    for item in results[: min(5, k or state.search_k)]:
+    for item in results[: min(8, k or state.search_k)]:
         label = _node_label(item)
         similarity = float(item.get("similarity") or 0.0)
         chunk = str(item.get("chunk_text") or "").strip()
-        preview = chunk[:120] + ("…" if len(chunk) > 120 else "")
+        preview = chunk[:320] + ("…" if len(chunk) > 320 else "")
         lines.append(f"- {label} similarity={similarity:.2f} preview={preview!r}")
         hits.append(
             {
@@ -335,6 +355,9 @@ async def tool_search_nodes(
                 "node_type": str(item.get("node_type") or ""),
                 "summary_only": bool(item.get("summary_only")),
                 "index_revision": int(item.get("index_revision") or 1),
+                "title": str(item.get("object_title") or ""),
+                "preview": preview,
+                "status": str(item.get("object_status") or ""),
             }
         )
     return ToolOutcome(summary="\n".join(lines), hits=tuple(hits))
@@ -503,6 +526,7 @@ async def tool_list_posts(
     matched = 0
     shown = 0
     state.catalog_posts = []
+    catalog_members: list[dict[str, Any]] = []
     for row in rows:
         data = dict(row.data) if isinstance(row.data, dict) else {}
         post_id = str(data.get("id") or "").strip()
@@ -518,10 +542,20 @@ async def tool_list_posts(
         if query_filter and query_filter not in f"{title} {text_value}".lower():
             continue
         matched += 1
+        preview = text_value[:80] + ("…" if len(text_value) > 80 else "")
+        catalog_members.append(
+            {
+                "kind": "post",
+                "id": post_id,
+                "title": title,
+                "status": post_status,
+                "preview": preview,
+                "revision": object_index_revision(data),
+            }
+        )
         if result_limit is not None and shown >= result_limit:
             continue
         shown += 1
-        preview = text_value[:80] + ("…" if len(text_value) > 80 else "")
         post_notes = data.get("notes") or []
         notes_count = len(post_notes)
         # Aggregate attachment presence across THIS post's notes, so a post whose
@@ -579,8 +613,16 @@ async def tool_list_posts(
             if query_filter
             else f"Постов со статусом {status_filter!r} не найдено."
         )
-        return _record_listing(state, path=listing_path, title=listing_title, body=empty)
-    return _record_listing(state, path=listing_path, title=listing_title, body="\n".join(lines))
+        return _record_listing(
+            state, path=listing_path, title=listing_title, body=empty, members=[]
+        )
+    return _record_listing(
+        state,
+        path=listing_path,
+        title=listing_title,
+        body="\n".join(lines),
+        members=catalog_members,
+    )
 
 
 def tool_list_post_notes(state: AgentState, *, post_id: str) -> ToolOutcome:
@@ -646,10 +688,11 @@ async def tool_list_global_notes(state: AgentState) -> ToolOutcome:
     if not notes:
         return _record_listing(
             state, path=listing_path, title=listing_title,
-            body="У пользователя нет заметок вне постов.",
+            body="У пользователя нет заметок вне постов.", members=[],
         )
 
     lines = ["Заметки вне постов:"]
+    members: list[dict[str, Any]] = []
     for item in notes:
         note_id = str(item.get("id") or "").strip()
         if not note_id:
@@ -666,8 +709,23 @@ async def tool_list_global_notes(state: AgentState) -> ToolOutcome:
             f"- note:{note_id} title={title!r}{date_suffix}"
             f"{_attachment_suffix(item.get('files'))}"
         )
+        body = str(item.get("body") or "").strip()
+        members.append(
+            {
+                "kind": "note",
+                "id": note_id,
+                "title": title,
+                "status": str(item.get("status") or "active"),
+                "preview": body[:80] + ("…" if len(body) > 80 else ""),
+                "revision": object_index_revision(item),
+            }
+        )
     return _record_listing(
-        state, path=listing_path, title=listing_title, body="\n".join(lines),
+        state,
+        path=listing_path,
+        title=listing_title,
+        body="\n".join(lines),
+        members=members,
     )
 
 
@@ -717,7 +775,12 @@ async def tool_open_note(
         return ToolOutcome(summary=f"Заметка {note_id} не найдена.", error="not_found")
 
     _mark_visited(state, ref)
-    title = str(note_data.get("title") or note_id).strip() or note_id
+    title_lines = [
+        line.strip()
+        for line in str(note_data.get("title") or note_id).splitlines()
+        if line.strip()
+    ]
+    title = (title_lines[0] if title_lines else note_id) or note_id
     body = str(note_data.get("body") or "")
     plain = markdown_to_index_text(title, body)
 

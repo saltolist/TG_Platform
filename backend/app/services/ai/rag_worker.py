@@ -17,7 +17,7 @@ from sqlalchemy import select, text
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
 from app.core.config import get_settings
-from app.db.models import GlobalNote, Post, User
+from app.db.models import GlobalNote, Post, Profile, User
 from app.services.ai.rag_retrieval_policy import post_id_aliases
 from app.services.ai.attachment_text import (
     bytes_content_hash,
@@ -44,14 +44,47 @@ from app.services.ai.rag import (
     remove_text_node,
     upsert_attachment_extraction,
 )
+from app.services.ai.semantic_summary import (
+    DISCOVERY_SUMMARY_VERSION,
+    build_semantic_discovery_card,
+    semantic_summary_model_key,
+)
 
 logger = logging.getLogger(__name__)
 
 POLL_INTERVAL_S = 5
 
 
+async def _semantic_card(
+    *,
+    user: User,
+    ai_profile: Mapping[str, Any],
+    settings: Any,
+    object_kind: str,
+    title: str,
+    text_value: str,
+) -> tuple[str, str]:
+    return await build_semantic_discovery_card(
+        user=user,
+        ai_profile=ai_profile,
+        settings=settings,
+        object_kind=object_kind,
+        title=title,
+        text_value=text_value,
+    )
+
+
 def is_post_deleted(post_data: Mapping[str, Any]) -> bool:
     return str(post_data.get("status") or "").strip() == "deleted"
+
+
+def _clean_object_title(value: Any) -> str:
+    """Collapse editor/import title repetition to one discovery title."""
+
+    return next(
+        (line.strip() for line in str(value or "").splitlines() if line.strip()),
+        "",
+    )
 
 
 async def resolve_post_row(
@@ -446,6 +479,8 @@ async def _process_job(
 
     backend = resolve_embedding_backend(user, {}, settings)
     max_chars = settings.rag_max_note_chars
+    profile = await session.get(Profile, user_id)
+    ai_profile = dict(profile.ai or {}) if profile and isinstance(profile.ai, Mapping) else {}
 
     if node_type == NODE_POST_TEXT:
         post_row = await resolve_post_row(session, user_id, note_id)
@@ -470,6 +505,14 @@ async def _process_job(
         post_status = str(post_data.get("status") or "draft").strip().lower()
         post_revision = object_index_revision(post_data)
         if text_value:
+            discovery_summary, summary_model = await _semantic_card(
+                user=user,
+                ai_profile=ai_profile,
+                settings=settings,
+                object_kind="post",
+                title=post_title,
+                text_value=text_value,
+            )
             await index_text_node(
                 session,
                 user_id,
@@ -500,6 +543,9 @@ async def _process_job(
                 index_revision=post_revision,
                 keywords=discovery_keywords(f"{post_title} {text_value}"),
                 max_chars=max_chars,
+                summary_text=discovery_summary,
+                summary_version=DISCOVERY_SUMMARY_VERSION,
+                summary_model=summary_model,
             )
         else:
             await remove_text_node(
@@ -517,8 +563,16 @@ async def _process_job(
         note_data = await get_tenant_note(session, user_id, tenant_key, scope, note_id)
         if note_data is None:
             return
-        title = note_data.get("title", "")
+        title = _clean_object_title(note_data.get("title", ""))
         body = note_data.get("body", "")
+        discovery_summary, summary_model = await _semantic_card(
+            user=user,
+            ai_profile=ai_profile,
+            settings=settings,
+            object_kind="note",
+            title=title,
+            text_value=body,
+        )
         await index_note(
             session,
             user_id,
@@ -532,6 +586,9 @@ async def _process_job(
             tenant_key=tenant_key,
             object_status=str(note_data.get("status") or "active"),
             index_revision=object_index_revision(note_data),
+            discovery_summary=discovery_summary,
+            discovery_summary_version=DISCOVERY_SUMMARY_VERSION,
+            discovery_summary_model=summary_model,
         )
         await _index_note_file_nodes(
             session,
@@ -557,17 +614,28 @@ async def _process_job(
         if note_row is None:
             return
         note_data = dict(note_row.data)
+        discovery_summary, summary_model = await _semantic_card(
+            user=user,
+            ai_profile=ai_profile,
+            settings=settings,
+            object_kind="note",
+            title=_clean_object_title(note_data.get("title", "")),
+            text_value=str(note_data.get("body") or ""),
+        )
         await index_note(
             session,
             user_id,
             scope,
             note_id,
-            note_data.get("title", ""),
+            _clean_object_title(note_data.get("title", "")),
             note_data.get("body", ""),
             backend,
             max_chars=max_chars,
             object_status=str(note_data.get("status") or "active"),
             index_revision=object_index_revision(note_data),
+            discovery_summary=discovery_summary,
+            discovery_summary_version=DISCOVERY_SUMMARY_VERSION,
+            discovery_summary_model=summary_model,
         )
         await _index_note_file_nodes(
             session,
@@ -600,18 +668,29 @@ async def _process_job(
         for note in (post_row.data.get("notes") or []):
             if str(note.get("id", "")) == note_id:
                 note_data = dict(note)
+                discovery_summary, summary_model = await _semantic_card(
+                    user=user,
+                    ai_profile=ai_profile,
+                    settings=settings,
+                    object_kind="note",
+                    title=_clean_object_title(note_data.get("title", "")),
+                    text_value=str(note_data.get("body") or ""),
+                )
                 await index_note(
                     session,
                     user_id,
                     scope,
                     note_id,
-                    note_data.get("title", ""),
+                    _clean_object_title(note_data.get("title", "")),
                     note_data.get("body", ""),
                     backend,
                     post_id=post_id,
                     max_chars=max_chars,
                     object_status=str(note_data.get("status") or "active"),
                     index_revision=object_index_revision(note_data),
+                    discovery_summary=discovery_summary,
+                    discovery_summary_version=DISCOVERY_SUMMARY_VERSION,
+                    discovery_summary_model=summary_model,
                 )
                 await _index_note_file_nodes(
                     session,
@@ -642,6 +721,15 @@ async def startup_backfill_all(session_factory: async_sessionmaker[AsyncSession]
             for user in users:
                 user_id = user.id
                 model_key = resolve_embedding_backend(user, {}, settings).model_key
+                profile = await session.get(Profile, user_id)
+                ai_profile = (
+                    dict(profile.ai or {})
+                    if profile and isinstance(profile.ai, Mapping)
+                    else {}
+                )
+                expected_summary_model = semantic_summary_model_key(
+                    user, ai_profile, settings
+                )
                 gn_rows = (
                     await session.execute(
                         select(GlobalNote).where(GlobalNote.user_id == user_id)
@@ -654,7 +742,8 @@ async def startup_backfill_all(session_factory: async_sessionmaker[AsyncSession]
                     )
                     exists = await session.execute(
                         text(
-                            "SELECT node_type, index_revision FROM note_embeddings "
+                            "SELECT node_type, index_revision, summary_version, summary_model "
+                            "FROM note_embeddings "
                             "WHERE user_id = :uid AND scope = 'global' AND note_id = :nid "
                             "AND node_type IN (:chunk_nt, :summary_nt) AND model_key = :mk"
                         ),
@@ -667,12 +756,25 @@ async def startup_backfill_all(session_factory: async_sessionmaker[AsyncSession]
                         },
                     )
                     indexed = {
-                        (str(row.node_type), int(row.index_revision or 1))
+                        (
+                            str(row.node_type),
+                            int(row.index_revision or 1),
+                            int(row.summary_version or 0),
+                            str(row.summary_model or ""),
+                        )
                         for row in exists.fetchall()
                     }
                     if (
-                        (NODE_NOTE_CHUNK, expected_revision) not in indexed
-                        or (NODE_NOTE_SUMMARY, expected_revision) not in indexed
+                        not any(
+                            item[0] == NODE_NOTE_CHUNK and item[1] == expected_revision
+                            for item in indexed
+                        )
+                        or (
+                            NODE_NOTE_SUMMARY,
+                            expected_revision,
+                            DISCOVERY_SUMMARY_VERSION,
+                            expected_summary_model,
+                        ) not in indexed
                     ):
                         await enqueue_note_job(session, user_id, "upsert", "global", note_id)
                         enqueued += 1
@@ -695,7 +797,8 @@ async def startup_backfill_all(session_factory: async_sessionmaker[AsyncSession]
                         )
                         exists = await session.execute(
                             text(
-                                "SELECT node_type, index_revision FROM note_embeddings "
+                                "SELECT node_type, index_revision, summary_version, summary_model "
+                                "FROM note_embeddings "
                                 "WHERE user_id = :uid AND scope = 'post' AND note_id = :nid "
                                 "AND node_type IN (:chunk_nt, :summary_nt) AND model_key = :mk"
                             ),
@@ -708,12 +811,25 @@ async def startup_backfill_all(session_factory: async_sessionmaker[AsyncSession]
                             },
                         )
                         indexed = {
-                            (str(row.node_type), int(row.index_revision or 1))
+                            (
+                                str(row.node_type),
+                                int(row.index_revision or 1),
+                                int(row.summary_version or 0),
+                                str(row.summary_model or ""),
+                            )
                             for row in exists.fetchall()
                         }
                         if (
-                            (NODE_NOTE_CHUNK, expected_revision) not in indexed
-                            or (NODE_NOTE_SUMMARY, expected_revision) not in indexed
+                            not any(
+                                item[0] == NODE_NOTE_CHUNK and item[1] == expected_revision
+                                for item in indexed
+                            )
+                            or (
+                                NODE_NOTE_SUMMARY,
+                                expected_revision,
+                                DISCOVERY_SUMMARY_VERSION,
+                                expected_summary_model,
+                            ) not in indexed
                         ):
                             await enqueue_note_job(
                                 session, user_id, "upsert", "post", note_id, canonical_id
@@ -723,7 +839,8 @@ async def startup_backfill_all(session_factory: async_sessionmaker[AsyncSession]
                     expected_post_revision = object_index_revision(post_data)
                     exists_canonical = await session.execute(
                         text(
-                            "SELECT node_type, index_revision FROM note_embeddings "
+                            "SELECT node_type, index_revision, summary_version, summary_model "
+                            "FROM note_embeddings "
                             "WHERE user_id = :uid AND scope = 'global' AND note_id = :pid "
                             "AND node_type IN (:text_nt, :summary_nt) AND model_key = :mk"
                         ),
@@ -736,12 +853,25 @@ async def startup_backfill_all(session_factory: async_sessionmaker[AsyncSession]
                         },
                     )
                     indexed = {
-                        (str(row.node_type), int(row.index_revision or 1))
+                        (
+                            str(row.node_type),
+                            int(row.index_revision or 1),
+                            int(row.summary_version or 0),
+                            str(row.summary_model or ""),
+                        )
                         for row in exists_canonical.fetchall()
                     }
                     canonical_exists = (
-                        (NODE_POST_TEXT, expected_post_revision) in indexed
-                        and (NODE_POST_SUMMARY, expected_post_revision) in indexed
+                        any(
+                            item[0] == NODE_POST_TEXT and item[1] == expected_post_revision
+                            for item in indexed
+                        )
+                        and (
+                            NODE_POST_SUMMARY,
+                            expected_post_revision,
+                            DISCOVERY_SUMMARY_VERSION,
+                            expected_summary_model,
+                        ) in indexed
                     )
                     has_stale_alias = False
                     if canonical_exists:

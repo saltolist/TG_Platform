@@ -362,6 +362,26 @@ def _build_messages(
     ]
 
 
+def _normalize_object_id(value: Any, *, kind: str) -> str:
+    """Convert an external candidate ref/path to the raw tool object id."""
+
+    raw = str(value or "").strip()
+    prefix = f"{kind}:"
+    while raw.casefold().startswith(prefix):
+        raw = raw[len(prefix) :].strip()
+    if raw.startswith("/"):
+        parts = [part for part in raw.split("/") if part]
+        if kind == "post" and len(parts) >= 2 and parts[0] == "post":
+            return parts[1]
+        if kind == "note" and "note" in parts:
+            index = parts.index("note")
+            if index + 2 < len(parts) and parts[index + 1] == "global":
+                return parts[index + 2]
+            if index + 3 < len(parts) and parts[index + 1] == "post":
+                return parts[index + 3]
+    return raw
+
+
 async def _execute_tool_impl(state: AgentState, action: ToolAction) -> ToolOutcome:
     tool = action.tool
     args = action.args
@@ -385,12 +405,14 @@ async def _execute_tool_impl(state: AgentState, action: ToolAction) -> ToolOutco
             object_statuses=frozenset(args.get("_object_statuses") or ()),
         )
     if tool == "OpenPost":
-        return await tool_open_post(state, post_id=str(args.get("post_id") or ""))
+        return await tool_open_post(
+            state, post_id=_normalize_object_id(args.get("post_id"), kind="post")
+        )
     if tool == "OpenNote":
         return await tool_open_note(
             state,
-            note_id=str(args.get("note_id") or ""),
-            post_id=args.get("post_id"),
+            note_id=_normalize_object_id(args.get("note_id"), kind="note"),
+            post_id=_normalize_object_id(args.get("post_id"), kind="post") or None,
         )
     if tool == "ListPosts":
         # Expose only the documented query/limit surface — no hidden status arg
@@ -450,20 +472,29 @@ def _object_action(item: Any) -> ToolAction | None:
     if isinstance(item, str):
         prefix, _, object_id = item.partition(":")
         if prefix == "post" and object_id:
-            return ToolAction(tool="OpenPost", args={"post_id": object_id})
+            return ToolAction(
+                tool="OpenPost", args={"post_id": _normalize_object_id(item, kind="post")}
+            )
         if prefix == "note" and object_id:
-            return ToolAction(tool="OpenNote", args={"note_id": object_id})
+            return ToolAction(
+                tool="OpenNote", args={"note_id": _normalize_object_id(item, kind="note")}
+            )
         return None
     if not isinstance(item, dict):
         return None
     kind = str(item.get("kind") or item.get("object_type") or "")
     object_id = str(item.get("id") or item.get("object_id") or "")
     if kind == "post" and object_id:
-        return ToolAction(tool="OpenPost", args={"post_id": object_id})
+        return ToolAction(
+            tool="OpenPost", args={"post_id": _normalize_object_id(object_id, kind="post")}
+        )
     if kind == "note" and object_id:
         return ToolAction(
             tool="OpenNote",
-            args={"note_id": object_id, "post_id": item.get("post_id")},
+            args={
+                "note_id": _normalize_object_id(object_id, kind="note"),
+                "post_id": _normalize_object_id(item.get("post_id"), kind="post") or None,
+            },
         )
     return None
 
@@ -728,6 +759,9 @@ COMPACT_AGENT_SYSTEM = (
     "Never invent generic tools such as ReadNode or ReadObject. Candidate ref note:ID maps "
     "to OpenNote {note_id:ID}; post:ID maps to OpenPost {post_id:ID}. For counts or corpus "
     "inventory use ListPosts/ListGlobalNotes, because semantic search is not an inventory. "
+    "Candidate title and preview are discovery data: select every directly relevant candidate "
+    "needed to answer the question, up to the three-action batch limit; do not select merely "
+    "adjacent material when stronger direct candidates are present. "
     "Do not return FINISH_READY or FINISH_PARTIAL while sufficiency has open_requirements "
     "and an allowed read can address them. "
     "JSON schema example: "
@@ -762,7 +796,7 @@ def _compact_state_snapshot(
             for item in contract.get("source_requirements") or ()
         ],
         "sufficiency": sufficiency,
-        "candidates": list(state.get("prefetch_hits") or ())[:5],
+        "candidates": list(state.get("prefetch_hits") or ())[:12],
         "evidence": [
             {"id": key, "kind": value.kind, "title": value.citation_title}
             for key, value in records.items()
@@ -878,10 +912,10 @@ def _contract_fast_finish_ids(
 
 
 _SOURCE_DISCOVERY_NODE_TYPES = {
-    "notes": "note_chunk",
-    "posts": "post_text",
-    "attachments": "attachment_text",
-    "images": "media_meta",
+    "notes": ("note_summary", "note_chunk"),
+    "posts": ("post_summary", "post_text"),
+    "attachments": ("attachment_text",),
+    "images": ("media_meta",),
 }
 
 
@@ -895,23 +929,23 @@ def _contract_discovery_actions(
     actions: list[ToolAction] = []
     for source in contract.get("source_requirements") or ():
         kind = str(source.get("kind") or "")
-        node_type = _SOURCE_DISCOVERY_NODE_TYPES.get(kind)
+        node_types = _SOURCE_DISCOVERY_NODE_TYPES.get(kind)
         budget = dict(source.get("budget") or {})
         source_id = str(source.get("source_id") or "")
-        if not node_type or not source_id or int(budget.get("search_calls") or 0) <= 0:
+        if not node_types or not source_id or int(budget.get("search_calls") or 0) <= 0:
             continue
         actions.append(
             ToolAction(
                 tool="SearchNodes",
                 args={
                     "query": query,
-                    "node_types": [node_type],
+                    "node_types": list(node_types),
                     "k": int(budget.get("candidate_limit") or 4),
                     "source_requirement_id": source_id,
                 },
             )
         )
-    return actions if len(actions) > 1 else []
+    return actions
 
 
 def _cached_discovery_hits(
@@ -952,6 +986,9 @@ def _cached_discovery_hits(
                 "node_type": node_type,
                 "summary_only": bool(item.get("summary_only")),
                 "index_revision": item.get("index_revision"),
+                "title": str(item.get("title") or item.get("object_title") or ""),
+                "preview": str(item.get("preview") or item.get("chunk_text") or "")[:320],
+                "status": str(item.get("status") or item.get("object_status") or ""),
             }
         )
     return hits[: int(action.args.get("k") or 4)]
@@ -1157,7 +1194,10 @@ async def research_seed_node(state: AgentGraphState, config: RunnableConfig) -> 
     inp = _planner_inputs(config)
     seed_ref = inp["seed_ref"]
     seed_post_id = inp["seed_post_id"]
-    contract = dict(inp.get("turn_contract") or state.get("turn_contract") or {})
+    # The workspace classifier may promote optional discovery sources to
+    # required after the graph config is built. Preserve that current contract
+    # through research instead of replacing it with the bootstrap snapshot.
+    contract = dict(state.get("turn_contract") or inp.get("turn_contract") or {})
     contract_target = dict(contract.get("target") or {})
     user_text = str(state.get("user_text") or "")
     transcript = list(state.get("research_transcript") or [])
@@ -1271,35 +1311,17 @@ async def research_seed_node(state: AgentGraphState, config: RunnableConfig) -> 
         contract_discovery = _contract_discovery_actions(contract, query=search_query)
         if contract_discovery:
             for action in contract_discovery:
-                cached_hits = _cached_discovery_hits(inp.get("l1_results"), action)
-                if cached_hits:
-                    preparation = prepare_intent(
-                        search_ledger,
-                        tool=action.tool,
-                        args=action.args,
-                        contract=contract,
+                search_outcome = await seed_action(action)
+                source_id = str(action.args.get("source_requirement_id") or "")
+                if search_outcome.hits:
+                    prefetch_hits.extend(
+                        {**dict(hit), "source_requirement_id": source_id}
+                        for hit in search_outcome.hits
                     )
-                    if preparation.execute:
-                        search_ledger = finish_intent(
-                            preparation.ledger,
-                            intent_key=str(preparation.entry.get("intent_key") or ""),
-                            summary="[cache] source-specific L1 retrieval reused",
-                            error=None,
-                            hits=cached_hits,
-                        )
-                    prefetch_hits.extend(cached_hits)
-                    transcript.append(
-                        f"[seed] {action.args.get('source_requirement_id')} reused L1 "
-                        f"SearchNodes {search_query!r}"
-                    )
-                else:
-                    search_outcome = await seed_action(action)
-                    if search_outcome.hits:
-                        prefetch_hits.extend(dict(hit) for hit in search_outcome.hits)
-                    transcript.append(
-                        f"[seed] {action.args.get('source_requirement_id')} SearchNodes "
-                        f"{search_query!r}:\n{search_outcome.summary}"
-                    )
+                transcript.append(
+                    f"[seed] {source_id} SearchNodes "
+                    f"{search_query!r}:\n{search_outcome.summary}"
+                )
         elif search_query and inp.get("l1_results"):
             # retrieve_rag_for_reply already ran the canonical hybrid/vector
             # policy. Reuse those candidates instead of embedding/searching a
@@ -1486,6 +1508,7 @@ async def _compact_planner_node(
     if (
         decision.decision_code in {DecisionCode.FINISH_READY, DecisionCode.FINISH_PARTIAL}
         and str(sufficiency.get("status") or "") == "follow_up_allowed"
+        and bool(sufficiency.get("open_requirements"))
         and calls_used + calls_made < planner_limit
     ):
         continuation = _required_source_fallback_decision(state, contract, sufficiency)

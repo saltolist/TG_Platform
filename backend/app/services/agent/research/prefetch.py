@@ -267,6 +267,7 @@ async def retrieve_for_discovery(
     selected_object_ids: frozenset[str] | None = None,
     expected_revisions: Mapping[str, int] | None = None,
     object_statuses: frozenset[str] | None = None,
+    query_vec: list[float] | None = None,
 ) -> list[dict[str, Any]]:
     """Candidate-first discovery followed by scoped contextual chunk search.
 
@@ -275,8 +276,9 @@ async def retrieve_for_discovery(
     the same policy to chunk-only retrieval, preventing a follow-up query from
     scanning the whole tenant again.
     """
-    limit = max(1, min(5, int(candidate_limit or 5)))
-    query_vec = await embedding_backend.embed_query(query_text)
+    limit = max(1, min(8, int(candidate_limit or 5)))
+    if query_vec is None:
+        query_vec = await embedding_backend.embed_query(query_text)
     if selected_object_ids:
         return await hybrid_prefetch(
             session,
@@ -296,28 +298,16 @@ async def retrieve_for_discovery(
             vector_retriever=vector_retriever,
             query_vec=query_vec,
         )
-    if node_types_filter is not None:
-        # An explicit type is already a narrow source contract. Preserve the
-        # phase-3 one-pass behavior for planner retries and avoid running a
-        # summary pass that cannot contain the requested node type.
-        return await hybrid_prefetch(
-            session,
-            user_id=user_id,
-            scope=scope,
-            query_text=query_text,
-            embedding_backend=embedding_backend,
-            tenant_key=tenant_key,
-            post_id=post_id,
-            top_k=limit,
-            min_similarity=min_similarity,
-            scope_bias=scope_bias,
-            node_types_filter=node_types_filter,
-            expected_revisions=expected_revisions,
-            object_statuses=object_statuses,
-            vector_retriever=vector_retriever,
-            query_vec=query_vec,
-        )
-
+    summary_filter = (
+        frozenset(node_types_filter & DISCOVERY_NODE_TYPES)
+        if node_types_filter is not None
+        else DISCOVERY_NODE_TYPES
+    )
+    contextual_filter = (
+        frozenset(node_types_filter & CONTEXTUAL_NODE_TYPES)
+        if node_types_filter is not None
+        else CONTEXTUAL_NODE_TYPES
+    )
     summary_hits = await hybrid_prefetch(
         session,
         user_id=user_id,
@@ -329,12 +319,12 @@ async def retrieve_for_discovery(
         top_k=limit,
         min_similarity=min_similarity,
         scope_bias=scope_bias,
-        node_types_filter=DISCOVERY_NODE_TYPES,
+        node_types_filter=summary_filter,
         expected_revisions=expected_revisions,
         object_statuses=object_statuses,
         vector_retriever=vector_retriever,
         query_vec=query_vec,
-    )
+    ) if summary_filter else []
     contextual_hits = await hybrid_prefetch(
         session,
         user_id=user_id,
@@ -346,12 +336,12 @@ async def retrieve_for_discovery(
         top_k=limit,
         min_similarity=min_similarity,
         scope_bias=scope_bias,
-        node_types_filter=node_types_filter or CONTEXTUAL_NODE_TYPES,
+        node_types_filter=contextual_filter,
         expected_revisions=expected_revisions,
         object_statuses=object_statuses,
         vector_retriever=vector_retriever,
         query_vec=query_vec,
-    )
+    ) if contextual_filter else []
 
     def object_key(item: Mapping[str, Any]) -> str:
         node_type = str(item.get("node_type") or "")

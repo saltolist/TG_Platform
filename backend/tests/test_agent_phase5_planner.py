@@ -87,7 +87,7 @@ def test_sufficiency_excludes_discovery_summaries_and_requires_primary_source() 
     assert ready.decision_code == "ALL_REQUIRED_EVIDENCE_PRESENT"
 
 
-def test_plural_corpus_question_requires_multiple_primary_records() -> None:
+def test_plural_corpus_question_does_not_change_source_policy_lexically() -> None:
     contract = build_turn_contract(
         user_text="Какие из заметок рассказывают про мою систему?",
         history=[],
@@ -95,14 +95,14 @@ def test_plural_corpus_question_requires_multiple_primary_records() -> None:
     )
     source = contract["source_requirements"][0]
     assert source["kind"] == "notes"
-    assert source["min_evidence"] == 2
+    assert source["min_evidence"] == 1
 
     one = {
         "turn_contract": contract,
         "evidence_records": {"/note/global/n1/": _record("note_chunk", "/note/global/n1/")},
         "search_ledger": [],
     }
-    assert evaluate_sufficiency(state=one, contract=contract).status == "follow_up_allowed"
+    assert evaluate_sufficiency(state=one, contract=contract).status == "ready"
     one["evidence_records"]["/note/global/n2/"] = _record("note_chunk", "/note/global/n2/")
     assert evaluate_sufficiency(state=one, contract=contract).status == "ready"
 
@@ -111,8 +111,10 @@ def test_count_question_is_satisfied_by_complete_catalog_evidence() -> None:
     contract = build_turn_contract(
         user_text="Сколько у меня постов?", history=[], scope="global"
     )
-    source = contract["source_requirements"][0]
-    assert source["evidence_granularity"] == "catalog"
+    source = next(
+        item for item in contract["source_requirements"] if item["kind"] == "posts"
+    )
+    assert source["evidence_granularity"] == "full_text"
 
     state = {
         "turn_contract": contract,
@@ -285,16 +287,26 @@ async def test_compact_planner_recovers_unsupported_readnode_without_retry() -> 
     assert result["planner_invalid_count"] == 1
     assert result["planner_steps"][0]["decision_code"] == "READ_TOP_CANDIDATES"
     actions = result["tool_action"]["actions"]
-    assert [action["tool"] for action in actions] == ["OpenNote", "OpenNote"]
-    assert {action["args"]["note_id"] for action in actions} == {"n1", "n2"}
+    assert [action["tool"] for action in actions] == ["OpenNote", "OpenPost", "OpenNote"]
+    assert {
+        action["args"]["note_id"]
+        for action in actions
+        if action["tool"] == "OpenNote"
+    } == {"n1", "n2"}
 
 
 @pytest.mark.asyncio
 async def test_compact_planner_cannot_finish_with_actionable_required_source() -> None:
     from app.services.agent.research.graph import _compact_planner_node
+    from app.services.agent.runtime.workspace_graph import _apply_classifier_source_policy
 
     contract = build_turn_contract(
         user_text="Сколько у меня постов?", history=[], scope="global"
+    )
+    contract = _apply_classifier_source_policy(
+        contract,
+        required_sources=["posts"],
+        classifier_requires_evidence=True,
     )
     ctx = SimpleNamespace(
         reasoner_spec=SimpleNamespace(name="test"),
@@ -339,14 +351,14 @@ async def test_compact_planner_cannot_finish_with_actionable_required_source() -
             "tool": "ListPosts",
             "args": {
                 "status": "all",
-                "source_requirement_id": "workspace-posts-1",
+                "source_requirement_id": "workspace-posts",
             },
             "intent_id": None,
         }
     ]
 
 
-def test_recommendation_discovery_is_split_by_source_contract() -> None:
+def test_universal_discovery_is_split_by_source_contract() -> None:
     from app.services.agent.research.graph import _contract_discovery_actions
 
     question = "Какое направление канала лучше выбрать?"
@@ -358,9 +370,56 @@ def test_recommendation_discovery_is_split_by_source_contract() -> None:
         (action.args["source_requirement_id"], tuple(action.args["node_types"]))
         for action in actions
     } == {
-        ("recommendation-notes", ("note_chunk",)),
-        ("recommendation-posts", ("post_text",)),
+        ("workspace-notes", ("note_summary", "note_chunk")),
+        ("workspace-posts", ("post_summary", "post_text")),
     }
+
+
+def test_empty_optional_discovery_finishes_without_planner_follow_up() -> None:
+    contract = build_turn_contract(
+        user_text="Объясни разницу между двумя подходами", history=[], scope="global"
+    )
+    result = evaluate_sufficiency(
+        state={
+            "turn_contract": contract,
+            "evidence_records": {},
+            "prefetch_hits": [],
+            "search_ledger": [
+                {
+                    "tool": "SearchNodes",
+                    "source_requirement_id": "workspace-notes",
+                    "state": "exhausted",
+                },
+                {
+                    "tool": "SearchNodes",
+                    "source_requirement_id": "workspace-posts",
+                    "state": "exhausted",
+                },
+            ],
+        },
+        contract=contract,
+    )
+
+    assert result.status == "ready"
+    assert result.evidence_ids == ()
+    assert result.decision_code == "OPTIONAL_DISCOVERY_COMPLETE"
+
+
+def test_optional_discovery_with_candidate_still_reaches_planner() -> None:
+    contract = build_turn_contract(
+        user_text="Как лучше развить направление?", history=[], scope="global"
+    )
+    result = evaluate_sufficiency(
+        state={
+            "turn_contract": contract,
+            "evidence_records": {},
+            "prefetch_hits": [{"ref": "note:n1", "similarity": 0.8}],
+            "search_ledger": [],
+        },
+        contract=contract,
+    )
+
+    assert result.status == "follow_up_allowed"
 
 
 def test_multi_source_discovery_reuses_l1_hits_per_source() -> None:
@@ -381,8 +440,18 @@ def test_multi_source_discovery_reuses_l1_hits_per_source() -> None:
         action.args["source_requirement_id"]: _cached_discovery_hits(l1, action)
         for action in actions
     }
-    assert [hit["ref"] for hit in by_source["recommendation-notes"]] == ["note:n1"]
-    assert [hit["ref"] for hit in by_source["recommendation-posts"]] == ["post:p1"]
+    assert [hit["ref"] for hit in by_source["workspace-notes"]] == ["note:n1"]
+    assert [hit["ref"] for hit in by_source["workspace-posts"]] == ["post:p1"]
+
+
+def test_candidate_refs_are_normalized_before_tool_execution() -> None:
+    from app.services.agent.research.graph import _normalize_object_id
+
+    assert _normalize_object_id("note:abc", kind="note") == "abc"
+    assert _normalize_object_id("note:note:abc", kind="note") == "abc"
+    assert _normalize_object_id("/note/global/abc/", kind="note") == "abc"
+    assert _normalize_object_id("post:p1", kind="post") == "p1"
+    assert _normalize_object_id("/post/p1/", kind="post") == "p1"
 
 
 def test_phase5_flag_is_configurable() -> None:

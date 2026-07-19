@@ -281,6 +281,8 @@ async def index_text_node(
     index_revision: int = 1,
     section: str = "",
     keywords: list[str] | None = None,
+    summary_version: int = 0,
+    summary_model: str = "",
 ) -> int:
     """Embed and store a text node. Returns number of chunks written."""
     if node_type not in TEXT_NODE_TYPES:
@@ -336,16 +338,19 @@ async def index_text_node(
                 "INSERT INTO note_embeddings "
                 "(user_id, tenant_key, scope, node_type, note_id, file_id, post_id, chunk_index, "
                 "model_key, dim, content_hash, chunk_text, search_text, referenced_ids, "
-                "object_title, object_status, index_revision, keywords, embedding) "
+                "object_title, object_status, index_revision, keywords, summary_version, "
+                "summary_model, embedding) "
                 "VALUES (:uid, :tk, :scope, :nt, :nid, :fid, :pid, :ci, :mk, :dim, :ch, "
-                ":ctxt, :stxt, :rids, :otitle, :ostatus, :irev, :keywords, :emb) "
+                ":ctxt, :stxt, :rids, :otitle, :ostatus, :irev, :keywords, :sversion, "
+                ":smodel, :emb) "
                 "ON CONFLICT (user_id, tenant_key, scope, node_type, note_id, file_id, "
                 "chunk_index, model_key) DO UPDATE "
                 "SET dim = EXCLUDED.dim, content_hash = EXCLUDED.content_hash, "
                 "chunk_text = EXCLUDED.chunk_text, search_text = EXCLUDED.search_text, "
                 "referenced_ids = EXCLUDED.referenced_ids, object_title = EXCLUDED.object_title, "
                 "object_status = EXCLUDED.object_status, index_revision = EXCLUDED.index_revision, "
-                "keywords = EXCLUDED.keywords, "
+                "keywords = EXCLUDED.keywords, summary_version = EXCLUDED.summary_version, "
+                "summary_model = EXCLUDED.summary_model, "
                 "post_id = EXCLUDED.post_id, "
                 "embedding = EXCLUDED.embedding, updated_at = now()"
             ),
@@ -368,6 +373,8 @@ async def index_text_node(
                 "ostatus": _single_line(object_status),
                 "irev": max(1, int(index_revision or 1)),
                 "keywords": keywords_json,
+                "sversion": max(0, int(summary_version or 0)),
+                "smodel": _single_line(summary_model),
                 "emb": _vec_to_pg(vec),
             },
         )
@@ -389,6 +396,9 @@ async def index_note(
     object_status: str = "active",
     index_revision: int | None = None,
     index_summary: bool = True,
+    discovery_summary: str | None = None,
+    discovery_summary_version: int = 0,
+    discovery_summary_model: str = "",
 ) -> int:
     """Embed a note and its discovery summary in the async index."""
     plain = markdown_to_index_text(title, body)
@@ -398,7 +408,7 @@ async def index_note(
         "body": body,
         "status": object_status,
     }))
-    summary = build_discovery_summary(title, plain)
+    summary = str(discovery_summary or "").strip() or build_discovery_summary(title, plain)
     referenced_ids = extract_referenced_attachment_ids(body)
     count = await index_text_node(
         session,
@@ -436,6 +446,8 @@ async def index_note(
                 object_status=object_status,
                 index_revision=effective_revision,
                 keywords=discovery_keywords(summary),
+                summary_version=discovery_summary_version,
+                summary_model=discovery_summary_model,
             )
     return count
 
@@ -456,11 +468,14 @@ async def index_discovery_summary(
     index_revision: int = 1,
     max_chars: int = 4000,
     keywords: list[str] | None = None,
+    summary_text: str | None = None,
+    summary_version: int = 0,
+    summary_model: str = "",
 ) -> int:
     """Write one object-level discovery node with a deterministic fallback."""
     if node_type not in DISCOVERY_NODE_TYPES:
         raise ValueError(f"Unsupported discovery node_type: {node_type}")
-    summary = build_discovery_summary(title, text_value)
+    summary = str(summary_text or "").strip() or build_discovery_summary(title, text_value)
     if not summary:
         await remove_text_node(
             session, user_id, scope, node_type, object_id, tenant_key=tenant_key
@@ -482,6 +497,8 @@ async def index_discovery_summary(
         object_status=object_status,
         index_revision=index_revision,
         keywords=keywords or discovery_keywords(summary),
+        summary_version=summary_version,
+        summary_model=summary_model,
     )
 
 

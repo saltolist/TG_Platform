@@ -255,6 +255,32 @@ def test_evidence_snapshot_keeps_full_assistant_artifact() -> None:
     assert "Полный текст поста" in rendered
 
 
+def test_evidence_snapshot_persists_catalog_as_typed_entity_set() -> None:
+    snapshot = build_snapshot_from_evidence_records(
+        user_text="Сколько постов?",
+        evidence_ids=["/posts/"],
+        records={
+            "/posts/": {
+                "kind": "catalog",
+                "source_ref": "/posts/",
+                "citation_path": "/posts/",
+                "citation_title": "Список постов",
+                "content": "total=2",
+                "metadata": {
+                    "members": [
+                        {"kind": "post", "id": "p1", "title": "Первый"},
+                        {"kind": "post", "id": "p2", "title": "Второй"},
+                    ]
+                },
+            }
+        },
+    )
+
+    entity_set = next(item for item in snapshot.entities if item.entity_type == "entity_set")
+    assert [item["id"] for item in entity_set.members] == ["p1", "p2"]
+    assert "entity_set" in format_ledger_for_planner((snapshot,))
+
+
 def test_referential_hints_from_ledger_only_for_referential_followups() -> None:
     from app.services.ai.rag_dialog_ledger import (
         LedgerEntity,

@@ -239,6 +239,7 @@ class TurnContractV2(_ContractModel):
     success_criteria: tuple[str, ...]
     supported_capabilities: tuple[str, ...]
     prohibited_recommendations: tuple[str, ...]
+    answerability_without_evidence: bool
 
     @model_validator(mode="after")
     def validate_source_budgets(self) -> "TurnContractV2":
@@ -463,7 +464,10 @@ def _is_referential_text(user_text: str) -> bool:
     return bool(
         _POST_REFERENT_RE.search(lowered)
         or _NOTE_REFERENT_RE.search(lowered)
-        or any(marker in lowered for marker in ("эти", "них", "ней", "неё", "предыдущ", "в этом пост"))
+        or any(
+            marker in lowered
+            for marker in ("это", "эти", "них", "ней", "неё", "предыдущ", "в этом пост")
+        )
     )
 
 
@@ -476,6 +480,25 @@ def _ledger_targets(*, user_text: str, dialog_ledger: tuple[Any, ...]) -> tuple[
         candidates: list[dict[str, Any]] = []
         for entity in tuple(getattr(turn, "entities", ()) or ()):
             kind = str(getattr(entity, "entity_type", "") or "")
+            if kind == "entity_set":
+                for raw_member in tuple(getattr(entity, "members", ()) or ()):
+                    if not isinstance(raw_member, Mapping):
+                        continue
+                    member_kind = str(raw_member.get("kind") or "")
+                    member_id = str(raw_member.get("id") or "").strip()
+                    if member_kind not in {"note", "post"} or not member_id:
+                        continue
+                    candidates.append({
+                        "kind": member_kind,
+                        "id": member_id,
+                        "role": "subject",
+                        "authoritative": True,
+                        "confidence": 1.0,
+                        "resolved_by": "dialog_ledger",
+                        "source_turn_id": str(getattr(turn, "turn_id", "") or "") or None,
+                        "title": str(raw_member.get("title") or "") or None,
+                    })
+                continue
             if kind not in {"note", "post"}:
                 continue
             entity_id = str(getattr(entity, f"{kind}_id", "") or "").strip()
@@ -608,70 +631,6 @@ def _is_exhaustive_request(value: str) -> bool:
     )
 
 
-def _is_recommendation_request(value: str) -> bool:
-    """Return whether the user asks for a choice, direction, or advice.
-
-    This is intentionally domain-neutral: recommendations need workspace
-    context whether they concern a channel profile, content direction, or a
-    concrete next step. Exact reads and mutation commands are classified by
-    the stronger intent branches before this profile is considered.
-    """
-
-    lowered = value.casefold()
-    return any(
-        marker in lowered
-        for marker in (
-            "посовет",
-            "порекоменду",
-            "рекомендуешь",
-            "что лучше",
-            "как лучше",
-            "что стоит",
-            "лучше выбрать",
-            "стоит выбрать",
-            "какое направление выбрать",
-            "какой вариант выбрать",
-            "what do you recommend",
-            "what would you recommend",
-            "what should i choose",
-        )
-    )
-
-
-def _minimum_corpus_evidence(value: str, kind: SourceKind) -> int:
-    """Plural selection questions need more than one matching object."""
-
-    lowered = value.casefold()
-    plural_question = any(
-        marker in lowered for marker in ("какие", "которые", "which", "what notes", "what posts")
-    )
-    kind_mentioned = (
-        "замет" in lowered if kind == "notes" else "пост" in lowered if kind == "posts" else False
-    )
-    return 2 if plural_question and kind_mentioned else 1
-
-
-def _is_catalog_request(value: str, kind: SourceKind) -> bool:
-    """Catalog evidence is authoritative for counts and explicit inventories."""
-
-    lowered = value.casefold()
-    kind_mentioned = (
-        "замет" in lowered if kind == "notes" else "пост" in lowered if kind == "posts" else False
-    )
-    inventory_marker = any(
-        marker in lowered
-        for marker in (
-            "сколько",
-            "перечисли все",
-            "перечисли всё",
-            "список всех",
-            "how many",
-            "list all",
-        )
-    )
-    return kind_mentioned and inventory_marker
-
-
 def _task_profile(
     legacy: Mapping[str, Any],
     target_contract: TargetContract,
@@ -687,10 +646,8 @@ def _task_profile(
         return "artifact_revision" if target_contract.targets else "workspace_synthesis"
     if intent == "compare_with_feed_posts":
         return "comparison"
-    if target_contract.target_mode == "exact":
+    if target_contract.target_mode in {"exact", "set"}:
         return "exact_lookup"
-    if _is_recommendation_request(str(legacy.get("search_query") or "")):
-        return "recommendation"
     return "topical_answer"
 
 
@@ -720,29 +677,6 @@ def _source_requirements(
             )
             for kind in ("notes", "posts")
         )
-    if profile == "recommendation" and target_contract.target_mode == "corpus":
-        return tuple(
-            SourceRequirement(
-                source_id=f"recommendation-{kind}",
-                kind=kind,
-                role="context",
-                required=True,
-                query_goal=(
-                    "find relevant workspace notes that define plans, concepts, or constraints"
-                    if kind == "notes"
-                    else "find relevant existing posts that show current positioning and coverage"
-                ),
-                scope=SourceScope(mode="corpus", corpus="workspace"),
-                freshness=Freshness(mode="latest_available"),
-                budget=SourceBudget(
-                    search_calls=1,
-                    rewrite_calls=0,
-                    candidate_limit=4,
-                    deep_reads=1,
-                ),
-            )
-            for kind in ("notes", "posts")
-        )
     for index, target in enumerate(target_contract.targets, start=1):
         if target.kind not in {"note", "post"}:
             continue
@@ -765,34 +699,24 @@ def _source_requirements(
             budget=SourceBudget(search_calls=2, rewrite_calls=1, candidate_limit=5, deep_reads=2),
         ))
     if "workspace" in corpus_kinds:
-        lowered = str(legacy.get("search_query") or "").lower()
-        requested: list[SourceKind] = []
-        for marker, kind in (
-            ("замет", "notes"), ("пост", "posts"), ("метрик", "analytics"),
-            ("аналит", "analytics"), ("комментар", "comments"), ("файл", "attachments"),
-            ("изображ", "images"),
-        ):
-            if marker in lowered and kind not in requested:
-                requested.append(kind)  # type: ignore[arg-type]
-        for index, kind in enumerate(requested or ["dialog"], start=1):
-            catalog = _is_catalog_request(
-                str(legacy.get("search_query") or ""), kind
-            )
+        # Every ordinary answer turn gets bounded, source-separated discovery
+        # over both primary workspace corpora. These requirements are optional
+        # until the semantic classifier marks a source as factual/required;
+        # discovery can therefore enrich a normal answer without turning an
+        # empty workspace into a refusal.
+        for kind in ("notes", "posts"):
             sources.append(SourceRequirement(
-                source_id=f"workspace-{kind}-{index}", kind=kind, role="context",
-                required=kind not in {"images", "dialog"},
-                query_goal=(
-                    f"enumerate the complete {kind} catalog needed for the current goal"
-                    if catalog
-                    else f"retrieve {kind} needed for the current goal"
-                ),
-                min_evidence=_minimum_corpus_evidence(
-                    str(legacy.get("search_query") or ""), kind
-                ),
-                evidence_granularity="catalog" if catalog else "full_text",
+                source_id=f"workspace-{kind}", kind=kind, role="context",
+                required=False,
+                query_goal=f"find {kind} relevant to the current goal, if any",
                 scope=SourceScope(mode="corpus", corpus="workspace"),
                 freshness=Freshness(mode="latest_available"),
-                budget=SourceBudget(search_calls=1, rewrite_calls=0, candidate_limit=4, deep_reads=1),
+                budget=SourceBudget(
+                    search_calls=1,
+                    rewrite_calls=0,
+                    candidate_limit=6,
+                    deep_reads=3,
+                ),
             ))
     return tuple(sources)
 
@@ -858,6 +782,7 @@ def _upgrade_contract_v2(*, legacy: dict[str, Any], user_text: str, scope: str,
             if profile == "exhaustive_inventory"
             else f"{(legacy.get('output') or {}).get('kind', 'answer')}.v1"
         ),
+        answerability_without_evidence=not any(source.required for source in sources),
         execution_mode=execution_mode, budgets=budgets,
         **compatibility,
     )
@@ -989,13 +914,10 @@ def build_turn_contract(
     if target and target.get("kind") in {"recent_note", "ledger_note"}:
         corpus = "exact_note"
 
-    requires_workspace = bool(
-        feed_corpus
-        or target
-        or inspect_note
-        or _is_recommendation_request(current)
-        or any(marker in lowered for marker in ("пост", "замет", "канал", "метрик", "изображ"))
-    )
+    # V2 always performs bounded workspace enrichment. Whether evidence is
+    # mandatory for the answer is decided semantically by the classifier and
+    # stored separately as answerability_without_evidence.
+    requires_workspace = True if v2_enabled else bool(feed_corpus or target or inspect_note)
     if corpus in {"feed_posts", "exact_note"}:
         max_steps = 4
     elif target:
@@ -1090,20 +1012,19 @@ def evidence_matches_source(
     source_kind = str(source.get("kind") or "")
     record_kind = str(record.get("kind") or "")
     granularity = str(source.get("evidence_granularity") or "full_text")
+    catalog_match = False
+    if source_kind == "posts":
+        catalog_match = record_kind == "catalog" and evidence_id.startswith("/posts/")
+    elif source_kind == "notes":
+        catalog_match = record_kind == "catalog" and (
+            evidence_id == "/global/notes/" or evidence_id.endswith("/notes/")
+        )
     if granularity == "catalog":
-        if source_kind == "posts":
-            catalog_match = record_kind == "catalog" and evidence_id.startswith("/posts/")
-        elif source_kind == "notes":
-            catalog_match = record_kind == "catalog" and (
-                evidence_id == "/global/notes/" or evidence_id.endswith("/notes/")
-            )
-        else:
-            catalog_match = False
         if not catalog_match:
             return False
     else:
         allowed_kinds = _SOURCE_RECORD_KINDS.get(source_kind, frozenset())
-        if not allowed_kinds or record_kind not in allowed_kinds:
+        if not catalog_match and (not allowed_kinds or record_kind not in allowed_kinds):
             return False
 
     scope = source.get("scope") or {}
