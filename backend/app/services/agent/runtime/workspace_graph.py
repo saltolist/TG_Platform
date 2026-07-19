@@ -53,7 +53,7 @@ WORKSPACE_SYSTEM = """Ты единственный WorkspaceAgent платфо�
 Верни один JSON tool call:
 - {"type":"read","requires_evidence":true,"required_sources":["notes|posts|analytics|comments|attachments|images"]} — ответ невозможен без фактов workspace;
 - {"type":"finish","requires_evidence":false,"required_sources":[]} — на сообщение можно полноценно ответить по его тексту, диалогу и общим знаниям;
-- {"type":"post_proposal","command":"create_post|edit_post|schedule_post|publish_post|cancel_schedule|delete_post|restore_post","payload":{...}};
+- {"type":"post_proposal","command":"create_post|edit_post|schedule_post|publish_post|cancel_schedule|delete_post|restore_post","payload":{...}} — только когда передан блок "Текущий пост";
 - {"type":"media_proposal","kind":"image|video","prompt":"...","options":{},"cost_ceiling":number}.
 Не выполняй мутации напрямую. Выбирай только тип вызова, без keyword routing.
 Не предлагай функций, которых нет в перечисленных tools. В частности, в платформе
@@ -61,7 +61,7 @@ WORKSPACE_SYSTEM = """Ты единственный WorkspaceAgent платфо�
 частью workspace и доступны AI после сохранения.
 Обычные answer-turns в любом случае выполняют отдельный ограниченный поиск по заметкам и постам для обогащения ответа. Поэтому НЕ выбирай "read" и НЕ добавляй required_sources только ради полезного контекста. Выбирай "read" лишь когда факты именно из workspace необходимы для выполнения запроса: пользователь просит найти, перечислить, посчитать, проверить или описать свои объекты/метрики. Совет, оценка или общий вопрос, на который можно ответить без утверждений о содержимом workspace, — "finish"; найденные материалы всё равно будут доступны как необязательное обогащение.
 Если передан блок "Диалог" — используй его, чтобы понять контекст запроса. Короткая правка твоего предыдущего ответа без новых фактических вопросов (перефразируй, покороче, на другом языке, другим тоном) — это "finish", даже если предыдущий ответ был по фактам workspace: факты уже собраны и лежат в диалоге, повторный поиск не нужен.
-Если передан блок "Текущий пост" и пользователь просит изменить его текст (убрать/добавить/переформулировать что-то в посте) — верни ровно {"type":"post_proposal","command":"edit_post","payload":{}}. Полный текст поста и его id проставляются отдельным детерминированным шагом — тебе НЕ нужно возвращать ни текст, ни id здесь, только классифицировать запрос как edit_post.
+Если передан блок "Текущий пост" и пользователь просит изменить его текст (убрать/добавить/переформулировать что-то в посте) — верни ровно {"type":"post_proposal","command":"edit_post","payload":{}}. Полный текст поста и его id проставляются отдельным детерминированным шагом — тебе НЕ нужно возвращать ни текст, ни id здесь, только классифицировать запрос как edit_post. Если блока "Текущий пост" нет, НЕ выбирай post_proposal: запрос на изменение серии или постов означает, что сначала нужно найти соответствующие материалы workspace, поэтому выбирай read.
 
 Дополнительно ВСЕГДА добавляй в JSON поле "search_query" — самодостаточную формулировку того, что пользователь ищет, пригодную для семантического поиска по заметкам и постам. Раскрой анафоры и подразумеваемое из блока "Диалог": "а сколько там с картинками?" → "сколько заметок с изображениями"; "покороче" (правка ответа) → повтори тему прошлого ответа своими словами. Если запрос и так самодостаточный — повтори его суть без изменений. Не оставляй "search_query" пустым для "read"-запросов."""
 
@@ -238,6 +238,13 @@ async def workspace_agent_node(
             post_text = str(ctx.post_data.get("text") or "")
             if post_id and post_text:
                 content_parts.append(f"Текущий пост (id={post_id}):\n{post_text}")
+        else:
+            content_parts.append(
+                "Контекст интерфейса: это глобальный чат без открытого поста. "
+                "Здесь нельзя выбрать post_proposal. Если пользователь просит изменить "
+                "пост, серию или расписание, классифицируй запрос как read: сначала нужно "
+                "найти соответствующие заметки и посты workspace и показать результат."
+            )
         content_parts.append(f"Текущий запрос:\n{user_text}" if content_parts else user_text)
         user_content = "\n\n".join(content_parts)
         raw = await call_llm_with_deadline(
@@ -261,6 +268,22 @@ async def workspace_agent_node(
         or {}
     )
     classified_type = str(call.get("type") or "read")
+    if classified_type == "post_proposal" and ctx.scope != "post":
+        # A global chat has no authoritative mutation target. Preserve the
+        # user's requested command only as answer context, then force factual
+        # workspace discovery. This is deliberately normalized here rather
+        # than in the edge router: downstream policy, tracing and answer
+        # generation must all see the same read decision.
+        requested_command = str(call.get("command") or "edit_post")
+        call = {
+            **call,
+            "type": "read",
+            "requires_evidence": True,
+            "required_sources": ["notes", "posts"],
+            "global_mutation_fallback": True,
+            "requested_command": requested_command,
+        }
+        classified_type = "read"
     raw_required_sources = call.get("required_sources")
     required_sources = (
         [str(item) for item in raw_required_sources]
@@ -322,34 +345,43 @@ async def workspace_agent_node(
 
 def route_workspace_call(
     state: AgentGraphState,
-) -> Literal["seed", "answer", "resolve_schedule_time", "build_action_proposal", "build_media_proposal"]:
-    # "read" enters the research loop directly at its first node (seed). The
-    # research nodes (seed/planner/tool/verify/pack) are first-class members of
-    # this single graph — no nested subgraph, no separate checkpointer, and no
-    # lossy repackaging of evidence_records (agent-runtime-sprints §1.0).
+) -> Literal["seed"]:
+    """Every user turn enters bounded workspace research before any output."""
+
+    return "seed"
+
+
+def route_after_research(
+    state: AgentGraphState,
+) -> Literal["answer", "resolve_schedule_time", "build_action_proposal", "build_media_proposal"]:
+    """Dispatch the already-researched turn to its requested terminal path."""
+
     call = state.get("tool_call") or {}
     call_type = str(call.get("type") or "read")
     scope = str(state.get("scope") or "global")
+    if call_type == "post_proposal":
+        # Defense in depth for old checkpoints or malformed classifier output:
+        # a global run can read and answer about candidate posts, never mutate
+        # an object that was not opened as the current post.
+        if scope != "post":
+            return "answer"
+        if str(call.get("command") or "") == "schedule_post":
+            return "resolve_schedule_time"
+        return "build_action_proposal"
+    if call_type == "media_proposal":
+        return "build_media_proposal"
+    return "answer"
 
-    # Post-mutation proposals require a post context. In global scope the agent
-    # has no post to mutate, so treat any post_proposal as a plain "finish" and
-    # route straight to the answer node — no proposal card is ever created.
-    if call_type == "post_proposal" and scope != "post":
-        return "answer"
 
-    if call_type == "post_proposal" and str(call.get("command") or "") == "schedule_post":
-        # schedule_post needs an actual instant before a proposal is worth
-        # creating — the classifier never computes one (it's a 600-token
-        # router, not a date parser), so route through a dedicated resolver
-        # first (chat 4a3ed2f5: every schedule_post proposal used to reach
-        # the user with no scheduled_at and fail approval with a silent 400).
-        return "resolve_schedule_time"
-    return {
-        "read": "seed",
-        "finish": "answer",
-        "post_proposal": "build_action_proposal",
-        "media_proposal": "build_media_proposal",
-    }.get(call_type, "seed")  # type: ignore[return-value]
+def _research_was_attempted(state: AgentGraphState) -> bool:
+    """Return whether a terminal node received a real research handoff."""
+
+    return bool(
+        state.get("evidence_pack_schema")
+        or state.get("finish_retrieval")
+        or state.get("search_ledger")
+        or state.get("research_transcript")
+    )
 
 
 REFUSAL_TEXT = (
@@ -501,6 +533,14 @@ async def answer_node(state: AgentGraphState, config: RunnableConfig) -> dict[st
         if post_id and post_text:
             prompt_parts.append(f"Текущий пост (tech_id={post_id}):\n{post_text}")
     prompt_parts.append(f"Вопрос:\n{state.get('user_text', '')}")
+    if (state.get("tool_call") or {}).get("global_mutation_fallback"):
+        prompt_parts.append(
+            "Глобальный чат: пользователь просит изменить объект workspace, но открытого "
+            "поста в этом контексте нет. Используй найденные материалы, назови подходящие "
+            "серии/посты и объясни, что саму правку можно продолжить из чата конкретного "
+            "поста. Поиск уже выполнен в этом ходе: не обещай найти что-то позже и не "
+            "описывай будущий вызов инструмента."
+        )
     if came_through_research and not has_grounded_evidence:
         searched_sources = list(
             dict.fromkeys(
@@ -872,6 +912,7 @@ async def _generate_edited_post_html(
     instruction: str,
     dialog_context: str = "",
     last_proposed_post_html: str | None = None,
+    workspace_context: str = "",
 ) -> str | None:
     """Generate the full edited post as Telegram HTML in a dedicated LLM call.
 
@@ -936,8 +977,15 @@ async def _generate_edited_post_html(
     # the text modestly, so 3x chars plus headroom avoids mid-text truncation.
     max_tokens = min(6000, max(800, len(edit_base) * 3 + 400))
     context_block = f"Недавний диалог:\n{dialog_context}\n\n" if dialog_context.strip() else ""
+    evidence_block = (
+        "Проверенные материалы workspace, собранные перед правкой. Используй их "
+        "только если инструкция явно на них опирается; не выдумывай дополнительные факты:\n"
+        f"{workspace_context}\n\n"
+        if workspace_context.strip()
+        else ""
+    )
     prompt = (
-        f"{context_block}{proposal_block}Текст поста, который нужно отредактировать "
+        f"{context_block}{evidence_block}{proposal_block}Текст поста, который нужно отредактировать "
         f"(Telegram HTML):\n{edit_base}\n\n"
         f"Инструкция:\n{instruction}"
     )
@@ -1012,6 +1060,12 @@ async def build_action_proposal_node(
     from app.db.session import async_session_factory
 
     ctx: RuntimeContext = config["configurable"]["runtime_context"]
+    if not _research_was_attempted(state):
+        return {
+            **state,
+            "errors": [*(state.get("errors") or []), "proposal_research_missing"],
+            "answer_text": "Не удалось проверить workspace перед предложением действия.",
+        }
     if not ctx.settings.agent_actions_enabled:
         return {
             **state,
@@ -1047,6 +1101,10 @@ async def build_action_proposal_node(
             instruction=str(state.get("user_text") or ""),
             dialog_context=ctx.dialog_context,
             last_proposed_post_html=ctx.last_proposed_post_html,
+            workspace_context=(
+                _render_verified_pack(dict(state.get("evidence_pack") or {})).strip()
+                or str(state.get("rag_context") or "").strip()
+            ),
         )
         if not new_html:
             return {
@@ -1115,6 +1173,12 @@ async def build_media_proposal_node(
     config: RunnableConfig,
 ) -> dict[str, Any]:
     ctx: RuntimeContext = config["configurable"]["runtime_context"]
+    if not _research_was_attempted(state):
+        return {
+            **state,
+            "errors": [*(state.get("errors") or []), "media_research_missing"],
+            "answer_text": "Не удалось проверить workspace перед предложением медиа.",
+        }
     if not ctx.settings.agent_media_enabled:
         return {
             **state,
@@ -1150,6 +1214,10 @@ async def build_media_proposal_node(
             "prompt": str(call.get("prompt") or ""),
             "options": dict(call.get("options") or {}),
             "cost_ceiling": call.get("cost_ceiling"),
+            "workspace_context": (
+                _render_verified_pack(dict(state.get("evidence_pack") or {})).strip()
+                or str(state.get("rag_context") or "").strip()
+            ),
         },
     }
     return {**state, "interrupt": pending}
@@ -1231,6 +1299,7 @@ async def submit_media_node(
                 "prompt": str(proposal.get("prompt") or ""),
                 "options": dict(proposal.get("options") or {}),
                 "model_id": proposal.get("model_id"),
+                "workspace_context": str(proposal.get("workspace_context") or ""),
             },
             reserved_cost=proposal.get("cost_ceiling"),
         )
@@ -1338,7 +1407,7 @@ def build_workspace_graph() -> StateGraph:
     graph.add_conditional_edges("planner", route_research_plan)
     graph.add_conditional_edges("tool", route_research_after_tool)
     graph.add_conditional_edges("verify", route_research_verify)
-    graph.add_edge("pack", "answer")
+    graph.add_conditional_edges("pack", route_after_research)
     graph.add_edge("answer", "complete")
     graph.add_conditional_edges("resolve_schedule_time", route_schedule_time_resolution)
     graph.add_edge("build_action_proposal", "action_hitl")

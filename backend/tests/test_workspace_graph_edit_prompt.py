@@ -97,6 +97,27 @@ async def test_no_prior_proposal_edits_current_html_directly() -> None:
 
 
 @pytest.mark.asyncio
+async def test_verified_workspace_context_is_available_to_edit_model() -> None:
+    ctx = _ctx()
+    with patch(
+        "app.services.ai.llm.complete_chat_completion",
+        new_callable=AsyncMock,
+        return_value="Новый текст",
+    ) as mock_llm:
+        await _generate_edited_post_html(
+            ctx,
+            current_html="Текст поста.",
+            instruction="Уточни анонс по материалам",
+            workspace_context="Проверенная заметка: запуск назначен на пятницу.",
+        )
+
+    sent_messages = mock_llm.call_args.kwargs["messages"]
+    user_content = next(m["content"] for m in sent_messages if m["role"] == "user")
+    assert "Проверенные материалы workspace" in user_content
+    assert "запуск назначен на пятницу" in user_content
+
+
+@pytest.mark.asyncio
 async def test_prior_proposal_identical_to_current_edits_current_html() -> None:
     """If the proposed body already matches the saved post (e.g. it was
     approved and applied since), there's no pending draft to continue —

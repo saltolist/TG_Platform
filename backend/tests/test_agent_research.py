@@ -1107,4 +1107,87 @@ async def test_workspace_agent_node_skips_post_block_when_no_post_data() -> None
         await workspace_agent_node(state, config)
 
     messages = mock_llm.await_args.kwargs.get("messages")
-    assert "Текущий пост" not in messages[1]["content"]
+    assert "Текущий пост (id=" not in messages[1]["content"]
+
+
+@pytest.mark.asyncio
+async def test_global_edit_proposal_is_normalized_to_required_workspace_read() -> None:
+    """A classifier mistake in global chat must search, never fall through to
+    a text-only answer or create a targetless mutation proposal."""
+    from app.services.agent.runtime.workspace_graph import workspace_agent_node
+
+    ctx = _reasoner_ctx()
+    state = {"user_text": "Измени мою запланированную серию"}
+    config = {"configurable": {"runtime_context": ctx}}
+    with patch(
+        "app.services.ai.llm.complete_chat_completion",
+        new_callable=AsyncMock,
+        return_value=(
+            '{"type":"post_proposal","command":"edit_post","payload":{},'
+            '"search_query":"запланированная серия"}'
+        ),
+    ):
+        result = await workspace_agent_node(state, config)
+
+    assert result["current_tool"] == "read"
+    assert result["tool_call"]["type"] == "read"
+    assert result["tool_call"]["global_mutation_fallback"] is True
+    assert result["tool_call"]["requested_command"] == "edit_post"
+    required = {
+        item["kind"]
+        for item in result["turn_contract"]["source_requirements"]
+        if item.get("required")
+    }
+    assert required == {"notes", "posts"}
+
+
+def test_all_workspace_outcomes_research_before_terminal_dispatch() -> None:
+    from app.services.agent.runtime.workspace_graph import (
+        route_after_research,
+        route_workspace_call,
+    )
+
+    for call_type in ("read", "finish", "post_proposal", "media_proposal"):
+        assert route_workspace_call({"tool_call": {"type": call_type}}) == "seed"
+
+    assert route_after_research({"tool_call": {"type": "finish"}}) == "answer"
+    assert route_after_research(
+        {"scope": "post", "tool_call": {"type": "post_proposal", "command": "edit_post"}}
+    ) == "build_action_proposal"
+    assert route_after_research(
+        {"scope": "post", "tool_call": {"type": "post_proposal", "command": "schedule_post"}}
+    ) == "resolve_schedule_time"
+    assert route_after_research(
+        {"scope": "global", "tool_call": {"type": "post_proposal", "command": "edit_post"}}
+    ) == "answer"
+    assert route_after_research(
+        {"tool_call": {"type": "media_proposal"}}
+    ) == "build_media_proposal"
+
+
+@pytest.mark.asyncio
+async def test_media_proposal_keeps_researched_workspace_context() -> None:
+    from app.services.agent.runtime.workspace_graph import build_media_proposal_node
+
+    ctx = _reasoner_ctx()
+    ctx.settings.agent_media_enabled = True
+    ctx.ai_profile = {
+        "imageGenerationModels": [
+            {"id": "img-1", "provider": "OpenAI", "model": "dall-e-3", "active": True}
+        ]
+    }
+    state = {
+        "run_id": str(uuid4()),
+        "user_id": str(ctx.user_id),
+        "tool_call": {"type": "media_proposal", "kind": "image", "prompt": "Обложка серии"},
+        "evidence_pack_schema": "workspace.evidence-pack/v1",
+        "evidence_pack": {},
+        "rag_context": "Проверенная серия: публикации запланированы на пятницу.",
+    }
+    result = await build_media_proposal_node(
+        state,
+        {"configurable": {"runtime_context": ctx}},
+    )
+
+    proposal = (result["interrupt"] or {}).get("proposal") or {}
+    assert proposal["workspace_context"] == "Проверенная серия: публикации запланированы на пятницу."

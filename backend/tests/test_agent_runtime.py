@@ -21,6 +21,32 @@ from app.services.ai.providers import ProviderSpec
 from tests.conftest import TestSessionLocal, sample_global_chat, sample_post
 
 
+def _finish_post_research(post_id: str) -> str:
+    return (
+        '{"tool":"FinishRetrieval","args":{"status":"ready","evidence_ids":'
+        f'["/post/{post_id}/"]}}}}'
+    )
+
+
+def _scripted_researched_terminal(
+    *,
+    route_response: str,
+    research_response: str,
+    terminal_response: str | None,
+):
+    async def respond(**kwargs):
+        system = str((kwargs.get("messages") or [{}])[0].get("content") or "")
+        if "единственный WorkspaceAgent" in system:
+            return route_response
+        if "research-агент workspace" in system or "bounded workspace research planner" in system:
+            return research_response
+        if terminal_response is not None:
+            return terminal_response
+        raise AssertionError(f"Unexpected terminal LLM call: {system[:80]}")
+
+    return respond
+
+
 @pytest.mark.asyncio
 async def test_create_and_get_agent_run(writer_auth_headers: dict[str, str]) -> None:
     transport = ASGITransport(app=app)
@@ -693,16 +719,21 @@ async def test_execute_agent_run_emits_workspace_step_for_finish(
         ctx.reasoner_model = "gpt-4o-mini"
         ctx.reasoner_api_key = "test-key"
 
-        # "finish" skips the research loop entirely (no planner_step /
-        # tool_result), so workspace_step is the only step signal there is.
-        llm_responses = [
-            '{"type": "finish"}',
-            '{"answer": "Помогаю с постами и заметками.", "claims": []}',
-        ]
+        # Even a conversational finish now performs bounded workspace
+        # discovery before the final answer.
         with patch(
             "app.services.ai.llm.complete_chat_completion",
             new_callable=AsyncMock,
-            side_effect=llm_responses,
+            side_effect=_scripted_researched_terminal(
+                route_response='{"type": "finish"}',
+                research_response=(
+                    '{"tool":"FinishRetrieval","args":'
+                    '{"status":"ready","evidence_ids":[]}}'
+                ),
+                terminal_response=(
+                    '{"answer": "Помогаю с постами и заметками.", "claims": []}'
+                ),
+            ),
         ):
             await execute_agent_run(
                 session, run=run, user=writer_user,
@@ -715,8 +746,7 @@ async def test_execute_agent_run_emits_workspace_step_for_finish(
     workspace_events = [evt for evt in events if evt.event_type == "workspace_step"]
     assert len(workspace_events) == 1
     assert workspace_events[0].payload["tool"] == "finish"
-    # No research steps on this path — proves the label would otherwise be stuck.
-    assert not [evt for evt in events if evt.event_type == "planner_step"]
+    assert [evt for evt in events if evt.event_type == "planner_step"]
 
 
 @pytest.mark.asyncio
@@ -759,8 +789,18 @@ async def test_execute_agent_run_streams_partial_answer_events(
         # the answer step streams. Patch the stream directly (overrides the
         # conftest shim) to feed real token chunks.
         with (
-            patch("app.services.ai.llm.complete_chat_completion",
-                  new_callable=AsyncMock, side_effect=['{"type": "finish"}']),
+            patch(
+                "app.services.ai.llm.complete_chat_completion",
+                new_callable=AsyncMock,
+                side_effect=_scripted_researched_terminal(
+                    route_response='{"type": "finish"}',
+                    research_response=(
+                        '{"tool":"FinishRetrieval","args":'
+                        '{"status":"ready","evidence_ids":[]}}'
+                    ),
+                    terminal_response=None,
+                ),
+            ),
             patch("app.services.ai.llm.stream_chat_completion_tokens", _fake_stream),
         ):
             await execute_agent_run(
@@ -980,8 +1020,8 @@ async def test_edit_post_request_produces_action_proposal_end_to_end(
 
         assert ctx.post_data is not None and ctx.post_data.get("text") == "Запуск 2 июля в 2 часа."
 
-        # Two LLM calls now: (1) router classifies as edit_post with an empty
-        # payload — it no longer regenerates the post text; (2) a dedicated,
+        # Three LLM calls now: (1) router classifies as edit_post, (2) bounded
+        # research finishes over the opened post, and (3) a dedicated,
         # properly-budgeted call produces the full edited text. The router
         # echoing "<полный новый текст поста>" into a 600-token reply was the
         # original bug (chat 25e2cac3), so the split is the fix, not a crutch.
@@ -991,7 +1031,12 @@ async def test_edit_post_request_produces_action_proposal_end_to_end(
         edit_response = "Запуск июля в часа."
         with patch(
             "app.services.ai.llm.complete_chat_completion",
-            new_callable=AsyncMock, side_effect=[route_response, edit_response],
+            new_callable=AsyncMock,
+            side_effect=_scripted_researched_terminal(
+                route_response=route_response,
+                research_response=_finish_post_research(post_id),
+                terminal_response=edit_response,
+            ),
         ):
             await execute_agent_run(
                 session, run=run, user=writer_user,
@@ -1043,7 +1088,12 @@ async def test_publish_post_request_fills_post_id_when_router_omits_it(
         route_response = '{"type": "post_proposal", "command": "publish_post", "payload": {}}'
         with patch(
             "app.services.ai.llm.complete_chat_completion",
-            new_callable=AsyncMock, return_value=route_response,
+            new_callable=AsyncMock,
+            side_effect=_scripted_researched_terminal(
+                route_response=route_response,
+                research_response=_finish_post_research(post_id),
+                terminal_response=None,
+            ),
         ):
             await execute_agent_run(
                 session, run=run, user=writer_user,
@@ -1091,7 +1141,12 @@ async def test_edit_post_generates_multiline_text_without_json_wrapping(
         route_response = '{"type": "post_proposal", "command": "edit_post", "payload": {}}'
         with patch(
             "app.services.ai.llm.complete_chat_completion",
-            new_callable=AsyncMock, side_effect=[route_response, edited],
+            new_callable=AsyncMock,
+            side_effect=_scripted_researched_terminal(
+                route_response=route_response,
+                research_response=_finish_post_research(post_id),
+                terminal_response=edited,
+            ),
         ):
             await execute_agent_run(
                 session, run=run, user=writer_user,
@@ -1137,7 +1192,12 @@ async def test_edit_post_clears_stale_texthtml(writer_user, monkeypatch) -> None
         route_response = '{"type": "post_proposal", "command": "edit_post", "payload": {}}'
         with patch(
             "app.services.ai.llm.complete_chat_completion",
-            new_callable=AsyncMock, side_effect=[route_response, "Привет2"],
+            new_callable=AsyncMock,
+            side_effect=_scripted_researched_terminal(
+                route_response=route_response,
+                research_response=_finish_post_research(post_id),
+                terminal_response="Привет2",
+            ),
         ):
             await execute_agent_run(
                 session, run=run, user=writer_user,
@@ -1200,7 +1260,12 @@ async def test_edit_post_preserves_formatting_and_custom_emoji(
         route_response = '{"type": "post_proposal", "command": "edit_post", "payload": {}}'
         with patch(
             "app.services.ai.llm.complete_chat_completion",
-            new_callable=AsyncMock, side_effect=[route_response, model_html],
+            new_callable=AsyncMock,
+            side_effect=_scripted_researched_terminal(
+                route_response=route_response,
+                research_response=_finish_post_research(post_id),
+                terminal_response=model_html,
+            ),
         ):
             await execute_agent_run(
                 session, run=run, user=writer_user,
@@ -1252,14 +1317,19 @@ async def test_resume_agent_graph_after_action_proposal_completes(
         ctx.reasoner_api_key = "test-key"
         monkeypatch.setattr(ctx.settings, "agent_actions_enabled", True)
 
-        # Router classifies (empty payload), then a dedicated call generates
-        # the edited text — two LLM calls, mirroring the split in
+        # Router classifies, research opens the post, then a dedicated call
+        # generates the edited text.
         # build_action_proposal_node.
         route_response = '{"type": "post_proposal", "command": "edit_post", "payload": {}}'
         edit_response = "Запуск июля в часа."
         with patch(
             "app.services.ai.llm.complete_chat_completion",
-            new_callable=AsyncMock, side_effect=[route_response, edit_response],
+            new_callable=AsyncMock,
+            side_effect=_scripted_researched_terminal(
+                route_response=route_response,
+                research_response=_finish_post_research(post_id),
+                terminal_response=edit_response,
+            ),
         ):
             await execute_agent_run(
                 session, run=run, user=writer_user,
