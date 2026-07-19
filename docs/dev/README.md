@@ -18,6 +18,7 @@
 - [Workspace Agent phase 3 search ledger](workspace-agent-phase3-search-ledger.md) — dedupe intent/read, bounded rewrites, validator finish и metrics
 - [Workspace Agent phase 4 discovery retrieval](workspace-agent-phase4-discovery-retrieval.md) — summaries, contextual chunks, rank fusion, freshness и quality gate
 - [Workspace Agent phase 5 compact planner](workspace-agent-phase5-compact-planner.md) — strict planner decisions, deterministic sufficiency, dynamic budgets и quality gate
+- [Workspace Agent phase 6 evidence pack](workspace-agent-phase6-evidence-pack.md) — verified EvidencePack, output schemas, grounded citations и model separation
 - [Workspace Agent current limitations](workspace-agent-current-limitations.md) — текущие ограничения, release blockers, фаза 3 и оставшиеся работы
 - [Сценарий: Agentic Graph RAG (legacy)](agentic-rag-scenario.md) — deprecated, legacy L2
 - [Сценарий: сводки, ветки и окно LLM](summary-branch-scenario.md) — эталонное поведение при форках и 3+ поколениях bundle

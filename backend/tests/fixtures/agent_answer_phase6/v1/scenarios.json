@@ -1,0 +1,14 @@
+{
+  "schema": "agent-answer-phase6/v1",
+  "measurement": "deterministic fixture estimate; provider usage must be replaced by canary traces",
+  "scenarios": [
+    {"id": "exact-note", "factual": true, "baseline_answer_input_tokens": 1180, "phase6_answer_input_tokens": 540, "baseline_answer_latency_ms": 1400, "phase6_answer_latency_ms": 980, "claims_valid": true, "schema_valid": true, "answer_model_on_path": true},
+    {"id": "comparison", "factual": true, "baseline_answer_input_tokens": 1640, "phase6_answer_input_tokens": 720, "baseline_answer_latency_ms": 1800, "phase6_answer_latency_ms": 1100, "claims_valid": true, "schema_valid": true, "answer_model_on_path": true},
+    {"id": "empty-evidence", "factual": true, "baseline_answer_input_tokens": 310, "phase6_answer_input_tokens": 210, "baseline_answer_latency_ms": 700, "phase6_answer_latency_ms": 420, "claims_valid": true, "schema_valid": true, "answer_model_on_path": true},
+    {"id": "multi-target", "factual": true, "baseline_answer_input_tokens": 2200, "phase6_answer_input_tokens": 960, "baseline_answer_latency_ms": 2200, "phase6_answer_latency_ms": 1300, "claims_valid": true, "schema_valid": true, "answer_model_on_path": true},
+    {"id": "style-draft", "factual": false, "baseline_answer_input_tokens": 1450, "phase6_answer_input_tokens": 610, "baseline_answer_latency_ms": 1700, "phase6_answer_latency_ms": 1050, "claims_valid": true, "schema_valid": true, "answer_model_on_path": true},
+    {"id": "referent", "factual": true, "baseline_answer_input_tokens": 1320, "phase6_answer_input_tokens": 570, "baseline_answer_latency_ms": 1500, "phase6_answer_latency_ms": 900, "claims_valid": true, "schema_valid": true, "answer_model_on_path": true},
+    {"id": "analytics", "factual": true, "baseline_answer_input_tokens": 980, "phase6_answer_input_tokens": 470, "baseline_answer_latency_ms": 1300, "phase6_answer_latency_ms": 820, "claims_valid": true, "schema_valid": true, "answer_model_on_path": true},
+    {"id": "attachment", "factual": true, "baseline_answer_input_tokens": 1550, "phase6_answer_input_tokens": 680, "baseline_answer_latency_ms": 1900, "phase6_answer_latency_ms": 1150, "claims_valid": true, "schema_valid": true, "answer_model_on_path": true}
+  ]
+}

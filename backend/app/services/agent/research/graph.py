@@ -14,7 +14,7 @@ from langchain_core.runnables import RunnableConfig
 from langgraph.graph import END, StateGraph
 
 from app.services.agent.research.evidence import EvidenceRecord, records_from_agent_state
-from app.services.agent.research.pack import build_evidence_pack
+from app.services.agent.research.pack import build_evidence_pack, build_verified_pack
 from app.services.agent.research.plan import (
     merge_plan,
     open_items,
@@ -948,7 +948,13 @@ async def _compact_planner_node(
     planner_limit = int((contract.get("budgets") or {}).get("planner_calls") or 0)
     calls_used = int(state.get("planner_calls_used") or 0)
 
-    if planner_limit <= calls_used or not ctx.reasoner_spec or not ctx.reasoner_model or not ctx.reasoner_api_key:
+    planner_binding = getattr(ctx, "planner_llm", None)
+    planner_spec, planner_model, planner_api_key = (
+        planner_binding()
+        if callable(planner_binding)
+        else (ctx.reasoner_spec, ctx.reasoner_model, ctx.reasoner_api_key)
+    )
+    if planner_limit <= calls_used or not planner_spec or not planner_model or not planner_api_key:
         decision = PlannerDecision(
             decision_code=DecisionCode.FINISH_PARTIAL,
             confidence=1.0,
@@ -968,9 +974,9 @@ async def _compact_planner_node(
             ctx,
             phase="research.planner.compact",
             messages=messages,
-            spec=ctx.reasoner_spec,
-            model=ctx.reasoner_model,
-            api_key=ctx.reasoner_api_key,
+            spec=planner_spec,
+            model=planner_model,
+            api_key=planner_api_key,
             temperature=0.0,
             max_tokens=450,
         )
@@ -990,9 +996,9 @@ async def _compact_planner_node(
                         + _compact_state_snapshot(state=state, records=records, sufficiency=sufficiency),
                     },
                 ],
-                spec=ctx.reasoner_spec,
-                model=ctx.reasoner_model,
-                api_key=ctx.reasoner_api_key,
+                spec=planner_spec,
+                model=planner_model,
+                api_key=planner_api_key,
                 temperature=0.0,
                 max_tokens=450,
             )
@@ -1050,9 +1056,12 @@ async def research_planner_node(state: AgentGraphState, config: RunnableConfig) 
 
     ctx: RuntimeContext = config["configurable"]["runtime_context"]
     inp = _planner_inputs(config)
-    spec = ctx.reasoner_spec
-    model = ctx.reasoner_model
-    api_key = ctx.reasoner_api_key
+    planner_binding = getattr(ctx, "planner_llm", None)
+    spec, model, api_key = (
+        planner_binding()
+        if callable(planner_binding)
+        else (ctx.reasoner_spec, ctx.reasoner_model, ctx.reasoner_api_key)
+    )
     max_steps = int(state.get("max_steps") or 4)
     records = {
         key: EvidenceRecord.from_dict(value)
@@ -1720,6 +1729,7 @@ async def research_verify_node(state: AgentGraphState, config: RunnableConfig) -
 
 
 async def research_pack_node(state: AgentGraphState, config: RunnableConfig) -> dict[str, Any]:
+    ctx: RuntimeContext | None = ((config or {}).get("configurable", {}) or {}).get("runtime_context")
     records = {
         key: EvidenceRecord.from_dict(value)
         for key, value in (state.get("evidence_records") or {}).items()
@@ -1738,6 +1748,24 @@ async def research_pack_node(state: AgentGraphState, config: RunnableConfig) -> 
         allowed_ids = set(_contract_evidence_ids(contract, records))
         evidence_ids = [eid for eid in evidence_ids if eid in allowed_ids]
     unresolved_items = [str(item) for item in (finish.get("unresolved") or [])]
+    source_ids = [
+        str(item.get("source_id"))
+        for item in (contract.get("source_requirements") or [])
+        if isinstance(item, dict) and item.get("source_id")
+    ]
+    phase6_enabled = bool(
+        getattr(getattr(ctx, "settings", None), "agent_answer_phase6_enabled", True)
+    )
+    verified_pack = build_verified_pack(
+        records=records,
+        evidence_ids=evidence_ids,
+        unresolved=unresolved_items,
+        source_ids=source_ids,
+    )
+    # The string rendering is retained for legacy traces and clients, but the
+    # phase-6 answer node receives the typed pack as its sole factual context.
+    if phase6_enabled:
+        evidence_ids = list(verified_pack.evidence_ids)
     packed, cites = build_evidence_pack(
         records=records,
         evidence_ids=evidence_ids,
@@ -1746,6 +1774,8 @@ async def research_pack_node(state: AgentGraphState, config: RunnableConfig) -> 
     return {
         **state,
         "rag_context": packed,
+        "evidence_pack": verified_pack.to_dict() if phase6_enabled else {},
+        "evidence_pack_schema": verified_pack.schema if phase6_enabled else "",
         "evidence_ids": evidence_ids,
         "evidence_titles": [cite.title for cite in cites],
         "unresolved": unresolved_items,

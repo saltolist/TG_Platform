@@ -80,6 +80,9 @@ def _fmt_answer(p: Mapping[str, Any]) -> list[str]:
     return [
         f"answer: {_preview(p.get('text'), 240)}",
         f"    claims={n_claims}  evidence={ev}",
+        "    schema="
+        f"{p.get('output_schema') or '?'}  "
+        f"valid={bool((p.get('output_validation') or {}).get('ok'))}",
     ]
 
 

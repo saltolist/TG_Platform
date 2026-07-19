@@ -23,6 +23,10 @@ class AgentGraphState(TypedDict, total=False):
     unresolved: list[str]
     repair_count: int
     rag_context: str
+    # Versioned, verified handoff to answer_node. ``rag_context`` remains as a
+    # compatibility rendering for legacy consumers and trace replay.
+    evidence_pack: dict[str, Any]
+    evidence_pack_schema: str
     cite_paths: list[str]
     # Human-readable evidence titles (one per cite) so answer_node can state
     # "N objects" explicitly in the prompt, instead of relying on the model to
@@ -36,6 +40,9 @@ class AgentGraphState(TypedDict, total=False):
     answer_text: str
     claims: list[dict[str, Any]]
     result_contract_issues: list[str]
+    output_schema: str
+    output_validation: dict[str, Any]
+    answer_repair_count: int
     step_count: int
     max_steps: int
     # Persistent research plan (agent-runtime persistent-plan): list of

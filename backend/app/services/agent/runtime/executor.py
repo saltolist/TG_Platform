@@ -425,6 +425,8 @@ async def execute_agent_run(
                         "text": final_state["answer_text"],
                         "claims": final_state.get("claims") or [],
                         "evidence_ids": final_state.get("evidence_ids") or [],
+                        "output_schema": final_state.get("output_schema") or "",
+                        "output_validation": final_state.get("output_validation") or {},
                     },
                 )
             await _emit_llm_metrics(
@@ -616,6 +618,8 @@ async def resume_agent_graph(
                 "text": final_state["answer_text"],
                 "claims": final_state.get("claims") or [],
                 "evidence_ids": final_state.get("evidence_ids") or [],
+                "output_schema": final_state.get("output_schema") or "",
+                "output_validation": final_state.get("output_validation") or {},
             },
         )
     await _emit_llm_metrics(

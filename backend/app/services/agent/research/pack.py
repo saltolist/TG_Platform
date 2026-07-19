@@ -5,6 +5,7 @@ from __future__ import annotations
 from app.services.ai.note_citations import NoteCite
 from app.services.agent.research.evidence import EvidenceRecord
 from app.services.agent.research.trust import wrap_untrusted_block
+from app.services.agent.research.evidence_pack import build_verified_evidence_pack
 
 
 # Guaranteed minimum footprint per evidence item, in characters. Without a
@@ -81,3 +82,20 @@ def build_evidence_pack(
         blocks.append("Отсутствующие данные: " + "; ".join(unresolved))
 
     return "\n\n---\n\n".join(blocks), cites
+
+
+def build_verified_pack(
+    *,
+    records: dict[str, EvidenceRecord],
+    evidence_ids: list[str],
+    unresolved: list[str] | None = None,
+    source_ids: list[str] | None = None,
+):
+    """Public compatibility wrapper for the typed phase-6 pack."""
+
+    return build_verified_evidence_pack(
+        records=records,
+        evidence_ids=evidence_ids,
+        unresolved=unresolved or (),
+        source_ids=source_ids or (),
+    )

@@ -142,6 +142,7 @@ async def rebuild_runtime_context_for_run(
     )
     from app.services.ai.rag_query import build_planner_dialog_context
     from app.services.ai.rag_reasoner import resolve_rag_reasoner_llm
+    from app.services.ai.orchestrator import resolve_answer_llm
     from app.services.agent.runtime.turn_contract import build_turn_contract
 
     settings = get_settings()
@@ -153,12 +154,21 @@ async def rebuild_runtime_context_for_run(
     channel_profile = dict(profile.channel) if profile and profile.channel else None
     telegram_profile = dict(profile.telegram) if profile and profile.telegram else None
     reasoner = resolve_rag_reasoner_llm(user, ai_profile, settings)
+    answer_llm = resolve_answer_llm(user, ai_profile, settings)
     if reasoner:
         import logging as _logging
         _logging.getLogger(__name__).info(
             "Agent planner model resolved: provider=%s model=%s run_id=%s",
             getattr(reasoner[0], "name", "?"),
             reasoner[1],
+            run.id,
+        )
+    if answer_llm:
+        import logging as _logging
+        _logging.getLogger(__name__).info(
+            "Agent answer model resolved: provider=%s model=%s run_id=%s",
+            getattr(answer_llm[0], "name", "?"),
+            answer_llm[1],
             run.id,
         )
     post_data = None
@@ -255,6 +265,12 @@ async def rebuild_runtime_context_for_run(
         reasoner_spec=reasoner[0] if reasoner else None,
         reasoner_model=reasoner[1] if reasoner else "",
         reasoner_api_key=reasoner[2] if reasoner else "",
+        planner_spec=reasoner[0] if reasoner else None,
+        planner_model=reasoner[1] if reasoner else "",
+        planner_api_key=reasoner[2] if reasoner else "",
+        answer_spec=answer_llm[0] if answer_llm else None,
+        answer_model=answer_llm[1] if answer_llm else "",
+        answer_api_key=answer_llm[2] if answer_llm else "",
         dialog_context=dialog_context,
         turn_contract=turn_contract,
         dialog_ledger=dialog_ledger,

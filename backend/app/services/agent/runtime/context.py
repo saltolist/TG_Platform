@@ -39,6 +39,14 @@ class RuntimeContext:
     reasoner_spec: ProviderSpec | None = None
     reasoner_model: str = ""
     reasoner_api_key: str = ""
+    # Phase 6 model separation. reasoner_* remains the planner compatibility
+    # alias for persisted runs and older tests.
+    planner_spec: ProviderSpec | None = None
+    planner_model: str = ""
+    planner_api_key: str = ""
+    answer_spec: ProviderSpec | None = None
+    answer_model: str = ""
+    answer_api_key: str = ""
     # Recent chat turns as text, threaded into configurable["dialog_context"]
     # for the research planner (agent-runtime-sprints §2.1). Deliberately a
     # string, not native state["messages"] — see agent-runtime-remaining.md §2.
@@ -79,6 +87,20 @@ class RuntimeContext:
     # once as a durable run_metrics event. Never checkpointed and contains no
     # prompt/response text or API keys.
     llm_metrics: list[dict[str, Any]] = field(default_factory=list)
+
+    def planner_llm(self) -> tuple[ProviderSpec | None, str, str]:
+        return (
+            self.planner_spec or self.reasoner_spec,
+            self.planner_model or self.reasoner_model,
+            self.planner_api_key or self.reasoner_api_key,
+        )
+
+    def answer_llm(self) -> tuple[ProviderSpec | None, str, str]:
+        return (
+            self.answer_spec or self.reasoner_spec,
+            self.answer_model or self.reasoner_model,
+            self.answer_api_key or self.reasoner_api_key,
+        )
 
     def bind_agent_state(self, session: AsyncSession) -> AgentState:
         if self.agent_tool_state is not None:

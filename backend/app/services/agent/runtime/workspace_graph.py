@@ -27,7 +27,8 @@ from app.services.agent.research.graph import (
     route_research_after_tool,
     route_research_verify,
 )
-from app.services.agent.research.trust import UNTRUSTED_SYSTEM_NOTE
+from app.services.agent.research.evidence_pack import EVIDENCE_PACK_SCHEMA
+from app.services.agent.research.trust import UNTRUSTED_SYSTEM_NOTE, wrap_untrusted_block
 from app.services.agent.runtime.answer_stream import extract_partial_answer
 from app.services.agent.runtime.budget import call_llm_with_deadline, stream_llm_with_deadline
 from app.services.agent.runtime.checkpoint import ensure_checkpointer_ready, get_checkpointer
@@ -35,6 +36,11 @@ from app.services.agent.runtime.context import RuntimeContext
 from app.services.agent.runtime.result_quality import (
     build_style_profile,
     validate_result_contract,
+)
+from app.services.agent.runtime.output_contract import (
+    is_factual_profile,
+    resolve_output_schema,
+    validate_answer_output,
 )
 from app.services.agent.runtime.state import AgentGraphState
 from app.services.agent.runtime.turn_contract import render_turn_contract
@@ -81,6 +87,7 @@ async def workspace_agent_node(
     from app.services.ai.rag_json import extract_json_object
 
     ctx: RuntimeContext = config["configurable"]["runtime_context"]
+    planner_spec, planner_model, planner_api_key = ctx.planner_llm()
     deterministic_contract = dict(
         state.get("turn_contract")
         or (config["configurable"] or {}).get("turn_contract")
@@ -94,7 +101,7 @@ async def workspace_agent_node(
         # Exact IDs/open objects are already resolved by code. A classifier call
         # cannot improve the target and only adds latency/referent drift.
         call = {"type": "read", "search_query": deterministic_contract.get("search_query") or ""}
-    elif not ctx.reasoner_spec or not ctx.reasoner_model or not ctx.reasoner_api_key:
+    elif not planner_spec or not planner_model or not planner_api_key:
         call: dict[str, Any] = {"type": "read"}
     else:
         # dialog_context lets the classifier route conversational follow-ups
@@ -134,9 +141,9 @@ async def workspace_agent_node(
                 {"role": "system", "content": WORKSPACE_SYSTEM},
                 {"role": "user", "content": user_content},
             ],
-            spec=ctx.reasoner_spec,
-            model=ctx.reasoner_model,
-            api_key=ctx.reasoner_api_key,
+            spec=planner_spec,
+            model=planner_model,
+            api_key=planner_api_key,
             temperature=0.0,
             max_tokens=600,
         )
@@ -209,6 +216,47 @@ REFUSAL_TEXT = (
     "Уточните запрос или добавьте материалы, на которые можно опереться."
 )
 
+_GROUNDED_ANSWER_BASE = (
+    "Отвечай только по EvidencePack. Не выдумывай отсутствующие факты. "
+    "Каждый factual claim должен ссылаться только на id из EvidencePack. "
+    "Контракт результата авторитетен: не меняй target/corpus/output."
+)
+_ANSWER_COUNTING_RULE = (
+    "При подсчете применяй критерий вопроса к каждому объекту, а не используй "
+    "общий размер списка. Учитывай все объекты EvidencePack. Не сужай ответ до "
+    "подмножества из прошлых реплик."
+)
+_ANSWER_ID_RULE = (
+    "Не показывай пользователю tech_id, note:, UUID и другие технические id; "
+    "называй объекты по заголовку или содержанию."
+)
+_ANSWER_RECOMMENDATION_RULE = (
+    "Не советуй создать или сделать то, что EvidencePack показывает уже "
+    "существующим или выполненным; предложи доработать существующий объект."
+)
+
+
+def _render_verified_pack(pack: dict[str, Any]) -> str:
+    blocks: list[str] = []
+    for raw in pack.get("items") or []:
+        if not isinstance(raw, dict):
+            continue
+        path = str(raw.get("citation_path") or raw.get("id") or "")
+        content = str(raw.get("content") or "").strip()
+        if not path or not content:
+            continue
+        blocks.append(
+            wrap_untrusted_block(
+                identifier=path,
+                title=str(raw.get("title") or path),
+                body=content,
+            )
+        )
+    unresolved = [str(item) for item in (pack.get("unresolved") or []) if str(item).strip()]
+    if unresolved:
+        blocks.append("Отсутствующие данные: " + "; ".join(unresolved))
+    return "\n\n---\n\n".join(blocks)
+
 
 def _channel_voice_block(ctx: RuntimeContext) -> str:
     """Channel voice/tone/rules for the system prompt of generating nodes.
@@ -237,9 +285,19 @@ async def answer_node(state: AgentGraphState, config: RunnableConfig) -> dict[st
         or ctx.turn_contract
         or {}
     )
-    evidence_ids = state.get("evidence_ids") or []
-    rag_context = str(state.get("rag_context") or "").strip()
-    style_profile = build_style_profile(dict(state.get("evidence_records") or {}))
+    phase6_enabled = bool(getattr(ctx.settings, "agent_answer_phase6_enabled", True))
+    output_schema = resolve_output_schema(turn_contract)
+    evidence_pack = dict(state.get("evidence_pack") or {}) if phase6_enabled else {}
+    evidence_ids = list(evidence_pack.get("evidence_ids") or state.get("evidence_ids") or [])
+    rag_context = (
+        _render_verified_pack(evidence_pack).strip()
+        if evidence_pack
+        else str(state.get("rag_context") or "").strip()
+    )
+    evidence_records = dict(state.get("evidence_records") or {})
+    style_profile = build_style_profile(
+        {eid: evidence_records[eid] for eid in evidence_ids if eid in evidence_records}
+    )
     came_through_research = str((state.get("tool_call") or {}).get("type") or "") == "read"
 
     # Answer guard (code-gate, not prompt): if the request went through research
@@ -252,6 +310,9 @@ async def answer_node(state: AgentGraphState, config: RunnableConfig) -> dict[st
             "answer_text": REFUSAL_TEXT,
             "claims": [],
             "stopped_reason": "empty_evidence_refusal",
+            "output_schema": output_schema,
+            "output_validation": {"ok": True, "issues": [], "factual": True},
+            "answer_repair_count": 0,
         }
 
     prompt_parts: list[str] = []
@@ -266,14 +327,14 @@ async def answer_node(state: AgentGraphState, config: RunnableConfig) -> dict[st
             "Измеренный профиль референсных постов:\n"
             + render_turn_contract(style_profile)
         )
-    if dialog_context.strip():
+    if dialog_context.strip() and not came_through_research:
         prompt_parts.append(f"Диалог:\n{dialog_context.strip()}")
     # Post-scope: the current post is a deictic reference ("этот пост") that
     # research/RAG cannot resolve — there is nothing to search for by meaning.
     # Without this the "finish" path (workspace_agent_node classified the turn
     # as conversational, e.g. "Как тебе этот пост?") never sees the post body
     # at all, even once ctx.post_data resolves correctly (chat d395d1ef).
-    if ctx.scope == "post" and ctx.post_data:
+    if not came_through_research and ctx.scope == "post" and ctx.post_data:
         post_id = str(ctx.post_data.get("id") or "")
         post_text = str(ctx.post_data.get("text") or "")
         if post_id and post_text:
@@ -302,11 +363,7 @@ async def answer_node(state: AgentGraphState, config: RunnableConfig) -> dict[st
         # Correct signal: structural — does any evidence record path contain
         # "/attachment/"? That path is written by _attachment_cite_path and is
         # present iff a real image attachment was hydrated into the pack.
-        evidence_records_raw = state.get("evidence_records") or {}
-        has_image_attachment = any(
-            "/attachment/" in str(rid)
-            for rid in evidence_records_raw
-        )
+        has_image_attachment = any("/attachment/" in str(rid) for rid in evidence_ids)
         if not has_image_attachment:
             prompt_parts.append(
                 "Инвентарь изображений: в собранном evidence НЕТ вложений-"
@@ -317,43 +374,36 @@ async def answer_node(state: AgentGraphState, config: RunnableConfig) -> dict[st
                 "картинки есть, а их в evidence нет — прямо скажи, что в "
                 "найденном их нет."
             )
-        prompt_parts.append(f"Evidence IDs: {evidence_ids}\nEvidence:\n{rag_context}")
+        prompt_parts.append(
+            f"EvidencePack schema={str(evidence_pack.get('schema') or EVIDENCE_PACK_SCHEMA)}; "
+            f"objects={len(evidence_ids)}; ids={evidence_ids}\n{rag_context}"
+        )
         prompt_parts.append(
             'Верни JSON {"answer":"...","claims":[{"text":"...","evidence_ids":[...]}]}.'
         )
         channel_block = _channel_voice_block(ctx)
         system_text = (
             (f"{channel_block}\n\n" if channel_block else "")
-            + "Отвечай только по evidence. Не выдумывай отсутствующие факты.\n"
+            + _GROUNDED_ANSWER_BASE + "\n"
             # Counting/filtering guard: a listing block (перечень заметок/постов)
             # gives the TOTAL number of items, not the number matching the
             # question. For «сколько X про Y» / «какие из них Y» не бери общее
             # число из перечня — оцени содержимое каждого элемента по критерию
             # вопроса и посчитай только подходящие. Если тела для оценки нет —
             # скажи, что содержимое не прочитано, а не выдавай общий счёт за ответ.
-            "Если в вопросе есть уточняющий критерий (про что, какого типа, за "
-            "период) — не бери итоговое число из перечня-списка: проверь "
-            "содержимое каждого элемента и посчитай только те, что реально "
-            "подходят под критерий.\n"
+            + _ANSWER_COUNTING_RULE + "\n"
             # Scope guard: если в user-контенте указано «Evidence охватывает N
             # объектов» — учти ВСЕ N при подсчёте/выводе, а не только те, что
             # упоминались в «Диалог» ранее. Диалог задаёт тему обсуждения, но
             # не список объектов для ответа — evidence может быть шире того,
             # что обсуждалось.
-            "Если в user-контенте указано «Evidence охватывает N объектов» — "
-            "твой счёт/список должен явно учитывать все N, даже если в "
-            "«Диалог» упоминались не все из них. Не сужай ответ до подмножества "
-            "объектов из прошлых реплик, если evidence содержит больше.\n"
+            "\n"
             # Id-hygiene guard (чат 74b0ef7d): технические id (tech_id=…, note:…,
             # UUID) — внутренние ключи, пользователю не нужны и не должны попадать
             # в ответ. Ссылайся на посты/заметки по заголовку или содержанию. И не
             # путай авторскую нумерацию внутри текста заметки («Пост 2») с
             # системным tech_id: число в id не означает позицию в серии.
-            "Не показывай пользователю технические id (tech_id, note:, UUID) — "
-            "называй посты и заметки по заголовку/содержанию, а не по id. "
-            "Нумерация внутри текста заметки («Пост 2», «до 6-го») — это авторская "
-            "нумерация контента, она НЕ связана с tech_id постов; не отождествляй "
-            "«Пост N из заметки» с постом, у которого tech_id=N.\n"
+            + _ANSWER_ID_RULE + "\n"
             # Recommendation-consistency invariant (chat d8ec8cc6 is one
             # instance): a recommendation must not contradict the state the
             # evidence already shows — don't advise creating/doing what evidence
@@ -362,12 +412,7 @@ async def answer_node(state: AgentGraphState, config: RunnableConfig) -> dict[st
             # answer; that's the retrieved-but-ignored variant, distinct from
             # never-retrieved (chat 38e115df, fixed at the planner). Stated as
             # the general rule, not the single case, with the case as example.
-            "Держи рекомендации согласованными с состоянием из evidence: не "
-            "советуй создать или сделать то, что evidence показывает уже "
-            "существующим или уже сделанным. В частности, если просят "
-            "предложить/написать материал, а на эту тему в evidence уже есть "
-            "пост/черновик/заметка — не предлагай писать заново: сошлись на "
-            "существующий и предложи доработать или опубликовать его.\n"
+            + _ANSWER_RECOMMENDATION_RULE + "\n"
             "Не рекомендуй несуществующие действия. В частности, заметку нельзя "
             "и не нужно «связывать с постами и файлами»: после сохранения она уже "
             "доступна AI в workspace.\n"
@@ -391,9 +436,20 @@ async def answer_node(state: AgentGraphState, config: RunnableConfig) -> dict[st
         )
     prompt = "\n\n".join(prompt_parts)
 
-    if not ctx.reasoner_spec or not ctx.reasoner_model or not ctx.reasoner_api_key:
+    answer_spec, answer_model, answer_api_key = (
+        ctx.answer_llm()
+        if phase6_enabled
+        else (ctx.reasoner_spec, ctx.reasoner_model, ctx.reasoner_api_key)
+    )
+    if not answer_spec or not answer_model or not answer_api_key:
         answer = rag_context or "Для ответа не требуется дополнительный контекст."
-        return {**state, "answer_text": answer, "claims": []}
+        return {
+            **state,
+            "answer_text": answer,
+            "claims": [],
+            "output_schema": output_schema,
+            "output_validation": {"ok": True, "issues": [], "model": "deterministic"},
+        }
 
     # Stream the answer tokens as they arrive so the chat renders the reply
     # progressively (real chunked streaming), instead of dropping the whole
@@ -422,9 +478,9 @@ async def answer_node(state: AgentGraphState, config: RunnableConfig) -> dict[st
             {"role": "system", "content": system_text},
             {"role": "user", "content": prompt},
         ],
-        spec=ctx.reasoner_spec,
-        model=ctx.reasoner_model,
-        api_key=ctx.reasoner_api_key,
+        spec=answer_spec,
+        model=answer_model,
+        api_key=answer_api_key,
         temperature=0.1,
         max_tokens=max_answer_tokens,
     ):
@@ -439,49 +495,75 @@ async def answer_node(state: AgentGraphState, config: RunnableConfig) -> dict[st
 
     raw = "".join(raw_parts)
     parsed = extract_json_object(raw) or {}
-    claims = parsed.get("claims") if isinstance(parsed.get("claims"), list) else []
-    answer_text = str(parsed.get("answer") or raw)
-    quality_issues = validate_result_contract(
-        answer_text,
-        turn_contract,
-        style_profile=style_profile,
+    factual = is_factual_profile(turn_contract, researched=came_through_research)
+    validation = validate_answer_output(
+        parsed,
+        evidence_ids=set(evidence_ids),
+        factual=factual,
+        schema=output_schema,
     )
-    if quality_issues:
+    answer_text = str(parsed.get("answer") or raw).strip()
+    claims = list(validation.claims)
+    repair_count = 0
+    if not validation.ok:
+        repair_count = 1
         repair_prompt = (
-            f"{prompt}\n\nПредыдущий черновик не прошёл детерминированную проверку: "
-            f"{quality_issues}. Исправь только эти нарушения, сохрани смысл и верни "
-            "тот же JSON-контракт ответа.\n\nПредыдущий черновик:\n"
-            f"{answer_text}"
+            f"Schema: {output_schema}. Исправь только JSON-формат и citations. "
+            "Текст answer сохрани дословно, не добавляй факты и не меняй EvidencePack. "
+            f"Ошибки: {list(validation.issues)}. Допустимые evidence_ids: {evidence_ids}.\n"
+            f"Предыдущий raw output:\n{raw}"
         )
         repaired_raw = await call_llm_with_deadline(
             ctx,
             phase="answer.format_repair",
             messages=[
-                {"role": "system", "content": system_text},
+                {"role": "system", "content": "Верни только JSON указанной schema."},
                 {"role": "user", "content": repair_prompt},
             ],
-            spec=ctx.reasoner_spec,
-            model=ctx.reasoner_model,
-            api_key=ctx.reasoner_api_key,
+            spec=answer_spec,
+            model=answer_model,
+            api_key=answer_api_key,
             temperature=0.0,
             max_tokens=max_answer_tokens,
         )
         repaired = extract_json_object(repaired_raw) or {}
-        repaired_text = str(repaired.get("answer") or repaired_raw).strip()
-        repaired_issues = validate_result_contract(
-            repaired_text,
-            turn_contract,
-            style_profile=style_profile,
+        repaired_validation = validate_answer_output(
+            repaired,
+            evidence_ids=set(evidence_ids),
+            factual=factual,
+            schema=output_schema,
         )
-        if repaired_text and len(repaired_issues) < len(quality_issues):
+        repaired_text = str(repaired.get("answer") or "").strip()
+        original_answer = str(
+            parsed.get("answer") or extract_partial_answer(raw) or raw
+        ).strip()
+        preserves_answer = bool(original_answer) and repaired_text == original_answer
+        if repaired_validation.ok and preserves_answer:
+            parsed = repaired
+            validation = repaired_validation
             answer_text = repaired_text
-            quality_issues = repaired_issues
-            claims = repaired.get("claims") if isinstance(repaired.get("claims"), list) else claims
+            claims = list(validation.claims)
+    quality_issues = validate_result_contract(
+        answer_text,
+        turn_contract,
+        style_profile=style_profile,
+    )
+    if not validation.ok and factual:
+        answer_text = REFUSAL_TEXT
+        claims = []
     return {
         **state,
         "answer_text": answer_text,
         "claims": claims,
         "result_contract_issues": quality_issues,
+        "output_schema": output_schema,
+        "output_validation": {
+            "ok": validation.ok,
+            "issues": list(validation.issues),
+            "factual": factual,
+            "model": answer_model,
+        },
+        "answer_repair_count": repair_count,
     }
 
 
