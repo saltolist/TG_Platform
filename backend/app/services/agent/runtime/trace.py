@@ -23,12 +23,22 @@ def _preview(text: Any, limit: int = 200) -> str:
 
 
 def _fmt_planner_step(p: Mapping[str, Any]) -> list[str]:
-    tool = p.get("tool") or "?"
+    tool = p.get("tool") or p.get("decision_code") or "?"
     args = p.get("args")
     head = f"planner step {p.get('step', '?')} → {tool}"
     if isinstance(args, Mapping) and args:
         head += f" args={dict(args)}"
     lines = [head]
+    if p.get("decision_code"):
+        lines.append(f"    decision: {_preview(p['decision_code'])}")
+    actions = p.get("actions")
+    if isinstance(actions, Sequence) and not isinstance(actions, str) and len(actions) > 1:
+        lines.append(
+            "    batch: "
+            + ", ".join(
+                str(item.get("tool") or "?") for item in actions if isinstance(item, Mapping)
+            )
+        )
     if p.get("reasoning"):
         lines.append(f"    reasoning: {_preview(p['reasoning'])}")
     if p.get("gap"):

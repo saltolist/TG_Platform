@@ -23,6 +23,7 @@ from app.services.agent.research.graph import (
     research_verify_node,
     research_pack_node,
     route_research_plan,
+    route_research_seed,
     route_research_after_tool,
     route_research_verify,
 )
@@ -1007,7 +1008,7 @@ def build_workspace_graph() -> StateGraph:
     graph.add_edge("bootstrap", "workspace_agent")
     graph.add_conditional_edges("workspace_agent", route_workspace_call)
     # read → research loop (seed → planner ⇄ tool → verify → pack) → answer
-    graph.add_edge("seed", "planner")
+    graph.add_conditional_edges("seed", route_research_seed)
     graph.add_conditional_edges("planner", route_research_plan)
     graph.add_conditional_edges("tool", route_research_after_tool)
     graph.add_conditional_edges("verify", route_research_verify)
@@ -1062,6 +1063,17 @@ async def run_workspace_graph(
         "search_ledger": [],
         "finish_retrieval_attempted": False,
         "validator_events": [],
+        "phase5_enabled": bool(
+            runtime_context.settings.agent_planner_phase5_enabled
+            and runtime_context.turn_contract.get("version") == 2
+        ),
+        "planner_calls_used": 0,
+        "search_calls_used": 0,
+        "deep_reads_used": 0,
+        "tool_calls_used": 0,
+        "planner_invalid_count": 0,
+        "sufficiency": {},
+        "deadline_exhausted": False,
     }
     cfg = {
         "configurable": {

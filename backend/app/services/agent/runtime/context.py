@@ -69,6 +69,7 @@ class RuntimeContext:
     # §6). Set by execute_agent_run/resume_agent_graph from rag_agent_deadline_s;
     # None disables the wall-clock cap (e.g. legacy call sites). See runtime/budget.py.
     deadline_monotonic: float | None = None
+    soft_deadline_monotonic: float | None = None
     # Shared httpx client for all LLM calls within a single agent run — avoids
     # creating a new TCP/TLS connection per call (was one AsyncClient per call).
     # Created in execute_agent_run and threaded through budget.py into llm.py.
@@ -98,3 +99,37 @@ class RuntimeContext:
             scope_bias=self.scope_bias,
         )
         return self.agent_tool_state
+
+    def fork_agent_state(self, session: AsyncSession) -> AgentState:
+        """Copy tool state for independent read actions in one planner batch."""
+
+        if self.agent_tool_state is None:
+            return self.bind_agent_state(session)
+        base = self.agent_tool_state
+        fork = AgentState(
+            session=session,
+            user_id=base.user_id,
+            scope=base.scope,
+            tenant_key=base.tenant_key,
+            embedding_backend=base.embedding_backend,
+            base_post_data=base.base_post_data,
+            min_similarity=base.min_similarity,
+            search_k=base.search_k,
+            visited=set(base.visited),
+            context_blocks=list(base.context_blocks),
+            opened_posts=dict(base.opened_posts),
+            vision_calls_used=base.vision_calls_used,
+            hydrated_text_files=set(base.hydrated_text_files),
+            listed_image_attachment_refs=list(base.listed_image_attachment_refs),
+            listed_image_media_refs=list(base.listed_image_media_refs),
+            decision_ledger=list(base.decision_ledger),
+            resolved_target_post_id=base.resolved_target_post_id,
+            target_evidence_gap=base.target_evidence_gap,
+            scope_bias=base.scope_bias,
+            ai_profile=base.ai_profile,
+            user=base.user,
+            settings=base.settings,
+        )
+        if hasattr(base, "catalog_posts"):
+            fork.catalog_posts = list(base.catalog_posts)
+        return fork

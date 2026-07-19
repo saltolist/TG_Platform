@@ -84,6 +84,16 @@ class AgentGraphState(TypedDict, total=False):
     # finish call.
     finish_retrieval_attempted: bool
     validator_events: list[dict[str, Any]]
+    phase5_enabled: bool
+    planner_calls_used: int
+    search_calls_used: int
+    deep_reads_used: int
+    tool_calls_used: int
+    planner_invalid_count: int
+    sufficiency: dict[str, Any]
+    deadline_exhausted: bool
+    selected_candidate_ids: list[str]
+    requested_status: str | None
     tool_action: dict[str, Any] | None
     # Accumulated planner decisions {step, observations, reasoning, gap, tool,
     # args, repair_hint?} for SSE emission and golden inspection

@@ -246,8 +246,16 @@ async def execute_agent_run(
     graph = get_compiled_workspace_graph()
     # Arm the run-level wall-clock budget (agent-runtime-sprints §6): every LLM
     # call downstream reads this off runtime_context and caps itself with it.
-    runtime_context.deadline_monotonic = (
-        time.monotonic() + runtime_context.settings.rag_agent_deadline_s
+    contract_budgets = runtime_context.turn_contract.get("budgets") or {}
+    hard_deadline_s = min(
+        runtime_context.settings.rag_agent_deadline_s,
+        float(contract_budgets.get("hard_deadline_ms") or 0) / 1000
+        if contract_budgets.get("hard_deadline_ms")
+        else runtime_context.settings.rag_agent_deadline_s,
+    )
+    runtime_context.deadline_monotonic = time.monotonic() + hard_deadline_s
+    runtime_context.soft_deadline_monotonic = time.monotonic() + (
+        float(contract_budgets.get("soft_deadline_ms") or hard_deadline_s * 1000) / 1000
     )
     cfg = {
         "configurable": {
@@ -283,6 +291,17 @@ async def execute_agent_run(
         "search_ledger": [],
         "finish_retrieval_attempted": False,
         "validator_events": [],
+        "phase5_enabled": bool(
+            runtime_context.settings.agent_planner_phase5_enabled
+            and runtime_context.turn_contract.get("version") == 2
+        ),
+        "planner_calls_used": 0,
+        "search_calls_used": 0,
+        "deep_reads_used": 0,
+        "tool_calls_used": 0,
+        "planner_invalid_count": 0,
+        "sufficiency": {},
+        "deadline_exhausted": False,
     }
     await emit_run_event(
         session,
@@ -500,8 +519,16 @@ async def resume_agent_graph(
         runtime_context = await rebuild_runtime_context_for_run(session, run)
     runtime_context.llm_metrics.clear()
     # Fresh wall-clock budget for the resumed leg (agent-runtime-sprints §6).
-    runtime_context.deadline_monotonic = (
-        time.monotonic() + runtime_context.settings.rag_agent_deadline_s
+    contract_budgets = runtime_context.turn_contract.get("budgets") or {}
+    hard_deadline_s = min(
+        runtime_context.settings.rag_agent_deadline_s,
+        float(contract_budgets.get("hard_deadline_ms") or 0) / 1000
+        if contract_budgets.get("hard_deadline_ms")
+        else runtime_context.settings.rag_agent_deadline_s,
+    )
+    runtime_context.deadline_monotonic = time.monotonic() + hard_deadline_s
+    runtime_context.soft_deadline_monotonic = time.monotonic() + (
+        float(contract_budgets.get("soft_deadline_ms") or hard_deadline_s * 1000) / 1000
     )
     cfg = {
         "configurable": {

@@ -1,0 +1,81 @@
+{
+  "schema": "workspace-agent-planner-phase5/v1",
+  "thresholds": {
+    "invalid_planner_rate_max": 0.01,
+    "wasted_step_rate_max": 0.10,
+    "quality_floor": 1.0,
+    "planner_output_reduction_min": 0.66
+  },
+  "scenarios": [
+    {
+      "id": "problematic-note-post-comparison",
+      "mode": "compact",
+      "planner_budget": 2,
+      "quality": 1.0,
+      "baseline": {"planner_calls": 7, "tool_calls": 3, "wasted_steps": 4, "invalid_outputs": 0, "duplicate_opens": 1, "finish_emissions": 4},
+      "phase5": {"planner_calls": 1, "tool_calls": 2, "wasted_steps": 0, "invalid_outputs": 0, "duplicate_opens": 0, "finish_emissions": 0}
+    },
+    {
+      "id": "exact-note",
+      "mode": "fast",
+      "planner_budget": 0,
+      "quality": 1.0,
+      "baseline": {"planner_calls": 2, "tool_calls": 1, "wasted_steps": 1, "invalid_outputs": 0, "duplicate_opens": 1, "finish_emissions": 1},
+      "phase5": {"planner_calls": 0, "tool_calls": 1, "wasted_steps": 0, "invalid_outputs": 0, "duplicate_opens": 0, "finish_emissions": 0}
+    },
+    {
+      "id": "topical-note-search",
+      "mode": "compact",
+      "planner_budget": 2,
+      "quality": 1.0,
+      "baseline": {"planner_calls": 4, "tool_calls": 3, "wasted_steps": 1, "invalid_outputs": 0, "duplicate_opens": 0, "finish_emissions": 2},
+      "phase5": {"planner_calls": 2, "tool_calls": 3, "wasted_steps": 0, "invalid_outputs": 0, "duplicate_opens": 0, "finish_emissions": 0}
+    },
+    {
+      "id": "feed-comparison",
+      "mode": "compact",
+      "planner_budget": 2,
+      "quality": 1.0,
+      "baseline": {"planner_calls": 5, "tool_calls": 5, "wasted_steps": 2, "invalid_outputs": 1, "duplicate_opens": 1, "finish_emissions": 2},
+      "phase5": {"planner_calls": 2, "tool_calls": 4, "wasted_steps": 0, "invalid_outputs": 0, "duplicate_opens": 0, "finish_emissions": 0}
+    },
+    {
+      "id": "attachment-gap",
+      "mode": "compact",
+      "planner_budget": 2,
+      "quality": 1.0,
+      "baseline": {"planner_calls": 4, "tool_calls": 3, "wasted_steps": 1, "invalid_outputs": 0, "duplicate_opens": 0, "finish_emissions": 1},
+      "phase5": {"planner_calls": 2, "tool_calls": 3, "wasted_steps": 0, "invalid_outputs": 0, "duplicate_opens": 0, "finish_emissions": 0}
+    },
+    {
+      "id": "empty-corpus-partial",
+      "mode": "compact",
+      "planner_budget": 2,
+      "quality": 1.0,
+      "baseline": {"planner_calls": 4, "tool_calls": 2, "wasted_steps": 2, "invalid_outputs": 0, "duplicate_opens": 0, "finish_emissions": 2},
+      "phase5": {"planner_calls": 1, "tool_calls": 1, "wasted_steps": 0, "invalid_outputs": 0, "duplicate_opens": 0, "finish_emissions": 0}
+    },
+    {
+      "id": "multi-target",
+      "mode": "compact",
+      "planner_budget": 2,
+      "quality": 1.0,
+      "baseline": {"planner_calls": 4, "tool_calls": 3, "wasted_steps": 1, "invalid_outputs": 0, "duplicate_opens": 1, "finish_emissions": 1},
+      "phase5": {"planner_calls": 1, "tool_calls": 2, "wasted_steps": 0, "invalid_outputs": 0, "duplicate_opens": 0, "finish_emissions": 0}
+    },
+    {
+      "id": "search-rewrite-gap",
+      "mode": "compact",
+      "planner_budget": 2,
+      "quality": 1.0,
+      "baseline": {"planner_calls": 5, "tool_calls": 3, "wasted_steps": 2, "invalid_outputs": 0, "duplicate_opens": 0, "finish_emissions": 2},
+      "phase5": {"planner_calls": 2, "tool_calls": 2, "wasted_steps": 0, "invalid_outputs": 0, "duplicate_opens": 0, "finish_emissions": 0}
+    }
+  ],
+  "latency_model_ms": {
+    "planner_call": 5000,
+    "tool_call": 250,
+    "baseline_planner_output_tokens": 1500,
+    "phase5_planner_output_tokens": 450
+  }
+}
