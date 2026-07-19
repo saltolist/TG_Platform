@@ -17,3 +17,13 @@ scrape_configs:
     static_configs:
       - targets:
           - pushgateway:9091
+
+  - job_name: celery-worker
+    static_configs:
+      - targets:
+          - celery-worker:9108
+
+  - job_name: celery-heavy-worker
+    static_configs:
+      - targets:
+          - celery-heavy-worker:9108

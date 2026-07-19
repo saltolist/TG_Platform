@@ -135,6 +135,8 @@ services:
     environment:
       <<: *backend-env
       PROMETHEUS_PUSHGATEWAY_URL: ${PROMETHEUS_PUSHGATEWAY_URL:-http://pushgateway:9091}
+      PROMETHEUS_MULTIPROC_DIR: /tmp/prometheus_multiproc
+      PROMETHEUS_METRICS_PORT: 9108
     depends_on:
       postgres:
         condition: service_healthy
@@ -160,6 +162,8 @@ services:
     environment:
       <<: *backend-env
       PROMETHEUS_PUSHGATEWAY_URL: ${PROMETHEUS_PUSHGATEWAY_URL:-http://pushgateway:9091}
+      PROMETHEUS_MULTIPROC_DIR: /tmp/prometheus_multiproc
+      PROMETHEUS_METRICS_PORT: 9108
     depends_on:
       postgres:
         condition: service_healthy
@@ -199,6 +203,8 @@ services:
     depends_on:
       - pushgateway
       - alertmanager
+      - celery-worker
+      - celery-heavy-worker
 
   alertmanager:
     image: prom/alertmanager:v0.27.0

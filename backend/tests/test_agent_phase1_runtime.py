@@ -3,7 +3,12 @@
 from __future__ import annotations
 
 import asyncio
+import os
+import subprocess
+import sys
+import textwrap
 import uuid
+from pathlib import Path
 from unittest.mock import Mock
 
 import pytest
@@ -180,6 +185,54 @@ def test_runtime_health_probe_exposes_worker_state(monkeypatch: pytest.MonkeyPat
         lambda: {"ready": True, "status": "ready"},
     )
     assert agent_runs.runtime_health.run() == {"ready": True, "status": "ready"}
+
+
+def test_prometheus_prefork_metrics_are_aggregated(tmp_path) -> None:
+    multiprocess_dir = tmp_path / "prometheus"
+    multiprocess_dir.mkdir()
+    script = textwrap.dedent(
+        """
+        import os
+
+        from prometheus_client import CollectorRegistry, generate_latest, multiprocess
+        from app.services.agent.runtime.observability import (
+            AGENT_RUNS,
+            AGENT_WORKER_READY,
+        )
+
+        pid = os.fork()
+        if pid == 0:
+            AGENT_RUNS.labels("completed").inc(2)
+            AGENT_WORKER_READY.set(1)
+            os._exit(0)
+
+        os.waitpid(pid, 0)
+        registry = CollectorRegistry()
+        multiprocess.MultiProcessCollector(registry)
+        output = generate_latest(registry).decode()
+        assert 'agent_runs_total{status="completed"} 2.0' in output
+        assert 'agent_worker_ready 1.0' in output
+
+        multiprocess.mark_process_dead(pid)
+        output_after_shutdown = generate_latest(registry).decode()
+        assert 'agent_runs_total{status="completed"} 2.0' in output_after_shutdown
+        assert 'agent_worker_ready 1.0' not in output_after_shutdown
+        """
+    )
+    env = {
+        **os.environ,
+        "PYTHONPATH": ".",
+        "PROMETHEUS_MULTIPROC_DIR": str(multiprocess_dir),
+    }
+
+    subprocess.run(
+        [sys.executable, "-c", script],
+        check=True,
+        cwd=os.fspath(Path(__file__).parents[1]),
+        env=env,
+        capture_output=True,
+        text=True,
+    )
 
 
 def test_failed_warmup_rejects_interactive_task_without_retry(

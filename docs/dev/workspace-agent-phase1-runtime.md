@@ -41,8 +41,11 @@ PYTHONPATH=. .test-venv/bin/pytest -q \
   tests/test_rag_worker.py::test_startup_backfill_is_model_fingerprint_aware
 ```
 
-Результат общего gate: `18 passed`; из них phase-1 runtime module — `11 passed`,
-а model-fingerprint backfill — два параметризованных сценария.
+Первоначальный результат общего gate: `18 passed`; после добавления
+multiprocess regression тот же gate даёт `19 passed`. С проверкой phase-2
+contracts и agent budget/runtime/trace актуальный объединённый gate дал
+`71 passed`, из них phase-1 runtime module — `12 passed`, а model-fingerprint
+backfill — два параметризованных сценария.
 Stress-case выполняет 500 последовательных и 500
 параллельных real `SELECT 1` через один child-owned loop и bounded asyncpg pool.
 Все 1000 операций завершились без cross-loop ошибки; был использован один loop.
@@ -61,6 +64,20 @@ Frozen quality gate phase 0 не менялся: graders/health дают `22 pas
 helpers + health`: `168 passed, 3 xfailed`.
 После добавления versioned embedding fingerprint расширенный agent/RAG набор:
 `216 passed, 3 xfailed`.
+
+Docker verification после включения multiprocess exporter:
+
+| Target | `agent_worker_ready` | Prometheus target |
+|---|---:|---|
+| `celery-worker:9108` | 2 | `up` |
+| `celery-heavy-worker:9108` | 1 | `up` |
+
+Regression запускает отдельный процесс с `PROMETHEUS_MULTIPROC_DIR`, форкает
+child, проверяет агрегацию counter/gauge и подтверждает, что
+`mark_process_dead` удаляет live gauge, но сохраняет накопленный counter.
+Локальный microbenchmark 100 000 пар `Counter.inc` + `Histogram.observe` дал
+83.9 ms in-memory и 139.8 ms в multiprocess mode: добавка около 0.28 мкс на
+одну metric operation. Scrape занимал 12-21 ms вне task/request path.
 
 Локальный benchmark на одном и том же disk cache и модели:
 
@@ -84,16 +101,24 @@ production p50/p95/p99 можно сравнить только после rollo
 | warm run не инициализирует embeddings | Выполнено: единственный warmup hook находится в child init; task path его не вызывает; warm embed 7.2 ms против first 1035.2 ms |
 | cold penalty не попадает в первый accepted interactive task | Выполнено архитектурно: child init блокирует до real embed; failed warmup оставляет `ready=false` и task отклоняется без retry |
 
-## Оставшиеся риски и handoff фазы 2
+## Оставшиеся риски и handoff
 
 - Проверен реальный asyncpg stress и Celery prefork lifecycle contract, но полный
   Docker worker/broker soak на 1000 полных LLM runs не запускался: он требует
   provider quota и production-like deployment.
-- Prometheus client metrics в prefork deployment требуют настроенного
-  multiprocess collector либо сбора structured startup logs; readiness task
-  остаётся прямым child-local источником истины.
+- Prometheus prefork aggregation реализована через `MultiProcessCollector`:
+  каждый Celery worker поднимает merged exporter на `:9108`, а Prometheus
+  скрапит interactive и heavy targets отдельно. `PROMETHEUS_MULTIPROC_DIR`
+  намеренно не шарится между контейнерами из-за независимых PID namespaces;
+  entrypoint очищает его до импорта Celery, штатный child shutdown вызывает
+  `mark_process_dead`. При SIGKILL остаются
+  stale live-gauge files до перезапуска контейнера, поэтому alerting должен
+  учитывать scrape health и worker readiness.
 - Autoscaling должен учитывать до 90 s warmup и не направлять interactive queue
   на worker без успешного runtime health.
+- Для нескольких replicas одного worker service static scrape targets нужно
+  заменить на Docker/Kubernetes service discovery, чтобы Prometheus скрапил
+  каждый replica, а не только service endpoint.
 - Старые local embeddings остаются в таблице как неиспользуемые версии до
   отдельной housekeeping-очистки; retrieval выбирает только новый fingerprint.
 - Полный backend suite прошёл прежнюю точку `pool-16` и дал `1075 passed`,
@@ -101,6 +126,7 @@ production p50/p95/p99 можно сравнить только после rollo
   network fixtures. Redis lifecycle cascade (`46 NameError`) исправлен и
   соответствующие helper tests проходят; остальные baseline failures не
   маскируются и не исправлялись вне scope phase 1.
-- Phase 2 может опираться на стабильный `RuntimeContext` и persistent loop. Её
-  scope: typed `TargetContract`/`TurnContract`, multi-target и multi-source
-  bootstrap. Planner/retrieval контракты в этой фазе намеренно не изменялись.
+- Phase 2 (`78441314`, `ebb6bce`) сохранена без изменений: exporter не меняет
+  `TargetContract`/`TurnContract`, bootstrap, planner или retrieval behavior.
+  Следующая фаза может опираться на стабильный runtime и доступные agent
+  counters/histograms; это исправление не реализует её scope.

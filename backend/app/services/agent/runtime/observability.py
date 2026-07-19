@@ -48,6 +48,7 @@ AGENT_STOPPED_REASON = Counter(
 AGENT_WORKER_READY = Gauge(
     "agent_worker_ready",
     "Whether the current Celery worker child completed runtime initialization",
+    multiprocess_mode="livesum",
 )
 AGENT_WORKER_WARMUP = Histogram(
     "agent_worker_embedding_warmup_seconds",

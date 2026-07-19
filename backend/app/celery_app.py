@@ -15,7 +15,7 @@ racing for the same MTProto session (see ``session_guard.py``).
 from __future__ import annotations
 
 from celery import Celery
-from celery.signals import worker_process_init, worker_process_shutdown
+from celery.signals import worker_process_init, worker_process_shutdown, worker_ready
 
 from app.core.config import get_settings
 
@@ -55,6 +55,14 @@ celery_app.conf.update(
 )
 
 
+@worker_ready.connect
+def _start_prometheus_exporter(**_kwargs):
+    """Start the merged metrics endpoint after the prefork pool is ready."""
+    from app.services.agent.runtime.prometheus_exporter import start_multiprocess_server
+
+    start_multiprocess_server()
+
+
 @worker_process_init.connect
 def _initialize_worker_process(**_kwargs):
     if not settings.agent_runtime_phase1_enabled:
@@ -66,11 +74,13 @@ def _initialize_worker_process(**_kwargs):
 
 @worker_process_shutdown.connect
 def _shutdown_worker_process(**_kwargs):
-    if not settings.agent_runtime_phase1_enabled:
-        return
-    from app.tasks.async_runtime import shutdown_worker_process
+    if settings.agent_runtime_phase1_enabled:
+        from app.tasks.async_runtime import shutdown_worker_process
 
-    shutdown_worker_process()
+        shutdown_worker_process()
+    from app.services.agent.runtime.prometheus_exporter import mark_process_dead
+
+    mark_process_dead()
 
 if settings.telegram_analytics_snapshot_seconds > 0:
     celery_app.conf.beat_schedule = {
