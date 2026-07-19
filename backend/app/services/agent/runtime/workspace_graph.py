@@ -28,6 +28,7 @@ from app.services.agent.research.graph import (
     route_research_verify,
 )
 from app.services.agent.research.evidence_pack import EVIDENCE_PACK_SCHEMA
+from app.services.agent.research.material_plan import empty_material_plan
 from app.services.agent.research.trust import UNTRUSTED_SYSTEM_NOTE, wrap_untrusted_block
 from app.services.agent.runtime.answer_stream import extract_complete_answer, extract_partial_answer
 from app.services.agent.runtime.budget import call_llm_with_deadline, stream_llm_with_deadline
@@ -397,7 +398,11 @@ def _render_verified_pack(pack: dict[str, Any]) -> str:
         content = str(raw.get("content") or "").strip()
         if not path or not content:
             continue
+        fidelity = str(raw.get("fidelity") or "full_text")
+        scope = str(raw.get("allowed_claim_scope") or "content")
         blocks.append(
+            f"[fidelity={fidelity}; allowed_claim_scope={scope}]\n"
+            +
             wrap_untrusted_block(
                 identifier=path,
                 title=str(raw.get("title") or path),
@@ -441,6 +446,11 @@ async def answer_node(state: AgentGraphState, config: RunnableConfig) -> dict[st
     output_schema = resolve_output_schema(turn_contract)
     evidence_pack = dict(state.get("evidence_pack") or {}) if phase6_enabled else {}
     evidence_ids = list(evidence_pack.get("evidence_ids") or state.get("evidence_ids") or [])
+    semantic_card_ids = {
+        str(item.get("id") or "")
+        for item in evidence_pack.get("items") or ()
+        if isinstance(item, dict) and item.get("fidelity") == "semantic_card"
+    }
     rag_context = (
         _render_verified_pack(evidence_pack).strip()
         if evidence_pack
@@ -448,7 +458,11 @@ async def answer_node(state: AgentGraphState, config: RunnableConfig) -> dict[st
     )
     evidence_records = dict(state.get("evidence_records") or {})
     style_profile = build_style_profile(
-        {eid: evidence_records[eid] for eid in evidence_ids if eid in evidence_records}
+        {
+            eid: evidence_records[eid]
+            for eid in evidence_ids
+            if eid in evidence_records and eid not in semantic_card_ids
+        }
     )
     came_through_research = (
         str((state.get("tool_call") or {}).get("type") or "") == "read"
@@ -549,6 +563,13 @@ async def answer_node(state: AgentGraphState, config: RunnableConfig) -> dict[st
             f"EvidencePack schema={str(evidence_pack.get('schema') or EVIDENCE_PACK_SCHEMA)}; "
             f"objects={len(evidence_ids)}; ids={evidence_ids}\n{rag_context}"
         )
+        if semantic_card_ids:
+            prompt_parts.append(
+                "Fidelity rule: semantic_card подтверждает только общую тему или назначение "
+                "материала. Не извлекай из semantic_card точные факты, числа, даты, цитаты, "
+                "статусы, детали аргументации, медиа, аналитику или комментарии. Такие "
+                "утверждения допустимы только по full_text."
+            )
         prompt_parts.append(
             'Верни JSON {"answer":"...","claims":[{"text":"...","evidence_ids":[...]}]}.'
         )
@@ -1372,6 +1393,13 @@ async def run_workspace_graph(
             runtime_context.settings.agent_planner_phase5_enabled
             and runtime_context.turn_contract.get("version") == 2
         ),
+        "adaptive_evidence_depth_enabled": bool(
+            getattr(runtime_context.settings, "agent_adaptive_evidence_depth_v1_enabled", False)
+            and runtime_context.settings.agent_planner_phase5_enabled
+            and runtime_context.turn_contract.get("version") == 2
+        ),
+        "material_plan": empty_material_plan(),
+        "candidate_envelopes": [],
         "planner_calls_used": 0,
         "search_calls_used": 0,
         "deep_reads_used": 0,

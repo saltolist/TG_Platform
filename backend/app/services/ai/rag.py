@@ -759,7 +759,7 @@ async def retrieve_top_k(
     sql = text(
         f"SELECT note_id, post_id, chunk_index, tenant_key, node_type, file_id, "
         f"chunk_text, search_text, referenced_ids, scope, object_title, object_status, "
-        f"index_revision, keywords, "
+        f"index_revision, keywords, summary_version, summary_model, "
         f"1 - (embedding::vector <=> CAST(:qvec AS vector)) AS similarity "
         f"FROM note_embeddings "
         f"WHERE user_id = :uid AND scope = :scope AND model_key = :mk "
@@ -814,6 +814,8 @@ async def retrieve_top_k(
             "object_title": getattr(row, "object_title", "") or "",
             "object_status": getattr(row, "object_status", "") or "",
             "index_revision": int(getattr(row, "index_revision", 1) or 1),
+            "summary_version": int(getattr(row, "summary_version", 0) or 0),
+            "summary_model": str(getattr(row, "summary_model", "") or ""),
             "keywords": _parse_referenced_ids(getattr(row, "keywords", None)),
             "is_discovery_node": (row.node_type or NODE_NOTE_CHUNK) in DISCOVERY_NODE_TYPES,
             "similarity": float(row.similarity),

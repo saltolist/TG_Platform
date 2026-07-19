@@ -16,6 +16,7 @@ EvidenceKind = Literal[
     "comment",
     "catalog",
     "search_hit",
+    "semantic_card",
 ]
 
 

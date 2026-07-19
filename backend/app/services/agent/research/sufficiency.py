@@ -9,6 +9,7 @@ from app.services.agent.runtime.turn_contract import (
     covered_source_ids,
     missing_required_sources,
 )
+from app.services.agent.research.material_plan import canonical_candidate_ref
 
 SufficiencyStatus = Literal["ready", "follow_up_allowed", "exhausted", "invalid"]
 
@@ -96,6 +97,28 @@ def evaluate_sufficiency(
         if str(record.get("content") or "").strip()
         and str(record.get("kind") or "") not in {"note_summary", "post_summary"}
     )
+    material_plan = dict(state.get("material_plan") or {})
+    required_full = tuple(
+        str(item) for item in material_plan.get("required_full_text_ids") or () if str(item)
+    )
+    opened_full = set(
+        str(item) for item in material_plan.get("opened_full_text_ids") or () if str(item)
+    )
+    omitted = set(str(item) for item in material_plan.get("omitted_ids") or () if str(item))
+    card_ids = tuple(str(item) for item in material_plan.get("card_ids") or () if str(item))
+    available_refs = {
+        canonical_candidate_ref(str(record.get("source_ref") or key))
+        for key, record in records.items()
+        if key in evidence_ids
+    }
+    material_missing = [
+        f"material:{ref}"
+        for ref in required_full
+        if ref not in opened_full or ref not in available_refs
+    ]
+    material_missing.extend(
+        f"material:{ref}" for ref in card_ids if ref not in available_refs
+    )
 
     if contract.get("source_requirements"):
         covered = covered_source_ids(contract, {key: records[key] for key in evidence_ids})
@@ -109,8 +132,12 @@ def evaluate_sufficiency(
         missing = () if evidence_ids else ("evidence",)
         satisfied = ("evidence",) if evidence_ids else ()
 
-    selected_candidates = tuple(
-        str(item) for item in state.get("selected_candidate_ids") or () if str(item)
+    selected_candidates = (
+        ()
+        if state.get("adaptive_evidence_depth_enabled")
+        else tuple(
+            str(item) for item in state.get("selected_candidate_ids") or () if str(item)
+        )
     )
     unread_candidates = tuple(
         candidate_id
@@ -121,6 +148,8 @@ def evaluate_sufficiency(
         missing = tuple(
             dict.fromkeys((*missing, *(f"candidate:{item}" for item in unread_candidates)))
         )
+    if material_missing:
+        missing = tuple(dict.fromkeys((*missing, *material_missing)))
 
     open_requirements = tuple(missing)
     remaining_intents = _remaining_intents(list(state.get("search_ledger") or ()), contract)
@@ -130,7 +159,40 @@ def evaluate_sufficiency(
     optional_discovery_complete = bool(source_requirements) and not any(
         bool(source.get("required")) for source in source_requirements
     ) and not bool(state.get("prefetch_hits"))
-
+    required_omitted = {
+        ref for ref in required_full if ref in omitted and ref not in opened_full
+    }
+    if required_omitted:
+        unresolved = tuple(
+            dict.fromkeys((*missing, *(f"material:{ref}" for ref in sorted(required_omitted))))
+        )
+        return SufficiencyResult(
+            "exhausted",
+            satisfied,
+            unresolved,
+            unresolved,
+            (),
+            evidence_ids,
+            "MATERIAL_COVERAGE_PARTIAL",
+        )
+    if material_plan.get("coverage") == "partial" and any(
+        str(item).endswith(":unseen_candidates")
+        for item in material_plan.get("omitted_ids") or ()
+    ):
+        unresolved = tuple(
+            dict.fromkeys(
+                (*missing, *[str(item) for item in material_plan.get("omitted_ids") or ()])
+            )
+        )
+        return SufficiencyResult(
+            "exhausted",
+            satisfied,
+            unresolved,
+            unresolved,
+            (),
+            evidence_ids,
+            "DISCOVERY_COVERAGE_PARTIAL",
+        )
     if requested_status == "ready" and evidence_ids and not missing:
         return SufficiencyResult(
             "ready", satisfied, (), (), (), evidence_ids, "ALL_REQUIRED_EVIDENCE_PRESENT"

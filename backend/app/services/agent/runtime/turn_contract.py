@@ -992,8 +992,8 @@ def missing_required_sources(
 
 
 _SOURCE_RECORD_KINDS: dict[str, frozenset[str]] = {
-    "notes": frozenset({"note_chunk"}),
-    "posts": frozenset({"post_text"}),
+    "notes": frozenset({"note_chunk", "semantic_card"}),
+    "posts": frozenset({"post_text", "semantic_card"}),
     "analytics": frozenset({"analytics"}),
     "comments": frozenset({"comment"}),
     "attachments": frozenset({"attachment_text", "media_meta"}),

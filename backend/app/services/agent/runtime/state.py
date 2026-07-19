@@ -92,6 +92,7 @@ class AgentGraphState(TypedDict, total=False):
     finish_retrieval_attempted: bool
     validator_events: list[dict[str, Any]]
     phase5_enabled: bool
+    adaptive_evidence_depth_enabled: bool
     planner_calls_used: int
     search_calls_used: int
     deep_reads_used: int
@@ -100,6 +101,8 @@ class AgentGraphState(TypedDict, total=False):
     sufficiency: dict[str, Any]
     deadline_exhausted: bool
     selected_candidate_ids: list[str]
+    material_plan: dict[str, Any]
+    candidate_envelopes: list[dict[str, Any]]
     requested_status: str | None
     tool_action: dict[str, Any] | None
     # Accumulated planner decisions {step, observations, reasoning, gap, tool,

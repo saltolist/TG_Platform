@@ -28,6 +28,41 @@ class DecisionCode(StrEnum):
     FINISH_PARTIAL = "FINISH_PARTIAL"
 
 
+class CandidateRelevance(StrEnum):
+    DIRECT = "direct"
+    SUPPORTING = "supporting"
+    IRRELEVANT = "irrelevant"
+
+
+class CandidateResolution(StrEnum):
+    CARD = "card"
+    FULL_TEXT = "full_text"
+
+
+class CandidateReasonCode(StrEnum):
+    TOPIC_ONLY = "topic_only"
+    EXACT_FACT = "exact_fact"
+    DETAILED_SUMMARY = "detailed_summary"
+    COMPARISON = "comparison"
+    QUOTE = "quote"
+    EDIT_SOURCE = "edit_source"
+    ATTACHMENT_OR_MEDIA = "attachment_or_media"
+    ANALYTICS = "analytics"
+    LOW_CARD_QUALITY = "low_card_quality"
+
+
+class CandidateAssessment(BaseModel):
+    """One bounded semantic decision for one visible discovery candidate."""
+
+    model_config = ConfigDict(extra="forbid", frozen=True)
+
+    ref: str = Field(min_length=3, max_length=160)
+    relevance: CandidateRelevance
+    resolution: CandidateResolution
+    confidence: float = Field(default=0.0, ge=0.0, le=1.0)
+    reason_code: CandidateReasonCode
+
+
 _READ_TOOLS = frozenset(
     {
         "SearchNodes",
@@ -67,7 +102,12 @@ class PlannerAction(BaseModel):
 class PlannerStateUpdates(BaseModel):
     model_config = ConfigDict(extra="forbid", frozen=True)
 
-    selected_candidate_ids: tuple[str, ...] = Field(default=(), max_length=5)
+    # Compatibility projection for phase-5 checkpoints. Adaptive evidence depth
+    # persists the richer assessment list in ``material_plan`` instead.
+    selected_candidate_ids: tuple[str, ...] = Field(default=(), max_length=16)
+    candidate_assessments: tuple[CandidateAssessment, ...] = Field(
+        default=(), max_length=16
+    )
 
 
 class PlannerDecision(BaseModel):
@@ -75,6 +115,11 @@ class PlannerDecision(BaseModel):
 
     decision_code: DecisionCode
     actions: tuple[PlannerAction, ...] = ()
+    assessments: tuple[CandidateAssessment, ...] = Field(default=(), max_length=16)
+    # Alternate explicit name accepted for replay/checkpoint producers.
+    candidate_assessments: tuple[CandidateAssessment, ...] = Field(
+        default=(), max_length=16
+    )
     state_updates: PlannerStateUpdates = Field(default_factory=PlannerStateUpdates)
     confidence: float = Field(default=0.0, ge=0.0, le=1.0)
 
@@ -100,7 +145,11 @@ class PlannerDecision(BaseModel):
             DecisionCode.FINISH_PARTIAL,
             DecisionCode.USE_FAST_PATH,
             DecisionCode.RESOLVE_AMBIGUITY,
-        } and not self.actions:
+        } and not self.actions and not (
+            self.assessments
+            or self.candidate_assessments
+            or self.state_updates.candidate_assessments
+        ):
             raise ValueError(f"{self.decision_code} requires an action")
         return self
 
@@ -123,12 +172,18 @@ def render_planner_schema() -> str:
     return (
         '{"decision_code":"SEARCH_REQUIRED_SOURCE",'
         '"actions":[{"tool":"SearchNodes","args":{"query":"..."},"intent_id":"source-id"}],'
+        '"assessments":[{"ref":"note:ID","relevance":"direct",'
+        '"resolution":"card","confidence":0.9,"reason_code":"topic_only"}],'
         '"state_updates":{},"confidence":0.9}'
     )
 
 
 __all__ = [
     "DecisionCode",
+    "CandidateAssessment",
+    "CandidateReasonCode",
+    "CandidateRelevance",
+    "CandidateResolution",
     "PlannerAction",
     "PlannerDecision",
     "PlannerStateUpdates",

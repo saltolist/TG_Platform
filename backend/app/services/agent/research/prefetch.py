@@ -18,6 +18,7 @@ from app.services.ai.rag import (
     NODE_NOTE_SUMMARY,
     NODE_POST_TEXT,
     NODE_POST_SUMMARY,
+    object_index_revision,
 )
 from app.services.ai.rag_retrieval_policy import retrieve_for_chat
 
@@ -27,6 +28,73 @@ DISCOVERY_FTS_DOCUMENT_SQL = """to_tsvector(
     COALESCE(NULLIF(search_text, ''), chunk_text) || ' ' ||
     COALESCE(keywords::text, '')
 )"""
+
+
+async def resolve_current_source_revisions(
+    session: AsyncSession,
+    *,
+    user_id: uuid.UUID,
+    candidates: list[Mapping[str, Any]],
+) -> dict[str, int]:
+    """Resolve note/post revisions in one tenant-scoped bounded DB statement."""
+
+    ids = list(
+        dict.fromkeys(
+            str(item.get("note_id") or item.get("post_id") or "")
+            for item in candidates
+            if str(item.get("note_id") or item.get("post_id") or "")
+        )
+    )[:20]
+    if not ids:
+        return {}
+    placeholders = ", ".join(f":rid_{index}" for index in range(len(ids)))
+    params: dict[str, Any] = {"user_id": user_id}
+    params.update({f"rid_{index}": value for index, value in enumerate(ids)})
+    stmt = text(
+        f"""
+        SELECT 'global_note' AS source_kind, id::text AS row_id, data
+        FROM global_notes
+        WHERE user_id = :user_id
+          AND (id::text IN ({placeholders}) OR data->>'id' IN ({placeholders}))
+        UNION ALL
+        SELECT 'post' AS source_kind, id::text AS row_id, data
+        FROM posts
+        WHERE user_id = :user_id
+          AND (
+            data->>'id' IN ({placeholders})
+            OR EXISTS (
+              SELECT 1 FROM jsonb_array_elements(
+                CASE WHEN jsonb_typeof(data->'notes') = 'array'
+                     THEN data->'notes' ELSE '[]'::jsonb END
+              ) note
+              WHERE note->>'id' IN ({placeholders})
+            )
+          )
+        """
+    )
+    try:
+        result = await session.execute(stmt, params)
+        mappings = result.mappings()
+        if inspect.isawaitable(mappings):
+            mappings = await mappings
+        rows = mappings.all()
+        if inspect.isawaitable(rows):
+            rows = await rows
+    except Exception:
+        return {}
+    revisions: dict[str, int] = {}
+    for row in rows:
+        data = dict(row.get("data") or {})
+        if row.get("source_kind") == "global_note":
+            object_id = str(data.get("id") or row.get("row_id") or "")
+            revisions[object_id] = object_index_revision(data)
+            continue
+        post_id = str(data.get("id") or row.get("row_id") or "")
+        revisions[post_id] = object_index_revision(data)
+        for note in data.get("notes") or ():
+            if isinstance(note, Mapping) and note.get("id"):
+                revisions[str(note["id"])] = object_index_revision(note)
+    return revisions
 
 
 async def fts_search(
@@ -87,6 +155,7 @@ async def fts_search(
         f"""
         SELECT note_id, post_id, node_type, file_id, chunk_text, search_text,
                object_title, object_status, index_revision, keywords,
+               summary_version, summary_model,
                ts_rank({DISCOVERY_FTS_DOCUMENT_SQL},
                        plainto_tsquery('simple', :query)) AS rank
         FROM note_embeddings
@@ -127,6 +196,8 @@ async def fts_search(
                 "object_title": row.get("object_title") or "",
                 "object_status": row.get("object_status") or "",
                 "index_revision": int(row.get("index_revision") or 1),
+                "summary_version": int(row.get("summary_version") or 0),
+                "summary_model": str(row.get("summary_model") or ""),
                 "keywords": (
                     json.loads(row.get("keywords"))
                     if isinstance(row.get("keywords"), str)
@@ -276,7 +347,7 @@ async def retrieve_for_discovery(
     the same policy to chunk-only retrieval, preventing a follow-up query from
     scanning the whole tenant again.
     """
-    limit = max(1, min(8, int(candidate_limit or 5)))
+    limit = max(1, min(10, int(candidate_limit or 6)))
     if query_vec is None:
         query_vec = await embedding_backend.embed_query(query_text)
     if selected_object_ids:
@@ -316,7 +387,7 @@ async def retrieve_for_discovery(
         embedding_backend=embedding_backend,
         tenant_key=tenant_key,
         post_id=post_id,
-        top_k=limit,
+        top_k=limit + 1,
         min_similarity=min_similarity,
         scope_bias=scope_bias,
         node_types_filter=summary_filter,
@@ -333,7 +404,7 @@ async def retrieve_for_discovery(
         embedding_backend=embedding_backend,
         tenant_key=tenant_key,
         post_id=post_id,
-        top_k=limit,
+        top_k=limit + 1,
         min_similarity=min_similarity,
         scope_bias=scope_bias,
         node_types_filter=contextual_filter,
@@ -393,11 +464,28 @@ async def retrieve_for_discovery(
         current["rank_fusion_score"] = float(current.get("rank_fusion_score") or 0) + (
             1.0 / (60 + rank + 1)
         )
-    return sorted(
+    ranked = sorted(
         fused.values(),
         key=lambda item: (
             float(item.get("rank_fusion_score") or 0),
             float(item.get("blended_score") or 0),
         ),
         reverse=True,
-    )[:limit]
+    )
+    has_more = len(ranked) > limit
+    selected = ranked[:limit]
+    revisions = await resolve_current_source_revisions(
+        session,
+        user_id=user_id,
+        candidates=selected,
+    )
+    return [
+        {
+            **item,
+            "source_revision": revisions.get(
+                str(item.get("note_id") or item.get("post_id") or "")
+            ),
+            "has_more": has_more,
+        }
+        for item in selected
+    ]

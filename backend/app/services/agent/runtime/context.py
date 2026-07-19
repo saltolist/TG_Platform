@@ -144,6 +144,7 @@ class RuntimeContext:
             visited=set(base.visited),
             context_blocks=list(base.context_blocks),
             opened_posts=dict(base.opened_posts),
+            query_vector_cache=dict(base.query_vector_cache),
             vision_calls_used=base.vision_calls_used,
             hydrated_text_files=set(base.hydrated_text_files),
             listed_image_attachment_refs=list(base.listed_image_attachment_refs),

@@ -1,0 +1,45 @@
+{
+  "schema": "workspace.adaptive-evidence-depth-fixture/v1",
+  "thresholds": {
+    "candidate_recall_floor": 1.0,
+    "recall_tolerance": 0.0
+  },
+  "scenarios": [
+    {
+      "id": "golden-five-post-topics",
+      "ranked_by_source": {
+        "notes": ["n-side-1", "n-side-2"],
+        "posts": ["p1", "p2", "p3", "p4", "p5", "p-side", "p7", "p8", "p9", "p10"]
+      },
+      "relevant_by_source": {"notes": [], "posts": ["p1", "p2", "p3", "p4", "p5"]},
+      "selected_card_chars": 2350
+    },
+    {
+      "id": "golden-mixed-notes-posts",
+      "ranked_by_source": {
+        "notes": ["n1", "n2", "n3", "n-side-1", "n-side-2", "n-side-3", "n7", "n8"],
+        "posts": ["p1", "p2", "p-side-1", "p-side-2", "p5", "p6", "p7", "p8"]
+      },
+      "relevant_by_source": {"notes": ["n1", "n2", "n3"], "posts": ["p1", "p2"]},
+      "selected_card_chars": 3120
+    },
+    {
+      "id": "heldout-source-boundaries",
+      "ranked_by_source": {
+        "notes": ["n1", "n2", "n3", "n4", "n5", "n6", "n7", "n8", "n9", "n10"],
+        "posts": ["p1", "p2", "p3", "p4", "p5", "p6", "p7", "p8", "p9", "p10"]
+      },
+      "relevant_by_source": {"notes": ["n2", "n4", "n6"], "posts": ["p1", "p3", "p5"]},
+      "selected_card_chars": 4780
+    },
+    {
+      "id": "heldout-card-context",
+      "ranked_by_source": {
+        "notes": ["n1", "n2", "n3", "n4", "n5", "n6"],
+        "posts": ["p1", "p2", "p3", "p4", "p5", "p6"]
+      },
+      "relevant_by_source": {"notes": ["n1", "n5"], "posts": ["p2", "p6"]},
+      "selected_card_chars": 5650
+    }
+  ]
+}

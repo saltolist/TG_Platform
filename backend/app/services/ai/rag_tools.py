@@ -305,7 +305,7 @@ async def tool_search_nodes(
         from app.services.agent.research.prefetch import hybrid_prefetch, retrieve_for_discovery
 
         allowed_filter = _normalize_node_types(node_types)
-        candidate_limit = min(8, max(1, int(k or state.search_k)))
+        candidate_limit = min(10, max(1, int(k or state.search_k)))
         query_cache_key = " ".join(query_text.casefold().split())
         query_vec = state.query_vector_cache.get(query_cache_key)
         if query_vec is None:
@@ -355,12 +355,20 @@ async def tool_search_nodes(
                 "node_type": str(item.get("node_type") or ""),
                 "summary_only": bool(item.get("summary_only")),
                 "index_revision": int(item.get("index_revision") or 1),
+                "source_revision": int(item.get("source_revision") or 0),
+                "summary_version": int(item.get("summary_version") or 0),
+                "summary_model": str(item.get("summary_model") or ""),
                 "title": str(item.get("object_title") or ""),
                 "preview": preview,
                 "status": str(item.get("object_status") or ""),
+                "has_more": bool(item.get("has_more")),
             }
         )
-    return ToolOutcome(summary="\n".join(lines), hits=tuple(hits))
+    return ToolOutcome(
+        summary="\n".join(lines),
+        hits=tuple(hits),
+        result_count=len(hits),
+    )
 
 
 async def tool_search_object_chunks(

@@ -180,6 +180,40 @@ def grade_image_claim_backed(state: Mapping[str, Any]) -> GraderResult:
     )
 
 
+def grade_exact_claims_not_card_only(state: Mapping[str, Any]) -> GraderResult:
+    """Consume fidelity-aware semantic grader labels when a run provides them."""
+
+    semantic_result = state.get("fidelity_grader") or {}
+    if isinstance(semantic_result, Mapping) and semantic_result.get("exact_claim_on_card"):
+        return GraderResult(
+            name="exact_claims_not_card_only",
+            passed=False,
+            reason="semantic grader found an exact/content claim backed only by semantic_card",
+        )
+    card_ids = {
+        str(item.get("id") or "")
+        for item in (state.get("evidence_pack") or {}).get("items") or ()
+        if isinstance(item, Mapping) and item.get("fidelity") == "semantic_card"
+    }
+    violations: list[str] = []
+    for claim in state.get("claims") or ():
+        if not isinstance(claim, Mapping):
+            continue
+        scope = str(claim.get("claim_scope") or "")
+        cited = {str(item) for item in claim.get("evidence_ids") or ()}
+        if scope in {"exact", "content", "quote", "analytics"} and cited and cited <= card_ids:
+            violations.append(str(claim.get("text") or "")[:80])
+    return GraderResult(
+        name="exact_claims_not_card_only",
+        passed=not violations,
+        reason=(
+            f"card-only exact claims: {violations}"
+            if violations
+            else "no semantically labelled exact claim relies only on cards"
+        ),
+    )
+
+
 def grade_trajectory_includes(
     state: Mapping[str, Any],
     *,
@@ -268,6 +302,7 @@ def grade_run(
         grade_claims_subset_evidence(state),
         grade_empty_pack_no_claim(state),
         grade_image_claim_backed(state),
+        grade_exact_claims_not_card_only(state),
         grade_result_contract(state),
     ]
     if must_call:

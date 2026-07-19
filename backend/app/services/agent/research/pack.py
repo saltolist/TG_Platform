@@ -6,6 +6,7 @@ from app.services.ai.note_citations import NoteCite
 from app.services.agent.research.evidence import EvidenceRecord
 from app.services.agent.research.trust import wrap_untrusted_block
 from app.services.agent.research.evidence_pack import build_verified_evidence_pack
+from app.services.agent.research.material_plan import card_eligibility
 
 
 # Guaranteed minimum footprint per evidence item, in characters. Without a
@@ -32,6 +33,10 @@ def build_evidence_pack(
         rec = records.get(eid)
         if rec is None:
             continue
+        if rec.kind == "semantic_card":
+            eligible, _failure = card_eligibility(rec.metadata)
+            if not eligible:
+                continue
         path = rec.citation_path
         if path in seen_paths:
             continue
@@ -90,6 +95,9 @@ def build_verified_pack(
     evidence_ids: list[str],
     unresolved: list[str] | None = None,
     source_ids: list[str] | None = None,
+    schema: str | None = None,
+    coverage: str = "complete",
+    coverage_by_source: dict | None = None,
 ):
     """Public compatibility wrapper for the typed phase-6 pack."""
 
@@ -98,4 +106,7 @@ def build_verified_pack(
         evidence_ids=evidence_ids,
         unresolved=unresolved or (),
         source_ids=source_ids or (),
+        schema=schema,
+        coverage=coverage,
+        coverage_by_source=coverage_by_source or {},
     )
