@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import inspect
 import uuid
 from typing import Any, Mapping
 
@@ -54,7 +55,13 @@ async def fts_search(
         """
     )
     try:
-        rows = (await session.execute(stmt, params)).mappings().all()
+        result = await session.execute(stmt, params)
+        mappings = result.mappings()
+        if inspect.isawaitable(mappings):
+            mappings = await mappings
+        rows = mappings.all()
+        if inspect.isawaitable(rows):
+            rows = await rows
     except Exception:
         return []
 
@@ -122,12 +129,17 @@ async def hybrid_prefetch(
     top_k: int = 8,
     min_similarity: float = 0.38,
     scope_bias: float = 0.04,
+    vector_retriever=None,
 ) -> list[dict[str, Any]]:
-    vector = await retrieve_for_chat(
-        session,
+    # Dependency injection keeps legacy callers/tests able to replace the
+    # vector engine while the hybrid path owns the FTS merge.
+    retrieve_vector = vector_retriever or retrieve_for_chat
+    query_vec = await embedding_backend.embed_query(query_text)
+    vector = await retrieve_vector(
+        session=session,
         user_id=user_id,
-        scope=scope,
-        query_text=query_text,
+        chat_scope=scope,
+        query_vec=query_vec,
         embedding_backend=embedding_backend,
         k=top_k,
         min_similarity=min_similarity,

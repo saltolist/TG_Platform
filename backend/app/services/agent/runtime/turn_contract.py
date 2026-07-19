@@ -8,9 +8,13 @@ through classifier, research and answer generation.
 
 from __future__ import annotations
 
+import hashlib
 import json
 import re
-from typing import Any, Mapping
+import uuid
+from typing import Any, Literal, Mapping
+
+from pydantic import BaseModel, ConfigDict, Field, model_validator
 
 from app.services.ai.chat_history import linearize_for_llm
 
@@ -31,6 +35,226 @@ SUPPORTED_CAPABILITIES = (
     "create, edit, schedule, publish, delete and restore posts via approval",
     "generate and attach media via approval",
 )
+
+TURN_CONTRACT_SCHEMA = "workspace.turn/v2"
+TARGET_CONTRACT_SCHEMA = "workspace.target/v2"
+
+TargetRole = Literal["subject", "source", "comparison", "style_reference", "context"]
+TargetMode = Literal["exact", "set", "corpus", "mixed", "ambiguous"]
+ExecutionMode = Literal["fast", "compact", "deep", "batch"]
+SourceKind = Literal["notes", "posts", "analytics", "comments", "attachments", "images", "dialog"]
+SourceRole = Literal["source", "comparison", "style_reference", "context"]
+
+
+class _ContractModel(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True, populate_by_name=True)
+
+
+class TargetRef(_ContractModel):
+    kind: Literal["note", "post", "dialog_artifact"]
+    id: str = Field(min_length=1)
+    role: TargetRole = "subject"
+    authoritative: bool = True
+    confidence: float = Field(ge=0.0, le=1.0)
+    resolved_by: Literal[
+        "explicit_id",
+        "explicit_link",
+        "open_object",
+        "recent_object",
+        "dialog_ledger",
+        "dialog_artifact",
+    ]
+    source_turn_id: str | None = None
+    title: str | None = None
+    parent_post_id: str | None = None
+    content: str | None = None
+
+
+class CorpusRef(_ContractModel):
+    kind: Literal["workspace", "feed_posts"]
+    role: TargetRole
+    scope: Literal["current_user"] = "current_user"
+
+
+class TargetAmbiguity(_ContractModel):
+    kind: Literal["note", "post"]
+    candidate_ids: tuple[str, ...] = Field(min_length=2)
+    reason: str = Field(min_length=1)
+    question: str = Field(min_length=1)
+
+
+class ResolutionEvent(_ContractModel):
+    target_id: str
+    target_kind: Literal["note", "post", "dialog_artifact"]
+    resolved_by: str
+    confidence: float = Field(ge=0.0, le=1.0)
+    source_turn_id: str | None = None
+
+
+class TargetContract(_ContractModel):
+    contract_schema: Literal["workspace.target/v2"] = Field(
+        default=TARGET_CONTRACT_SCHEMA, alias="schema"
+    )
+    revision: int = Field(ge=1)
+    contract_id: str = Field(min_length=1)
+    target_mode: TargetMode
+    targets: tuple[TargetRef, ...] = ()
+    corpora: tuple[CorpusRef, ...] = ()
+    ambiguities: tuple[TargetAmbiguity, ...] = ()
+    resolution_events: tuple[ResolutionEvent, ...] = ()
+
+    @model_validator(mode="after")
+    def validate_mode(self) -> "TargetContract":
+        keys = [(item.kind, item.id) for item in self.targets]
+        if len(keys) != len(set(keys)):
+            raise ValueError("target ids must be unique per kind")
+        if self.target_mode == "exact" and (len(self.targets) != 1 or self.corpora):
+            raise ValueError("exact mode requires one target and no corpora")
+        if self.target_mode == "set" and (len(self.targets) < 2 or self.corpora):
+            raise ValueError("set mode requires multiple targets and no corpora")
+        if self.target_mode == "corpus" and (self.targets or not self.corpora):
+            raise ValueError("corpus mode requires corpora and no targets")
+        if self.target_mode == "mixed" and (not self.targets or not self.corpora):
+            raise ValueError("mixed mode requires targets and corpora")
+        if self.target_mode == "ambiguous" and not self.ambiguities:
+            raise ValueError("ambiguous mode requires ambiguity details")
+        event_keys = {(item.target_kind, item.target_id) for item in self.resolution_events}
+        if any((item.kind, item.id) not in event_keys for item in self.targets):
+            raise ValueError("every target requires a resolution event")
+        return self
+
+
+class SourceScope(_ContractModel):
+    mode: Literal["targets", "corpus"]
+    target_ids: tuple[str, ...] = ()
+    corpus: Literal["workspace", "feed_posts"] | None = None
+    owner: Literal["current_user"] = "current_user"
+    statuses: tuple[str, ...] = ()
+
+    @model_validator(mode="after")
+    def validate_scope(self) -> "SourceScope":
+        if self.mode == "targets" and (not self.target_ids or self.corpus is not None):
+            raise ValueError("target scope requires target_ids only")
+        if self.mode == "corpus" and (self.target_ids or self.corpus is None):
+            raise ValueError("corpus scope requires corpus only")
+        return self
+
+
+class Freshness(_ContractModel):
+    mode: Literal["exact_revision", "latest_available", "max_age", "historical_snapshot"]
+    revision: int | None = Field(default=None, ge=1)
+    max_age_seconds: int | None = Field(default=None, ge=0)
+    snapshot_at: str | None = None
+
+    @model_validator(mode="after")
+    def validate_freshness(self) -> "Freshness":
+        if self.mode == "exact_revision" and self.revision is None:
+            raise ValueError("exact_revision requires revision")
+        if self.mode == "max_age" and self.max_age_seconds is None:
+            raise ValueError("max_age requires max_age_seconds")
+        if self.mode == "historical_snapshot" and not self.snapshot_at:
+            raise ValueError("historical_snapshot requires snapshot_at")
+        return self
+
+
+class SourceBudget(_ContractModel):
+    search_calls: int = Field(ge=0)
+    rewrite_calls: int = Field(ge=0)
+    candidate_limit: int = Field(ge=1)
+    deep_reads: int = Field(ge=0)
+
+    @model_validator(mode="after")
+    def validate_rewrites(self) -> "SourceBudget":
+        if self.rewrite_calls > self.search_calls:
+            raise ValueError("rewrite_calls cannot exceed search_calls")
+        return self
+
+
+class SourceRequirement(_ContractModel):
+    source_id: str = Field(min_length=1)
+    kind: SourceKind
+    role: SourceRole
+    required: bool
+    query_goal: str = Field(min_length=1)
+    scope: SourceScope
+    freshness: Freshness
+    budget: SourceBudget
+
+
+class RunBudget(_ContractModel):
+    soft_deadline_ms: int = Field(gt=0)
+    hard_deadline_ms: int = Field(gt=0)
+    planner_calls: int = Field(ge=0)
+    search_calls: int = Field(ge=0)
+    search_rewrites_per_intent: int = Field(ge=0)
+    deep_reads: int = Field(ge=0)
+    tool_calls: int = Field(ge=0)
+
+    @model_validator(mode="after")
+    def validate_deadlines(self) -> "RunBudget":
+        if self.soft_deadline_ms > self.hard_deadline_ms:
+            raise ValueError("soft deadline cannot exceed hard deadline")
+        return self
+
+
+class TurnContractV2(_ContractModel):
+    contract_schema: Literal["workspace.turn/v2"] = Field(
+        default=TURN_CONTRACT_SCHEMA, alias="schema"
+    )
+    version: Literal[2] = 2
+    revision: int = Field(ge=1)
+    parent_revision: int | None = Field(default=None, ge=1)
+    goal: str = Field(min_length=1)
+    task_profile: Literal[
+        "exact_lookup",
+        "topical_answer",
+        "workspace_synthesis",
+        "recommendation",
+        "comparison",
+        "exhaustive_inventory",
+        "artifact_revision",
+        "channel_profile_draft",
+        "mutation_proposal",
+    ]
+    target_contract_ref: str
+    target_contract: TargetContract
+    source_requirements: tuple[SourceRequirement, ...]
+    evidence_requirements: tuple[str, ...]
+    answer_requires: tuple[str, ...]
+    output_schema: str
+    execution_mode: ExecutionMode
+    budgets: RunBudget
+    # Compatibility fields consumed by the current graph during the phased rollout.
+    intent: str
+    scope: str
+    corpus: str
+    target: dict[str, Any] | None
+    output: dict[str, Any]
+    requires_workspace: bool
+    required_evidence_kinds: tuple[str, ...]
+    search_query: str
+    max_steps: int
+    success_criteria: tuple[str, ...]
+    supported_capabilities: tuple[str, ...]
+    prohibited_recommendations: tuple[str, ...]
+
+    @model_validator(mode="after")
+    def validate_source_budgets(self) -> "TurnContractV2":
+        source_ids = [source.source_id for source in self.source_requirements]
+        if len(source_ids) != len(set(source_ids)):
+            raise ValueError("source_id must be unique")
+        if sum(source.budget.search_calls for source in self.source_requirements) > self.budgets.search_calls:
+            raise ValueError("local search budgets exceed run budget")
+        if sum(source.budget.deep_reads for source in self.source_requirements) > self.budgets.deep_reads:
+            raise ValueError("local deep-read budgets exceed run budget")
+        if any(
+            source.budget.rewrite_calls > self.budgets.search_rewrites_per_intent
+            for source in self.source_requirements
+        ):
+            raise ValueError("local rewrite budget exceeds per-intent run budget")
+        if self.execution_mode == "fast" and self.budgets.planner_calls != 0:
+            raise ValueError("fast mode cannot spend planner calls")
+        return self
 
 
 def _dialog_pairs(history: list[Mapping[str, Any]] | None) -> list[tuple[str, str]]:
@@ -171,6 +395,306 @@ def _ledger_note_target(
     return None
 
 
+_EXPLICIT_POST_LINK_RE = re.compile(r"(?:https?://[^\s)]+)?(/post/([\w-]+)/?)", re.I)
+_EXPLICIT_NOTE_LINK_RE = re.compile(
+    r"(?:https?://[^\s)]+)?/note/(?:post/([\w-]+)/|global/)([\w-]+)/?", re.I
+)
+_EXPLICIT_ID_RE = re.compile(
+    r"\b(?P<label>пост(?:а|у|ом|е)?|post|заметк(?:а|у|е|ой)?|note)\s*[#№:]?\s*(?P<id>[A-Za-z0-9][A-Za-z0-9_-]{1,127})\b",
+    re.I,
+)
+
+
+def _stable_artifact_id(content: str) -> str:
+    return f"artifact:{hashlib.sha256(content.encode('utf-8')).hexdigest()[:24]}"
+
+
+def _post_title_from_text(text: str) -> str:
+    line = next((line.strip() for line in text.splitlines() if line.strip()), "")
+    return line[:160]
+
+
+def _explicit_targets(user_text: str) -> list[dict[str, Any]]:
+    """Extract only high-confidence links/IDs; semantic hits never enter here."""
+    text = user_text or ""
+    found: list[tuple[int, dict[str, Any]]] = []
+    occupied: list[tuple[int, int]] = []
+    for match in _EXPLICIT_NOTE_LINK_RE.finditer(text):
+        post_id, note_id = match.group(1), match.group(2)
+        found.append((match.start(), {
+            "kind": "note", "id": note_id, "role": "subject", "authoritative": True,
+            "confidence": 1.0, "resolved_by": "explicit_link", "parent_post_id": post_id,
+        }))
+        occupied.append((match.start(), match.end()))
+    for match in _EXPLICIT_POST_LINK_RE.finditer(text):
+        if any(start <= match.start() < end for start, end in occupied):
+            continue
+        found.append((match.start(), {
+            "kind": "post", "id": match.group(2), "role": "subject", "authoritative": True,
+            "confidence": 1.0, "resolved_by": "explicit_link",
+        }))
+        occupied.append((match.start(), match.end()))
+    for match in _EXPLICIT_ID_RE.finditer(text):
+        label = match.group("label").lower()
+        identifier = match.group("id")
+        # Bare short tokens ("заметка n1") are often titles/labels in prose,
+        # not authoritative IDs. Explicit links, UUIDs, numeric Telegram IDs and
+        # longer opaque IDs are high-confidence; short tokens remain planner
+        # candidates and must be opened before becoming evidence.
+        if not (identifier.isdigit() or len(identifier) >= 8 or "-" in identifier):
+            continue
+        kind = "post" if label.startswith(("пост", "post")) else "note"
+        item = {
+            "kind": kind, "id": identifier, "role": "subject", "authoritative": True,
+            "confidence": 1.0, "resolved_by": "explicit_id",
+        }
+        if not any(existing[1]["kind"] == kind and existing[1]["id"] == item["id"] for existing in found):
+            found.append((match.start(), item))
+    unique: dict[tuple[str, str], dict[str, Any]] = {}
+    for _position, item in sorted(found, key=lambda pair: pair[0]):
+        unique.setdefault((item["kind"], item["id"]), item)
+    return list(unique.values())
+
+
+def _is_referential_text(user_text: str) -> bool:
+    lowered = (user_text or "").lower()
+    return bool(
+        _POST_REFERENT_RE.search(lowered)
+        or _NOTE_REFERENT_RE.search(lowered)
+        or any(marker in lowered for marker in ("эти", "них", "ней", "неё", "предыдущ", "в этом пост"))
+    )
+
+
+def _ledger_targets(*, user_text: str, dialog_ledger: tuple[Any, ...]) -> tuple[list[dict[str, Any]], list[dict[str, Any]]]:
+    """Resolve referential turns to durable entities, preserving multi-targets."""
+    if not _is_referential_text(user_text):
+        return [], []
+    plural = bool(re.search(r"\b(эти|этих|них|обоих|обеих|все|нескольк|посты|заметки)\b", user_text.lower()))
+    for turn in reversed(dialog_ledger):
+        candidates: list[dict[str, Any]] = []
+        for entity in tuple(getattr(turn, "entities", ()) or ()):
+            kind = str(getattr(entity, "entity_type", "") or "")
+            if kind not in {"note", "post"}:
+                continue
+            entity_id = str(getattr(entity, f"{kind}_id", "") or "").strip()
+            if not entity_id:
+                continue
+            candidates.append({
+                "kind": kind, "id": entity_id, "role": "subject", "authoritative": True,
+                "confidence": 0.98, "resolved_by": "dialog_ledger",
+                "source_turn_id": str(getattr(turn, "turn_id", "") or "") or None,
+                "title": str(getattr(entity, "title", "") or "") or None,
+            })
+        prior_turn_contract = getattr(turn, "turn_contract", None)
+        if isinstance(prior_turn_contract, Mapping):
+            prior_targets = (prior_turn_contract.get("target_contract") or {}).get("targets") or []
+            for raw in prior_targets:
+                kind = str(raw.get("kind") or "")
+                entity_id = str(raw.get("id") or "").strip()
+                if kind not in {"note", "post"} or not entity_id:
+                    continue
+                if any(item["kind"] == kind and item["id"] == entity_id for item in candidates):
+                    continue
+                candidates.append({
+                    "kind": kind, "id": entity_id, "role": str(raw.get("role") or "subject"),
+                    "authoritative": True, "confidence": 0.98, "resolved_by": "dialog_ledger",
+                    "source_turn_id": str(getattr(turn, "turn_id", "") or "") or None,
+                    "title": raw.get("title"), "parent_post_id": raw.get("parent_post_id"),
+                })
+        if not candidates:
+            continue
+        if plural or len(candidates) == 1:
+            return candidates, []
+        return [], [{
+            "kind": candidates[0]["kind"], "candidate_ids": [item["id"] for item in candidates],
+            "reason": "несколько равноправных объектов в последнем контексте",
+            "question": "Какой именно объект использовать?",
+        }]
+    return [], []
+
+
+def _target_contract_for(*, legacy: Mapping[str, Any], user_text: str, scope: str,
+                         open_post: Mapping[str, Any] | None, dialog_ledger: tuple[Any, ...],
+                         prior_contract: Mapping[str, Any] | None) -> TargetContract:
+    explicit = _explicit_targets(user_text)
+    ambiguities_raw: list[dict[str, Any]] = []
+    targets = explicit
+    plural_referent = bool(
+        re.search(
+            r"\b(эти|этих|них|обоих|обеих|все|нескольк|посты|заметки)\b",
+            user_text.lower(),
+        )
+    )
+    if (
+        not targets
+        and scope == "post"
+        and open_post
+        and not _NOTE_REFERENT_RE.search(user_text)
+        and not plural_referent
+    ):
+        post_id = str(open_post.get("id") or "").strip()
+        if post_id:
+            targets = [{
+                "kind": "post", "id": post_id, "role": "subject", "authoritative": True,
+                "confidence": 1.0, "resolved_by": "open_object",
+                "title": _post_title_from_text(str(open_post.get("text") or "")) or None,
+            }]
+    if not targets:
+        targets, ambiguities_raw = _ledger_targets(user_text=user_text, dialog_ledger=dialog_ledger)
+    if not targets and legacy.get("target"):
+        raw = dict(legacy["target"])
+        kind = "note" if raw.get("kind") in {"recent_note", "ledger_note"} else "dialog_artifact"
+        target_id = str(raw.get("id") or "").strip() or _stable_artifact_id(str(raw.get("content") or ""))
+        targets = [{
+            "kind": kind, "id": target_id, "role": "subject" if kind != "dialog_artifact" else "context",
+            "authoritative": bool(raw.get("authoritative", True)),
+            "confidence": 1.0 if kind != "dialog_artifact" else 0.95,
+            "resolved_by": "dialog_artifact" if kind == "dialog_artifact" else (
+                "recent_object" if raw.get("kind") == "recent_note" else "dialog_ledger"
+            ),
+            "source_turn_id": raw.get("source_turn_id"), "title": raw.get("title") or raw.get("label"),
+            "content": raw.get("content"),
+        }]
+    corpora: list[CorpusRef] = []
+    if legacy.get("corpus") == "feed_posts":
+        corpora.append(CorpusRef(kind="feed_posts", role="comparison"))
+    elif not targets and legacy.get("requires_workspace"):
+        corpora.append(CorpusRef(kind="workspace", role="context"))
+    ambiguities = tuple(TargetAmbiguity.model_validate(item) for item in ambiguities_raw)
+    if ambiguities:
+        target_mode: TargetMode = "ambiguous"
+    elif targets and corpora:
+        target_mode = "mixed"
+    elif len(targets) == 1:
+        target_mode = "exact"
+    elif len(targets) > 1:
+        target_mode = "set"
+    else:
+        target_mode = "corpus"
+        if not corpora:
+            corpora.append(CorpusRef(kind="workspace", role="context"))
+    revision = int((prior_contract or {}).get("revision") or 0) + 1
+    contract_id = f"turn:{uuid.uuid5(uuid.NAMESPACE_URL, f'{revision}:{user_text}:{scope}')}"
+    refs = tuple(TargetRef.model_validate(item) for item in targets)
+    events = tuple(ResolutionEvent(target_id=item.id, target_kind=item.kind,
+                                   resolved_by=item.resolved_by, confidence=item.confidence,
+                                   source_turn_id=item.source_turn_id) for item in refs)
+    return TargetContract(
+        revision=revision, contract_id=contract_id, target_mode=target_mode, targets=refs,
+        corpora=tuple(corpora), ambiguities=ambiguities, resolution_events=events,
+    )
+
+
+def _task_profile(legacy: Mapping[str, Any], target_contract: TargetContract) -> str:
+    intent = str(legacy.get("intent") or "answer")
+    if intent == "edit_post":
+        return "mutation_proposal"
+    if intent == "write_post":
+        return "artifact_revision" if target_contract.targets else "workspace_synthesis"
+    if intent == "compare_with_feed_posts":
+        return "comparison"
+    if target_contract.target_mode == "exact":
+        return "exact_lookup"
+    return "topical_answer"
+
+
+def _source_requirements(legacy: Mapping[str, Any], target_contract: TargetContract) -> tuple[SourceRequirement, ...]:
+    sources: list[SourceRequirement] = []
+    for index, target in enumerate(target_contract.targets, start=1):
+        if target.kind not in {"note", "post"}:
+            continue
+        kind: SourceKind = "notes" if target.kind == "note" else "posts"
+        sources.append(SourceRequirement(
+            source_id=f"target-{target.kind}-{index}", kind=kind, role="source", required=True,
+            query_goal=f"read the authoritative {target.kind} {target.id}",
+            scope=SourceScope(mode="targets", target_ids=(target.id,)),
+            freshness=Freshness(mode="latest_available"),
+            budget=SourceBudget(search_calls=0, rewrite_calls=0, candidate_limit=1, deep_reads=1),
+        ))
+    corpus_kinds = {item.kind for item in target_contract.corpora}
+    if "feed_posts" in corpus_kinds:
+        role: SourceRole = "style_reference" if bool((legacy.get("output") or {}).get("match_reference_style")) else "comparison"
+        sources.append(SourceRequirement(
+            source_id="corpus-feed-posts", kind="posts", role=role, required=True,
+            query_goal="find published feed posts relevant to the current goal",
+            scope=SourceScope(mode="corpus", corpus="feed_posts", statuses=("published",)),
+            freshness=Freshness(mode="latest_available"),
+            budget=SourceBudget(search_calls=2, rewrite_calls=1, candidate_limit=5, deep_reads=2),
+        ))
+    if "workspace" in corpus_kinds:
+        lowered = str(legacy.get("search_query") or "").lower()
+        requested: list[SourceKind] = []
+        for marker, kind in (
+            ("замет", "notes"), ("пост", "posts"), ("метрик", "analytics"),
+            ("аналит", "analytics"), ("комментар", "comments"), ("файл", "attachments"),
+            ("изображ", "images"),
+        ):
+            if marker in lowered and kind not in requested:
+                requested.append(kind)  # type: ignore[arg-type]
+        for index, kind in enumerate(requested or ["dialog"], start=1):
+            sources.append(SourceRequirement(
+                source_id=f"workspace-{kind}-{index}", kind=kind, role="context",
+                required=kind not in {"images", "dialog"},
+                query_goal=f"retrieve {kind} needed for the current goal",
+                scope=SourceScope(mode="corpus", corpus="workspace"),
+                freshness=Freshness(mode="latest_available"),
+                budget=SourceBudget(search_calls=1, rewrite_calls=0, candidate_limit=4, deep_reads=1),
+            ))
+    return tuple(sources)
+
+
+def _run_budget(*, profile: str, target_contract: TargetContract,
+                sources: tuple[SourceRequirement, ...]) -> tuple[ExecutionMode, RunBudget]:
+    exact_reads = sum(source.budget.deep_reads for source in sources)
+    if profile == "exact_lookup" and target_contract.target_mode in {"exact", "set"}:
+        return "fast", RunBudget(
+            soft_deadline_ms=10_000, hard_deadline_ms=30_000, planner_calls=0,
+            search_calls=0, search_rewrites_per_intent=0, deep_reads=max(1, exact_reads),
+            tool_calls=max(2, exact_reads + 1),
+        )
+    local_search = sum(source.budget.search_calls for source in sources)
+    local_reads = sum(source.budget.deep_reads for source in sources)
+    return "compact", RunBudget(
+        soft_deadline_ms=30_000, hard_deadline_ms=60_000, planner_calls=2,
+        search_calls=max(3, local_search), search_rewrites_per_intent=1,
+        deep_reads=max(3, local_reads), tool_calls=max(8, local_search + local_reads + 2),
+    )
+
+
+def _upgrade_contract_v2(*, legacy: dict[str, Any], user_text: str, scope: str,
+                         open_post: Mapping[str, Any] | None, dialog_ledger: tuple[Any, ...],
+                         prior_contract: Mapping[str, Any] | None) -> dict[str, Any]:
+    prior_target = dict((prior_contract or {}).get("target_contract") or {})
+    target_contract = _target_contract_for(
+        legacy=legacy, user_text=user_text, scope=scope, open_post=open_post,
+        dialog_ledger=dialog_ledger, prior_contract=prior_target,
+    )
+    profile = _task_profile(legacy, target_contract)
+    sources = _source_requirements(legacy, target_contract)
+    execution_mode, budgets = _run_budget(profile=profile, target_contract=target_contract, sources=sources)
+    revision = target_contract.revision
+    prior_revision = int((prior_contract or {}).get("revision") or 0) or None
+    goal = user_text.strip()
+    if prior_contract and _is_referential_text(user_text) and len(goal) < 80:
+        prior_goal = str(prior_contract.get("goal") or "").strip()
+        if prior_goal:
+            goal = f"{prior_goal}; follow-up: {goal}"
+    compatibility = {**legacy, "version": 2}
+    model = TurnContractV2(
+        revision=revision, parent_revision=prior_revision, goal=goal or "respond to the current turn",
+        task_profile=profile, target_contract_ref=target_contract.contract_id,
+        target_contract=target_contract, source_requirements=sources,
+        evidence_requirements=tuple(
+            f"{source.source_id}:grounded_evidence" for source in sources if source.required
+        ),
+        answer_requires=tuple(str(item) for item in legacy.get("success_criteria") or ()),
+        output_schema=f"{(legacy.get('output') or {}).get('kind', 'answer')}.v1",
+        execution_mode=execution_mode, budgets=budgets,
+        **compatibility,
+    )
+    return model.model_dump(mode="json", by_alias=True)
+
+
 def build_turn_contract(
     *,
     user_text: str,
@@ -178,6 +702,9 @@ def build_turn_contract(
     scope: str,
     recent_note: Mapping[str, Any] | None = None,
     dialog_ledger: tuple[Any, ...] = (),
+    open_post: Mapping[str, Any] | None = None,
+    prior_contract: Mapping[str, Any] | None = None,
+    v2_enabled: bool = True,
 ) -> dict[str, Any]:
     current = (user_text or "").strip()
     lowered = current.lower()
@@ -230,7 +757,14 @@ def build_turn_contract(
         intent = "compare_with_feed_posts"
     elif inspect_note:
         intent = "inspect_note"
-    elif scope == "post" and any(marker in lowered for marker in ("добав", "убер", "удал", "сделай", "измени")):
+    elif scope == "post" and any(
+        marker in lowered
+        for marker in (
+            "добав", "убер", "удал", "сделай", "измени", "выдел", "жирн",
+            "опубли", "заплан", "расплан", "отмен", "восстанов", "переформулир",
+            "сократ", "перепиш", "исправ", "замен", "поменя", "оформ",
+        )
+    ):
         intent = "edit_post"
     else:
         intent = "answer"
@@ -245,6 +779,15 @@ def build_turn_contract(
             user_text=current,
             dialog_ledger=dialog_ledger,
         )
+    explicit_targets = _explicit_targets(current)
+    if target is None and len(explicit_targets) == 1 and explicit_targets[0]["kind"] == "note":
+        explicit = explicit_targets[0]
+        target = {
+            "kind": "recent_note",
+            "id": explicit["id"],
+            "title": explicit["id"],
+            "authoritative": True,
+        }
     if target is None and last_assistant and (
         _POST_REFERENT_RE.search(lowered) or "этого поста" in lowered or "этому посту" in lowered
     ):
@@ -305,7 +848,7 @@ def build_turn_contract(
     elif target and target.get("kind") in {"recent_note", "ledger_note"}:
         search_query = f"Открыть конкретную заметку {target.get('title')} ({target.get('id')})"
 
-    return {
+    legacy = {
         "version": 1,
         "intent": intent,
         "scope": scope,
@@ -323,9 +866,101 @@ def build_turn_contract(
             "claim a workspace mutation exists when it is not in supported_capabilities",
         ],
     }
+    if not v2_enabled:
+        return legacy
+    return _upgrade_contract_v2(
+        legacy=legacy,
+        user_text=current,
+        scope=scope,
+        open_post=open_post,
+        dialog_ledger=dialog_ledger,
+        prior_contract=prior_contract,
+    )
 
 
 def render_turn_contract(contract: Mapping[str, Any] | None) -> str:
     if not contract:
         return "(контракт хода отсутствует)"
     return json.dumps(dict(contract), ensure_ascii=False, sort_keys=True)
+
+
+def missing_required_sources(
+    contract: Mapping[str, Any],
+    satisfied_source_ids: set[str] | frozenset[str],
+) -> tuple[str, ...]:
+    """Return only required source gaps; optional sources never block ready."""
+    return tuple(
+        str(source.get("source_id") or "")
+        for source in contract.get("source_requirements") or []
+        if source.get("required")
+        and str(source.get("source_id") or "") not in satisfied_source_ids
+    )
+
+
+_SOURCE_RECORD_KINDS: dict[str, frozenset[str]] = {
+    "notes": frozenset({"note_chunk"}),
+    "posts": frozenset({"post_text"}),
+    "analytics": frozenset({"analytics"}),
+    "comments": frozenset({"comment"}),
+    "attachments": frozenset({"attachment_text", "media_meta"}),
+    "images": frozenset({"vision", "media_meta"}),
+    "dialog": frozenset(),
+}
+
+
+def evidence_matches_source(
+    source: Mapping[str, Any],
+    *,
+    evidence_id: str,
+    record: Mapping[str, Any],
+) -> bool:
+    """Revalidate source kind, immutable scope and freshness at evidence use."""
+    source_kind = str(source.get("kind") or "")
+    record_kind = str(record.get("kind") or "")
+    allowed_kinds = _SOURCE_RECORD_KINDS.get(source_kind, frozenset())
+    if not allowed_kinds or record_kind not in allowed_kinds:
+        return False
+
+    scope = source.get("scope") or {}
+    if scope.get("mode") == "targets":
+        target_ids = [str(item) for item in scope.get("target_ids") or []]
+        if not any(f"/{target_id}/" in evidence_id for target_id in target_ids):
+            return False
+    elif scope.get("mode") == "corpus":
+        corpus = str(scope.get("corpus") or "")
+        if corpus == "feed_posts" and record_kind != "post_text":
+            return False
+    else:
+        return False
+
+    metadata = record.get("metadata") or {}
+    statuses = {str(item) for item in scope.get("statuses") or []}
+    record_status = str(metadata.get("status") or "")
+    if statuses and record_status and record_status not in statuses:
+        return False
+
+    freshness = source.get("freshness") or {}
+    mode = str(freshness.get("mode") or "latest_available")
+    if mode == "exact_revision":
+        return metadata.get("revision") == freshness.get("revision")
+    if mode == "max_age":
+        age = metadata.get("age_seconds")
+        return isinstance(age, (int, float)) and age <= int(freshness.get("max_age_seconds") or 0)
+    if mode == "historical_snapshot":
+        return str(metadata.get("snapshot_at") or "") == str(freshness.get("snapshot_at") or "")
+    return mode == "latest_available"
+
+
+def covered_source_ids(
+    contract: Mapping[str, Any],
+    records: Mapping[str, Mapping[str, Any]],
+) -> frozenset[str]:
+    covered: set[str] = set()
+    for source in contract.get("source_requirements") or []:
+        source_id = str(source.get("source_id") or "")
+        if source_id and any(
+            evidence_matches_source(source, evidence_id=evidence_id, record=record)
+            for evidence_id, record in records.items()
+        ):
+            covered.add(source_id)
+    return frozenset(covered)

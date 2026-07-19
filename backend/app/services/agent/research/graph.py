@@ -24,7 +24,12 @@ from app.services.agent.research.trust import UNTRUSTED_SYSTEM_NOTE, wrap_untrus
 from app.services.agent.research.verifier import verify_evidence
 from app.services.agent.runtime.context import RuntimeContext
 from app.services.agent.runtime.state import AgentGraphState
-from app.services.agent.runtime.turn_contract import render_turn_contract
+from app.services.agent.runtime.turn_contract import (
+    covered_source_ids,
+    evidence_matches_source,
+    missing_required_sources,
+    render_turn_contract,
+)
 from app.services.ai.note_citations import NoteCite
 from app.services.ai.providers import ProviderSpec
 from app.services.ai.rag_dialog_ledger import (
@@ -458,6 +463,18 @@ def _contract_evidence_ids(
     records: dict[str, EvidenceRecord],
 ) -> list[str]:
     """Keep only evidence from the corpus fixed by the turn contract."""
+    target_contract = dict(contract.get("target_contract") or {})
+    if target_contract:
+        source_requirements = list(contract.get("source_requirements") or [])
+        allowed: list[str] = []
+        for record_id, record in records.items():
+            record_payload = record.to_dict()
+            if any(
+                evidence_matches_source(source, evidence_id=record_id, record=record_payload)
+                for source in source_requirements
+            ):
+                allowed.append(record_id)
+        return allowed
     corpus = str(contract.get("corpus") or "workspace")
     if corpus == "feed_posts":
         return [
@@ -484,6 +501,13 @@ def _contract_fast_finish_ids(
     records: dict[str, EvidenceRecord],
 ) -> list[str]:
     ids = _contract_evidence_ids(contract, records)
+    target_contract = dict(contract.get("target_contract") or {})
+    if contract.get("execution_mode") == "fast" and target_contract:
+        selected = {evidence_id: records[evidence_id].to_dict() for evidence_id in ids}
+        covered = covered_source_ids(contract, selected)
+        if not missing_required_sources(contract, covered):
+            return ids
+        return []
     corpus = str(contract.get("corpus") or "workspace")
     if corpus == "exact_note" and ids:
         return ids
@@ -562,9 +586,25 @@ async def research_seed_node(state: AgentGraphState, config: RunnableConfig) -> 
             inventory = ""
         if inventory:
             transcript.append(inventory)
+        normalized_targets = list((contract.get("target_contract") or {}).get("targets") or [])
+        for target in normalized_targets:
+            target_id = str(target.get("id") or "").strip()
+            if not target_id:
+                continue
+            if target.get("kind") == "note":
+                outcome = await tool_open_note(
+                    agent_state,
+                    note_id=target_id,
+                    post_id=str(target.get("parent_post_id") or "") or None,
+                )
+                transcript.append(f"[contract] OpenNote {target_id}: {outcome.summary}")
+            elif target.get("kind") == "post":
+                outcome = await tool_open_post(agent_state, post_id=target_id)
+                transcript.append(f"[contract] OpenPost {target_id}: {outcome.summary}")
         if (
             contract_target.get("kind") in {"recent_note", "ledger_note"}
             and contract_target.get("id")
+            and not normalized_targets
         ):
             note_id = str(contract_target["id"])
             outcome = await tool_open_note(agent_state, note_id=note_id)
@@ -970,7 +1010,7 @@ async def research_verify_node(state: AgentGraphState, config: RunnableConfig) -
         or ((config or {}).get("configurable", {}) or {}).get("turn_contract")
         or {}
     )
-    if contract.get("corpus") in {"feed_posts", "exact_note"}:
+    if contract.get("target_contract") or contract.get("corpus") in {"feed_posts", "exact_note"}:
         allowed_ids = set(_contract_evidence_ids(contract, records))
         candidate = {
             **candidate,
@@ -979,6 +1019,33 @@ async def research_verify_node(state: AgentGraphState, config: RunnableConfig) -
                 for eid in (candidate.get("evidence_ids") or [])
                 if str(eid) in allowed_ids
             ],
+        }
+
+    candidate_records = {
+        str(eid): records[str(eid)].to_dict()
+        for eid in (candidate.get("evidence_ids") or [])
+        if str(eid) in records
+    }
+    required_gaps = missing_required_sources(
+        contract,
+        covered_source_ids(contract, candidate_records),
+    )
+    if required_gaps and tool_name == "FinishRetrieval":
+        gap_text = ", ".join(required_gaps)
+        if int(state.get("repair_count") or 0) < 1 and not budget_exhausted:
+            return {
+                **state,
+                "repair_count": int(state.get("repair_count") or 0) + 1,
+                "research_hints": [
+                    *(state.get("research_hints") or []),
+                    f"repair: required_source_gap — собери evidence для: {gap_text}",
+                ],
+                "verification_ok": False,
+            }
+        candidate = {
+            **candidate,
+            "status": "partial",
+            "unresolved": [*(candidate.get("unresolved") or []), f"required_source_gap:{gap_text}"],
         }
 
     verdict = verify_evidence(
@@ -1014,7 +1081,7 @@ async def research_pack_node(state: AgentGraphState, config: RunnableConfig) -> 
         or ((config or {}).get("configurable", {}) or {}).get("turn_contract")
         or {}
     )
-    if contract.get("corpus") in {"feed_posts", "exact_note"}:
+    if contract.get("target_contract") or contract.get("corpus") in {"feed_posts", "exact_note"}:
         allowed_ids = set(_contract_evidence_ids(contract, records))
         evidence_ids = [eid for eid in evidence_ids if eid in allowed_ids]
     unresolved_items = [str(item) for item in (finish.get("unresolved") or [])]

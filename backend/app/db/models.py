@@ -160,6 +160,8 @@ class DialogEvidenceTurn(Base):
     target_post_id: Mapped[str | None] = mapped_column(String(128), nullable=True)
     target_evidence_gap: Mapped[str | None] = mapped_column(String(64), nullable=True)
     entities: Mapped[list] = mapped_column(JSONB, nullable=False, default=list)
+    # Versioned phase-2 turn contract. Additive so phase-1/legacy rows remain readable.
+    turn_contract: Mapped[dict | None] = mapped_column(JSONB, nullable=True)
 
 
 class AgentRun(Base):

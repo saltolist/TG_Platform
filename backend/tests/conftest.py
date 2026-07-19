@@ -2,8 +2,22 @@ import os
 import uuid
 from urllib.parse import urlparse
 
-# Keep pytest deterministic even when host `.env` enables experimental flags.
-os.environ["AI_CONTEXT_STAMPS"] = "0"
+# Keep pytest deterministic even when host `.env` contains real provider keys or
+# enables experimental paths. Individual tests still override these explicitly.
+os.environ.update(
+    {
+        "AI_CONTEXT_STAMPS": "0",
+        "OPENAI_API_KEY": "",
+        "DEEPSEEK_API_KEY": "",
+        "TAVILY_API_KEY": "",
+        "PERPLEXITY_API_KEY": "",
+        "RAG_MODE": "off",
+        "RAG_TIER_B_ENABLED": "0",
+        "AGENT_ACTIONS_ENABLED": "0",
+        "AGENT_MEDIA_ENABLED": "0",
+        "AGENT_TURN_CONTRACT_V2_ENABLED": "0",
+    }
+)
 
 import pytest
 from httpx import ASGITransport, AsyncClient

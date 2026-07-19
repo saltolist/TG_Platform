@@ -197,6 +197,7 @@ async def _persist_turn_memory(
         answer_text=str(final_state.get("answer_text") or ""),
         artifact_kind=str(output.get("kind") or "assistant_artifact"),
         turn_id=str(run.id),
+        turn_contract=contract,
     )
     await append_turn(
         session,
@@ -275,6 +276,10 @@ async def execute_agent_run(
         "max_steps": max_steps,
         "no_progress_count": 0,
         "turn_contract": dict(runtime_context.turn_contract),
+        "target_contract": dict(runtime_context.turn_contract.get("target_contract") or {}),
+        "resolution_events": list(
+            (runtime_context.turn_contract.get("target_contract") or {}).get("resolution_events") or []
+        ),
     }
     await emit_run_event(
         session,

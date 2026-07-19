@@ -65,6 +65,10 @@ class AgentGraphState(TypedDict, total=False):
     search_query: str
     # Deterministic goal, referent, corpus and output requirements for the turn.
     turn_contract: dict[str, Any]
+    # Phase-2 normalized contract is duplicated as a narrow checkpoint field so
+    # downstream nodes can inspect targets/sources without reparsing prompts.
+    target_contract: dict[str, Any]
+    resolution_events: list[dict[str, Any]]
     # Structured semantic-prefetch hits from the seed node: [{ref, label,
     # similarity, node_type}]. Powers the finish-gate guard — a FinishRetrieval
     # is bounced once if a relevant hit here was never opened into evidence.

@@ -59,11 +59,17 @@ WORKSPACE_SYSTEM = """Ты единственный WorkspaceAgent платфо�
 
 
 async def bootstrap_node(state: AgentGraphState, config: RunnableConfig) -> dict[str, Any]:
+    ctx: RuntimeContext = config["configurable"]["runtime_context"]
+    contract = dict(state.get("turn_contract") or ctx.turn_contract or {})
+    target_contract = dict(contract.get("target_contract") or {})
     return {
         **state,
         "status": "running",
         "step_count": 0,
         "repair_count": state.get("repair_count", 0),
+        "turn_contract": contract,
+        "target_contract": target_contract,
+        "resolution_events": list(target_contract.get("resolution_events") or []),
     }
 
 
@@ -74,7 +80,20 @@ async def workspace_agent_node(
     from app.services.ai.rag_json import extract_json_object
 
     ctx: RuntimeContext = config["configurable"]["runtime_context"]
-    if not ctx.reasoner_spec or not ctx.reasoner_model or not ctx.reasoner_api_key:
+    deterministic_contract = dict(
+        state.get("turn_contract")
+        or (config["configurable"] or {}).get("turn_contract")
+        or ctx.turn_contract
+        or {}
+    )
+    target_mode = str((deterministic_contract.get("target_contract") or {}).get("target_mode") or "")
+    if target_mode == "ambiguous":
+        call = {"type": "finish", "search_query": ""}
+    elif deterministic_contract.get("execution_mode") == "fast":
+        # Exact IDs/open objects are already resolved by code. A classifier call
+        # cannot improve the target and only adds latency/referent drift.
+        call = {"type": "read", "search_query": deterministic_contract.get("search_query") or ""}
+    elif not ctx.reasoner_spec or not ctx.reasoner_model or not ctx.reasoner_api_key:
         call: dict[str, Any] = {"type": "read"}
     else:
         # dialog_context lets the classifier route conversational follow-ups
@@ -127,7 +146,11 @@ async def workspace_agent_node(
         or ctx.turn_contract
         or {}
     )
-    if turn_contract.get("requires_workspace") and str(call.get("type") or "") == "finish":
+    if (
+        turn_contract.get("requires_workspace")
+        and target_mode != "ambiguous"
+        and str(call.get("type") or "") == "finish"
+    ):
         call = {**call, "type": "read"}
     if turn_contract.get("intent") in {"write_post", "compare_with_feed_posts", "inspect_note"}:
         if str(call.get("type") or "") != "read" and ctx.scope != "post":

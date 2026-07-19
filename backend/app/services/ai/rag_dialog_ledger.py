@@ -106,6 +106,7 @@ class TurnSnapshot:
     target_post_id: str | None
     target_evidence_gap: str | None
     entities: tuple[LedgerEntity, ...]
+    turn_contract: dict[str, Any] | None = None
 
 
 def chat_ledger_key(*, scope: str, chat_id: str | None, post_id: str | None = None) -> str | None:
@@ -177,6 +178,7 @@ def _row_to_snapshot(row: DialogEvidenceTurn) -> TurnSnapshot:
         target_post_id=row.target_post_id,
         target_evidence_gap=row.target_evidence_gap,
         entities=tuple(_entity_from_dict(item) for item in entities_raw),
+        turn_contract=dict(row.turn_contract) if isinstance(row.turn_contract, Mapping) else None,
     )
 
 
@@ -222,6 +224,7 @@ async def append_turn(
         target_post_id=snapshot.target_post_id,
         target_evidence_gap=snapshot.target_evidence_gap,
         entities=[_entity_to_dict(entity) for entity in snapshot.entities],
+        turn_contract=snapshot.turn_contract,
     )
     session.add(row)
     await session.flush()
@@ -403,6 +406,7 @@ def build_snapshot_from_evidence_records(
     answer_text: str = "",
     artifact_kind: str | None = None,
     turn_id: str | None = None,
+    turn_contract: Mapping[str, Any] | None = None,
 ) -> TurnSnapshot:
     """Ledger turn from EvidenceRecord dicts (ADR-012 schema v2)."""
     entities: list[LedgerEntity] = []
@@ -449,6 +453,7 @@ def build_snapshot_from_evidence_records(
         target_post_id=target_post_id,
         target_evidence_gap=None,
         entities=tuple(entities),
+        turn_contract=dict(turn_contract) if turn_contract else None,
     )
 
 

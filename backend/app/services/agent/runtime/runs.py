@@ -226,12 +226,19 @@ async def rebuild_runtime_context_for_run(
         user_id=user.id,
         chat_key=ledger_key,
     )
+    prior_contract = next(
+        (dict(turn.turn_contract) for turn in reversed(dialog_ledger) if turn.turn_contract),
+        None,
+    )
     turn_contract = build_turn_contract(
         user_text=user_text,
         history=history,
         scope=run.scope,
         recent_note=recent_note,
         dialog_ledger=dialog_ledger,
+        open_post=post_data,
+        prior_contract=prior_contract,
+        v2_enabled=settings.agent_turn_contract_v2_enabled,
     )
     return RuntimeContext(
         session_factory=async_session_factory,

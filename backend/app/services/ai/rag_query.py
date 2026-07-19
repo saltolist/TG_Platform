@@ -52,6 +52,13 @@ _META_REWRITE_MARKERS = (
 )
 
 
+async def run_agentic_loop(*args, **kwargs):
+    """Compatibility seam for tests/callers while L2 uses the research graph."""
+    from app.services.agent.research.graph import run_research_graph
+
+    return await run_research_graph(*args, **kwargs)
+
+
 def _preview_query(text: str, limit: int = 200) -> str:
     cleaned = " ".join((text or "").split())
     if len(cleaned) <= limit:
@@ -255,6 +262,7 @@ async def _retrieve_top_k_for_query(
             top_k=k,
             min_similarity=min_similarity,
             scope_bias=scope_bias,
+            vector_retriever=retrieve_for_chat,
         )
     query_vec = await embedding_backend.embed_query(query_text)
     return await retrieve_for_chat(
@@ -594,7 +602,6 @@ async def retrieve_rag_for_reply(
         )
         from app.core.config import get_settings
         from app.db.session import async_session_factory
-        from app.services.agent.research.graph import run_research_graph
         from app.services.agent.runtime.context import RuntimeContext
 
         settings = get_settings()
@@ -644,7 +651,7 @@ async def retrieve_rag_for_reply(
             search_k=top_k,
             scope_bias=scope_bias,
         )
-        research = await run_research_graph(
+        research = await run_agentic_loop(
             runtime_ctx,
             user_text=user_text,
             seed_ref=seed_ref,
@@ -697,7 +704,7 @@ async def retrieve_rag_for_reply(
             "RAG L2: stopped_reason=%s cites=%s steps=%s",
             research.stopped_reason,
             len(research.cites),
-            research.step_count,
+            getattr(research, "step_count", 0),
         )
         trace_step(
             "7. rag.L2.result",
@@ -705,7 +712,7 @@ async def retrieve_rag_for_reply(
                 f"stopped_reason={research.stopped_reason}",
                 f"agent_cites={len(research.cites)}",
                 f"agent_context_chars={len(research.rag_context)}",
-                f"steps={research.step_count}",
+                f"steps={getattr(research, 'step_count', 0)}",
             ],
         )
     elif should_escalate:

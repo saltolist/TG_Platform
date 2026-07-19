@@ -73,6 +73,13 @@ jobs:
           tests/test_telegram_sync_pending.py
           tests/test_rag_worker.py::test_startup_backfill_is_model_fingerprint_aware
 
+      - name: Workspace Agent phase 2 contract gate
+        working-directory: backend
+        run: >-
+          pytest -v
+          tests/test_agent_phase2_contract.py
+          tests/test_turn_contract.py
+
       - name: Run tests
         working-directory: backend
         run: pytest -v -m "not golden"

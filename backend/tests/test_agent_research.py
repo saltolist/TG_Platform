@@ -941,7 +941,19 @@ async def test_run_research_graph_without_llm_uses_context_blocks() -> None:
         agent_tool_state=agent_state,
     )
 
-    with patch("app.services.ai.llm.complete_chat_completion", new_callable=AsyncMock):
+    with (
+        patch("app.services.ai.llm.complete_chat_completion", new_callable=AsyncMock),
+        patch(
+            "app.services.agent.research.graph._workspace_inventory",
+            new_callable=AsyncMock,
+            return_value="",
+        ),
+        patch(
+            "app.services.ai.rag_tools.retrieve_for_chat",
+            new_callable=AsyncMock,
+            return_value=[],
+        ),
+    ):
         result = await run_research_graph(
             ctx,
             user_text="test",
