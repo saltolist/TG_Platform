@@ -199,8 +199,8 @@ def test_required_source_gap_blocks_ready_but_optional_gap_does_not() -> None:
     )
     sources = {source["kind"]: source for source in contract["source_requirements"]}
     records = {
-        "/post/p1/": {
-            "kind": "post_text",
+        "/posts/": {
+            "kind": "catalog",
             "metadata": {},
         }
     }

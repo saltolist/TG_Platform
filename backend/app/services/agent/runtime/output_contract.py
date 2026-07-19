@@ -84,7 +84,7 @@ def validate_answer_output(
 
 
 def is_factual_profile(contract: Mapping[str, Any], *, researched: bool) -> bool:
-    """Research answers are factual; conversational rewrites are not."""
+    """Return whether an answer is impossible without grounded workspace facts."""
 
     if not researched:
         return False
@@ -94,5 +94,7 @@ def is_factual_profile(contract: Mapping[str, Any], *, researched: bool) -> bool
         return False
     return str(contract.get("task_profile") or "") not in {
         "artifact_revision",
+        "channel_profile_draft",
         "mutation_proposal",
+        "recommendation",
     }

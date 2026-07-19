@@ -1,7 +1,10 @@
 """Unit tests for the incremental "answer" extractor used by answer_node's
 streaming path (workspace_graph.py). Pure function, no I/O."""
 
-from app.services.agent.runtime.answer_stream import extract_partial_answer
+from app.services.agent.runtime.answer_stream import (
+    extract_complete_answer,
+    extract_partial_answer,
+)
 
 
 def test_returns_none_before_answer_key():
@@ -38,3 +41,8 @@ def test_drops_dangling_backslash_split_across_tokens():
 
 def test_handles_whitespace_between_key_and_value():
     assert extract_partial_answer('{ "answer" : "hi') == "hi"
+
+
+def test_complete_answer_requires_a_closed_json_string():
+    assert extract_complete_answer('{"answer":"готово","claims":[') == "готово"
+    assert extract_complete_answer('{"answer":"не закончено') is None

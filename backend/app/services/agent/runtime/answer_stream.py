@@ -14,6 +14,8 @@ at the end via extract_json_object — this is only for the live preview.
 
 from __future__ import annotations
 
+import json
+
 # Unicode escapes (\uXXXX) are rare in model output and awkward to decode from a
 # truncated stream (a split \u12 prefix). We decode the common two-char escapes
 # and pass anything else through best-effort; the final extract_json_object pass
@@ -70,3 +72,22 @@ def extract_partial_answer(raw: str) -> str | None:
         out.append(ch)
         i += 1
     return "".join(out)
+
+
+def extract_complete_answer(raw: str) -> str | None:
+    """Return the answer only when its JSON string is fully closed."""
+
+    key_at = raw.find('"answer"')
+    if key_at == -1:
+        return None
+    colon = raw.find(":", key_at + len('"answer"'))
+    if colon == -1:
+        return None
+    quote = raw.find('"', colon + 1)
+    if quote == -1:
+        return None
+    try:
+        value, _end = json.JSONDecoder().raw_decode(raw[quote:])
+    except json.JSONDecodeError:
+        return None
+    return value if isinstance(value, str) else None

@@ -20,6 +20,7 @@ from app.services.ai.rag_tools import ToolOutcome
 from app.services.agent.research.pack import build_evidence_pack
 from app.services.agent.research.verifier import verify_evidence
 from app.services.agent.runtime.context import RuntimeContext
+from app.services.agent.runtime.turn_contract import build_turn_contract
 from app.services.ai.note_citations import NoteCite
 from app.services.ai.rag_tools import AgentState
 
@@ -712,6 +713,52 @@ async def test_answer_node_forwards_dialog_context_on_finish_path() -> None:
     messages = mock_llm.await_args.kwargs.get("messages")
     user_content = messages[1]["content"]
     assert "Охват 1200 просмотров" in user_content
+
+
+@pytest.mark.asyncio
+async def test_advisory_research_without_evidence_still_answers_with_full_context() -> None:
+    from app.services.agent.runtime.workspace_graph import REFUSAL_TEXT, answer_node
+
+    ctx = _reasoner_ctx()
+    ctx.channel_profile = {
+        "core": {"topic": "Архитектура пространственных систем"},
+        "voice": {"tone": "Практичный"},
+    }
+    contract = build_turn_contract(
+        user_text=(
+            "Мне надо изменить профиль канала под новое направление в целом "
+            "пространственной системы. Что посоветуешь?"
+        ),
+        history=[],
+        scope="global",
+    )
+    state = {
+        "user_text": contract["goal"],
+        "turn_contract": contract,
+        "tool_call": {"type": "read"},
+        "evidence_ids": [],
+        "rag_context": "",
+    }
+    config = {
+        "configurable": {
+            "runtime_context": ctx,
+            "turn_contract": contract,
+            "dialog_context": "Пользователь ранее описал пространственную систему.",
+        }
+    }
+    with patch(
+        "app.services.ai.llm.complete_chat_completion",
+        new_callable=AsyncMock,
+        return_value='{"answer":"Сначала зафиксируйте новое позиционирование.","claims":[]}',
+    ) as mock_llm:
+        result = await answer_node(state, config)
+
+    assert result["answer_text"] != REFUSAL_TEXT
+    assert result["answer_text"] == "Сначала зафиксируйте новое позиционирование."
+    messages = mock_llm.await_args.kwargs["messages"]
+    assert "Архитектура пространственных систем" in messages[0]["content"]
+    assert "Пользователь ранее описал" in messages[1]["content"]
+    assert contract["goal"] in messages[1]["content"]
 
 
 @pytest.mark.asyncio

@@ -713,6 +713,23 @@ COMPACT_AGENT_SYSTEM = (
     "SEARCH_REQUIRED_SOURCE, READ_EXPLICIT_TARGET, READ_TOP_CANDIDATES, "
     "HYDRATE_EVIDENCE_GAP, FINISH_READY, FINISH_PARTIAL. actions has at most 3 unique "
     "read tools and may contain independent actions. Use the exact IDs from state. "
+    "Allowed tools and args are ONLY: "
+    "SearchNodes {query, node_types?, k?, source_requirement_id?}; "
+    "SearchObjectChunks {query, object_ids, k?, source_requirement_id?}; "
+    "OpenNote {note_id, post_id?, source_requirement_id?}; "
+    "OpenPost {post_id, source_requirement_id?}; "
+    "ListPosts {status?, query?, limit?, source_requirement_id?}; "
+    "ListGlobalNotes {source_requirement_id?}; "
+    "ListPostNotes {post_id, source_requirement_id?}; "
+    "ListNoteAttachments {note_id, post_id?, source_requirement_id?}; "
+    "ListPostMedia {post_id, source_requirement_id?}; "
+    "HydrateAttachment {ref, mode?, note_id?, post_id?, source_requirement_id?}; "
+    "GetPostAnalytics {post_id, period?, source_requirement_id?}. "
+    "Never invent generic tools such as ReadNode or ReadObject. Candidate ref note:ID maps "
+    "to OpenNote {note_id:ID}; post:ID maps to OpenPost {post_id:ID}. For counts or corpus "
+    "inventory use ListPosts/ListGlobalNotes, because semantic search is not an inventory. "
+    "Do not return FINISH_READY or FINISH_PARTIAL while sufficiency has open_requirements "
+    "and an allowed read can address them. "
     "JSON schema example: "
     + render_planner_schema()
     + "\nAll query values must use the user's language."
@@ -738,6 +755,8 @@ def _compact_state_snapshot(
                 "id": item.get("source_id"),
                 "kind": item.get("kind"),
                 "required": item.get("required"),
+                "min_evidence": item.get("min_evidence", 1),
+                "evidence_granularity": item.get("evidence_granularity", "full_text"),
                 "goal": item.get("query_goal"),
             }
             for item in contract.get("source_requirements") or ()
@@ -856,6 +875,231 @@ def _contract_fast_finish_ids(
     if corpus == "feed_posts" and any(records[eid].kind == "post_text" for eid in ids):
         return ids
     return []
+
+
+_SOURCE_DISCOVERY_NODE_TYPES = {
+    "notes": "note_chunk",
+    "posts": "post_text",
+    "attachments": "attachment_text",
+    "images": "media_meta",
+}
+
+
+def _contract_discovery_actions(
+    contract: dict[str, Any],
+    *,
+    query: str,
+) -> list[ToolAction]:
+    """Build independent discovery calls for a multi-source contract."""
+
+    actions: list[ToolAction] = []
+    for source in contract.get("source_requirements") or ():
+        kind = str(source.get("kind") or "")
+        node_type = _SOURCE_DISCOVERY_NODE_TYPES.get(kind)
+        budget = dict(source.get("budget") or {})
+        source_id = str(source.get("source_id") or "")
+        if not node_type or not source_id or int(budget.get("search_calls") or 0) <= 0:
+            continue
+        actions.append(
+            ToolAction(
+                tool="SearchNodes",
+                args={
+                    "query": query,
+                    "node_types": [node_type],
+                    "k": int(budget.get("candidate_limit") or 4),
+                    "source_requirement_id": source_id,
+                },
+            )
+        )
+    return actions if len(actions) > 1 else []
+
+
+def _cached_discovery_hits(
+    results: list[dict[str, Any]] | None,
+    action: ToolAction,
+) -> list[dict[str, Any]]:
+    """Project shared L1 candidates onto one source-specific search action."""
+
+    wanted = set(action.args.get("node_types") or ())
+    aliases = {
+        "note_summary": "note_chunk",
+        "post_summary": "post_text",
+    }
+    hits: list[dict[str, Any]] = []
+    for item in results or ():
+        node_type = str(item.get("node_type") or "")
+        effective_type = aliases.get(node_type, node_type)
+        if wanted and effective_type not in wanted:
+            continue
+        raw_ref = str(item.get("ref") or "")
+        object_id = str(item.get("note_id") or item.get("file_id") or "")
+        if not object_id and ":" in raw_ref:
+            object_id = raw_ref.partition(":")[2]
+        prefix = (
+            "note"
+            if effective_type == "note_chunk"
+            else "post"
+            if effective_type == "post_text"
+            else "file"
+        )
+        if not object_id:
+            continue
+        hits.append(
+            {
+                "ref": f"{prefix}:{object_id}",
+                "label": str(item.get("label") or f"{prefix}:{object_id}"),
+                "similarity": float(item.get("similarity") or 0.0),
+                "node_type": node_type,
+                "summary_only": bool(item.get("summary_only")),
+                "index_revision": item.get("index_revision"),
+            }
+        )
+    return hits[: int(action.args.get("k") or 4)]
+
+
+def _required_source_fallback_decision(
+    state: AgentGraphState,
+    contract: dict[str, Any],
+    sufficiency: dict[str, Any],
+) -> PlannerDecision | None:
+    """Open surfaced candidates when planner JSON is unusable.
+
+    A formatting failure must not turn successful discovery into an empty
+    research result. Prefer one candidate for every still-open source kind,
+    then fill the bounded batch by score.
+    """
+
+    open_source_ids = {
+        str(item) for item in sufficiency.get("open_requirements") or () if str(item)
+    }
+    source_kinds = {
+        str(source.get("source_id") or ""): str(source.get("kind") or "")
+        for source in contract.get("source_requirements") or ()
+    }
+    required_kinds = {
+        source_kinds[source_id]
+        for source_id in open_source_ids
+        if source_kinds.get(source_id) in {"notes", "posts"}
+    }
+    evidence_keys = " ".join(str(key) for key in (state.get("evidence_records") or {}))
+    hits = sorted(
+        (dict(hit) for hit in state.get("prefetch_hits") or () if isinstance(hit, dict)),
+        key=lambda hit: float(hit.get("similarity") or 0.0),
+        reverse=True,
+    )
+    hits = [
+        hit
+        for hit in hits
+        if (str(hit.get("ref") or "").partition(":")[2] or "__missing__") not in evidence_keys
+    ]
+    selected: list[tuple[PlannerAction, str, str]] = []
+    seen_refs: set[str] = set()
+    allowed_kinds = required_kinds or {"notes", "posts"}
+
+    # Cover every missing kind once before spending remaining slots on the
+    # highest-ranked candidates from those same source boundaries.
+    for wanted_kind in sorted(allowed_kinds):
+        for hit in hits:
+            ref = str(hit.get("ref") or "")
+            prefix, _, object_id = ref.partition(":")
+            kind = "notes" if prefix == "note" else "posts" if prefix == "post" else ""
+            if kind != wanted_kind or not object_id or ref in seen_refs:
+                continue
+            source_id = next(
+                (
+                    item
+                    for item, source_kind in source_kinds.items()
+                    if source_kind == kind and (not open_source_ids or item in open_source_ids)
+                ),
+                "",
+            )
+            args = (
+                {"note_id": object_id, "source_requirement_id": source_id}
+                if kind == "notes"
+                else {"post_id": object_id, "source_requirement_id": source_id}
+            )
+            selected.append(
+                (
+                    PlannerAction(tool="OpenNote" if kind == "notes" else "OpenPost", args=args),
+                    object_id,
+                    kind,
+                )
+            )
+            seen_refs.add(ref)
+            break
+        if len(selected) >= 3:
+            break
+    for hit in hits:
+        if len(selected) >= 3:
+            break
+        ref = str(hit.get("ref") or "")
+        prefix, _, object_id = ref.partition(":")
+        kind = "notes" if prefix == "note" else "posts" if prefix == "post" else ""
+        if kind not in allowed_kinds or not object_id or ref in seen_refs:
+            continue
+        source_id = next(
+            (
+                item
+                for item, source_kind in source_kinds.items()
+                if source_kind == kind and (not open_source_ids or item in open_source_ids)
+            ),
+            "",
+        )
+        args = (
+            {"note_id": object_id, "source_requirement_id": source_id}
+            if kind == "notes"
+            else {"post_id": object_id, "source_requirement_id": source_id}
+        )
+        selected.append(
+            (
+                PlannerAction(tool="OpenNote" if kind == "notes" else "OpenPost", args=args),
+                object_id,
+                kind,
+            )
+        )
+        seen_refs.add(ref)
+
+    selected_kinds = {item[2] for item in selected}
+    for kind in sorted(required_kinds - selected_kinds):
+        if len(selected) >= 3:
+            break
+        source_id = next(
+            (item for item, source_kind in source_kinds.items() if source_kind == kind),
+            "",
+        )
+        if kind == "notes":
+            selected.append(
+                (
+                    PlannerAction(
+                        tool="ListGlobalNotes",
+                        args={"source_requirement_id": source_id},
+                    ),
+                    "",
+                    kind,
+                )
+            )
+        elif kind == "posts":
+            selected.append(
+                (
+                    PlannerAction(
+                        tool="ListPosts",
+                        args={"status": "all", "source_requirement_id": source_id},
+                    ),
+                    "",
+                    kind,
+                )
+            )
+
+    if not selected:
+        return None
+    return PlannerDecision(
+        decision_code=DecisionCode.READ_TOP_CANDIDATES,
+        actions=tuple(item[0] for item in selected),
+        state_updates={
+            "selected_candidate_ids": tuple(item[1] for item in selected if item[1])
+        },
+        confidence=0.0,
+    )
 
 
 async def _workspace_inventory(session, user_id) -> str:
@@ -1024,7 +1268,39 @@ async def research_seed_node(state: AgentGraphState, config: RunnableConfig) -> 
         search_query = str(state.get("search_query") or "").strip() or user_text
         if contract.get("corpus") in {"exact_note", "feed_posts"}:
             search_query = ""
-        if search_query and inp.get("l1_results"):
+        contract_discovery = _contract_discovery_actions(contract, query=search_query)
+        if contract_discovery:
+            for action in contract_discovery:
+                cached_hits = _cached_discovery_hits(inp.get("l1_results"), action)
+                if cached_hits:
+                    preparation = prepare_intent(
+                        search_ledger,
+                        tool=action.tool,
+                        args=action.args,
+                        contract=contract,
+                    )
+                    if preparation.execute:
+                        search_ledger = finish_intent(
+                            preparation.ledger,
+                            intent_key=str(preparation.entry.get("intent_key") or ""),
+                            summary="[cache] source-specific L1 retrieval reused",
+                            error=None,
+                            hits=cached_hits,
+                        )
+                    prefetch_hits.extend(cached_hits)
+                    transcript.append(
+                        f"[seed] {action.args.get('source_requirement_id')} reused L1 "
+                        f"SearchNodes {search_query!r}"
+                    )
+                else:
+                    search_outcome = await seed_action(action)
+                    if search_outcome.hits:
+                        prefetch_hits.extend(dict(hit) for hit in search_outcome.hits)
+                    transcript.append(
+                        f"[seed] {action.args.get('source_requirement_id')} SearchNodes "
+                        f"{search_query!r}:\n{search_outcome.summary}"
+                    )
+        elif search_query and inp.get("l1_results"):
             # retrieve_rag_for_reply already ran the canonical hybrid/vector
             # policy. Reuse those candidates instead of embedding/searching a
             # second time before the planner starts.
@@ -1175,8 +1451,10 @@ async def _compact_planner_node(
                         confidence=1.0,
                     )
         invalid_count = int(state.get("planner_invalid_count") or 0)
-        if decision is None and calls_used + calls_made < planner_limit:
+        if decision is None:
             invalid_count += 1
+            decision = _required_source_fallback_decision(state, contract, sufficiency)
+        if decision is None and calls_used + calls_made < planner_limit:
             retry = await call_llm_with_deadline(
                 ctx,
                 phase="research.planner.compact_schema_retry",
@@ -1198,10 +1476,21 @@ async def _compact_planner_node(
             decision = parse_planner_decision(retry)
         if decision is None:
             invalid_count += 1
-            decision = PlannerDecision(
-                decision_code=DecisionCode.FINISH_PARTIAL,
-                confidence=0.0,
-            )
+            decision = _required_source_fallback_decision(state, contract, sufficiency)
+            if decision is None:
+                decision = PlannerDecision(
+                    decision_code=DecisionCode.FINISH_PARTIAL,
+                    confidence=0.0,
+                )
+
+    if (
+        decision.decision_code in {DecisionCode.FINISH_READY, DecisionCode.FINISH_PARTIAL}
+        and str(sufficiency.get("status") or "") == "follow_up_allowed"
+        and calls_used + calls_made < planner_limit
+    ):
+        continuation = _required_source_fallback_decision(state, contract, sufficiency)
+        if continuation is not None:
+            decision = continuation
 
     actions = [item.model_dump(mode="json") for item in decision.actions]
     requested_status = (

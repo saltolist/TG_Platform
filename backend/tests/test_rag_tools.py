@@ -243,6 +243,39 @@ async def test_list_posts_aggregates_note_attachments() -> None:
 
 
 @pytest.mark.asyncio
+async def test_list_posts_reports_total_independent_of_preview_limit() -> None:
+    state = _posts_state()
+
+    outcome = await tool_list_posts(state, status="all", limit=1)
+
+    assert "total=2" in outcome.summary
+    assert "shown=1" in outcome.summary
+    assert len(state.catalog_posts) == 1
+
+
+@pytest.mark.asyncio
+async def test_list_posts_all_excludes_deleted_posts() -> None:
+    state = _posts_state()
+    existing_result = await state.session.execute()
+    rows = list(existing_result.scalars().all())
+    deleted = MagicMock()
+    deleted.data = {
+        "id": "deleted-1",
+        "status": "deleted",
+        "text": "Удалённый пост",
+        "notes": [],
+    }
+    mock_result = MagicMock()
+    mock_result.scalars.return_value.all.return_value = [*rows, deleted]
+    state.session.execute = AsyncMock(return_value=mock_result)
+
+    outcome = await tool_list_posts(state, status="all")
+
+    assert "total=2" in outcome.summary
+    assert "deleted-1" not in outcome.summary
+
+
+@pytest.mark.asyncio
 async def test_tool_list_posts_filters_status() -> None:
     state = _state(scope="global", base_post_data=None)
     row_published = MagicMock()
@@ -751,9 +784,9 @@ async def test_list_posts_records_citable_listing() -> None:
     cite, body = state.context_blocks[0]
     assert cite.path == "/posts/q:запуск/"
     assert "id=1" in body
-    # records_from_agent_state classifies it as a search_hit, not post_text.
+    # Tool listings are authoritative catalogs, not semantic discovery hits.
     records = records_from_agent_state(state)
-    assert records["/posts/q:запуск/"].kind == "search_hit"
+    assert records["/posts/q:запуск/"].kind == "catalog"
 
 
 @pytest.mark.asyncio
@@ -782,7 +815,7 @@ def test_list_post_notes_records_citable_listing() -> None:
     cite, body = state.context_blocks[0]
     assert cite.path == "/post/post-1/notes/"
     assert "note:n1" in body
-    assert records_from_agent_state(state)["/post/post-1/notes/"].kind == "search_hit"
+    assert records_from_agent_state(state)["/post/post-1/notes/"].kind == "catalog"
 
 
 def test_list_post_notes_guidance_is_not_citable() -> None:
@@ -831,7 +864,7 @@ def test_list_post_media_lists_refs_and_flags_images() -> None:
     assert "file:idx-2" in body  # voice item without mediaKey → positional id
     # Only the image is offered for vision hydration.
     assert state.listed_image_media_refs == ["file:mk1"]
-    assert records_from_agent_state(state)["/post/post-1/media/"].kind == "search_hit"
+    assert records_from_agent_state(state)["/post/post-1/media/"].kind == "catalog"
 
 
 def test_list_post_media_precondition_failure_does_not_poison_ref() -> None:
@@ -855,7 +888,7 @@ def test_list_post_media_empty_is_still_citable() -> None:
     outcome = tool_list_post_media(state, post_id="post-1")
     assert outcome.error is None
     assert "нет медиа" in outcome.summary
-    assert records_from_agent_state(state)["/post/post-1/media/"].kind == "search_hit"
+    assert records_from_agent_state(state)["/post/post-1/media/"].kind == "catalog"
 
 
 def test_list_post_comments_precondition_failure_does_not_poison_ref() -> None:
@@ -888,7 +921,7 @@ async def test_list_note_attachments_records_citable_listing() -> None:
     cite, body = state.context_blocks[0]
     assert cite.path == "/note/n1/attachments/"
     assert "report.pdf" in body
-    assert records_from_agent_state(state)["/note/n1/attachments/"].kind == "search_hit"
+    assert records_from_agent_state(state)["/note/n1/attachments/"].kind == "catalog"
 
 
 @pytest.mark.asyncio
@@ -906,7 +939,7 @@ async def test_tool_list_global_notes_lists_rows() -> None:
     assert "Standalone note" in outcome.summary
     cite, body = state.context_blocks[0]
     assert cite.path == "/global/notes/"
-    assert records_from_agent_state(state)["/global/notes/"].kind == "search_hit"
+    assert records_from_agent_state(state)["/global/notes/"].kind == "catalog"
 
 
 @pytest.mark.asyncio
@@ -921,7 +954,7 @@ async def test_tool_list_global_notes_empty_is_still_citable() -> None:
 
     assert outcome.error is None
     assert "нет заметок вне постов" in outcome.summary
-    assert records_from_agent_state(state)["/global/notes/"].kind == "search_hit"
+    assert records_from_agent_state(state)["/global/notes/"].kind == "catalog"
 
 
 @pytest.mark.asyncio
@@ -937,4 +970,3 @@ async def test_tool_list_global_notes_dedup() -> None:
 
     mocked.assert_awaited_once()
     assert "уже открыт ранее" in outcome.summary
-

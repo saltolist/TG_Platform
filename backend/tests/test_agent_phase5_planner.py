@@ -87,6 +87,49 @@ def test_sufficiency_excludes_discovery_summaries_and_requires_primary_source() 
     assert ready.decision_code == "ALL_REQUIRED_EVIDENCE_PRESENT"
 
 
+def test_plural_corpus_question_requires_multiple_primary_records() -> None:
+    contract = build_turn_contract(
+        user_text="Какие из заметок рассказывают про мою систему?",
+        history=[],
+        scope="global",
+    )
+    source = contract["source_requirements"][0]
+    assert source["kind"] == "notes"
+    assert source["min_evidence"] == 2
+
+    one = {
+        "turn_contract": contract,
+        "evidence_records": {"/note/global/n1/": _record("note_chunk", "/note/global/n1/")},
+        "search_ledger": [],
+    }
+    assert evaluate_sufficiency(state=one, contract=contract).status == "follow_up_allowed"
+    one["evidence_records"]["/note/global/n2/"] = _record("note_chunk", "/note/global/n2/")
+    assert evaluate_sufficiency(state=one, contract=contract).status == "ready"
+
+
+def test_count_question_is_satisfied_by_complete_catalog_evidence() -> None:
+    contract = build_turn_contract(
+        user_text="Сколько у меня постов?", history=[], scope="global"
+    )
+    source = contract["source_requirements"][0]
+    assert source["evidence_granularity"] == "catalog"
+
+    state = {
+        "turn_contract": contract,
+        "evidence_records": {
+            "/posts/": _record(
+                "catalog",
+                "/posts/",
+                "Посты пользователя (status=all, total=147, shown=8).",
+            )
+        },
+        "search_ledger": [],
+    }
+    result = evaluate_sufficiency(state=state, contract=contract)
+    assert result.status == "ready"
+    assert result.evidence_ids == ("/posts/",)
+
+
 def test_sufficiency_has_explicit_exhausted_partial_state() -> None:
     contract = build_turn_contract(
         user_text="Что написано в заметках workspace?", history=[], scope="global"
@@ -186,6 +229,160 @@ async def test_compact_planner_uses_450_token_budget_and_emits_no_rationale() ->
     assert result["planner_steps"][0]["decision_code"] == "SEARCH_REQUIRED_SOURCE"
     assert "reasoning" not in result["planner_steps"][0]
     assert result["tool_action"]["actions"][0]["tool"] == "SearchNodes"
+
+
+@pytest.mark.asyncio
+async def test_compact_planner_recovers_unsupported_readnode_without_retry() -> None:
+    from app.services.agent.research.graph import _compact_planner_node
+
+    contract = build_turn_contract(
+        user_text="Какие из заметок рассказывают про мою систему?",
+        history=[],
+        scope="global",
+    )
+    ctx = SimpleNamespace(
+        reasoner_spec=SimpleNamespace(name="test"),
+        reasoner_model="test-model",
+        reasoner_api_key="key",
+        deadline_monotonic=None,
+        llm_client=None,
+        llm_metrics=[],
+    )
+    state = {
+        "user_text": "Какие из заметок рассказывают про мою систему?",
+        "turn_contract": contract,
+        "evidence_records": {},
+        "prefetch_hits": [
+            {"ref": "note:n1", "node_type": "note_chunk", "similarity": 0.8},
+            {"ref": "post:p1", "node_type": "post_summary", "similarity": 0.7},
+            {"ref": "note:n2", "node_type": "note_chunk", "similarity": 0.6},
+        ],
+        "search_ledger": [],
+        "planner_calls_used": 0,
+        "planner_invalid_count": 0,
+        "planner_steps": [],
+        "step_count": 0,
+    }
+    invalid_tool = json.dumps(
+        {
+            "decision_code": "READ_EXPLICIT_TARGET",
+            "actions": [{"tool": "ReadNode", "args": {"node_id": "note:n1"}}],
+            "state_updates": {},
+            "confidence": 0.8,
+        }
+    )
+    with patch(
+        "app.services.agent.runtime.budget.call_llm_with_deadline",
+        new_callable=AsyncMock,
+        return_value=invalid_tool,
+    ) as call:
+        result = await _compact_planner_node(
+            state,
+            {"configurable": {"runtime_context": ctx, "turn_contract": contract}},
+        )
+
+    assert call.await_count == 1
+    assert result["planner_invalid_count"] == 1
+    assert result["planner_steps"][0]["decision_code"] == "READ_TOP_CANDIDATES"
+    actions = result["tool_action"]["actions"]
+    assert [action["tool"] for action in actions] == ["OpenNote", "OpenNote"]
+    assert {action["args"]["note_id"] for action in actions} == {"n1", "n2"}
+
+
+@pytest.mark.asyncio
+async def test_compact_planner_cannot_finish_with_actionable_required_source() -> None:
+    from app.services.agent.research.graph import _compact_planner_node
+
+    contract = build_turn_contract(
+        user_text="Сколько у меня постов?", history=[], scope="global"
+    )
+    ctx = SimpleNamespace(
+        reasoner_spec=SimpleNamespace(name="test"),
+        reasoner_model="test-model",
+        reasoner_api_key="key",
+        deadline_monotonic=None,
+        llm_client=None,
+        llm_metrics=[],
+    )
+    state = {
+        "user_text": "Сколько у меня постов?",
+        "turn_contract": contract,
+        "evidence_records": {},
+        "prefetch_hits": [],
+        "search_ledger": [],
+        "planner_calls_used": 0,
+        "planner_invalid_count": 0,
+        "planner_steps": [],
+        "step_count": 0,
+    }
+    with patch(
+        "app.services.agent.runtime.budget.call_llm_with_deadline",
+        new_callable=AsyncMock,
+        return_value=json.dumps(
+            {
+                "decision_code": "FINISH_PARTIAL",
+                "actions": [],
+                "state_updates": {},
+                "confidence": 0.8,
+            }
+        ),
+    ) as call:
+        result = await _compact_planner_node(
+            state,
+            {"configurable": {"runtime_context": ctx, "turn_contract": contract}},
+        )
+
+    assert call.await_count == 1
+    assert result["planner_steps"][0]["decision_code"] == "READ_TOP_CANDIDATES"
+    assert result["tool_action"]["actions"] == [
+        {
+            "tool": "ListPosts",
+            "args": {
+                "status": "all",
+                "source_requirement_id": "workspace-posts-1",
+            },
+            "intent_id": None,
+        }
+    ]
+
+
+def test_recommendation_discovery_is_split_by_source_contract() -> None:
+    from app.services.agent.research.graph import _contract_discovery_actions
+
+    question = "Какое направление канала лучше выбрать?"
+    contract = build_turn_contract(user_text=question, history=[], scope="global")
+    actions = _contract_discovery_actions(contract, query=question)
+
+    assert len(actions) == 2
+    assert {
+        (action.args["source_requirement_id"], tuple(action.args["node_types"]))
+        for action in actions
+    } == {
+        ("recommendation-notes", ("note_chunk",)),
+        ("recommendation-posts", ("post_text",)),
+    }
+
+
+def test_multi_source_discovery_reuses_l1_hits_per_source() -> None:
+    from app.services.agent.research.graph import (
+        _cached_discovery_hits,
+        _contract_discovery_actions,
+    )
+
+    question = "Какое направление канала лучше выбрать?"
+    contract = build_turn_contract(user_text=question, history=[], scope="global")
+    actions = _contract_discovery_actions(contract, query=question)
+    l1 = [
+        {"ref": "note:n1", "node_type": "note_summary", "similarity": 0.8},
+        {"ref": "post:p1", "node_type": "post_summary", "similarity": 0.7},
+    ]
+
+    by_source = {
+        action.args["source_requirement_id"]: _cached_discovery_hits(l1, action)
+        for action in actions
+    }
+    assert [hit["ref"] for hit in by_source["recommendation-notes"]] == ["note:n1"]
+    assert [hit["ref"] for hit in by_source["recommendation-posts"]] == ["post:p1"]
 
 
 def test_phase5_flag_is_configurable() -> None:

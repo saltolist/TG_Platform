@@ -29,7 +29,7 @@ from app.services.agent.research.graph import (
 )
 from app.services.agent.research.evidence_pack import EVIDENCE_PACK_SCHEMA
 from app.services.agent.research.trust import UNTRUSTED_SYSTEM_NOTE, wrap_untrusted_block
-from app.services.agent.runtime.answer_stream import extract_partial_answer
+from app.services.agent.runtime.answer_stream import extract_complete_answer, extract_partial_answer
 from app.services.agent.runtime.budget import call_llm_with_deadline, stream_llm_with_deadline
 from app.services.agent.runtime.checkpoint import ensure_checkpointer_ready, get_checkpointer
 from app.services.agent.runtime.context import RuntimeContext
@@ -305,12 +305,14 @@ async def answer_node(state: AgentGraphState, config: RunnableConfig) -> dict[st
         {eid: evidence_records[eid] for eid in evidence_ids if eid in evidence_records}
     )
     came_through_research = str((state.get("tool_call") or {}).get("type") or "") == "read"
+    has_grounded_evidence = bool(evidence_ids and rag_context)
+    factual = is_factual_profile(turn_contract, researched=came_through_research)
 
     # Answer guard (code-gate, not prompt): if the request went through research
-    # but produced no grounded evidence, refuse instead of letting the model
-    # invent an answer on an empty pack (agent-runtime-sprints §1.1). Dialog
-    # history never overrides this — it cannot substitute for missing facts.
-    if came_through_research and (not evidence_ids or not rag_context):
+    # and cannot be answered without workspace facts, refuse instead of letting
+    # the model invent those facts. Advisory profiles remain answerable from
+    # the user's question/dialog even when discovery found no usable evidence.
+    if came_through_research and (factual or not turn_contract) and not has_grounded_evidence:
         return {
             **state,
             "answer_text": REFUSAL_TEXT,
@@ -333,7 +335,7 @@ async def answer_node(state: AgentGraphState, config: RunnableConfig) -> dict[st
             "Измеренный профиль референсных постов:\n"
             + render_turn_contract(style_profile)
         )
-    if dialog_context.strip() and not came_through_research:
+    if dialog_context.strip() and (not came_through_research or not has_grounded_evidence):
         prompt_parts.append(f"Диалог:\n{dialog_context.strip()}")
     # Post-scope: the current post is a deictic reference ("этот пост") that
     # research/RAG cannot resolve — there is nothing to search for by meaning.
@@ -346,7 +348,7 @@ async def answer_node(state: AgentGraphState, config: RunnableConfig) -> dict[st
         if post_id and post_text:
             prompt_parts.append(f"Текущий пост (tech_id={post_id}):\n{post_text}")
     prompt_parts.append(f"Вопрос:\n{state.get('user_text', '')}")
-    if came_through_research:
+    if came_through_research and has_grounded_evidence:
         # Grounded path: cite only the retrieved evidence, same contract as before.
         evidence_titles = [str(t) for t in (state.get("evidence_titles") or []) if str(t).strip()]
         # Spell out the object count explicitly rather than relying on the
@@ -434,10 +436,13 @@ async def answer_node(state: AgentGraphState, config: RunnableConfig) -> dict[st
         channel_block = _channel_voice_block(ctx)
         system_text = (
             (f"{channel_block}\n\n" if channel_block else "")
-            + "Отвечай на разговорный запрос, используя диалог выше и текущий пост "
+            + "Отвечай на запрос, используя его формулировку, диалог выше и текущий пост "
             "(если он передан) как контекст — например, если это правка твоего "
             "предыдущего ответа или вопрос про сам пост. Не выдумывай факты о "
-            "workspace, которых нет в этом контексте. Не предлагай функций вне "
+            "workspace, которых нет в этом контексте. Если research был выполнен, "
+            "но не дал пригодных данных, всё равно дай полезный ответ из общих знаний. "
+            "Упоминай отсутствие конкретных данных только когда пользователь явно "
+            "просил найти или проверить их. Не предлагай функций вне "
             "supported_capabilities из контракта результата."
         )
     prompt = "\n\n".join(prompt_parts)
@@ -501,7 +506,6 @@ async def answer_node(state: AgentGraphState, config: RunnableConfig) -> dict[st
 
     raw = "".join(raw_parts)
     parsed = extract_json_object(raw) or {}
-    factual = is_factual_profile(turn_contract, researched=came_through_research)
     validation = validate_answer_output(
         parsed,
         evidence_ids=set(evidence_ids),
@@ -511,6 +515,23 @@ async def answer_node(state: AgentGraphState, config: RunnableConfig) -> dict[st
     answer_text = str(parsed.get("answer") or raw).strip()
     claims = list(validation.claims)
     repair_count = 0
+    if not validation.ok and not factual:
+        recovered_answer = str(
+            parsed.get("answer") or extract_complete_answer(raw) or ""
+        ).strip()
+        if recovered_answer:
+            recovered = {"answer": recovered_answer, "claims": []}
+            recovered_validation = validate_answer_output(
+                recovered,
+                evidence_ids=set(evidence_ids),
+                factual=False,
+                schema=output_schema,
+            )
+            if recovered_validation.ok:
+                parsed = recovered
+                validation = recovered_validation
+                answer_text = recovered_answer
+                claims = []
     if not validation.ok:
         repair_count = 1
         repair_prompt = (

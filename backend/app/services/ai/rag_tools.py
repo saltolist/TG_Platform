@@ -499,11 +499,9 @@ async def tool_list_posts(
     # tech_id (не «id»): опубликованные посты несут tg message_id (маленькое
     # число), черновики — UUID. Метка + пояснение не дают модели принять число
     # в ключе за порядковый номер поста / позицию в серии (чат 74b0ef7d).
-    lines = [
-        f"Посты пользователя (status={status_filter}). "
-        "tech_id — технический ключ для OpenPost/GetPostAnalytics, НЕ порядковый номер:"
-    ]
+    lines = [""]
     matched = 0
+    shown = 0
     state.catalog_posts = []
     for row in rows:
         data = dict(row.data) if isinstance(row.data, dict) else {}
@@ -511,6 +509,8 @@ async def tool_list_posts(
         if not post_id:
             continue
         post_status = str(data.get("status") or "draft").strip().lower()
+        if status_filter == "all" and post_status == "deleted":
+            continue
         if status_filter != "all" and post_status != status_filter:
             continue
         text_value = str(data.get("text") or "").strip()
@@ -518,6 +518,9 @@ async def tool_list_posts(
         if query_filter and query_filter not in f"{title} {text_value}".lower():
             continue
         matched += 1
+        if result_limit is not None and shown >= result_limit:
+            continue
+        shown += 1
         preview = text_value[:80] + ("…" if len(text_value) > 80 else "")
         post_notes = data.get("notes") or []
         notes_count = len(post_notes)
@@ -552,8 +555,10 @@ async def tool_list_posts(
             f"- title={title!r} tech_id={post_id} status={post_status} "
             f"notes={notes_count}{att_suffix} preview={preview!r}"
         )
-        if result_limit is not None and matched >= result_limit:
-            break
+    lines[0] = (
+        f"Посты пользователя (status={status_filter}, total={matched}, shown={shown}). "
+        "tech_id — технический ключ для OpenPost/GetPostAnalytics, НЕ порядковый номер:"
+    )
 
     # Encode the filter into the path so distinct listings (all posts vs.
     # query=запуск vs. status=draft) get distinct records and are not collapsed

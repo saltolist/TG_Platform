@@ -46,6 +46,23 @@ def test_verified_pack_excludes_discovery_and_keeps_every_selected_primary() -> 
     assert pack.to_dict()["unresolved"] == ["missing attachment"]
 
 
+def test_verified_pack_keeps_authoritative_catalog_records() -> None:
+    records = {
+        "/posts/": _record(
+            "/posts/", "catalog", "Посты пользователя (total=7, shown=7)."
+        )
+    }
+    pack = build_verified_pack(
+        records=records,
+        evidence_ids=["/posts/"],
+        unresolved=[],
+        source_ids=["workspace-posts-1"],
+    )
+
+    assert pack.evidence_ids == ("/posts/",)
+    assert pack.items[0].kind == "catalog"
+
+
 def test_output_validator_rejects_dangling_factual_citation() -> None:
     result = validate_answer_output(
         {
@@ -67,6 +84,61 @@ def test_output_validator_accepts_versioned_grounded_output() -> None:
     )
     assert result.ok
     assert result.schema == OUTPUT_SCHEMA_V1
+
+
+@pytest.mark.asyncio
+async def test_advisory_answer_salvages_complete_text_from_truncated_claims() -> None:
+    from app.core.config import Settings
+    from app.services.agent.runtime.context import RuntimeContext
+    from app.services.agent.runtime.workspace_graph import answer_node
+
+    async def stream(_ctx, **_kwargs):
+        yield '{"answer":"Полезная рекомендация.","claims":['
+
+    ctx = RuntimeContext(
+        session_factory=AsyncMock(),
+        user_id=__import__("uuid").uuid4(),
+        user=None,
+        tenant_key=None,
+        settings=Settings(),
+        embedding_backend=AsyncMock(),
+        scope="global",
+        post_data=None,
+        ai_profile={},
+        answer_spec=ProviderSpec("DeepSeek", "https://answer"),
+        answer_model="answer-model",
+        answer_api_key="a",
+    )
+    state = {
+        "user_text": "Что посоветуешь?",
+        "tool_call": {"type": "read"},
+        "turn_contract": {
+            "version": 2,
+            "requires_workspace": True,
+            "task_profile": "recommendation",
+            "output": {"kind": "answer"},
+        },
+        "evidence_ids": ["/note/n1/"],
+        "rag_context": "fact",
+    }
+    with (
+        patch(
+            "app.services.agent.runtime.workspace_graph.stream_llm_with_deadline",
+            side_effect=stream,
+        ),
+        patch(
+            "app.services.agent.runtime.workspace_graph.call_llm_with_deadline",
+            new_callable=AsyncMock,
+        ) as repair,
+    ):
+        result = await answer_node(
+            state, {"configurable": {"runtime_context": ctx}}
+        )
+
+    assert result["answer_text"] == "Полезная рекомендация."
+    assert result["output_validation"]["ok"] is True
+    assert result["answer_repair_count"] == 0
+    repair.assert_not_awaited()
 
 
 def test_answer_resolver_prefers_active_user_llm_over_orchestrator() -> None:

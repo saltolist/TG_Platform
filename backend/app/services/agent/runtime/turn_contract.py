@@ -176,6 +176,8 @@ class SourceRequirement(_ContractModel):
     role: SourceRole
     required: bool
     query_goal: str = Field(min_length=1)
+    min_evidence: int = Field(default=1, ge=1, le=8)
+    evidence_granularity: Literal["full_text", "catalog"] = "full_text"
     scope: SourceScope
     freshness: Freshness
     budget: SourceBudget
@@ -606,6 +608,70 @@ def _is_exhaustive_request(value: str) -> bool:
     )
 
 
+def _is_recommendation_request(value: str) -> bool:
+    """Return whether the user asks for a choice, direction, or advice.
+
+    This is intentionally domain-neutral: recommendations need workspace
+    context whether they concern a channel profile, content direction, or a
+    concrete next step. Exact reads and mutation commands are classified by
+    the stronger intent branches before this profile is considered.
+    """
+
+    lowered = value.casefold()
+    return any(
+        marker in lowered
+        for marker in (
+            "посовет",
+            "порекоменду",
+            "рекомендуешь",
+            "что лучше",
+            "как лучше",
+            "что стоит",
+            "лучше выбрать",
+            "стоит выбрать",
+            "какое направление выбрать",
+            "какой вариант выбрать",
+            "what do you recommend",
+            "what would you recommend",
+            "what should i choose",
+        )
+    )
+
+
+def _minimum_corpus_evidence(value: str, kind: SourceKind) -> int:
+    """Plural selection questions need more than one matching object."""
+
+    lowered = value.casefold()
+    plural_question = any(
+        marker in lowered for marker in ("какие", "которые", "which", "what notes", "what posts")
+    )
+    kind_mentioned = (
+        "замет" in lowered if kind == "notes" else "пост" in lowered if kind == "posts" else False
+    )
+    return 2 if plural_question and kind_mentioned else 1
+
+
+def _is_catalog_request(value: str, kind: SourceKind) -> bool:
+    """Catalog evidence is authoritative for counts and explicit inventories."""
+
+    lowered = value.casefold()
+    kind_mentioned = (
+        "замет" in lowered if kind == "notes" else "пост" in lowered if kind == "posts" else False
+    )
+    inventory_marker = any(
+        marker in lowered
+        for marker in (
+            "сколько",
+            "перечисли все",
+            "перечисли всё",
+            "список всех",
+            "how many",
+            "list all",
+        )
+    )
+    return kind_mentioned and inventory_marker
+
+
 def _task_profile(
     legacy: Mapping[str, Any],
     target_contract: TargetContract,
@@ -623,6 +689,8 @@ def _task_profile(
         return "comparison"
     if target_contract.target_mode == "exact":
         return "exact_lookup"
+    if _is_recommendation_request(str(legacy.get("search_query") or "")):
+        return "recommendation"
     return "topical_answer"
 
 
@@ -648,6 +716,29 @@ def _source_requirements(
                     rewrite_calls=0,
                     candidate_limit=1,
                     deep_reads=0,
+                ),
+            )
+            for kind in ("notes", "posts")
+        )
+    if profile == "recommendation" and target_contract.target_mode == "corpus":
+        return tuple(
+            SourceRequirement(
+                source_id=f"recommendation-{kind}",
+                kind=kind,
+                role="context",
+                required=True,
+                query_goal=(
+                    "find relevant workspace notes that define plans, concepts, or constraints"
+                    if kind == "notes"
+                    else "find relevant existing posts that show current positioning and coverage"
+                ),
+                scope=SourceScope(mode="corpus", corpus="workspace"),
+                freshness=Freshness(mode="latest_available"),
+                budget=SourceBudget(
+                    search_calls=1,
+                    rewrite_calls=0,
+                    candidate_limit=4,
+                    deep_reads=1,
                 ),
             )
             for kind in ("notes", "posts")
@@ -684,10 +775,21 @@ def _source_requirements(
             if marker in lowered and kind not in requested:
                 requested.append(kind)  # type: ignore[arg-type]
         for index, kind in enumerate(requested or ["dialog"], start=1):
+            catalog = _is_catalog_request(
+                str(legacy.get("search_query") or ""), kind
+            )
             sources.append(SourceRequirement(
                 source_id=f"workspace-{kind}-{index}", kind=kind, role="context",
                 required=kind not in {"images", "dialog"},
-                query_goal=f"retrieve {kind} needed for the current goal",
+                query_goal=(
+                    f"enumerate the complete {kind} catalog needed for the current goal"
+                    if catalog
+                    else f"retrieve {kind} needed for the current goal"
+                ),
+                min_evidence=_minimum_corpus_evidence(
+                    str(legacy.get("search_query") or ""), kind
+                ),
+                evidence_granularity="catalog" if catalog else "full_text",
                 scope=SourceScope(mode="corpus", corpus="workspace"),
                 freshness=Freshness(mode="latest_available"),
                 budget=SourceBudget(search_calls=1, rewrite_calls=0, candidate_limit=4, deep_reads=1),
@@ -891,6 +993,7 @@ def build_turn_contract(
         feed_corpus
         or target
         or inspect_note
+        or _is_recommendation_request(current)
         or any(marker in lowered for marker in ("пост", "замет", "канал", "метрик", "изображ"))
     )
     if corpus in {"feed_posts", "exact_note"}:
@@ -986,9 +1089,22 @@ def evidence_matches_source(
     """Revalidate source kind, immutable scope and freshness at evidence use."""
     source_kind = str(source.get("kind") or "")
     record_kind = str(record.get("kind") or "")
-    allowed_kinds = _SOURCE_RECORD_KINDS.get(source_kind, frozenset())
-    if not allowed_kinds or record_kind not in allowed_kinds:
-        return False
+    granularity = str(source.get("evidence_granularity") or "full_text")
+    if granularity == "catalog":
+        if source_kind == "posts":
+            catalog_match = record_kind == "catalog" and evidence_id.startswith("/posts/")
+        elif source_kind == "notes":
+            catalog_match = record_kind == "catalog" and (
+                evidence_id == "/global/notes/" or evidence_id.endswith("/notes/")
+            )
+        else:
+            catalog_match = False
+        if not catalog_match:
+            return False
+    else:
+        allowed_kinds = _SOURCE_RECORD_KINDS.get(source_kind, frozenset())
+        if not allowed_kinds or record_kind not in allowed_kinds:
+            return False
 
     scope = source.get("scope") or {}
     if scope.get("mode") == "targets":
@@ -1027,9 +1143,11 @@ def covered_source_ids(
     covered: set[str] = set()
     for source in contract.get("source_requirements") or []:
         source_id = str(source.get("source_id") or "")
-        if source_id and any(
-            evidence_matches_source(source, evidence_id=evidence_id, record=record)
+        matches = sum(
+            1
             for evidence_id, record in records.items()
-        ):
+            if evidence_matches_source(source, evidence_id=evidence_id, record=record)
+        )
+        if source_id and matches >= int(source.get("min_evidence") or 1):
             covered.add(source_id)
     return frozenset(covered)
