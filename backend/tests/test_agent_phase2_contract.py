@@ -126,6 +126,7 @@ def test_required_and_optional_sources_have_independent_contracts() -> None:
     sources = {source["kind"]: source for source in contract["source_requirements"]}
     assert sources["posts"]["required"] is True
     assert sources["notes"]["required"] is False
+    assert sources["notes"]["evidence_granularity"] == "semantic_card"
     assert sources["images"]["required"] is True
     assert contract["budgets"]["search_calls"] >= sum(
         source["budget"]["search_calls"] for source in contract["source_requirements"]
@@ -282,6 +283,62 @@ async def test_exact_link_skips_classifier_llm() -> None:
 
 
 @pytest.mark.asyncio
+async def test_implicit_resolver_set_keeps_classifier_for_fidelity() -> None:
+    contract = build_turn_contract(
+        user_text="Про что они?",
+        history=[],
+        scope="global",
+        dialog_ledger=(
+            SimpleNamespace(
+                turn_id="turn-set",
+                entities=(
+                    SimpleNamespace(
+                        entity_type="entity_set",
+                        members=({"kind": "post", "id": "p1", "title": "P1"},
+                                 {"kind": "post", "id": "p2", "title": "P2"}),
+                    ),
+                ),
+            ),
+        ),
+    )
+    ctx = SimpleNamespace(
+        reasoner_spec=object(),
+        reasoner_model="planner",
+        reasoner_api_key="secret",
+        turn_contract=contract,
+        scope="global",
+        post_data=None,
+        deadline_monotonic=None,
+        llm_client=None,
+        llm_metrics=[],
+    )
+    with patch(
+        "app.services.agent.runtime.workspace_graph.call_llm_with_deadline",
+        new_callable=AsyncMock,
+        return_value=(
+            '{"type":"read","required_sources":["posts"],'
+            '"source_requirements":[{"kind":"posts","coverage":"complete",'
+            '"evidence_granularity":"semantic_card"}],"search_query":"темы постов"}'
+        ),
+    ) as mock_llm:
+        result = await workspace_agent_node(
+            {"user_text": "Про что они?", "turn_contract": contract},
+            {"configurable": {"runtime_context": ctx, "turn_contract": contract}},
+        )
+
+    mock_llm.assert_awaited_once()
+    assert result["turn_contract"]["source_requirements"]
+    assert all(
+        item["evidence_granularity"] == "semantic_card"
+        for item in result["turn_contract"]["source_requirements"]
+    )
+    assert all(
+        item["coverage"] == "relevant"
+        for item in result["turn_contract"]["source_requirements"]
+    )
+
+
+@pytest.mark.asyncio
 async def test_classifier_promotes_only_semantically_required_source() -> None:
     contract = build_turn_contract(
         user_text="Сколько у меня постов?", history=[], scope="global"
@@ -315,6 +372,7 @@ async def test_classifier_promotes_only_semantically_required_source() -> None:
     assert result["search_query"] == "полный каталог постов пользователя"
     assert sources["posts"]["required"] is True
     assert sources["notes"]["required"] is False
+    assert sources["notes"]["evidence_granularity"] == "semantic_card"
     assert result["turn_contract"]["answerability_without_evidence"] is False
 
 
@@ -341,6 +399,13 @@ async def test_classifier_finish_still_runs_optional_workspace_enrichment() -> N
 
     assert result["tool_call"]["type"] == "read"
     assert result["turn_contract"]["answerability_without_evidence"] is True
+    assert {
+        item["kind"] for item in result["turn_contract"]["source_requirements"]
+    } == {"notes", "posts"}
+    assert all(
+        item["evidence_granularity"] == "semantic_card"
+        for item in result["turn_contract"]["source_requirements"]
+    )
     classifier_prompt = classifier.await_args.kwargs["messages"][1]["content"]
     assert "requires_workspace" not in classifier_prompt
     assert "source_requirements" not in classifier_prompt
@@ -373,6 +438,41 @@ async def test_v2_read_without_required_sources_remains_optional_enrichment() ->
         item["required"] is False
         for item in result["turn_contract"]["source_requirements"]
     )
+    assert all(
+        item["evidence_granularity"] == "semantic_card"
+        for item in result["turn_contract"]["source_requirements"]
+    )
+
+
+def test_classifier_keeps_every_explicit_factual_source() -> None:
+    from app.services.agent.runtime.workspace_graph import _apply_classifier_source_policy
+
+    contract = build_turn_contract(
+        user_text="Сопоставь заметки с опубликованными постами", history=[], scope="global"
+    )
+    contract = _apply_classifier_source_policy(
+        contract,
+        required_sources=["notes", "posts"],
+        classifier_requires_evidence=True,
+        classified_source_requirements=[
+            {
+                "kind": "notes",
+                "coverage": "relevant",
+                "evidence_granularity": "semantic_card",
+            },
+            {
+                "kind": "posts",
+                "coverage": "relevant",
+                "evidence_granularity": "full_text",
+            },
+        ],
+    )
+
+    sources = {source["kind"]: source for source in contract["source_requirements"]}
+    assert set(sources) == {"notes", "posts"}
+    assert all(source["required"] for source in sources.values())
+    assert sources["notes"]["evidence_granularity"] == "semantic_card"
+    assert sources["posts"]["evidence_granularity"] == "full_text"
 
 
 def test_phase2_golden_target_accuracy_is_at_least_95_percent() -> None:

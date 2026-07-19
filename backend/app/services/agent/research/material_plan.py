@@ -155,6 +155,7 @@ def empty_material_plan() -> dict[str, Any]:
         "expansion_reason_by_source": {},
         "expansion_pending_sources": [],
         "expanded_sources": [],
+        "needs_optional_assessment": False,
         "needs_expansion_assessment": False,
         "coverage": "complete",
         "full_read_batches": [],

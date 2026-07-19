@@ -60,7 +60,7 @@ WORKSPACE_SYSTEM = """Ты единственный WorkspaceAgent платфо�
 Не предлагай функций, которых нет в перечисленных tools. В частности, в платформе
 нет действия «связать заметку с постами или файлами»; заметки и файлы уже являются
 частью workspace и доступны AI после сохранения.
-Обычные answer-turns в любом случае выполняют отдельный ограниченный поиск по заметкам и постам для обогащения ответа. Поэтому НЕ выбирай "read" и НЕ добавляй required_sources только ради полезного контекста. Выбирай "read" лишь когда факты именно из workspace необходимы для выполнения запроса: пользователь просит найти, перечислить, посчитать, проверить или описать свои объекты/метрики. Совет, оценка или общий вопрос, на который можно ответить без утверждений о содержимом workspace, — "finish"; найденные материалы всё равно будут доступны как необязательное обогащение.
+Ходы, на которые можно полноценно ответить без фактов workspace, получают ограниченный optional-поиск по заметкам и постам. Для factual "read" required_sources — это источники, без которых grounded-ответ будет неполным; включи туда КАЖДЫЙ такой источник. Optional discovery всё равно может найти скрытый поддерживающий контекст, который planner оценит отдельно; optional-источник не должен блокировать завершение и не должен автоматически раскрываться целиком. Выбирай "read", когда пользователь просит найти, перечислить, посчитать, проверить или описать свои объекты/метрики; совет, оценка или общий вопрос без утверждений о содержимом workspace — "finish".
 Для каждого обязательного источника заполни source_requirements. coverage="relevant" означает, что достаточно относящегося к вопросу подмножества; coverage="complete" означает, что ответ должен охватить каждый объект указанного корпуса. Выбирай complete для полного перечня, подсчёта по всей категории, описания каждого объекта и других задач, где пропуск хотя бы одного объекта делает ответ неверным. evidence_granularity="catalog" достаточно для количества, названий, статусов и наличия; "semantic_card" — для общей темы или назначения каждого объекта; "full_text" — для точных деталей, сравнений, цитат и редактирования. Не подменяй complete семантическим top-k.
 Если передан блок "Диалог" — используй его, чтобы понять контекст запроса. Короткая правка твоего предыдущего ответа без новых фактических вопросов (перефразируй, покороче, на другом языке, другим тоном) — это "finish", даже если предыдущий ответ был по фактам workspace: факты уже собраны и лежат в диалоге, повторный поиск не нужен.
 Если передан блок "Текущий пост" и пользователь просит изменить его текст (убрать/добавить/переформулировать что-то в посте) — верни ровно {"type":"post_proposal","command":"edit_post","payload":{}}. Полный текст поста и его id проставляются отдельным детерминированным шагом — тебе НЕ нужно возвращать ни текст, ни id здесь, только классифицировать запрос как edit_post. Если блока "Текущий пост" нет, НЕ выбирай post_proposal: запрос на изменение серии или постов означает, что сначала нужно найти соответствующие материалы workspace, поэтому выбирай read.
@@ -72,6 +72,17 @@ _CLASSIFIER_SOURCE_KINDS = frozenset(
 )
 
 
+def _fast_path_needs_fidelity_classification(contract: dict[str, Any]) -> bool:
+    """Return whether an implicit resolver selection still needs depth routing."""
+
+    resolution = dict((contract.get("target_contract") or {}).get("referent_resolution") or {})
+    return any(
+        str(reference.get("selection_mode") or "") in {"all", "predicate", "complement"}
+        for reference in resolution.get("references") or ()
+        if isinstance(reference, dict)
+    )
+
+
 def _apply_classifier_source_policy(
     contract: dict[str, Any],
     *,
@@ -81,9 +92,10 @@ def _apply_classifier_source_policy(
 ) -> dict[str, Any]:
     """Make semantic classifier output authoritative for factual grounding.
 
-    Notes/posts stay present as optional enrichment on every corpus turn. The
-    classifier may promote relevant kinds to required without rebuilding the
-    target contract or relying on language-specific marker lists.
+    Optional notes/posts enrichment remains available even when another source is
+    required. It is assessed independently and cannot make a run incomplete;
+    the planner, rather than the classifier fallback, decides whether an optional
+    candidate is useful supporting context.
     """
 
     required = {
@@ -111,15 +123,22 @@ def _apply_classifier_source_policy(
         coverage = str(classified.get("coverage") or "")
         granularity = str(classified.get("evidence_granularity") or "")
         if coverage in {"relevant", "complete"}:
+            scope_mode = str((source.get("scope") or {}).get("mode") or "")
             source["coverage"] = (
                 coverage
-                if coverage != "complete" or kind in {"posts", "notes"}
+                if coverage != "complete"
+                or (kind in {"posts", "notes"} and scope_mode == "corpus")
                 else "relevant"
             )
         else:
             source.setdefault("coverage", "relevant")
         if granularity in {"catalog", "semantic_card", "full_text"}:
             source["evidence_granularity"] = granularity
+        elif not source["required"] and kind in {"notes", "posts"}:
+            # Optional enrichment is for topical context. Exact claims can still
+            # be promoted by the research planner, but a planner failure must not
+            # turn every ambient match into an expensive full-object read.
+            source["evidence_granularity"] = "semantic_card"
     for kind in sorted(required - existing):
         classified_coverage = str(
             classified_by_kind.get(kind, {}).get("coverage") or "relevant"
@@ -231,7 +250,10 @@ async def workspace_agent_node(
     target_mode = str((deterministic_contract.get("target_contract") or {}).get("target_mode") or "")
     if target_mode == "ambiguous":
         call = {"type": "finish", "search_query": ""}
-    elif deterministic_contract.get("execution_mode") == "fast":
+    elif (
+        deterministic_contract.get("execution_mode") == "fast"
+        and not _fast_path_needs_fidelity_classification(deterministic_contract)
+    ):
         # Exact IDs/open objects are already resolved by code. A classifier call
         # cannot improve the target and only adds latency/referent drift.
         call = {"type": "read", "search_query": deterministic_contract.get("search_query") or ""}

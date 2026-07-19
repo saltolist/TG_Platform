@@ -52,7 +52,10 @@ from app.services.agent.research.material_plan import (
     record_full_read_results,
     saturated_sources,
 )
-from app.services.agent.research.prefetch import load_discovery_cards_for_objects
+from app.services.agent.research.prefetch import (
+    load_discovery_cards_for_objects,
+    resolve_current_source_revisions,
+)
 from app.services.agent.runtime.context import RuntimeContext
 from app.services.agent.runtime.state import AgentGraphState
 from app.services.agent.runtime.tool_contracts import (
@@ -795,7 +798,10 @@ ADAPTIVE_AGENT_SYSTEM = (
     "attachment_or_media|analytics|low_card_quality. Choose card only for high-level "
     "topic/purpose claims. Exact facts, detailed content, comparisons, quotes and "
     "explicit object reads require full_text. Runtime may promote stale or ineligible "
-    "cards. actions are only for search or other independent tools and remain capped "
+    "cards. A source with required=false is optional discovery: keep a candidate when "
+    "it adds material supporting context even if the question did not name that corpus; "
+    "do not treat it as irrelevant merely because another source is required. Optional "
+    "evidence must not block completion. actions are only for search or other independent tools and remain capped "
     "at three; runtime schedules selected full reads in deterministic batches. "
     "All candidate refs must be assessed, including irrelevant ones. "
     + render_planner_schema()
@@ -1204,19 +1210,94 @@ def _required_source_fallback_decision(
 
 def _conservative_candidate_assessments(
     candidates: list[dict[str, Any]],
+    *,
+    contract: dict[str, Any] | None = None,
 ) -> tuple[CandidateAssessment, ...]:
-    """Schema-safe fallback: preserve coverage and require primary evidence."""
+    """Schema-safe fallback that preserves the source fidelity contract."""
 
-    return tuple(
-        CandidateAssessment(
-            ref=str(candidate["ref"]),
-            relevance=CandidateRelevance.DIRECT,
-            resolution=CandidateResolution.FULL_TEXT,
-            confidence=max(0.0, min(1.0, float(candidate.get("score") or 0.0))),
-            reason_code=CandidateReasonCode.LOW_CARD_QUALITY,
+    requirements = {
+        str(source.get("source_id") or ""): dict(source)
+        for source in (contract or {}).get("source_requirements") or ()
+        if isinstance(source, dict)
+    }
+    recovery_refs: set[str] = set()
+    for source_id, source in requirements.items():
+        if source.get("required"):
+            continue
+        limit = max(0, int((source.get("budget") or {}).get("deep_reads") or 0))
+        if not limit:
+            continue
+        ranked = sorted(
+            (
+                candidate
+                for candidate in candidates
+                if str(candidate.get("source_requirement_id") or "") == source_id
+                and not bool(candidate.get("card_eligible"))
+            ),
+            key=lambda item: (
+                -float(item.get("score") or 0.0),
+                str(item.get("ref") or ""),
+            ),
         )
-        for candidate in candidates
-    )
+        recovery_refs.update(
+            str(candidate.get("ref") or "") for candidate in ranked[:limit]
+        )
+    assessments: list[CandidateAssessment] = []
+    for candidate in candidates:
+        source = requirements.get(str(candidate.get("source_requirement_id") or ""), {})
+        granularity = str(source.get("evidence_granularity") or "full_text")
+        is_optional = bool(source) and not bool(source.get("required"))
+        card_allowed = granularity in {"catalog", "semantic_card"} and bool(
+            candidate.get("card_eligible")
+        )
+        if is_optional:
+            # A malformed planner response must not turn ambient discovery into
+            # mandatory deep reads. Fresh cards remain safe supporting context.
+            # If a card is unavailable, recover only the highest-ranked objects
+            # allowed by that optional source's existing deep-read budget.
+            needs_recovery = str(candidate.get("ref") or "") in recovery_refs
+            assessments.append(
+                CandidateAssessment(
+                    ref=str(candidate["ref"]),
+                    relevance=(
+                        CandidateRelevance.SUPPORTING
+                        if card_allowed or needs_recovery
+                        else CandidateRelevance.IRRELEVANT
+                    ),
+                    resolution=(
+                        CandidateResolution.CARD
+                        if card_allowed
+                        else CandidateResolution.FULL_TEXT
+                    ),
+                    confidence=max(0.0, min(1.0, float(candidate.get("score") or 0.0))),
+                    reason_code=(
+                        CandidateReasonCode.TOPIC_ONLY
+                        if card_allowed
+                        else CandidateReasonCode.LOW_CARD_QUALITY
+                    ),
+                )
+            )
+            continue
+        assessments.append(
+            CandidateAssessment(
+                ref=str(candidate["ref"]),
+                relevance=CandidateRelevance.DIRECT,
+                resolution=(
+                    CandidateResolution.CARD
+                    if card_allowed
+                    else CandidateResolution.FULL_TEXT
+                ),
+                confidence=max(0.0, min(1.0, float(candidate.get("score") or 0.0))),
+                reason_code=(
+                    CandidateReasonCode.TOPIC_ONLY
+                    if card_allowed
+                    else CandidateReasonCode.DETAILED_SUMMARY
+                    if granularity == "full_text"
+                    else CandidateReasonCode.LOW_CARD_QUALITY
+                ),
+            )
+        )
+    return tuple(assessments)
 
 
 def _apply_complete_source_policy(
@@ -1236,7 +1317,9 @@ def _apply_complete_source_policy(
     requirements = {
         str(source.get("source_id") or ""): dict(source)
         for source in contract.get("source_requirements") or ()
-        if isinstance(source, dict) and source.get("coverage") == "complete"
+        if isinstance(source, dict)
+        and source.get("coverage") == "complete"
+        and (source.get("scope") or {}).get("mode") == "corpus"
     }
     if not requirements:
         return assessments
@@ -1266,6 +1349,104 @@ def _apply_complete_source_policy(
             assessment["confidence"] = max(0.0, min(1.0, float(assessment.get("confidence") or 1.0)))
         result.append(assessment)
     return result
+
+
+def _apply_optional_source_policy(
+    assessments: list[dict[str, Any]],
+    *,
+    candidates: list[dict[str, Any]],
+    contract: dict[str, Any],
+) -> list[dict[str, Any]]:
+    """Keep optional deep reads useful without making them completion gates."""
+
+    optional_source_ids = {
+        str(source.get("source_id") or "")
+        for source in contract.get("source_requirements") or ()
+        if isinstance(source, dict)
+        and not source.get("required")
+        and str(source.get("source_id") or "")
+    }
+    optional_refs = {
+        str(candidate.get("ref") or "")
+        for candidate in candidates
+        if str(candidate.get("source_requirement_id") or "") in optional_source_ids
+    }
+    optional_card_refs = {
+        str(candidate.get("ref") or "")
+        for candidate in candidates
+        if str(candidate.get("source_requirement_id") or "") in optional_source_ids
+        and bool(candidate.get("card_eligible"))
+    }
+    result: list[dict[str, Any]] = []
+    for raw in assessments:
+        assessment = dict(raw)
+        ref = str(assessment.get("ref") or "")
+        if ref in optional_card_refs and assessment.get("relevance") == "irrelevant":
+            # A fresh, bounded card is cheap context and protects recall when
+            # the planner over-prunes a hidden optional source. Full text still
+            # requires an explicit non-topic resolution.
+            assessment["relevance"] = "supporting"
+            assessment["resolution"] = "card"
+            assessment["reason_code"] = "topic_only"
+            assessment["runtime_override"] = "optional_card_recall_floor"
+        if ref in optional_refs and assessment.get("relevance") == "direct":
+            assessment["relevance"] = "supporting"
+            assessment["runtime_override"] = "optional_source_non_blocking"
+        result.append(assessment)
+    return result
+
+
+def _materialize_contract_fixed_plan(
+    previous: dict[str, Any] | None,
+    *,
+    candidates: list[dict[str, Any]],
+    contract: dict[str, Any],
+) -> dict[str, Any]:
+    """Resolve contract-fixed complete and exact-card fidelity without a planner."""
+
+    complete_source_ids = {
+        str(source.get("source_id") or "")
+        for source in contract.get("source_requirements") or ()
+        if isinstance(source, dict)
+        and source.get("required")
+        and source.get("coverage") == "complete"
+        and (source.get("scope") or {}).get("mode") == "corpus"
+        and source.get("evidence_granularity") in {"semantic_card", "full_text"}
+    }
+    selected_complete = [
+        candidate
+        for candidate in candidates
+        if str(candidate.get("source_requirement_id") or "") in complete_source_ids
+    ]
+    target_card_source_ids = {
+        str(source.get("source_id") or "")
+        for source in contract.get("source_requirements") or ()
+        if isinstance(source, dict)
+        and source.get("required")
+        and source.get("evidence_granularity") == "semantic_card"
+        and (source.get("scope") or {}).get("mode") == "targets"
+    }
+    selected_targets = [
+        candidate
+        for candidate in candidates
+        if str(candidate.get("source_requirement_id") or "") in target_card_source_ids
+    ]
+    if not selected_complete and not selected_targets:
+        return dict(previous or empty_material_plan())
+    assessments = _apply_complete_source_policy(
+        [], candidates=selected_complete, contract=contract
+    )
+    assessments.extend(
+        item.model_dump(mode="json")
+        for item in _conservative_candidate_assessments(
+            selected_targets, contract=contract
+        )
+    )
+    return merge_material_plan(
+        previous,
+        candidates=[*selected_complete, *selected_targets],
+        assessments=assessments,
+    )
 
 
 def _materialize_full_read_actions(
@@ -1379,6 +1560,12 @@ async def research_seed_node(state: AgentGraphState, config: RunnableConfig) -> 
     user_text = str(state.get("user_text") or "")
     transcript = list(state.get("research_transcript") or [])
     search_ledger = list(state.get("search_ledger") or [])
+    prefetch_hits: list[dict[str, Any]] = []
+    adaptive_enabled = bool(
+        getattr(ctx.settings, "agent_adaptive_evidence_depth_v1_enabled", False)
+        and ctx.settings.agent_planner_phase5_enabled
+        and contract.get("version") == 2
+    )
     async with ctx.session_factory() as session:
         agent_state = ctx.bind_agent_state(session)
 
@@ -1401,10 +1588,96 @@ async def research_seed_node(state: AgentGraphState, config: RunnableConfig) -> 
         if inventory:
             transcript.append(inventory)
         normalized_targets = list((contract.get("target_contract") or {}).get("targets") or [])
+        target_revision_candidates = [
+            {
+                "post_id": str(target.get("id") or "")
+                if target.get("kind") == "post"
+                else "",
+                "note_id": str(target.get("id") or "")
+                if target.get("kind") == "note"
+                else "",
+            }
+            for target in normalized_targets
+            if str(target.get("id") or "") and target.get("kind") in {"post", "note"}
+        ]
+        target_revisions = await resolve_current_source_revisions(
+            session,
+            user_id=ctx.user_id,
+            candidates=target_revision_candidates,
+        )
+        target_sources: dict[tuple[str, str], dict[str, Any]] = {}
+        semantic_targets: dict[str, list[dict[str, Any]]] = {"posts": [], "notes": []}
+        for target in normalized_targets:
+            target_id = str(target.get("id") or "").strip()
+            target_kind = str(target.get("kind") or "")
+            if target_kind not in {"post", "note"}:
+                continue
+            source_kind = "posts" if target_kind == "post" else "notes"
+            target_source = next(
+                (
+                    source
+                    for source in contract.get("source_requirements") or ()
+                    if isinstance(source, dict)
+                    and source.get("kind") == source_kind
+                    and (source.get("scope") or {}).get("mode") == "targets"
+                    and target_id in {
+                        str(item)
+                        for item in (source.get("scope") or {}).get("target_ids") or ()
+                    }
+                ),
+                None,
+            )
+            if not target_id or target_source is None:
+                continue
+            target_sources[(target_kind, target_id)] = target_source
+            if (
+                adaptive_enabled
+                and target_source.get("evidence_granularity") == "semantic_card"
+            ):
+                semantic_targets[source_kind].append(
+                    {
+                        "id": target_id,
+                        "revision": target_revisions.get(target_id, 0),
+                        "title": target.get("title") or target_id,
+                        "parent_post_id": target.get("parent_post_id"),
+                    }
+                )
+        target_cards: dict[str, dict[str, Any]] = {}
+        for object_kind, objects in semantic_targets.items():
+            if not objects:
+                continue
+            cards = await load_discovery_cards_for_objects(
+                session,
+                user_id=ctx.user_id,
+                object_kind=object_kind,
+                objects=objects,
+                source_requirement_id="",
+                tenant_key=ctx.tenant_key,
+            )
+            target_kind = "post" if object_kind == "posts" else "note"
+            for card in cards:
+                object_id = str(card.get("ref") or "").partition(":")[2]
+                target_source = target_sources.get((target_kind, object_id), {})
+                card["source_requirement_id"] = str(target_source.get("source_id") or "")
+                target_cards[str(card.get("ref") or "")] = card
         for target in normalized_targets:
             target_id = str(target.get("id") or "").strip()
             if not target_id:
                 continue
+            target_kind = str(target.get("kind") or "")
+            target_source = target_sources.get((target_kind, target_id))
+            if (
+                adaptive_enabled
+                and target_source
+                and target_source.get("evidence_granularity") == "semantic_card"
+            ):
+                card = target_cards.get(f"{target_kind}:{target_id}")
+                if card:
+                    prefetch_hits.append(card)
+                    transcript.append(
+                        f"[contract] semantic card {target_id}: exact-by-ID"
+                    )
+                    continue
             if target.get("kind") == "note":
                 outcome = await seed_action(
                     ToolAction(
@@ -1473,13 +1746,13 @@ async def research_seed_node(state: AgentGraphState, config: RunnableConfig) -> 
         # discovery cards by object id so low-similarity objects cannot vanish
         # from the candidate set.
         coverage_targets: dict[str, list[str]] = {}
-        prefetch_hits: list[dict[str, Any]] = []
         complete_sources = [
             dict(source)
             for source in contract.get("source_requirements") or ()
             if isinstance(source, dict)
             and source.get("required")
             and source.get("coverage") == "complete"
+            and (source.get("scope") or {}).get("mode") == "corpus"
         ]
         for source in complete_sources:
             source_id = str(source.get("source_id") or "")
@@ -1633,24 +1906,47 @@ async def research_seed_node(state: AgentGraphState, config: RunnableConfig) -> 
                 transcript.append(f"[seed] SearchNodes {search_query!r}:\n{search_outcome.summary}")
         records = records_from_agent_state(agent_state)
         await session.commit()
+    candidate_envelopes = normalize_candidates(prefetch_hits, scope=ctx.scope)
+    material_plan = dict(state.get("material_plan") or empty_material_plan())
+    evidence_records = {key: rec.to_dict() for key, rec in records.items()}
+    if adaptive_enabled:
+        material_plan = _materialize_contract_fixed_plan(
+            material_plan,
+            candidates=candidate_envelopes,
+            contract=contract,
+        )
+        optional_source_ids = {
+            str(source.get("source_id") or "")
+            for source in contract.get("source_requirements") or ()
+            if isinstance(source, dict)
+            and not source.get("required")
+            and str(source.get("source_id") or "")
+        }
+        assessed_refs = {
+            str(item.get("ref") or "")
+            for item in material_plan.get("assessments") or ()
+            if isinstance(item, dict)
+        }
+        material_plan["needs_optional_assessment"] = any(
+            str(candidate.get("source_requirement_id") or "") in optional_source_ids
+            and str(candidate.get("ref") or "") not in assessed_refs
+            for candidate in candidate_envelopes
+        )
+        evidence_records.update(_card_records_from_plan(material_plan))
     return {
         **state,
         "research_transcript": transcript,
         "prefetch_hits": prefetch_hits,
         "search_ledger": search_ledger,
-        "evidence_records": {key: rec.to_dict() for key, rec in records.items()},
+        "evidence_records": evidence_records,
         "step_count": 0,
         "repair_count": 0,
         "phase5_enabled": bool(
             ctx.settings.agent_planner_phase5_enabled and contract.get("version") == 2
         ),
-        "adaptive_evidence_depth_enabled": bool(
-            getattr(ctx.settings, "agent_adaptive_evidence_depth_v1_enabled", False)
-            and ctx.settings.agent_planner_phase5_enabled
-            and contract.get("version") == 2
-        ),
-        "material_plan": dict(state.get("material_plan") or empty_material_plan()),
-        "candidate_envelopes": normalize_candidates(prefetch_hits, scope=ctx.scope),
+        "adaptive_evidence_depth_enabled": adaptive_enabled,
+        "material_plan": material_plan,
+        "candidate_envelopes": candidate_envelopes,
         "coverage_targets_by_source": coverage_targets,
         "planner_calls_used": int(state.get("planner_calls_used") or 0),
         "search_calls_used": sum(
@@ -1694,10 +1990,14 @@ async def _compact_planner_node(
             ],
             scope=str(state.get("scope") or "global"),
         )
-    if adaptive and (state.get("material_plan") or {}).get("needs_expansion_assessment"):
+    material_plan_state = dict(state.get("material_plan") or {})
+    if adaptive and (
+        material_plan_state.get("needs_optional_assessment")
+        or material_plan_state.get("needs_expansion_assessment")
+    ):
         assessed = {
             str(item.get("ref") or "")
-            for item in (state.get("material_plan") or {}).get("assessments") or ()
+            for item in material_plan_state.get("assessments") or ()
         }
         candidates = [item for item in candidates if str(item.get("ref") or "") not in assessed]
     planner_limit = int((contract.get("budgets") or {}).get("planner_calls") or 0)
@@ -1710,9 +2010,20 @@ async def _compact_planner_node(
         else (ctx.reasoner_spec, ctx.reasoner_model, ctx.reasoner_api_key)
     )
     if planner_limit <= calls_used or not planner_spec or not planner_model or not planner_api_key:
-        decision = PlannerDecision(
-            decision_code=DecisionCode.FINISH_PARTIAL,
-            confidence=1.0,
+        decision = (
+            PlannerDecision(
+                decision_code=DecisionCode.READ_TOP_CANDIDATES,
+                assessments=_conservative_candidate_assessments(
+                    candidates,
+                    contract=contract,
+                ),
+                confidence=0.0,
+            )
+            if adaptive and candidates
+            else PlannerDecision(
+                decision_code=DecisionCode.FINISH_PARTIAL,
+                confidence=1.0,
+            )
         )
         invalid_count = int(state.get("planner_invalid_count") or 0)
         calls_made = 0
@@ -1815,7 +2126,10 @@ async def _compact_planner_node(
             decision = (
                 PlannerDecision(
                     decision_code=DecisionCode.READ_TOP_CANDIDATES,
-                    assessments=_conservative_candidate_assessments(candidates),
+                    assessments=_conservative_candidate_assessments(
+                        candidates,
+                        contract=contract,
+                    ),
                     confidence=0.0,
                 )
                 if adaptive and candidates
@@ -1852,8 +2166,12 @@ async def _compact_planner_node(
                 candidates=candidates,
                 contract=contract,
             )
+            assessment_payloads = _apply_optional_source_policy(
+                assessment_payloads,
+                candidates=candidates,
+                contract=contract,
+            )
             if str(contract.get("task_profile") or "") in {
-                "exact_lookup",
                 "comparison",
                 "artifact_revision",
                 "mutation_proposal",
@@ -1866,6 +2184,7 @@ async def _compact_planner_node(
                 candidates=candidates,
                 assessments=assessment_payloads,
             )
+            material_plan["needs_optional_assessment"] = False
             expansion_sources = saturated_sources(material_plan)
             if (
                 expansion_sources
@@ -1941,6 +2260,8 @@ async def _compact_planner_node(
         "planner_call_kind": (
             "expansion"
             if adaptive and (state.get("material_plan") or {}).get("needs_expansion_assessment")
+            else "optional_assessment"
+            if adaptive and (state.get("material_plan") or {}).get("needs_optional_assessment")
             else "initial"
         ),
     }
@@ -2947,7 +3268,10 @@ def route_research_verify(state: AgentGraphState) -> Literal["planner", "tool", 
     if state.get("phase5_enabled"):
         if (
             state.get("adaptive_evidence_depth_enabled")
-            and (state.get("material_plan") or {}).get("needs_expansion_assessment")
+            and (
+                (state.get("material_plan") or {}).get("needs_optional_assessment")
+                or (state.get("material_plan") or {}).get("needs_expansion_assessment")
+            )
         ):
             return "planner"
         if (
