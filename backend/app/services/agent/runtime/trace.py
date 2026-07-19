@@ -66,10 +66,42 @@ def _fmt_tool_result(p: Mapping[str, Any]) -> list[str]:
     lines = [head]
     if p.get("error"):
         lines.append(f"    error: {_preview(p['error'])}")
+    typed = p.get("typed_error")
+    if isinstance(typed, Mapping) and typed.get("code"):
+        next_action = f" next={typed.get('next_action')}" if typed.get("next_action") else ""
+        lines.append(f"    typed_error: {typed.get('code')}{next_action}")
     record_ids = p.get("record_ids")
     if isinstance(record_ids, Sequence) and not isinstance(record_ids, str) and record_ids:
         lines.append(f"    evidence+= {list(record_ids)}")
     return lines
+
+
+def _fmt_run_metrics(p: Mapping[str, Any]) -> list[str]:
+    timings = p.get("phase_timings_ms") or {}
+    rendered = ", ".join(
+        f"{key}={value}ms" for key, value in timings.items() if value
+    )
+    return [
+        "metrics: "
+        f"mode={p.get('execution_mode') or '?'} "
+        f"worker={'warm' if p.get('worker_warm') else 'cold'} "
+        f"total={p.get('duration_ms') or 0}ms",
+        f"    phases: {rendered or 'none'}",
+    ]
+
+
+def _fmt_sufficiency(p: Mapping[str, Any]) -> list[str]:
+    return [
+        "sufficiency: "
+        f"status={p.get('status') or '?'} "
+        f"ready={p.get('decision_code') or ''}",
+        f"    evidence={list(p.get('evidence_ids') or [])} open={list(p.get('open_requirements') or [])}",
+    ]
+
+
+def _fmt_lineage(p: Mapping[str, Any]) -> list[str]:
+    lineage = p.get("lineage") or []
+    return [f"evidence lineage: {len(lineage)} items", f"    ids={list(p.get('evidence_ids') or [])}"]
 
 
 def _fmt_answer(p: Mapping[str, Any]) -> list[str]:
@@ -110,6 +142,9 @@ _FORMATTERS = {
     "workspace_step": _fmt_workspace_step,
     "planner_step": _fmt_planner_step,
     "tool_result": _fmt_tool_result,
+    "run_metrics": _fmt_run_metrics,
+    "sufficiency": _fmt_sufficiency,
+    "evidence_lineage": _fmt_lineage,
     "answer": _fmt_answer,
 }
 _TERMINAL = {"run_completed", "run_interrupted", "run_failed", "interrupt"}

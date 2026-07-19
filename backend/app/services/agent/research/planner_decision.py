@@ -41,6 +41,11 @@ _READ_TOOLS = frozenset(
         "ListPostMedia",
         "HydrateAttachment",
         "GetPostAnalytics",
+        "ResolveObjects",
+        "SearchObjects",
+        "OpenObjects",
+        "HydrateAttachments",
+        "ReadAnalytics",
     }
 )
 

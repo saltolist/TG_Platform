@@ -146,6 +146,14 @@ async def rebuild_runtime_context_for_run(
     from app.services.agent.runtime.turn_contract import build_turn_contract
 
     settings = get_settings()
+    # A HITL resume is a continuation of the interrupted run, not a new turn.
+    # Prefer the durable checkpoint snapshot when no new user text is supplied;
+    # rebuilding a contract from the latest dialog could otherwise change the
+    # target revision and silently drop evidence requirements.
+    persisted_snapshot = dict(run.snapshot or {})
+    persisted_user_text = str(persisted_snapshot.get("user_text") or "").strip()
+    effective_user_text = user_text or persisted_user_text
+    persisted_contract = persisted_snapshot.get("turn_contract")
     user = await session.scalar(select(User).where(User.id == run.user_id))
     if user is None:
         raise RuntimeError("agent_run_user_not_found")
@@ -188,7 +196,7 @@ async def rebuild_runtime_context_for_run(
     from app.services.ai.chat_history import extract_last_proposed_edit
 
     history = await load_run_history(session, run, user)
-    dialog_context = build_planner_dialog_context(user_text, history) if history else ""
+    dialog_context = build_planner_dialog_context(effective_user_text, history) if history else ""
     if history:
         # Turns older than the verbatim window above are lossy in dialog_context
         # (build_planner_dialog_context only keeps the last N pairs) — summarize
@@ -241,7 +249,7 @@ async def rebuild_runtime_context_for_run(
         None,
     )
     turn_contract = build_turn_contract(
-        user_text=user_text,
+        user_text=effective_user_text,
         history=history,
         scope=run.scope,
         recent_note=recent_note,
@@ -250,6 +258,8 @@ async def rebuild_runtime_context_for_run(
         prior_contract=prior_contract,
         v2_enabled=settings.agent_turn_contract_v2_enabled,
     )
+    if not user_text and isinstance(persisted_contract, dict) and persisted_contract:
+        turn_contract = dict(persisted_contract)
     return RuntimeContext(
         session_factory=async_session_factory,
         user_id=user.id,

@@ -116,6 +116,17 @@ class ToolOutcome:
     # only by tool_search_nodes. Lets the seed prefetch record candidates for
     # the finish-gate guard without re-parsing the human-readable summary.
     hits: tuple[dict[str, Any], ...] = ()
+    # Phase-7 typed/tool observability fields. ``error`` remains for legacy
+    # callers; planners and traces should prefer the structured fields.
+    error_code: str | None = None
+    error_message: str | None = None
+    retryable: bool = False
+    next_action: str | None = None
+    response_mode: str = "compact"
+    result_count: int = 0
+    cache_hit: bool = False
+    duration_ms: float = 0.0
+    items: tuple[dict[str, Any], ...] = ()
 
 
 def _already_visited(state: AgentState, ref: str) -> ToolOutcome | None:

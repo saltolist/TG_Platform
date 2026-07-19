@@ -1,4 +1,42 @@
 groups:
+  - name: workspace_agent_runtime
+    rules:
+      - alert: WorkspaceAgentInteractiveP95High
+        expr: histogram_quantile(0.95, sum by (le, execution_mode) (rate(agent_run_duration_by_mode_seconds_bucket{execution_mode=~"fast|compact|deep"}[10m]))) > 25
+        for: 10m
+        labels:
+          severity: warning
+        annotations:
+          summary: "Workspace Agent interactive p95 exceeds SLO"
+          description: "Interactive agent p95 is {{ $value | humanizeDuration }}; inspect the phase timing dashboard."
+
+      - alert: WorkspaceAgentInteractiveHardCap
+        expr: histogram_quantile(0.95, sum by (le, execution_mode) (rate(agent_run_duration_by_mode_seconds_bucket{execution_mode=~"fast|compact|deep"}[10m]))) > 60
+        for: 5m
+        labels:
+          severity: critical
+        annotations:
+          summary: "Workspace Agent interactive hard cap breached"
+          description: "The interactive error budget is being exhausted by runs over 60 seconds."
+
+      - alert: WorkspaceAgentTypedToolErrors
+        expr: sum(rate(agent_tool_calls_total{error_code!="none"}[10m])) > 0.05
+        for: 10m
+        labels:
+          severity: warning
+        annotations:
+          summary: "Workspace Agent typed tool errors are elevated"
+          description: "Tool errors are {{ $value }} per second; inspect next_action and the affected tool."
+
+      - alert: WorkspaceAgentColdRunTail
+        expr: histogram_quantile(0.95, sum by (le) (rate(agent_run_duration_by_mode_seconds_bucket{worker_warm="cold"}[10m]))) > 30
+        for: 10m
+        labels:
+          severity: warning
+        annotations:
+          summary: "Cold Workspace Agent runs are slow"
+          description: "Cold-run p95 exceeds 30 seconds; check worker readiness and embedding warmup."
+
   - name: analytics_snapshot
     rules:
       - alert: AnalyticsSnapshotChannelOverdue

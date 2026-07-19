@@ -87,7 +87,13 @@ async def workspace_agent_node(
     from app.services.ai.rag_json import extract_json_object
 
     ctx: RuntimeContext = config["configurable"]["runtime_context"]
-    planner_spec, planner_model, planner_api_key = ctx.planner_llm()
+    planner_binding = getattr(ctx, "planner_llm", None)
+    if callable(planner_binding):
+        planner_spec, planner_model, planner_api_key = planner_binding()
+    else:
+        planner_spec = getattr(ctx, "planner_spec", None) or getattr(ctx, "reasoner_spec", None)
+        planner_model = getattr(ctx, "planner_model", "") or getattr(ctx, "reasoner_model", "")
+        planner_api_key = getattr(ctx, "planner_api_key", "") or getattr(ctx, "reasoner_api_key", "")
     deterministic_contract = dict(
         state.get("turn_contract")
         or (config["configurable"] or {}).get("turn_contract")

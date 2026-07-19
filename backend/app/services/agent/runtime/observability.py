@@ -5,7 +5,7 @@ from __future__ import annotations
 import logging
 import time
 from contextlib import contextmanager
-from typing import Iterator
+from typing import Any, Iterator
 
 from prometheus_client import Counter, Gauge, Histogram
 
@@ -25,6 +25,27 @@ AGENT_DURATION = Histogram(
     "agent_run_duration_seconds",
     "WorkspaceAgent execution duration",
     buckets=(0.1, 0.5, 1, 2, 5, 10, 30, 60, 180, 600),
+)
+AGENT_DURATION_BY_MODE = Histogram(
+    "agent_run_duration_by_mode_seconds",
+    "WorkspaceAgent duration split by execution mode and warm state",
+    ("execution_mode", "worker_warm"),
+    buckets=(0.1, 0.5, 1, 2, 5, 10, 30, 60, 180, 600),
+)
+AGENT_PHASE_DURATION = Histogram(
+    "agent_phase_duration_seconds",
+    "WorkspaceAgent phase duration by execution mode and warm state",
+    ("phase", "execution_mode", "worker_warm"),
+    buckets=(0.001, 0.01, 0.05, 0.1, 0.5, 1, 2, 5, 10, 30, 60),
+)
+AGENT_TOOL_CALLS = Counter(
+    "agent_tool_calls_total",
+    "WorkspaceAgent tool calls by tool, error and cache status",
+    ("tool", "error_code", "cache_hit"),
+)
+AGENT_DUPLICATE_SUPPRESSIONS = Counter(
+    "agent_duplicate_tool_suppressions_total",
+    "Tool calls served from the run ledger/cache instead of the provider",
 )
 MEDIA_JOBS = Counter(
     "agent_media_jobs_total",
@@ -71,3 +92,30 @@ def span(name: str, **fields: object) -> Iterator[None]:
     finally:
         elapsed_ms = (time.perf_counter() - started) * 1000
         logger.info("span.end %s elapsed_ms=%.1f %s", name, elapsed_ms, fields)
+
+
+def normalize_phase_timings(value: Any) -> dict[str, float]:
+    """Return finite, non-negative phase durations suitable for metrics/JSON."""
+
+    if not isinstance(value, dict):
+        return {}
+    result: dict[str, float] = {}
+    for key, raw in value.items():
+        try:
+            duration = max(0.0, float(raw))
+        except (TypeError, ValueError):
+            continue
+        if duration:
+            result[str(key)] = round(duration, 1)
+    return result
+
+
+def observe_run_phases(
+    phase_timings: dict[str, float],
+    *,
+    execution_mode: str,
+    worker_warm: bool,
+) -> None:
+    warm_label = "warm" if worker_warm else "cold"
+    for phase, duration_ms in normalize_phase_timings(phase_timings).items():
+        AGENT_PHASE_DURATION.labels(phase, execution_mode, warm_label).observe(duration_ms / 1000)

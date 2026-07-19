@@ -87,6 +87,10 @@ class RuntimeContext:
     # once as a durable run_metrics event. Never checkpointed and contains no
     # prompt/response text or API keys.
     llm_metrics: list[dict[str, Any]] = field(default_factory=list)
+    # Durable phase totals are assembled by the graph executor and emitted in
+    # workspace.run-metrics/v1. They remain outside checkpoints because resume
+    # emits a separate leg while retaining the same run id.
+    phase_timings: dict[str, float] = field(default_factory=dict)
 
     def planner_llm(self) -> tuple[ProviderSpec | None, str, str]:
         return (

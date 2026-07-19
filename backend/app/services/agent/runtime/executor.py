@@ -3,8 +3,11 @@
 from __future__ import annotations
 
 import logging
+import hashlib
+import json
 import time
 import uuid
+from datetime import datetime, timezone
 from typing import Any
 
 import httpx
@@ -15,13 +18,19 @@ from app.services.agent.runtime import events as event_service
 from app.services.agent.runtime.budget import RunDeadlineExceeded
 from app.services.agent.runtime.checkpoint import ensure_checkpointer_ready
 from app.services.agent.runtime.context import RuntimeContext
+from app.services.agent.runtime.tool_contracts import typed_tool_error
 from app.services.agent.runtime.observability import (
     AGENT_DURATION,
+    AGENT_DURATION_BY_MODE,
     AGENT_EMPTY_PACK,
     AGENT_INTERRUPTS,
     AGENT_RUNS,
     AGENT_STEPS,
     AGENT_STOPPED_REASON,
+    AGENT_TOOL_CALLS,
+    AGENT_DUPLICATE_SUPPRESSIONS,
+    normalize_phase_timings,
+    observe_run_phases,
 )
 from app.services.agent.runtime.trace import render_run_trace
 from app.services.agent.runtime.workspace_graph import get_compiled_workspace_graph
@@ -107,6 +116,45 @@ def _tool_outcome_payload(data: dict[str, Any]) -> dict[str, Any] | None:
     return dict(latest) if isinstance(latest, dict) else None
 
 
+def _sufficiency_payload(data: dict[str, Any]) -> dict[str, Any] | None:
+    update = data.get("verify")
+    if not isinstance(update, dict):
+        return None
+    sufficiency = update.get("sufficiency")
+    if not isinstance(sufficiency, dict) or not sufficiency:
+        return None
+    return {
+        **sufficiency,
+        "schema": "workspace.sufficiency-result/v1",
+        "evidence_ids": [str(item) for item in update.get("evidence_ids") or []],
+    }
+
+
+def _evidence_lineage_payload(data: dict[str, Any]) -> dict[str, Any] | None:
+    update = data.get("pack")
+    if not isinstance(update, dict):
+        return None
+    pack = update.get("evidence_pack")
+    if not isinstance(pack, dict) or not pack:
+        return None
+    items = pack.get("items") or pack.get("evidence") or []
+    return {
+        "schema": pack.get("schema") or update.get("evidence_pack_schema"),
+        "evidence_ids": [str(item) for item in update.get("evidence_ids") or []],
+        "lineage": [
+            {
+                "evidence_id": item.get("evidence_id") or item.get("id"),
+                "kind": item.get("kind"),
+                "source_ref": item.get("source_ref"),
+                "source_requirement_ids": item.get("source_requirement_ids") or [],
+                "source_intent_ids": item.get("source_intent_ids") or [],
+            }
+            for item in items
+            if isinstance(item, dict)
+        ],
+    }
+
+
 def _extract_interrupt(interrupts: tuple[Any, ...]) -> dict[str, Any] | None:
     """Pull the interrupt payload out of a v2 "values" event's "interrupts" tuple.
 
@@ -119,6 +167,54 @@ def _extract_interrupt(interrupts: tuple[Any, ...]) -> dict[str, Any] | None:
         return None
     value = getattr(interrupts[-1], "value", None)
     return dict(value) if isinstance(value, dict) else None
+
+
+def _resume_state_ref(state: dict[str, Any]) -> dict[str, Any]:
+    contract = dict(state.get("turn_contract") or {})
+    target_contract = dict(state.get("target_contract") or contract.get("target_contract") or {})
+    target_ids = sorted(
+        str(item.get("id") or "")
+        for item in target_contract.get("targets") or []
+        if isinstance(item, dict) and item.get("id")
+    )
+    evidence_ids = sorted(str(item) for item in state.get("evidence_ids") or [])
+    canonical = {
+        "run_id": str(state.get("run_id") or ""),
+        "contract_revision": contract.get("revision"),
+        "target_ids": target_ids,
+        "evidence_ids": evidence_ids,
+    }
+    digest = hashlib.sha256(
+        json.dumps(canonical, sort_keys=True, ensure_ascii=True).encode("utf-8")
+    ).hexdigest()[:20]
+    return {**canonical, "state_fingerprint": digest}
+
+
+def _restore_resume_continuity(
+    before: dict[str, Any], after: dict[str, Any]
+) -> dict[str, Any]:
+    """Keep authoritative research state across an approval interruption."""
+
+    restored = dict(after)
+    for field in ("turn_contract", "target_contract", "resolution_events"):
+        if before.get(field):
+            restored[field] = before[field]
+    previous_records = before.get("evidence_records")
+    if isinstance(previous_records, dict):
+        restored["evidence_records"] = {
+            **previous_records,
+            **dict(restored.get("evidence_records") or {}),
+        }
+    previous_ids = [str(item) for item in before.get("evidence_ids") or []]
+    current_ids = [str(item) for item in restored.get("evidence_ids") or []]
+    if previous_ids:
+        restored["evidence_ids"] = list(dict.fromkeys([*previous_ids, *current_ids]))
+    for field in ("evidence_pack", "evidence_pack_schema", "search_ledger", "sufficiency"):
+        previous = before.get(field)
+        current = restored.get(field)
+        if previous and not current:
+            restored[field] = previous
+    return restored
 
 
 async def _maybe_log_trace(session, *, run: AgentRun, settings) -> None:
@@ -149,27 +245,99 @@ def _record_run_metrics(final_state: dict[str, Any]) -> None:
 
 def _llm_metrics_payload(runtime_context: RuntimeContext, *, duration_ms: float) -> dict[str, Any]:
     calls = [dict(item) for item in runtime_context.llm_metrics]
+    contract = dict(runtime_context.turn_contract or {})
+    execution_mode = str(contract.get("execution_mode") or "unknown")
+    phase_timings = normalize_phase_timings(getattr(runtime_context, "phase_timings", {}))
+    try:
+        from app.tasks.async_runtime import runtime_status
+
+        worker_state = runtime_status()
+    except Exception:  # pragma: no cover - optional outside Celery
+        worker_state = {}
+    worker_warm = bool(worker_state.get("ready"))
     return {
         "duration_ms": round(duration_ms, 1),
+        "time_to_final_ms": round(
+            duration_ms + float(phase_timings.get("queue_wait") or 0), 1
+        ),
         "llm_calls": len(calls),
         "prompt_tokens": sum(int(item.get("prompt_tokens") or 0) for item in calls),
         "completion_tokens": sum(int(item.get("completion_tokens") or 0) for item in calls),
         "total_tokens": sum(int(item.get("total_tokens") or 0) for item in calls),
         "token_method": "chars_div_4_estimate",
         "calls": calls,
+        "schema": "workspace.run-metrics/v1",
+        "execution_mode": execution_mode,
+        "phase_timings_ms": phase_timings,
+        "worker_warm": worker_warm,
+        "worker_status": worker_state.get("status") or "unknown",
+        "cold_start_ms": worker_state.get("worker_init_ms"),
+        "embedding_init_ms": worker_state.get("embedding_init_ms"),
+        "first_embed_ms": worker_state.get("first_embed_ms"),
+        "db_timings_ms": {},
     }
 
 
 async def _emit_llm_metrics(session, *, run_id: uuid.UUID, runtime_context: RuntimeContext, started_at: float) -> None:
+    payload = _llm_metrics_payload(
+        runtime_context,
+        duration_ms=(time.perf_counter() - started_at) * 1000,
+    )
     await emit_run_event(
         session,
         run_id=run_id,
         event_type="run_metrics",
-        payload=_llm_metrics_payload(
-            runtime_context,
-            duration_ms=(time.perf_counter() - started_at) * 1000,
-        ),
+        payload=payload,
     )
+
+
+def _phase_for_node(node: str) -> str:
+    return {
+        "bootstrap": "bootstrap",
+        "workspace_agent": "bootstrap",
+        "seed": "discovery",
+        "planner": "planner",
+        "tool": "tool",
+        "verify": "sufficiency",
+        "pack": "sufficiency",
+        "answer": "answer",
+        "build_action_proposal": "action",
+        "build_media_proposal": "action",
+        "resolve_schedule_time": "action",
+        "media_enqueue": "action",
+        "media_wait": "action",
+        "media_attach_proposal": "action",
+    }.get(node, "other")
+
+
+def _phase_for_update(data: dict[str, Any], node: str) -> str:
+    if node != "tool":
+        return _phase_for_node(node)
+    outcome = _tool_outcome_payload(data) or {}
+    tool = str(outcome.get("tool") or "")
+    if tool.startswith("Search") or tool.startswith("List") or tool == "ResolveObjects":
+        return "discovery"
+    if tool.startswith("Open") or tool.startswith("Hydrate") or tool in {
+        "GetPostAnalytics",
+        "ReadAnalytics",
+    }:
+        return "deep_read"
+    return "tool"
+
+
+def _record_tool_observation(payload: dict[str, Any]) -> None:
+    tool = str(payload.get("tool") or "unknown")
+    raw_error = str(
+        ((payload.get("typed_error") or {}).get("code") if isinstance(payload.get("typed_error"), dict) else "")
+        or payload.get("error")
+        or ""
+    )
+    error = typed_tool_error(raw_error, "") if raw_error else None
+    error_code = error.code if error else "none"
+    cache_hit = bool(payload.get("cache_hit") or payload.get("cached"))
+    AGENT_TOOL_CALLS.labels(tool, error_code, "true" if cache_hit else "false").inc()
+    if cache_hit:
+        AGENT_DUPLICATE_SUPPRESSIONS.inc()
 
 
 async def _persist_turn_memory(
@@ -242,6 +410,13 @@ async def execute_agent_run(
     configurable: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
     started_at = time.perf_counter()
+    created_at = run.created_at
+    if created_at.tzinfo is None:
+        created_at = created_at.replace(tzinfo=timezone.utc)
+    runtime_context.phase_timings.clear()
+    runtime_context.phase_timings["queue_wait"] = max(
+        0.0, (datetime.now(timezone.utc) - created_at).total_seconds() * 1000
+    )
     await ensure_checkpointer_ready()
     graph = get_compiled_workspace_graph()
     # Arm the run-level wall-clock budget (agent-runtime-sprints §6): every LLM
@@ -307,7 +482,27 @@ async def execute_agent_run(
         session,
         run_id=run.id,
         event_type="graph_started",
-        payload={"user_text": user_text[:200]},
+        payload={
+            "schema": "workspace.run-trace/v1",
+            "user_text": user_text[:200],
+            "execution_mode": runtime_context.turn_contract.get("execution_mode") or "unknown",
+            "contract_revision": runtime_context.turn_contract.get("revision"),
+            "target_resolution": [
+                {
+                    "id": item.get("id"),
+                    "kind": item.get("kind"),
+                    "resolved_by": item.get("resolved_by"),
+                    "confidence": item.get("confidence"),
+                }
+                for item in (runtime_context.turn_contract.get("target_contract") or {}).get("targets") or []
+                if isinstance(item, dict)
+            ],
+            "source_requirement_ids": [
+                str(item.get("source_id") or "")
+                for item in runtime_context.turn_contract.get("source_requirements") or []
+                if isinstance(item, dict) and item.get("source_id")
+            ],
+        },
     )
     checkpoint = await graph.aget_state(cfg)
     checkpoint_values = dict(checkpoint.values or {})
@@ -326,6 +521,7 @@ async def execute_agent_run(
             return checkpoint_values
         graph_input = None
     final_state: dict[str, Any] = checkpoint_values or initial
+    last_graph_update_at = time.perf_counter()
     # One shared httpx.AsyncClient for all LLM calls in this run — avoids
     # re-establishing TLS per call (was one AsyncClient per call before).
     # budget.py injects it via ctx.llm_client; llm.py won't close it because
@@ -361,6 +557,10 @@ async def execute_agent_run(
                     )
                     interrupt_payload = _extract_interrupt(event.get("interrupts") or ())
                     if interrupt_payload is not None:
+                        interrupt_payload = {
+                            **interrupt_payload,
+                            "resume_state": _resume_state_ref(data),
+                        }
                         run.current_interrupt = interrupt_payload
                         run.status = "interrupted"
                         AGENT_INTERRUPTS.labels(
@@ -373,6 +573,15 @@ async def execute_agent_run(
                             payload=interrupt_payload,
                         )
                 elif mode == "updates" and isinstance(data, dict):
+                    now = time.perf_counter()
+                    node_names = [str(key) for key, value in data.items() if isinstance(value, dict)]
+                    if node_names:
+                        phase = _phase_for_update(data, node_names[0])
+                        runtime_context.phase_timings[phase] = (
+                            runtime_context.phase_timings.get(phase, 0.0)
+                            + (now - last_graph_update_at) * 1000
+                        )
+                        last_graph_update_at = now
                     workspace_step = _workspace_step_payload(data)
                     if workspace_step is not None:
                         await emit_run_event(
@@ -391,11 +600,28 @@ async def execute_agent_run(
                         )
                     tool_outcome = _tool_outcome_payload(data)
                     if tool_outcome is not None:
+                        _record_tool_observation(tool_outcome)
                         await emit_run_event(
                             session,
                             run_id=run.id,
                             event_type="tool_result",
                             payload=tool_outcome,
+                        )
+                    sufficiency = _sufficiency_payload(data)
+                    if sufficiency is not None:
+                        await emit_run_event(
+                            session,
+                            run_id=run.id,
+                            event_type="sufficiency",
+                            payload=sufficiency,
+                        )
+                    lineage = _evidence_lineage_payload(data)
+                    if lineage is not None:
+                        await emit_run_event(
+                            session,
+                            run_id=run.id,
+                            event_type="evidence_lineage",
+                            payload=lineage,
                         )
             status = str(final_state.get("status") or "completed")
             if run.status == "interrupted":
@@ -443,7 +669,21 @@ async def execute_agent_run(
             )
             await session.commit()
             AGENT_RUNS.labels(status).inc()
-            AGENT_DURATION.observe(time.perf_counter() - started_at)
+            total_seconds = time.perf_counter() - started_at
+            AGENT_DURATION.observe(total_seconds)
+            metrics_payload = _llm_metrics_payload(
+                runtime_context, duration_ms=total_seconds * 1000
+            )
+            execution_mode = str(metrics_payload["execution_mode"])
+            worker_warm = bool(metrics_payload["worker_warm"])
+            AGENT_DURATION_BY_MODE.labels(
+                execution_mode, "warm" if worker_warm else "cold"
+            ).observe(total_seconds)
+            observe_run_phases(
+                runtime_context.phase_timings,
+                execution_mode=execution_mode,
+                worker_warm=worker_warm,
+            )
             _record_run_metrics(final_state)
             await _maybe_log_trace(session, run=run, settings=runtime_context.settings)
             return final_state
@@ -520,6 +760,14 @@ async def resume_agent_graph(
     if runtime_context is None:
         runtime_context = await rebuild_runtime_context_for_run(session, run)
     runtime_context.llm_metrics.clear()
+    runtime_context.phase_timings.clear()
+    updated_at = run.updated_at
+    if updated_at.tzinfo is None:
+        updated_at = updated_at.replace(tzinfo=timezone.utc)
+    runtime_context.phase_timings["approval_wait"] = max(
+        0.0, (datetime.now(timezone.utc) - updated_at).total_seconds() * 1000
+    )
+    resume_state_before = _resume_state_ref(dict(run.snapshot or {}))
     # Fresh wall-clock budget for the resumed leg (agent-runtime-sprints §6).
     contract_budgets = runtime_context.turn_contract.get("budgets") or {}
     hard_deadline_s = min(
@@ -543,6 +791,7 @@ async def resume_agent_graph(
     }
     final_state: dict[str, Any] = {}
     pending_interrupt: dict[str, Any] | None = None
+    last_graph_update_at = time.perf_counter()
     async for event in graph.astream(
         Command(resume=resume_value),
         cfg,
@@ -557,8 +806,20 @@ async def resume_agent_graph(
             final_state = data
             interrupt_payload = _extract_interrupt(event.get("interrupts") or ())
             if interrupt_payload is not None:
-                pending_interrupt = interrupt_payload
+                pending_interrupt = {
+                    **interrupt_payload,
+                    "resume_state": _resume_state_ref(data),
+                }
         elif mode == "updates" and isinstance(data, dict):
+            now = time.perf_counter()
+            node_names = [str(key) for key, value in data.items() if isinstance(value, dict)]
+            if node_names:
+                phase = _phase_for_update(data, node_names[0])
+                runtime_context.phase_timings[phase] = (
+                    runtime_context.phase_timings.get(phase, 0.0)
+                    + (now - last_graph_update_at) * 1000
+                )
+                last_graph_update_at = now
             workspace_step = _workspace_step_payload(data)
             if workspace_step is not None:
                 await emit_run_event(
@@ -577,15 +838,33 @@ async def resume_agent_graph(
                 )
             tool_outcome = _tool_outcome_payload(data)
             if tool_outcome is not None:
+                _record_tool_observation(tool_outcome)
                 await emit_run_event(
                     session,
                     run_id=run.id,
                     event_type="tool_result",
                     payload=tool_outcome,
                 )
+            sufficiency = _sufficiency_payload(data)
+            if sufficiency is not None:
+                await emit_run_event(
+                    session,
+                    run_id=run.id,
+                    event_type="sufficiency",
+                    payload=sufficiency,
+                )
+            lineage = _evidence_lineage_payload(data)
+            if lineage is not None:
+                await emit_run_event(
+                    session,
+                    run_id=run.id,
+                    event_type="evidence_lineage",
+                    payload=lineage,
+                )
     status = "interrupted" if pending_interrupt else str(
         final_state.get("status") or "completed"
     )
+    final_state = _restore_resume_continuity(dict(run.snapshot or {}), final_state)
     if status not in {"interrupted", "failed", "cancelled"}:
         status = "completed"
     if status == "completed":
@@ -632,7 +911,27 @@ async def resume_agent_graph(
         session,
         run_id=run.id,
         event_type="graph_resumed",
-        payload=resume_value,
+        payload={
+            "decision": resume_value.get("decision"),
+            "proposal_id": resume_value.get("proposal_id"),
+            "resume_state_before": resume_state_before,
+            "resume_state_after": _resume_state_ref(final_state),
+            "status": status,
+        },
     )
     await session.commit()
+    total_seconds = time.perf_counter() - started_at
+    metrics_payload = _llm_metrics_payload(runtime_context, duration_ms=total_seconds * 1000)
+    execution_mode = str(metrics_payload["execution_mode"])
+    worker_warm = bool(metrics_payload["worker_warm"])
+    AGENT_RUNS.labels(status).inc()
+    AGENT_DURATION.observe(total_seconds)
+    AGENT_DURATION_BY_MODE.labels(
+        execution_mode, "warm" if worker_warm else "cold"
+    ).observe(total_seconds)
+    observe_run_phases(
+        runtime_context.phase_timings,
+        execution_mode=execution_mode,
+        worker_warm=worker_warm,
+    )
     return final_state

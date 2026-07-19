@@ -7,7 +7,7 @@ import json
 import logging
 import time
 import uuid
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from typing import Any, Literal
 
 from langchain_core.runnables import RunnableConfig
@@ -32,6 +32,7 @@ from app.services.agent.research.trust import UNTRUSTED_SYSTEM_NOTE, wrap_untrus
 from app.services.agent.research.verifier import verify_evidence
 from app.services.agent.research.planner_decision import (
     DecisionCode,
+    PlannerAction,
     PlannerDecision,
     parse_planner_decision,
     render_planner_schema,
@@ -39,6 +40,10 @@ from app.services.agent.research.planner_decision import (
 from app.services.agent.research.sufficiency import evaluate_sufficiency
 from app.services.agent.runtime.context import RuntimeContext
 from app.services.agent.runtime.state import AgentGraphState
+from app.services.agent.runtime.tool_contracts import (
+    CONSOLIDATED_TOOLS,
+    typed_tool_error,
+)
 from app.services.agent.runtime.turn_contract import (
     covered_source_ids,
     evidence_matches_source,
@@ -357,7 +362,7 @@ def _build_messages(
     ]
 
 
-async def _execute_tool(state: AgentState, action: ToolAction) -> ToolOutcome:
+async def _execute_tool_impl(state: AgentState, action: ToolAction) -> ToolOutcome:
     tool = action.tool
     args = action.args
     if tool == "SearchNodes":
@@ -441,6 +446,157 @@ async def _execute_tool(state: AgentState, action: ToolAction) -> ToolOutcome:
     return ToolOutcome(summary=f"Неизвестный tool: {tool}", error="unknown_tool")
 
 
+def _object_action(item: Any) -> ToolAction | None:
+    if isinstance(item, str):
+        prefix, _, object_id = item.partition(":")
+        if prefix == "post" and object_id:
+            return ToolAction(tool="OpenPost", args={"post_id": object_id})
+        if prefix == "note" and object_id:
+            return ToolAction(tool="OpenNote", args={"note_id": object_id})
+        return None
+    if not isinstance(item, dict):
+        return None
+    kind = str(item.get("kind") or item.get("object_type") or "")
+    object_id = str(item.get("id") or item.get("object_id") or "")
+    if kind == "post" and object_id:
+        return ToolAction(tool="OpenPost", args={"post_id": object_id})
+    if kind == "note" and object_id:
+        return ToolAction(
+            tool="OpenNote",
+            args={"note_id": object_id, "post_id": item.get("post_id")},
+        )
+    return None
+
+
+async def _execute_consolidated_tool(state: AgentState, action: ToolAction) -> ToolOutcome:
+    """Adapt task-oriented phase-7 tools to the stable deterministic tools."""
+
+    tool = action.tool
+    args = action.args
+    mode = str(args.get("response_mode") or args.get("mode") or "compact")
+    mode = mode if mode in {"compact", "detailed"} else "compact"
+    child_actions: list[ToolAction] = []
+
+    if tool == "ResolveObjects":
+        refs = args.get("refs") or args.get("items") or ()
+        hits: list[dict[str, Any]] = []
+        for item in refs if isinstance(refs, list) else ():
+            resolved = _object_action(item)
+            if resolved is None:
+                continue
+            object_id = str(resolved.args.get("post_id") or resolved.args.get("note_id") or "")
+            kind = "post" if resolved.tool == "OpenPost" else "note"
+            hits.append({"ref": f"{kind}:{object_id}", "object_id": object_id, "object_type": kind})
+        if not hits:
+            return ToolOutcome(
+                summary="Не удалось разрешить объекты.",
+                error="empty_scope",
+                response_mode=mode,
+            )
+        return ToolOutcome(
+            summary=f"Разрешено объектов: {len(hits)}.",
+            hits=tuple(hits),
+            response_mode=mode,
+            result_count=len(hits),
+        )
+    if tool == "SearchObjects":
+        intents = args.get("intents") or args.get("items") or ()
+        if not intents and args.get("query"):
+            intents = [args]
+        for item in intents if isinstance(intents, list) else ():
+            if isinstance(item, dict):
+                child_actions.append(ToolAction(tool="SearchNodes", args=dict(item)))
+    elif tool == "OpenObjects":
+        objects = args.get("objects") or args.get("ids") or args.get("items") or ()
+        for item in objects if isinstance(objects, list) else ():
+            if resolved := _object_action(item):
+                child_actions.append(resolved)
+    elif tool == "HydrateAttachments":
+        attachments = args.get("attachments") or args.get("attachment_ids") or args.get("items") or ()
+        for item in attachments if isinstance(attachments, list) else ():
+            payload = {"ref": item} if isinstance(item, str) else dict(item) if isinstance(item, dict) else {}
+            if payload:
+                child_actions.append(ToolAction(tool="HydrateAttachment", args=payload))
+    elif tool == "ReadAnalytics":
+        scope = dict(args.get("scope") or {})
+        post_ids = scope.get("post_ids") or args.get("post_ids") or ()
+        if not post_ids and (scope.get("post_id") or args.get("post_id")):
+            post_ids = [scope.get("post_id") or args.get("post_id")]
+        for post_id in post_ids if isinstance(post_ids, list) else ():
+            child_actions.append(
+                ToolAction(
+                    tool="GetPostAnalytics",
+                    args={"post_id": str(post_id), "period": args.get("period") or "7d"},
+                )
+            )
+    elif tool == "ProposeAction":
+        return ToolOutcome(
+            summary="Мутация требует отдельного approval workflow.",
+            error="proposal_required",
+            next_action="route_mutation",
+            response_mode=mode,
+        )
+
+    if not child_actions:
+        return ToolOutcome(summary="Пустой batch tool request.", error="empty_scope", response_mode=mode)
+
+    outcomes = [await _execute_tool_impl(state, child) for child in child_actions]
+    errors = [item.error for item in outcomes if item.error]
+    hits = tuple(hit for item in outcomes for hit in item.hits)
+    summaries = [item.summary for item in outcomes]
+    if mode == "compact":
+        summary = " | ".join(" ".join(item.split())[:180] for item in summaries)
+    else:
+        summary = "\n\n".join(summaries)
+    return ToolOutcome(
+        summary=summary,
+        error=errors[0] if errors and len(errors) == len(outcomes) else None,
+        hits=hits,
+        response_mode=mode,
+        result_count=sum(item.result_count or len(item.hits) or (0 if item.error else 1) for item in outcomes),
+        items=tuple(
+            {
+                "tool": child.tool,
+                "args": child.args,
+                "summary": outcome.summary if mode == "detailed" else " ".join(outcome.summary.split())[:180],
+                "error": typed_tool_error(outcome.error, outcome.summary).to_dict()
+                if outcome.error
+                else None,
+                "result_count": outcome.result_count or len(outcome.hits) or (0 if outcome.error else 1),
+            }
+            for child, outcome in zip(child_actions, outcomes, strict=True)
+        ),
+    )
+
+
+async def _execute_tool(state: AgentState, action: ToolAction) -> ToolOutcome:
+    """Execute one tool and attach a stable response/error/timing envelope."""
+
+    started_at = time.perf_counter()
+    if action.tool in CONSOLIDATED_TOOLS and action.tool != "SearchObjectChunks":
+        outcome = await _execute_consolidated_tool(state, action)
+    else:
+        outcome = await _execute_tool_impl(state, action)
+    # Keep the narrow dispatcher contract backward compatible for callers that
+    # monkeypatch a legacy tool with a sentinel in tests/integrations.
+    if not isinstance(outcome, ToolOutcome):
+        return outcome  # type: ignore[return-value]
+    typed_error = typed_tool_error(outcome.error, outcome.summary)
+    mode = str(action.args.get("response_mode") or outcome.response_mode or "compact")
+    if mode not in {"compact", "detailed"}:
+        mode = "compact"
+    return replace(
+        outcome,
+        error_code=(typed_error.code if typed_error else outcome.error_code),
+        error_message=(typed_error.message if typed_error else outcome.error_message),
+        retryable=(typed_error.retryable if typed_error else outcome.retryable),
+        next_action=(outcome.next_action or (typed_error.next_action if typed_error else None)),
+        response_mode=mode,
+        result_count=outcome.result_count or len(outcome.hits),
+        duration_ms=round((time.perf_counter() - started_at) * 1000, 1),
+    )
+
+
 async def _execute_ledgered_tool(
     agent_state: AgentState,
     action: ToolAction,
@@ -459,7 +615,18 @@ async def _execute_ledgered_tool(
     entry = preparation.entry
     if not preparation.execute:
         summary, error, hits = cached_outcome(entry)
-        return ToolOutcome(summary=summary, error=error, hits=hits), preparation.ledger, entry, True
+        typed_error = typed_tool_error(error, summary)
+        return ToolOutcome(
+            summary=summary,
+            error=error,
+            hits=hits,
+            error_code=typed_error.code if typed_error else None,
+            error_message=typed_error.message if typed_error else None,
+            retryable=typed_error.retryable if typed_error else False,
+            next_action=typed_error.next_action if typed_error else None,
+            result_count=len(hits),
+            cache_hit=True,
+        ), preparation.ledger, entry, True
 
     effective_action = action
     source_id = str(entry.get("source_requirement_id") or "")
@@ -982,6 +1149,31 @@ async def _compact_planner_node(
         )
         calls_made = 1
         decision = parse_planner_decision(raw)
+        if decision is None:
+            legacy_action = parse_tool_action(raw)
+            if legacy_action is not None and legacy_action.tool != "Invalid":
+                if legacy_action.tool == "FinishRetrieval":
+                    code = (
+                        DecisionCode.FINISH_READY
+                        if str(legacy_action.args.get("status") or "") == "ready"
+                        else DecisionCode.FINISH_PARTIAL
+                    )
+                    decision = PlannerDecision(decision_code=code, confidence=1.0)
+                else:
+                    code = (
+                        DecisionCode.SEARCH_REQUIRED_SOURCE
+                        if legacy_action.tool.startswith(("Search", "List"))
+                        else DecisionCode.HYDRATE_EVIDENCE_GAP
+                        if legacy_action.tool.startswith("Hydrate")
+                        else DecisionCode.READ_EXPLICIT_TARGET
+                        if legacy_action.tool in {"OpenPost", "OpenNote"}
+                        else DecisionCode.READ_TOP_CANDIDATES
+                    )
+                    decision = PlannerDecision(
+                        decision_code=code,
+                        actions=(PlannerAction(tool=legacy_action.tool, args=legacy_action.args),),
+                        confidence=1.0,
+                    )
         invalid_count = int(state.get("planner_invalid_count") or 0)
         if decision is None and calls_used + calls_made < planner_limit:
             invalid_count += 1
@@ -1322,10 +1514,21 @@ async def _compact_tool_node(
                 "args": action.args,
                 "summary": outcome.summary[:500],
                 "error": outcome.error,
+                "typed_error": {
+                    "code": outcome.error_code,
+                    "message": outcome.error_message,
+                    "retryable": outcome.retryable,
+                    "next_action": outcome.next_action,
+                } if outcome.error_code else None,
                 "record_ids": sorted(records),
                 "signature": entry.get("signature"),
                 "intent_key": entry.get("intent_key"),
                 "cached": cached,
+                "cache_hit": outcome.cache_hit or cached,
+                "duration_ms": outcome.duration_ms,
+                "result_count": outcome.result_count,
+                "response_mode": outcome.response_mode,
+                "items": list(outcome.items),
             }
         )
     ledger = list(ledger_by_signature.values())
@@ -1417,6 +1620,12 @@ async def research_tool_node(state: AgentGraphState, config: RunnableConfig) -> 
         "args": action.args,
         "summary": outcome.summary[:500],
         "error": outcome.error,
+        "typed_error": {
+            "code": outcome.error_code,
+            "message": outcome.error_message,
+            "retryable": outcome.retryable,
+            "next_action": outcome.next_action,
+        } if outcome.error_code else None,
         "record_ids": sorted(str(key) for key in records),
         "new_record_ids": new_record_ids,
         "signature": signature,
@@ -1425,6 +1634,11 @@ async def research_tool_node(state: AgentGraphState, config: RunnableConfig) -> 
         "intent_state": ledger_entry.get("state"),
         "exhausted_reason": ledger_entry.get("exhausted_reason"),
         "cached": cached,
+        "cache_hit": outcome.cache_hit or cached,
+        "duration_ms": outcome.duration_ms,
+        "result_count": outcome.result_count,
+        "response_mode": outcome.response_mode,
+        "items": list(outcome.items),
         "no_progress_count": no_progress_count,
     }
     return {

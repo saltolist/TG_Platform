@@ -218,6 +218,16 @@ async def resume_agent_run(
         )
         if proposal is None:
             raise HTTPException(status_code=404, detail="Proposal not found")
+        pending_proposal_id = str(
+            ((run.current_interrupt or {}).get("proposal") or {}).get("id") or ""
+        )
+        if pending_proposal_id and pending_proposal_id != str(proposal.id):
+            raise HTTPException(status_code=409, detail="Proposal is not the active run interrupt")
+        pending_hash = str(
+            ((run.current_interrupt or {}).get("proposal") or {}).get("payload_hash") or ""
+        )
+        if pending_hash and pending_hash != body.payload_hash:
+            raise HTTPException(status_code=409, detail="Approval hash does not match active interrupt")
         if body.decision == "approve":
             await approve_proposal(session, proposal=proposal, approved_hash=body.payload_hash)
             applied = await execute_approved_proposal(session, proposal=proposal, user=user)
@@ -257,11 +267,25 @@ async def resume_agent_run(
             },
         )
     else:
+        snapshot = dict(run.snapshot or {})
+        snapshot_contract = dict(snapshot.get("turn_contract") or {})
+        snapshot_targets = dict(snapshot.get("target_contract") or {})
         await event_service.append_event(
             session,
             run_id=run.id,
             event_type="resumed",
-            payload=result,
+            payload={
+                **result,
+                "resume_state": {
+                    "contract_revision": snapshot_contract.get("revision"),
+                    "target_ids": [
+                        str(item.get("id") or "")
+                        for item in snapshot_targets.get("targets") or []
+                        if isinstance(item, dict) and item.get("id")
+                    ],
+                    "evidence_ids": [str(item) for item in snapshot.get("evidence_ids") or []],
+                },
+            },
         )
         await event_service.update_run_status(session, run, status="running", current_interrupt=None)
     await session.commit()

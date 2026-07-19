@@ -1,0 +1,49 @@
+{
+  "annotations": {"list": []},
+  "editable": true,
+  "panels": [
+    {
+      "datasource": {"type": "prometheus", "uid": "prometheus"},
+      "gridPos": {"h": 7, "w": 12, "x": 0, "y": 0},
+      "id": 1,
+      "targets": [{"expr": "histogram_quantile(0.95, sum by (le, execution_mode, worker_warm) (rate(agent_run_duration_by_mode_seconds_bucket[10m])))", "legendFormat": "p95 {{execution_mode}} / {{worker_warm}}", "refId": "A"}],
+      "title": "Agent p95 time-to-final by mode and warm state",
+      "type": "timeseries",
+      "fieldConfig": {"defaults": {"unit": "s"}, "overrides": []}
+    },
+    {
+      "datasource": {"type": "prometheus", "uid": "prometheus"},
+      "gridPos": {"h": 7, "w": 12, "x": 12, "y": 0},
+      "id": 2,
+      "targets": [{"expr": "histogram_quantile(0.95, sum by (le, phase, execution_mode, worker_warm) (rate(agent_phase_duration_seconds_bucket[10m])))", "legendFormat": "p95 {{phase}} / {{execution_mode}} / {{worker_warm}}", "refId": "A"}],
+      "title": "Phase p95 timings",
+      "type": "timeseries",
+      "fieldConfig": {"defaults": {"unit": "s"}, "overrides": []}
+    },
+    {
+      "datasource": {"type": "prometheus", "uid": "prometheus"},
+      "gridPos": {"h": 7, "w": 12, "x": 0, "y": 7},
+      "id": 3,
+      "targets": [{"expr": "sum by (tool, cache_hit) (rate(agent_tool_calls_total[10m]))", "legendFormat": "{{tool}} cache={{cache_hit}}", "refId": "A"}],
+      "title": "Tool calls and cache suppressions",
+      "type": "timeseries",
+      "fieldConfig": {"defaults": {"unit": "ops"}, "overrides": []}
+    },
+    {
+      "datasource": {"type": "prometheus", "uid": "prometheus"},
+      "gridPos": {"h": 7, "w": 12, "x": 12, "y": 7},
+      "id": 4,
+      "targets": [{"expr": "sum by (error_code) (rate(agent_tool_calls_total{error_code!=\"none\"}[10m]))", "legendFormat": "{{error_code}}", "refId": "A"}],
+      "title": "Typed tool errors",
+      "type": "timeseries",
+      "fieldConfig": {"defaults": {"unit": "ops"}, "overrides": []}
+    }
+  ],
+  "refresh": "30s",
+  "schemaVersion": 39,
+  "tags": ["agent", "workspace", "phase7"],
+  "time": {"from": "now-6h", "to": "now"},
+  "title": "Workspace Agent Runtime",
+  "uid": "workspace-agent-runtime",
+  "version": 1
+}

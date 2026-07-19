@@ -54,25 +54,32 @@ def _record_llm_metric(
     cache_key = hashlib.sha256(system_text.encode("utf-8")).hexdigest()[:16] if system_text else ""
     completion_tokens = estimate_tokens_from_text(completion)
     spec = kwargs.get("spec")
-    sink.append(
-        {
-            "phase": phase,
-            "duration_ms": round((time.perf_counter() - started_at) * 1000, 1),
-            "prompt_tokens": prompt_tokens,
-            "completion_tokens": completion_tokens,
-            "total_tokens": prompt_tokens + completion_tokens,
-            "token_method": "chars_div_4_estimate",
-            "prompt_cache_key": cache_key,
-            "prompt_cache_eligible_tokens": estimate_tokens_from_text(system_text),
-            # Provider cache usage is not exposed by the current text-only LLM
-            # adapter. None is explicit rather than guessing a cache hit.
-            "prompt_cache_hit_tokens": None,
-            "success": success,
-            "streaming": streaming,
-            "provider": str(getattr(spec, "name", "") or getattr(spec, "provider", "") or "unknown"),
-            "model": str(kwargs.get("model") or "unknown"),
-        }
-    )
+    metric = {
+        "phase": phase,
+        "duration_ms": round((time.perf_counter() - started_at) * 1000, 1),
+        "prompt_tokens": prompt_tokens,
+        "completion_tokens": completion_tokens,
+        "total_tokens": prompt_tokens + completion_tokens,
+        "token_method": "chars_div_4_estimate",
+        "success": success,
+        "streaming": streaming,
+        "provider": str(getattr(spec, "name", "") or getattr(spec, "provider", "") or "unknown"),
+        "model": str(kwargs.get("model") or "unknown"),
+    }
+    # Cache metadata is meaningful only when there is a stable system prefix.
+    # Omitting it for user-only compatibility calls keeps the legacy metric
+    # shape while phase-6 answer/planner calls retain the cache observability.
+    if system_text:
+        metric.update(
+            {
+                "prompt_cache_key": cache_key,
+                "prompt_cache_eligible_tokens": estimate_tokens_from_text(system_text),
+                # Provider cache usage is not exposed by the current text-only
+                # LLM adapter. None is explicit rather than guessing a cache hit.
+                "prompt_cache_hit_tokens": None,
+            }
+        )
+    sink.append(metric)
 
 
 async def call_llm_with_deadline(
