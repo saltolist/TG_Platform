@@ -14,11 +14,14 @@ FULL_READ_BATCH_SIZE = 3
 
 def canonical_candidate_ref(value: str) -> str:
     raw = str(value or "").strip().strip("/")
-    if raw.startswith("note:"):
-        return f"note:{raw.split(':')[-1]}"
-    if raw.startswith("post:"):
-        return f"post:{raw.split(':')[-1]}"
+    for prefix in ("note", "post", "file", "attachment", "media", "analytics"):
+        if raw.startswith(f"{prefix}:"):
+            return f"{prefix}:{raw.split(':', 1)[1]}"
     parts = raw.split("/")
+    if "attachment" in parts and parts:
+        return f"attachment:{parts[-1]}"
+    if "media" in parts and parts:
+        return f"file:{parts[-1]}"
     if "note" in parts and parts:
         return f"note:{parts[-1]}"
     if "post" in parts and parts:
@@ -32,6 +35,8 @@ def citation_path_for_ref(ref: str, *, scope: str = "global") -> str:
         return f"/post/{object_id}/"
     if kind == "note" and object_id:
         return f"/note/{scope or 'global'}/{object_id}/"
+    if kind in {"file", "media", "attachment"} and object_id:
+        return f"/{kind}/{object_id}/"
     return ""
 
 
@@ -82,12 +87,15 @@ def normalize_candidate(
 ) -> dict[str, Any] | None:
     ref = canonical_candidate_ref(str(candidate.get("ref") or candidate.get("label") or ""))
     kind, _, object_id = ref.partition(":")
-    if kind not in {"note", "post"} or not object_id:
+    if kind not in {"note", "post", "file", "attachment", "media", "analytics"} or not object_id:
         return None
     index_revision = int(candidate.get("index_revision") or 0)
     source_revision = int(candidate.get("source_revision") or 0)
     summary_model = str(candidate.get("summary_model") or "")
     parent_post_id = str(candidate.get("parent_post_id") or "")
+    parent_note_id = str(candidate.get("parent_note_id") or candidate.get("note_id") or "")
+    post_id = str(candidate.get("post_id") or "")
+    file_id = str(candidate.get("file_id") or object_id) if kind in {"file", "attachment", "media"} else ""
     citation_path = str(candidate.get("citation_path") or "")
     if not citation_path and kind == "note" and parent_post_id:
         citation_path = f"/note/post/{parent_post_id}/{object_id}/"
@@ -110,6 +118,10 @@ def normalize_candidate(
         "card_origin": card_origin(summary_model),
         "status": str(candidate.get("status") or "active"),
         "parent_post_id": parent_post_id or None,
+        "parent_note_id": parent_note_id or None,
+        "post_id": post_id or None,
+        "file_id": file_id or None,
+        "node_type": str(candidate.get("node_type") or ""),
         "citation_path": citation_path or citation_path_for_ref(ref, scope=scope),
         "has_more": bool(candidate.get("has_more")),
     }
@@ -156,6 +168,7 @@ def empty_material_plan() -> dict[str, Any]:
         "expansion_pending_sources": [],
         "expanded_sources": [],
         "needs_optional_assessment": False,
+        "context_selection_done": False,
         "needs_expansion_assessment": False,
         "coverage": "complete",
         "full_read_batches": [],

@@ -23,6 +23,9 @@ class EvidencePackItem:
     citation_path: str
     content: str
     source_ref: str
+    object_kind: str = "unknown"
+    evidence_role: str = "supporting"
+    source_requirement_id: str = ""
     fidelity: str = "full_text"
     provenance: dict[str, Any] | None = None
     allowed_claim_scope: str = "content"
@@ -71,6 +74,7 @@ def build_verified_evidence_pack(
     schema: str | None = None,
     coverage: str = "complete",
     coverage_by_source: Mapping[str, Any] | None = None,
+    item_annotations: Mapping[str, Mapping[str, Any]] | None = None,
 ) -> VerifiedEvidencePack:
     """Build only from selected, non-empty primary records.
 
@@ -92,6 +96,7 @@ def build_verified_evidence_pack(
         seen_paths.add(path)
         fidelity = "semantic_card" if record.kind == "semantic_card" else "full_text"
         metadata = dict(record.metadata or {})
+        annotation = dict((item_annotations or {}).get(eid) or {})
         if fidelity == "semantic_card":
             eligible, _failure = card_eligibility(metadata)
             if not eligible:
@@ -121,6 +126,9 @@ def build_verified_evidence_pack(
                 citation_path=path,
                 content=content,
                 source_ref=str(record.source_ref or path),
+                object_kind=str(annotation.get("object_kind") or "unknown"),
+                evidence_role=str(annotation.get("evidence_role") or "supporting"),
+                source_requirement_id=str(annotation.get("source_requirement_id") or ""),
                 fidelity=fidelity,
                 provenance=provenance,
                 allowed_claim_scope="topic_only" if fidelity == "semantic_card" else "content",

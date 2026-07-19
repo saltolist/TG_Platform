@@ -4,7 +4,8 @@ from __future__ import annotations
 
 import json
 from pathlib import Path
-from unittest.mock import AsyncMock, MagicMock
+from types import SimpleNamespace
+from unittest.mock import AsyncMock, MagicMock, patch
 from uuid import uuid4
 
 import pytest
@@ -17,14 +18,16 @@ from app.services.agent.research.evidence_pack import (
 )
 from app.services.agent.research.graph import (
     _apply_complete_source_policy,
-    _apply_optional_source_policy,
     _card_records_from_plan,
-    _conservative_candidate_assessments,
+    _evidence_pack_annotations,
     _materialize_contract_fixed_plan,
     _materialize_full_read_actions,
+    _compact_planner_node,
+    _selector_fallback,
     route_research_verify,
 )
 from app.services.agent.research.material_plan import (
+    empty_material_plan,
     merge_material_plan,
     next_full_read_batch,
     normalize_candidates,
@@ -33,6 +36,7 @@ from app.services.agent.research.material_plan import (
 from app.services.agent.research.prefetch import load_discovery_cards_for_objects
 from app.services.agent.research.planner_decision import PlannerDecision
 from app.services.agent.research.sufficiency import evaluate_sufficiency
+from app.services.agent.runtime.output_contract import validate_answer_output
 
 
 def _candidate(ref: str, *, eligible: bool = True, source: str = "workspace-notes") -> dict:
@@ -86,6 +90,153 @@ def test_planner_assesses_more_than_three_but_action_fanout_stays_three() -> Non
                 "confidence": 0.9,
             }
         )
+
+
+@pytest.mark.asyncio
+async def test_context_selector_returns_ids_and_omits_unselected_candidates() -> None:
+    candidates = normalize_candidates(
+        [
+            _candidate("post:p1", source="workspace-posts"),
+            _candidate("note:n1", source="workspace-notes"),
+        ]
+    )
+    contract = {
+        "source_requirements": [
+            {"source_id": "workspace-posts", "kind": "posts", "required": False},
+            {"source_id": "workspace-notes", "kind": "notes", "required": False},
+        ],
+        "budgets": {"planner_calls": 1, "deep_reads": 3},
+    }
+    ctx = SimpleNamespace(
+        reasoner_spec=SimpleNamespace(name="test"),
+        reasoner_model="selector",
+        reasoner_api_key="key",
+        planner_llm=None,
+    )
+    state = {
+        "user_text": "Про что найденные материалы?",
+        "turn_contract": contract,
+        "adaptive_evidence_depth_enabled": True,
+        "candidate_envelopes": candidates,
+        "material_plan": empty_material_plan(),
+        "evidence_records": {},
+        "search_ledger": [],
+        "planner_calls_used": 0,
+        "planner_invalid_count": 0,
+        "planner_steps": [],
+        "step_count": 0,
+    }
+    with patch(
+        "app.services.agent.runtime.budget.call_llm_with_deadline",
+        new_callable=AsyncMock,
+        return_value=(
+            '{"selections":[{"ref":"post:p1","role":"target",'
+            '"resolution":"card"}]}'
+        ),
+    ) as selector:
+        result = await _compact_planner_node(
+            state,
+            {"configurable": {"runtime_context": ctx, "turn_contract": contract}},
+        )
+
+    assert selector.await_args.kwargs["phase"] == "research.selector.context"
+    assert selector.await_args.kwargs["max_tokens"] == 500
+    selector_input = selector.await_args.kwargs["messages"][1]["content"]
+    assert "post:p1" in selector_input and "note:n1" in selector_input
+    assert result["material_plan"]["card_ids"] == ["post:p1"]
+    assert result["material_plan"]["context_selections"] == [
+        {"ref": "post:p1", "role": "target", "resolution": "card"}
+    ]
+    assert "/note/global/n1/" not in result["evidence_records"]
+
+
+@pytest.mark.asyncio
+async def test_context_selector_materializes_selected_attachment_by_ref() -> None:
+    candidates = normalize_candidates(
+        [
+            {
+                "ref": "attachment:f1",
+                "title": "diagram.png",
+                "preview": "Image attachment metadata",
+                "similarity": 0.9,
+                "node_type": "attachment_text",
+                "file_id": "f1",
+                "parent_note_id": "n1",
+                "source_requirement_id": "workspace-images",
+            }
+        ]
+    )
+    contract = {
+        "source_requirements": [
+            {"source_id": "workspace-images", "kind": "images", "required": False},
+        ],
+        "budgets": {"planner_calls": 1, "deep_reads": 3},
+    }
+    ctx = SimpleNamespace(
+        reasoner_spec=SimpleNamespace(name="test"),
+        reasoner_model="selector",
+        reasoner_api_key="key",
+        planner_llm=None,
+    )
+    state = {
+        "user_text": "Что изображено?",
+        "turn_contract": contract,
+        "adaptive_evidence_depth_enabled": True,
+        "candidate_envelopes": candidates,
+        "material_plan": empty_material_plan(),
+        "evidence_records": {},
+        "search_ledger": [],
+        "planner_calls_used": 0,
+        "planner_invalid_count": 0,
+        "planner_steps": [],
+        "step_count": 0,
+    }
+    with patch(
+        "app.services.agent.runtime.budget.call_llm_with_deadline",
+        new_callable=AsyncMock,
+        return_value=(
+            '{"selections":[{"ref":"attachment:f1","role":"supporting",'
+            '"resolution":"vision"}]}'
+        ),
+    ):
+        result = await _compact_planner_node(
+            state,
+            {"configurable": {"runtime_context": ctx, "turn_contract": contract}},
+        )
+
+    assert result["tool_action"]["actions"] == [
+        {
+            "tool": "HydrateAttachment",
+            "args": {
+                "source_requirement_id": "workspace-images",
+                "ref": "attachment:f1",
+                "mode": "vision",
+                "note_id": "n1",
+            },
+            "intent_id": None,
+        }
+    ]
+
+
+def test_context_selector_failure_keeps_every_found_ref_without_generating_content() -> None:
+    candidates = normalize_candidates(
+        [
+            _candidate("note:n1"),
+            _candidate("note:n2", eligible=False),
+        ]
+    )
+    decision = _selector_fallback(
+        candidates,
+        contract={
+            "source_requirements": [
+                {"source_id": "workspace-notes", "required": False},
+            ]
+        },
+    )
+    assert [item.model_dump(mode="json") for item in decision.selections] == [
+        {"ref": "note:n1", "role": "supporting", "resolution": "card"},
+        {"ref": "note:n2", "role": "supporting", "resolution": "full_text"},
+    ]
 
 
 def test_five_card_selections_need_no_reads_and_reach_pack() -> None:
@@ -187,85 +338,6 @@ def test_exact_target_card_is_materialized_without_full_read() -> None:
     assert plan["pending_full_text_ids"] == []
 
 
-def test_conservative_fallback_honors_fidelity_and_card_eligibility() -> None:
-    candidates = normalize_candidates(
-        [
-            _candidate("note:n1"),
-            _candidate("note:n2", eligible=False),
-            _candidate("post:p1", source="workspace-posts"),
-        ]
-    )
-    contract = {
-        "source_requirements": [
-            {
-                "source_id": "workspace-notes",
-                "required": False,
-                "evidence_granularity": "semantic_card",
-                "budget": {"deep_reads": 1},
-            },
-            {
-                "source_id": "workspace-posts",
-                "required": True,
-                "evidence_granularity": "full_text",
-            },
-        ]
-    }
-
-    assessments = {
-        item.ref: item
-        for item in _conservative_candidate_assessments(candidates, contract=contract)
-    }
-
-    assert assessments["note:n1"].resolution.value == "card"
-    assert assessments["note:n1"].relevance.value == "supporting"
-    assert assessments["note:n1"].reason_code.value == "topic_only"
-    assert assessments["note:n2"].resolution.value == "full_text"
-    assert assessments["note:n2"].relevance.value == "supporting"
-    assert assessments["note:n2"].reason_code.value == "low_card_quality"
-    assert assessments["post:p1"].resolution.value == "full_text"
-    assert assessments["post:p1"].relevance.value == "direct"
-    assert assessments["post:p1"].reason_code.value == "detailed_summary"
-
-    plan = merge_material_plan(
-        None,
-        candidates=candidates,
-        assessments=[item.model_dump(mode="json") for item in assessments.values()],
-    )
-    assert plan["card_ids"] == ["note:n1"]
-    assert plan["pending_full_text_ids"] == ["post:p1", "note:n2"]
-
-
-def test_invalid_planner_recovery_is_bounded_by_optional_source_budget() -> None:
-    candidates = normalize_candidates(
-        [
-            _candidate(f"note:n{index}", eligible=False)
-            for index in range(4)
-        ]
-    )
-    contract = {
-        "source_requirements": [
-            {
-                "source_id": "workspace-notes",
-                "required": False,
-                "evidence_granularity": "semantic_card",
-                "budget": {"deep_reads": 2},
-            }
-        ]
-    }
-
-    assessments = _conservative_candidate_assessments(candidates, contract=contract)
-    selected = [
-        item.ref for item in assessments if item.relevance.value == "supporting"
-    ]
-    assert selected == ["note:n0", "note:n1"]
-    plan = merge_material_plan(
-        None,
-        candidates=candidates,
-        assessments=[item.model_dump(mode="json") for item in assessments],
-    )
-    assert plan["optional_full_text_ids"] == ["note:n0", "note:n1"]
-
-
 def test_optional_assessment_routes_to_planner_before_ready_pack() -> None:
     state = {
         "phase5_enabled": True,
@@ -280,46 +352,86 @@ def test_optional_assessment_routes_to_planner_before_ready_pack() -> None:
     assert route_research_verify(state) == "planner"
 
 
-def test_optional_direct_candidate_is_non_blocking_but_can_still_be_read() -> None:
-    candidates = normalize_candidates([_candidate("note:n1")])
-    contract = {
-        "source_requirements": [
-            {"source_id": "workspace-notes", "required": False},
-        ]
+def test_optional_note_is_typed_as_support_not_post_target() -> None:
+    post_id = "/post/p1/"
+    note_id = "/note/global/n1/"
+    records = {
+        post_id: EvidenceRecord(
+            id=post_id,
+            kind="semantic_card",
+            source_ref="post:p1",
+            content="Post topic",
+            citation_path=post_id,
+            citation_title="Post",
+            metadata=normalize_candidates(
+                [_candidate("post:p1", source="workspace-posts")]
+            )[0],
+        ),
+        note_id: EvidenceRecord(
+            id=note_id,
+            kind="note_chunk",
+            source_ref=note_id,
+            content="Supporting note",
+            citation_path=note_id,
+            citation_title="Note",
+        ),
     }
-    assessments = _apply_optional_source_policy(
-        [_assessment("note:n1", resolution="full_text", relevance="direct")],
-        candidates=candidates,
-        contract=contract,
-    )
-    plan = merge_material_plan(None, candidates=candidates, assessments=assessments)
-    assert plan["optional_full_text_ids"] == ["note:n1"]
-    assert plan["required_full_text_ids"] == []
-
-
-def test_optional_fresh_card_has_recall_floor_when_planner_says_irrelevant() -> None:
-    candidates = normalize_candidates([_candidate("note:n1")])
-    contract = {
-        "source_requirements": [
-            {"source_id": "workspace-notes", "required": False},
-        ]
-    }
-    assessments = _apply_optional_source_policy(
+    candidates = normalize_candidates(
         [
+            _candidate("post:p1", source="workspace-posts"),
+            _candidate("note:n1", source="workspace-notes"),
+        ]
+    )
+    contract = {
+        "source_requirements": [
             {
-                "ref": "note:n1",
-                "relevance": "irrelevant",
-                "resolution": "card",
-                "confidence": 0.9,
-                "reason_code": "topic_only",
-            }
-        ],
-        candidates=candidates,
+                "source_id": "workspace-posts",
+                "kind": "posts",
+                "required": True,
+                "coverage": "complete",
+                "scope": {"mode": "corpus", "corpus": "workspace"},
+            },
+            {
+                "source_id": "workspace-notes",
+                "kind": "notes",
+                "required": False,
+                "coverage": "relevant",
+                "scope": {"mode": "corpus", "corpus": "workspace"},
+            },
+        ]
+    }
+    annotations = _evidence_pack_annotations(
+        records=records,
+        evidence_ids=[post_id, note_id],
+        state={"material_plan": {"candidates": candidates}},
         contract=contract,
     )
-    plan = merge_material_plan(None, candidates=candidates, assessments=assessments)
-    assert plan["card_ids"] == ["note:n1"]
-    assert plan["pending_full_text_ids"] == []
+    assert annotations[post_id]["evidence_role"] == "required_target"
+    assert annotations[post_id]["object_kind"] == "post"
+    assert annotations[note_id]["evidence_role"] == "supporting_optional"
+    assert annotations[note_id]["object_kind"] == "note"
+
+    validation = validate_answer_output(
+        {
+            "answer": "Третий пост - это заметка.",
+            "claims": [
+                {
+                    "text": "Заметка является третьим постом.",
+                    "evidence_ids": [note_id],
+                }
+            ],
+            "used_context_refs": [],
+        },
+        evidence_ids={post_id, note_id},
+        factual=True,
+        evidence_roles={
+            evidence_id: annotation["evidence_role"]
+            for evidence_id, annotation in annotations.items()
+        },
+        allow_optional_only_claims=False,
+    )
+    assert validation.ok is False
+    assert "claims[0].optional_only_outside_required_corpus" in validation.issues
 
 
 def test_complete_coverage_does_not_finish_with_only_three_of_five_cards() -> None:

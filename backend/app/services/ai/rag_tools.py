@@ -269,7 +269,9 @@ def _node_label(item: dict[str, Any]) -> str:
         return f"post:{note_id}"
     if node_type in (NODE_NOTE_CHUNK, NODE_NOTE_SUMMARY):
         return f"note:{note_id}"
-    if node_type in (NODE_ATTACHMENT_TEXT, NODE_MEDIA_META) and file_id:
+    if node_type == NODE_ATTACHMENT_TEXT and file_id:
+        return f"attachment:{file_id}"
+    if node_type == NODE_MEDIA_META and file_id:
         return f"file:{file_id}"
     return f"{node_type}:{note_id}"
 
@@ -362,6 +364,9 @@ async def tool_search_nodes(
                 "preview": preview,
                 "status": str(item.get("object_status") or ""),
                 "has_more": bool(item.get("has_more")),
+                "note_id": str(item.get("note_id") or ""),
+                "post_id": str(item.get("post_id") or ""),
+                "file_id": str(item.get("file_id") or ""),
             }
         )
     return ToolOutcome(

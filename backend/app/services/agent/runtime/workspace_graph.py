@@ -502,8 +502,13 @@ def _render_verified_pack(pack: dict[str, Any]) -> str:
             continue
         fidelity = str(raw.get("fidelity") or "full_text")
         scope = str(raw.get("allowed_claim_scope") or "content")
+        object_kind = str(raw.get("object_kind") or "unknown")
+        evidence_role = str(raw.get("evidence_role") or "supporting")
+        source_requirement_id = str(raw.get("source_requirement_id") or "")
         blocks.append(
-            f"[fidelity={fidelity}; allowed_claim_scope={scope}]\n"
+            f"[object_kind={object_kind}; evidence_role={evidence_role}; "
+            f"source_requirement_id={source_requirement_id or 'unscoped'}; "
+            f"fidelity={fidelity}; allowed_claim_scope={scope}]\n"
             +
             wrap_untrusted_block(
                 identifier=path,
@@ -582,6 +587,17 @@ async def answer_node(state: AgentGraphState, config: RunnableConfig) -> dict[st
         for item in evidence_pack.get("items") or ()
         if isinstance(item, dict) and str(item.get("id") or "")
     }
+    evidence_roles = {
+        str(item.get("id") or ""): str(item.get("evidence_role") or "supporting")
+        for item in evidence_pack.get("items") or ()
+        if isinstance(item, dict) and str(item.get("id") or "")
+    }
+    allow_optional_only_claims = not any(
+        isinstance(source, dict)
+        and source.get("required")
+        and source.get("coverage") == "complete"
+        for source in turn_contract.get("source_requirements") or ()
+    )
     rag_context = (
         _render_verified_pack(evidence_pack).strip()
         if evidence_pack
@@ -701,6 +717,14 @@ async def answer_node(state: AgentGraphState, config: RunnableConfig) -> dict[st
         prompt_parts.append(
             f"EvidencePack schema={str(evidence_pack.get('schema') or EVIDENCE_PACK_SCHEMA)}; "
             f"objects={len(evidence_ids)}; ids={evidence_ids}\n{rag_context}"
+        )
+        prompt_parts.append(
+            "Evidence boundary: object_kind and evidence_role are structural metadata, "
+            "not prose. Only evidence_role=required_target objects belong to the user's "
+            "requested target/corpus enumeration. evidence_role=supporting_optional may "
+            "clarify or enrich a required object, but must never be counted, numbered, "
+            "or presented as a member of that target/corpus. Preserve object_kind exactly: "
+            "a note is not a post even when its text discusses posts."
         )
         if semantic_card_ids:
             prompt_parts.append(
@@ -844,10 +868,73 @@ async def answer_node(state: AgentGraphState, config: RunnableConfig) -> dict[st
         schema=output_schema,
         supplied_context_refs=supplied_context_refs,
         evidence_fidelity=evidence_fidelity,
+        evidence_roles=evidence_roles,
+        allow_optional_only_claims=allow_optional_only_claims,
     )
     answer_text = str(parsed.get("answer") or raw).strip()
     claims = list(validation.claims)
     repair_count = 0
+    if any(
+        issue.endswith("optional_only_outside_required_corpus")
+        for issue in validation.issues
+    ):
+        repair_count = 1
+        required_ids = [
+            evidence_id
+            for evidence_id in evidence_ids
+            if evidence_roles.get(evidence_id) == "required_target"
+        ]
+        optional_ids = [
+            evidence_id
+            for evidence_id in evidence_ids
+            if evidence_roles.get(evidence_id) == "supporting_optional"
+        ]
+        scope_repair_raw = await call_llm_with_deadline(
+            ctx,
+            phase="answer.scope_repair",
+            messages=[
+                {
+                    "role": "system",
+                    "content": (
+                        "Исправь соответствие ответа target/corpus. Верни только JSON "
+                        "той же schema. Объекты supporting_optional можно использовать "
+                        "только как фон для required_target; не перечисляй и не считай "
+                        "их как элементы целевого корпуса. Не меняй тип объекта: заметка "
+                        "не является постом."
+                    ),
+                },
+                {
+                    "role": "user",
+                    "content": (
+                        f"Schema: {output_schema}. Required target evidence: {required_ids}. "
+                        f"Supporting optional evidence: {optional_ids}.\n"
+                        f"Контракт:\n{render_turn_contract(turn_contract)}\n\n"
+                        f"Предыдущий output:\n{raw}"
+                    ),
+                },
+            ],
+            spec=answer_spec,
+            model=answer_model,
+            api_key=answer_api_key,
+            temperature=0.0,
+            max_tokens=max_answer_tokens,
+        )
+        scope_repaired = extract_json_object(scope_repair_raw) or {}
+        scope_validation = validate_answer_output(
+            scope_repaired,
+            evidence_ids=set(evidence_ids),
+            factual=factual,
+            schema=output_schema,
+            supplied_context_refs=supplied_context_refs,
+            evidence_fidelity=evidence_fidelity,
+            evidence_roles=evidence_roles,
+            allow_optional_only_claims=allow_optional_only_claims,
+        )
+        if scope_validation.ok:
+            parsed = scope_repaired
+            validation = scope_validation
+            answer_text = str(scope_repaired.get("answer") or "").strip()
+            claims = list(scope_validation.claims)
     if not validation.ok and not factual:
         recovered_answer = str(
             parsed.get("answer") or extract_complete_answer(raw) or ""
@@ -861,6 +948,8 @@ async def answer_node(state: AgentGraphState, config: RunnableConfig) -> dict[st
                 schema=output_schema,
                 supplied_context_refs=supplied_context_refs,
                 evidence_fidelity=evidence_fidelity,
+                evidence_roles=evidence_roles,
+                allow_optional_only_claims=allow_optional_only_claims,
             )
             if recovered_validation.ok:
                 parsed = recovered
@@ -893,6 +982,8 @@ async def answer_node(state: AgentGraphState, config: RunnableConfig) -> dict[st
                 schema=output_schema,
                 supplied_context_refs=supplied_context_refs,
                 evidence_fidelity=evidence_fidelity,
+                evidence_roles=evidence_roles,
+                allow_optional_only_claims=allow_optional_only_claims,
             )
             if recovered_validation.ok:
                 parsed = recovered
@@ -900,7 +991,7 @@ async def answer_node(state: AgentGraphState, config: RunnableConfig) -> dict[st
                 answer_text = recovered_answer
                 claims = list(validation.claims)
     if not validation.ok:
-        repair_count = 1
+        repair_count = max(1, repair_count)
         repair_prompt = (
             f"Schema: {output_schema}. Исправь только JSON-формат и citations. "
             "Текст answer сохрани дословно, не добавляй факты и не меняй EvidencePack. "
@@ -928,6 +1019,8 @@ async def answer_node(state: AgentGraphState, config: RunnableConfig) -> dict[st
             schema=output_schema,
             supplied_context_refs=supplied_context_refs,
             evidence_fidelity=evidence_fidelity,
+            evidence_roles=evidence_roles,
+            allow_optional_only_claims=allow_optional_only_claims,
         )
         repaired_text = str(repaired.get("answer") or "").strip()
         original_answer = str(

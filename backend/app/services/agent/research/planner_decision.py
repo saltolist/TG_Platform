@@ -39,6 +39,43 @@ class CandidateResolution(StrEnum):
     FULL_TEXT = "full_text"
 
 
+class ContextRole(StrEnum):
+    TARGET = "target"
+    SUPPORTING = "supporting"
+
+
+class ContextResolution(StrEnum):
+    CARD = "card"
+    FULL_TEXT = "full_text"
+    METADATA = "metadata"
+    TEXT = "text"
+    VISION = "vision"
+    ANALYTICS = "analytics"
+
+
+class ContextSelection(BaseModel):
+    """ID-only selector output; content is always materialized by runtime."""
+
+    model_config = ConfigDict(extra="forbid", frozen=True)
+
+    ref: str = Field(min_length=3, max_length=240)
+    role: ContextRole
+    resolution: ContextResolution
+
+
+class ContextSelectorDecision(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True)
+
+    selections: tuple[ContextSelection, ...] = Field(default=(), max_length=16)
+
+    @model_validator(mode="after")
+    def validate_unique_refs(self) -> "ContextSelectorDecision":
+        refs = [item.ref for item in self.selections]
+        if len(refs) != len(set(refs)):
+            raise ValueError("selector contains duplicate refs")
+        return self
+
+
 class CandidateReasonCode(StrEnum):
     TOPIC_ONLY = "topic_only"
     EXACT_FACT = "exact_fact"
@@ -166,6 +203,24 @@ def parse_planner_decision(raw: str) -> PlannerDecision | None:
         return None
 
 
+def parse_context_selector_decision(raw: str) -> ContextSelectorDecision | None:
+    payload = extract_json_object(raw or "")
+    if not isinstance(payload, Mapping):
+        return None
+    try:
+        return ContextSelectorDecision.model_validate(payload)
+    except (ValidationError, TypeError, ValueError):
+        return None
+
+
+def render_context_selector_schema() -> str:
+    return (
+        '{"selections":[{"ref":"post:ID","role":"target",'
+        '"resolution":"card"},{"ref":"note:ID","role":"supporting",'
+        '"resolution":"full_text"}]}'
+    )
+
+
 def render_planner_schema() -> str:
     """Small prompt fragment kept stable for token/latency measurements."""
 
@@ -184,9 +239,15 @@ __all__ = [
     "CandidateReasonCode",
     "CandidateRelevance",
     "CandidateResolution",
+    "ContextResolution",
+    "ContextRole",
+    "ContextSelection",
+    "ContextSelectorDecision",
     "PlannerAction",
     "PlannerDecision",
     "PlannerStateUpdates",
     "parse_planner_decision",
+    "parse_context_selector_decision",
+    "render_context_selector_schema",
     "render_planner_schema",
 ]

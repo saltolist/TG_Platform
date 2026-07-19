@@ -13,8 +13,10 @@ import pytest
 from pydantic import ValidationError
 
 from app.services.agent.research.planner_decision import (
+    ContextSelectorDecision,
     DecisionCode,
     PlannerDecision,
+    parse_context_selector_decision,
     parse_planner_decision,
 )
 from app.services.agent.research.sufficiency import evaluate_sufficiency
@@ -60,6 +62,19 @@ def test_compact_decision_is_strict_and_allows_bounded_batch() -> None:
             }
         )
     assert parse_planner_decision('{"decision_code":"READ_TOP_CANDIDATES","actions":[]}') is None
+
+
+def test_context_selector_is_id_only_and_rejects_generated_content() -> None:
+    decision = parse_context_selector_decision(
+        '{"selections":[{"ref":"post:p1","role":"target","resolution":"card"},'
+        '{"ref":"attachment:f1","role":"supporting","resolution":"vision"}]}'
+    )
+    assert isinstance(decision, ContextSelectorDecision)
+    assert [item.ref for item in decision.selections] == ["post:p1", "attachment:f1"]
+    assert parse_context_selector_decision(
+        '{"selections":[{"ref":"post:p1","role":"target",'
+        '"resolution":"card","content":"generated summary"}]}'
+    ) is None
 
 
 def test_sufficiency_excludes_discovery_summaries_and_requires_primary_source() -> None:

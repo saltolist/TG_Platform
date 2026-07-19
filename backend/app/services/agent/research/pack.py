@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from typing import Any, Mapping
+
 from app.services.ai.note_citations import NoteCite
 from app.services.agent.research.evidence import EvidenceRecord
 from app.services.agent.research.trust import wrap_untrusted_block
@@ -98,6 +100,7 @@ def build_verified_pack(
     schema: str | None = None,
     coverage: str = "complete",
     coverage_by_source: dict | None = None,
+    item_annotations: Mapping[str, Mapping[str, Any]] | None = None,
 ):
     """Public compatibility wrapper for the typed phase-6 pack."""
 
@@ -109,4 +112,5 @@ def build_verified_pack(
         schema=schema,
         coverage=coverage,
         coverage_by_source=coverage_by_source or {},
+        item_annotations=item_annotations,
     )

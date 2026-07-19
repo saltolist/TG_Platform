@@ -59,6 +59,8 @@ def validate_answer_output(
     schema: str = OUTPUT_SCHEMA_V1,
     supplied_context_refs: set[str] | None = None,
     evidence_fidelity: Mapping[str, str] | None = None,
+    evidence_roles: Mapping[str, str] | None = None,
+    allow_optional_only_claims: bool = True,
 ) -> OutputValidation:
     """Validate schema and require every factual claim to cite verified evidence."""
 
@@ -90,6 +92,17 @@ def validate_answer_output(
                 issue = f"claims[{index}].exact_claim_requires_full_text"
                 issues.append(issue)
                 fatal_issues.append(issue)
+        if (
+            not allow_optional_only_claims
+            and cited
+            and {
+                str((evidence_roles or {}).get(eid) or "supporting")
+                for eid in cited
+            } == {"supporting_optional"}
+        ):
+            issue = f"claims[{index}].optional_only_outside_required_corpus"
+            issues.append(issue)
+            fatal_issues.append(issue)
     if factual and any(not claim.get("evidence_ids") for claim in claims):
         issues.append("factual_claim_requires_evidence")
         fatal_issues.append("factual_claim_requires_evidence")
