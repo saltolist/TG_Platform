@@ -52,6 +52,7 @@ from app.services.agent.research.material_plan import (
     record_full_read_results,
     saturated_sources,
 )
+from app.services.agent.research.prefetch import load_discovery_cards_for_objects
 from app.services.agent.runtime.context import RuntimeContext
 from app.services.agent.runtime.state import AgentGraphState
 from app.services.agent.runtime.tool_contracts import (
@@ -78,6 +79,7 @@ from app.services.ai.rag_tools import (
     tool_get_post_analytics,
     tool_hydrate_attachment,
     tool_list_global_notes,
+    tool_list_all_notes,
     tool_list_note_attachments,
     tool_list_post_media,
     tool_list_post_notes,
@@ -1217,6 +1219,55 @@ def _conservative_candidate_assessments(
     )
 
 
+def _apply_complete_source_policy(
+    assessments: list[dict[str, Any]],
+    *,
+    candidates: list[dict[str, Any]],
+    contract: dict[str, Any],
+) -> list[dict[str, Any]]:
+    """Make complete-source fidelity deterministic after planner assessment.
+
+    The planner may rank candidates, but it cannot downgrade a contract that
+    explicitly asks for every catalog member. This prevents a top-k choice or
+    an ``irrelevant`` label from silently dropping an object required by the
+    answer contract.
+    """
+
+    requirements = {
+        str(source.get("source_id") or ""): dict(source)
+        for source in contract.get("source_requirements") or ()
+        if isinstance(source, dict) and source.get("coverage") == "complete"
+    }
+    if not requirements:
+        return assessments
+    by_ref = {
+        canonical_candidate_ref(str(item.get("ref") or "")): dict(item)
+        for item in assessments
+        if isinstance(item, dict)
+    }
+    result: list[dict[str, Any]] = []
+    for candidate in candidates:
+        ref = canonical_candidate_ref(str(candidate.get("ref") or ""))
+        source_id = str(candidate.get("source_requirement_id") or "")
+        source = requirements.get(source_id)
+        assessment = dict(by_ref.get(ref) or {
+            "ref": ref,
+            "confidence": 1.0,
+        })
+        if source is not None:
+            granularity = str(source.get("evidence_granularity") or "full_text")
+            assessment["relevance"] = "direct"
+            if granularity == "semantic_card":
+                assessment["resolution"] = "card"
+                assessment["reason_code"] = "topic_only"
+            elif granularity == "full_text":
+                assessment["resolution"] = "full_text"
+                assessment["reason_code"] = "detailed_summary"
+            assessment["confidence"] = max(0.0, min(1.0, float(assessment.get("confidence") or 1.0)))
+        result.append(assessment)
+    return result
+
+
 def _materialize_full_read_actions(
     refs: list[str],
     candidates: list[dict[str, Any]],
@@ -1230,6 +1281,8 @@ def _materialize_full_read_actions(
         source_id = str(by_ref.get(ref, {}).get("source_requirement_id") or "")
         args = {"source_requirement_id": source_id}
         args["note_id" if kind == "note" else "post_id"] = object_id
+        if kind == "note" and by_ref.get(ref, {}).get("parent_post_id"):
+            args["post_id"] = str(by_ref[ref]["parent_post_id"])
         actions.append(
             PlannerAction(
                 tool="OpenNote" if kind == "note" else "OpenPost",
@@ -1415,6 +1468,88 @@ async def research_seed_node(state: AgentGraphState, config: RunnableConfig) -> 
                 outcome = await seed_action(ToolAction(tool="OpenPost", args={"post_id": post_id}))
                 transcript.append(f"[seed] OpenPost: {outcome.summary}")
                 agent_state.resolved_target_post_id = post_id
+        # A complete-coverage source is an inventory contract, not a semantic
+        # search. Enumerate the authoritative catalog first, then load fresh
+        # discovery cards by object id so low-similarity objects cannot vanish
+        # from the candidate set.
+        coverage_targets: dict[str, list[str]] = {}
+        prefetch_hits: list[dict[str, Any]] = []
+        complete_sources = [
+            dict(source)
+            for source in contract.get("source_requirements") or ()
+            if isinstance(source, dict)
+            and source.get("required")
+            and source.get("coverage") == "complete"
+        ]
+        for source in complete_sources:
+            source_id = str(source.get("source_id") or "")
+            kind = str(source.get("kind") or "")
+            if kind == "posts":
+                listing = await seed_action(
+                    ToolAction(
+                        tool="ListPosts",
+                        args={
+                            "status": "all",
+                            "limit": max(100, int((source.get("budget") or {}).get("candidate_limit") or 16)),
+                            "source_requirement_id": source_id,
+                        },
+                    )
+                )
+            elif kind == "notes":
+                # This internal inventory includes global notes and notes owned
+                # by posts. ListGlobalNotes alone is not complete coverage.
+                listing = await tool_list_all_notes(agent_state)
+            else:
+                continue
+            members = [dict(item) for item in listing.items if isinstance(item, dict)]
+            refs = [
+                f"{'post' if kind == 'posts' else 'note'}:{item.get('id')}"
+                for item in members
+                if str(item.get("id") or "")
+            ]
+            coverage_targets[source_id] = refs
+            transcript.append(f"[contract] complete {source_id}: {listing.summary}")
+            if source.get("evidence_granularity") in {"semantic_card", "full_text"} and members:
+                cards = await load_discovery_cards_for_objects(
+                    session,
+                    user_id=ctx.user_id,
+                    object_kind=kind,
+                    objects=members,
+                    source_requirement_id=source_id,
+                    tenant_key=ctx.tenant_key,
+                )
+                cards_by_ref = {str(item.get("ref") or ""): item for item in cards}
+                prefetch_hits.extend(cards)
+                prefix = "post" if kind == "posts" else "note"
+                node_type = "post_summary" if kind == "posts" else "note_summary"
+                for item in members:
+                    object_id = str(item.get("id") or "")
+                    ref = f"{prefix}:{object_id}"
+                    if not object_id or ref in cards_by_ref:
+                        continue
+                    revision = int(item.get("revision") or 0)
+                    prefetch_hits.append(
+                        {
+                            "ref": ref,
+                            "label": ref,
+                            "similarity": 1.0,
+                            "node_type": node_type,
+                            "summary_only": True,
+                            "index_revision": revision,
+                            "source_revision": revision,
+                            "summary_version": 0,
+                            "summary_model": "",
+                            "title": str(item.get("title") or ref),
+                            "preview": str(item.get("preview") or ""),
+                            "status": str(item.get("status") or "active"),
+                            "parent_post_id": str(item.get("parent_post_id") or "") or None,
+                            "has_more": False,
+                            "source_requirement_id": source_id,
+                        }
+                    )
+                transcript.append(
+                    f"[contract] {source_id} summary cards: {len(cards)}/{len(members)} fresh"
+                )
         seeded = seed_hydrated_attachments_from_ledger(
             agent_state,
             user_text=user_text,
@@ -1428,11 +1563,17 @@ async def research_seed_node(state: AgentGraphState, config: RunnableConfig) -> 
         # the note that defines it. Discovery-only — tool_search_nodes doesn't
         # write context_blocks, so hits are NOT citable evidence yet; the
         # planner must still OpenNote/OpenPost to ground them (agent note-prefetch).
-        prefetch_hits: list[dict[str, Any]] = []
         search_query = str(state.get("search_query") or "").strip() or user_text
         if contract.get("corpus") in {"exact_note", "feed_posts"}:
             search_query = ""
-        contract_discovery = _contract_discovery_actions(contract, query=search_query)
+        complete_source_ids = {
+            str(source.get("source_id") or "") for source in complete_sources
+        }
+        contract_discovery = [
+            action
+            for action in _contract_discovery_actions(contract, query=search_query)
+            if str(action.args.get("source_requirement_id") or "") not in complete_source_ids
+        ]
         if contract_discovery:
             for action in contract_discovery:
                 search_outcome = await seed_action(action)
@@ -1510,6 +1651,7 @@ async def research_seed_node(state: AgentGraphState, config: RunnableConfig) -> 
         ),
         "material_plan": dict(state.get("material_plan") or empty_material_plan()),
         "candidate_envelopes": normalize_candidates(prefetch_hits, scope=ctx.scope),
+        "coverage_targets_by_source": coverage_targets,
         "planner_calls_used": int(state.get("planner_calls_used") or 0),
         "search_calls_used": sum(
             1
@@ -1705,6 +1847,11 @@ async def _compact_planner_node(
         )
         if assessments:
             assessment_payloads = [item.model_dump(mode="json") for item in assessments]
+            assessment_payloads = _apply_complete_source_policy(
+                assessment_payloads,
+                candidates=candidates,
+                contract=contract,
+            )
             if str(contract.get("task_profile") or "") in {
                 "exact_lookup",
                 "comparison",
@@ -2753,7 +2900,11 @@ async def research_pack_node(state: AgentGraphState, config: RunnableConfig) -> 
         "evidence_pack": verified_pack.to_dict() if phase6_enabled else {},
         "evidence_pack_schema": verified_pack.schema if phase6_enabled else "",
         "evidence_ids": evidence_ids,
-        "evidence_titles": [cite.title for cite in cites],
+        "evidence_titles": [
+            records[eid].citation_title
+            for eid in evidence_ids
+            if eid in records and records[eid].kind != "catalog"
+        ],
         "unresolved": unresolved_items,
         "stopped_reason": str(finish.get("status") or "ready"),
         "status": "completed",

@@ -151,6 +151,42 @@ def evaluate_sufficiency(
     if material_missing:
         missing = tuple(dict.fromkeys((*missing, *material_missing)))
 
+    # A required complete source is a coverage contract, not merely a source
+    # presence check. Once the catalog is known, every member must be resolved
+    # at the requested fidelity before the run can finish. This is independent
+    # of how many candidates semantic retrieval happened to return.
+    material_resolved = {
+        str(item)
+        for item in [
+            *list(material_plan.get("card_ids") or ()),
+            *list(material_plan.get("opened_full_text_ids") or ()),
+        ]
+    }
+    for source in contract.get("source_requirements") or ():
+        if not isinstance(source, Mapping) or not source.get("required"):
+            continue
+        if source.get("coverage") != "complete":
+            continue
+        source_id = str(source.get("source_id") or "")
+        coverage_targets = state.get("coverage_targets_by_source") or {}
+        if source_id not in coverage_targets:
+            missing = tuple(dict.fromkeys((*missing, f"coverage:{source_id}:catalog")))
+            continue
+        targets = tuple(
+            str(item)
+            for item in coverage_targets.get(source_id) or ()
+            if str(item)
+        )
+        granularity = str(source.get("evidence_granularity") or "full_text")
+        if granularity in {"semantic_card", "full_text"}:
+            unresolved_targets = [ref for ref in targets if ref not in material_resolved]
+            if unresolved_targets:
+                missing = tuple(
+                    dict.fromkeys(
+                        (*missing, *(f"coverage:{source_id}:{ref}" for ref in unresolved_targets))
+                    )
+                )
+
     open_requirements = tuple(missing)
     remaining_intents = _remaining_intents(list(state.get("search_ledger") or ()), contract)
     hard_budget = _budget_exhausted(state, contract)

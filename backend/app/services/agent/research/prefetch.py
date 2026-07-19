@@ -97,6 +97,92 @@ async def resolve_current_source_revisions(
     return revisions
 
 
+async def load_discovery_cards_for_objects(
+    session: AsyncSession,
+    *,
+    user_id: uuid.UUID,
+    object_kind: str,
+    objects: list[Mapping[str, Any]],
+    source_requirement_id: str,
+    tenant_key: str | None = None,
+) -> list[dict[str, Any]]:
+    """Load fresh summary nodes for an authoritative catalog, without ranking.
+
+    Search ranking answers "which objects are relevant". A complete-coverage
+    contract needs a different primitive: every catalog member must get its
+    current semantic card, even when its wording has low similarity to the
+    query. This query remains tenant-scoped and validates the indexed revision
+    against the revision returned by the catalog.
+    """
+
+    node_type = NODE_POST_SUMMARY if object_kind == "posts" else NODE_NOTE_SUMMARY
+    ids = list(dict.fromkeys(str(item.get("id") or "") for item in objects if str(item.get("id") or "")))
+    if not ids:
+        return []
+    placeholders = ", ".join(f":card_id_{index}" for index in range(len(ids)))
+    params: dict[str, Any] = {
+        "user_id": user_id,
+        "node_type": node_type,
+        "tenant_key": tenant_key or "",
+    }
+    params.update({f"card_id_{index}": value for index, value in enumerate(ids)})
+    stmt = text(
+        f"""
+        SELECT note_id, post_id, chunk_text, object_title, object_status,
+               index_revision, summary_version, summary_model
+        FROM note_embeddings
+        WHERE user_id = :user_id
+          AND (tenant_key = :tenant_key OR tenant_key = '')
+          AND node_type = :node_type
+          AND note_id IN ({placeholders})
+          AND chunk_text <> ''
+        """
+    )
+    try:
+        result = await session.execute(stmt, params)
+        mappings = result.mappings()
+        if inspect.isawaitable(mappings):
+            mappings = await mappings
+        rows = mappings.all()
+        if inspect.isawaitable(rows):
+            rows = await rows
+    except Exception:
+        return []
+    by_id = {str(row.get("note_id") or row.get("post_id") or ""): row for row in rows}
+    result_rows: list[dict[str, Any]] = []
+    for item in objects:
+        object_id = str(item.get("id") or "")
+        row = by_id.get(object_id)
+        if row is None:
+            continue
+        catalog_revision = int(item.get("revision") or 0)
+        index_revision = int(row.get("index_revision") or 0)
+        if catalog_revision <= 0 or index_revision != catalog_revision:
+            continue
+        result_rows.append(
+            {
+                "ref": f"{'post' if object_kind == 'posts' else 'note'}:{object_id}",
+                "label": f"{'post' if object_kind == 'posts' else 'note'}:{object_id}",
+                "similarity": 1.0,
+                "node_type": node_type,
+                "summary_only": True,
+                "index_revision": index_revision,
+                "source_revision": catalog_revision,
+                "summary_version": int(row.get("summary_version") or 0),
+                "summary_model": str(row.get("summary_model") or ""),
+                "title": str(row.get("object_title") or item.get("title") or ""),
+                "preview": str(row.get("chunk_text") or "")[:480],
+                "status": str(row.get("object_status") or item.get("status") or "active"),
+                "parent_post_id": str(
+                    item.get("parent_post_id") or row.get("post_id") or ""
+                ) or None,
+                "has_more": False,
+                "source_requirement_id": source_requirement_id,
+            }
+        )
+    return result_rows
+
+
 async def fts_search(
     session: AsyncSession,
     *,

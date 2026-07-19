@@ -87,6 +87,10 @@ def normalize_candidate(
     index_revision = int(candidate.get("index_revision") or 0)
     source_revision = int(candidate.get("source_revision") or 0)
     summary_model = str(candidate.get("summary_model") or "")
+    parent_post_id = str(candidate.get("parent_post_id") or "")
+    citation_path = str(candidate.get("citation_path") or "")
+    if not citation_path and kind == "note" and parent_post_id:
+        citation_path = f"/note/post/{parent_post_id}/{object_id}/"
     envelope = {
         "ref": ref,
         "kind": kind,
@@ -105,7 +109,8 @@ def normalize_candidate(
         "summary_model": summary_model,
         "card_origin": card_origin(summary_model),
         "status": str(candidate.get("status") or "active"),
-        "citation_path": str(candidate.get("citation_path") or citation_path_for_ref(ref, scope=scope)),
+        "parent_post_id": parent_post_id or None,
+        "citation_path": citation_path or citation_path_for_ref(ref, scope=scope),
         "has_more": bool(candidate.get("has_more")),
     }
     eligible, failure = card_eligibility(envelope)

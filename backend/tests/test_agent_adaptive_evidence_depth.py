@@ -4,6 +4,8 @@ from __future__ import annotations
 
 import json
 from pathlib import Path
+from unittest.mock import AsyncMock, MagicMock
+from uuid import uuid4
 
 import pytest
 from pydantic import ValidationError
@@ -14,6 +16,7 @@ from app.services.agent.research.evidence_pack import (
     build_verified_evidence_pack,
 )
 from app.services.agent.research.graph import (
+    _apply_complete_source_policy,
     _card_records_from_plan,
     _materialize_full_read_actions,
     route_research_verify,
@@ -24,6 +27,7 @@ from app.services.agent.research.material_plan import (
     normalize_candidates,
     record_full_read_results,
 )
+from app.services.agent.research.prefetch import load_discovery_cards_for_objects
 from app.services.agent.research.planner_decision import PlannerDecision
 from app.services.agent.research.sufficiency import evaluate_sufficiency
 
@@ -102,6 +106,103 @@ def test_five_card_selections_need_no_reads_and_reach_pack() -> None:
     assert len(pack.items) == 5
     assert {item.fidelity for item in pack.items} == {"semantic_card"}
     assert all(item.allowed_claim_scope == "topic_only" for item in pack.items)
+
+
+def test_complete_source_policy_keeps_every_catalog_candidate() -> None:
+    candidates = normalize_candidates(
+        [_candidate(f"post:p{index}", source="workspace-posts") for index in range(5)]
+    )
+    contract = {
+        "source_requirements": [
+            {
+                "source_id": "workspace-posts",
+                "coverage": "complete",
+                "evidence_granularity": "semantic_card",
+            }
+        ]
+    }
+    enforced = _apply_complete_source_policy(
+        [_assessment("post:p0"), _assessment("post:p1", relevance="irrelevant")],
+        candidates=candidates,
+        contract=contract,
+    )
+    assert [item["ref"] for item in enforced] == [f"post:p{index}" for index in range(5)]
+    assert all(item["relevance"] == "direct" for item in enforced)
+    assert all(item["resolution"] == "card" for item in enforced)
+
+
+def test_complete_coverage_does_not_finish_with_only_three_of_five_cards() -> None:
+    contract = {
+        "source_requirements": [
+            {
+                "source_id": "workspace-posts",
+                "kind": "posts",
+                "required": True,
+                "coverage": "complete",
+                "evidence_granularity": "semantic_card",
+                "scope": {"mode": "corpus", "corpus": "workspace"},
+                "freshness": {"mode": "latest_available"},
+            }
+        ],
+        "budgets": {"planner_calls": 2, "search_calls": 2, "deep_reads": 6, "tool_calls": 10},
+    }
+    candidates = normalize_candidates(
+        [_candidate(f"post:p{index}", source="workspace-posts") for index in range(3)]
+    )
+    plan = merge_material_plan(
+        None,
+        candidates=candidates,
+        assessments=[_assessment(item["ref"]) for item in candidates],
+    )
+    result = evaluate_sufficiency(
+        state={
+            "adaptive_evidence_depth_enabled": True,
+            "coverage_targets_by_source": {
+                "workspace-posts": [f"post:p{index}" for index in range(5)]
+            },
+            "material_plan": plan,
+            "evidence_records": _card_records_from_plan(plan),
+            "search_ledger": [],
+        },
+        contract=contract,
+    )
+    assert result.status == "follow_up_allowed"
+    assert "coverage:workspace-posts:post:p3" in result.open_requirements
+    assert "coverage:workspace-posts:post:p4" in result.open_requirements
+
+
+@pytest.mark.asyncio
+async def test_complete_catalog_loads_cards_by_id_without_similarity_ranking() -> None:
+    rows = [
+        {
+            "note_id": f"p{index}",
+            "post_id": f"p{index}",
+            "chunk_text": f"Card {index}",
+            "object_title": f"Post {index}",
+            "object_status": "published",
+            "index_revision": index + 1,
+            "summary_version": 1,
+            "summary_model": "llm:provider:model:v1",
+        }
+        for index in range(5)
+    ]
+    db_result = MagicMock()
+    db_result.mappings.return_value.all.return_value = rows
+    session = AsyncMock()
+    session.execute.return_value = db_result
+    objects = [
+        {"id": f"p{index}", "revision": index + 1, "title": f"Post {index}"}
+        for index in range(5)
+    ]
+    cards = await load_discovery_cards_for_objects(
+        session,
+        user_id=uuid4(),
+        object_kind="posts",
+        objects=objects,
+        source_requirement_id="workspace-posts",
+    )
+    assert [item["ref"] for item in cards] == [f"post:p{index}" for index in range(5)]
+    assert all(item["similarity"] == 1.0 for item in cards)
 
 
 def test_five_full_reads_dispatch_as_three_plus_two_without_planner() -> None:
@@ -216,13 +317,18 @@ def test_candidate_quota_and_card_context_sweep_passes() -> None:
     assert report["card_context"]["selected_budget_chars"] == 6000
 
 
-def test_adaptive_evidence_depth_flag_defaults_off_for_canary() -> None:
+def test_adaptive_evidence_depth_flag_accepts_explicit_runtime_setting() -> None:
     from app.core.config import Settings
 
-    assert Settings().agent_adaptive_evidence_depth_v1_enabled is False
     assert (
         Settings(
             agent_adaptive_evidence_depth_v1_enabled="1"
         ).agent_adaptive_evidence_depth_v1_enabled
         is True
+    )
+    assert (
+        Settings(
+            agent_adaptive_evidence_depth_v1_enabled="0"
+        ).agent_adaptive_evidence_depth_v1_enabled
+        is False
     )

@@ -51,7 +51,7 @@ _compiled_graphs: dict[int, tuple[object, Any]] = {}
 
 WORKSPACE_SYSTEM = """Ты единственный WorkspaceAgent платформы.
 Верни один JSON tool call:
-- {"type":"read","requires_evidence":true,"required_sources":["notes|posts|analytics|comments|attachments|images"]} — ответ невозможен без фактов workspace;
+- {"type":"read","requires_evidence":true,"required_sources":["notes|posts|analytics|comments|attachments|images"],"source_requirements":[{"kind":"posts","coverage":"relevant|complete","evidence_granularity":"catalog|semantic_card|full_text"}]} — ответ невозможен без фактов workspace;
 - {"type":"finish","requires_evidence":false,"required_sources":[]} — на сообщение можно полноценно ответить по его тексту, диалогу и общим знаниям;
 - {"type":"post_proposal","command":"create_post|edit_post|schedule_post|publish_post|cancel_schedule|delete_post|restore_post","payload":{...}} — только когда передан блок "Текущий пост";
 - {"type":"media_proposal","kind":"image|video","prompt":"...","options":{},"cost_ceiling":number}.
@@ -60,6 +60,7 @@ WORKSPACE_SYSTEM = """Ты единственный WorkspaceAgent платфо�
 нет действия «связать заметку с постами или файлами»; заметки и файлы уже являются
 частью workspace и доступны AI после сохранения.
 Обычные answer-turns в любом случае выполняют отдельный ограниченный поиск по заметкам и постам для обогащения ответа. Поэтому НЕ выбирай "read" и НЕ добавляй required_sources только ради полезного контекста. Выбирай "read" лишь когда факты именно из workspace необходимы для выполнения запроса: пользователь просит найти, перечислить, посчитать, проверить или описать свои объекты/метрики. Совет, оценка или общий вопрос, на который можно ответить без утверждений о содержимом workspace, — "finish"; найденные материалы всё равно будут доступны как необязательное обогащение.
+Для каждого обязательного источника заполни source_requirements. coverage="relevant" означает, что достаточно относящегося к вопросу подмножества; coverage="complete" означает, что ответ должен охватить каждый объект указанного корпуса. Выбирай complete для полного перечня, подсчёта по всей категории, описания каждого объекта и других задач, где пропуск хотя бы одного объекта делает ответ неверным. evidence_granularity="catalog" достаточно для количества, названий, статусов и наличия; "semantic_card" — для общей темы или назначения каждого объекта; "full_text" — для точных деталей, сравнений, цитат и редактирования. Не подменяй complete семантическим top-k.
 Если передан блок "Диалог" — используй его, чтобы понять контекст запроса. Короткая правка твоего предыдущего ответа без новых фактических вопросов (перефразируй, покороче, на другом языке, другим тоном) — это "finish", даже если предыдущий ответ был по фактам workspace: факты уже собраны и лежат в диалоге, повторный поиск не нужен.
 Если передан блок "Текущий пост" и пользователь просит изменить его текст (убрать/добавить/переформулировать что-то в посте) — верни ровно {"type":"post_proposal","command":"edit_post","payload":{}}. Полный текст поста и его id проставляются отдельным детерминированным шагом — тебе НЕ нужно возвращать ни текст, ни id здесь, только классифицировать запрос как edit_post. Если блока "Текущий пост" нет, НЕ выбирай post_proposal: запрос на изменение серии или постов означает, что сначала нужно найти соответствующие материалы workspace, поэтому выбирай read.
 
@@ -75,6 +76,7 @@ def _apply_classifier_source_policy(
     *,
     required_sources: list[str],
     classifier_requires_evidence: bool,
+    classified_source_requirements: list[dict[str, Any]] | None = None,
 ) -> dict[str, Any]:
     """Make semantic classifier output authoritative for factual grounding.
 
@@ -88,6 +90,13 @@ def _apply_classifier_source_policy(
         for item in required_sources
         if str(item).strip().lower() in _CLASSIFIER_SOURCE_KINDS
     }
+    classified_by_kind = {
+        str(item.get("kind") or "").strip().lower(): dict(item)
+        for item in (classified_source_requirements or ())
+        if isinstance(item, dict)
+        and str(item.get("kind") or "").strip().lower() in _CLASSIFIER_SOURCE_KINDS
+    }
+    required.update(classified_by_kind.keys())
     sources = [dict(item) for item in contract.get("source_requirements") or ()]
     if classifier_requires_evidence and not required:
         required.update(
@@ -95,8 +104,34 @@ def _apply_classifier_source_policy(
         )
     existing = {str(item.get("kind") or "") for item in sources}
     for source in sources:
-        source["required"] = str(source.get("kind") or "") in required
+        kind = str(source.get("kind") or "")
+        source["required"] = kind in required
+        classified = classified_by_kind.get(kind) or {}
+        coverage = str(classified.get("coverage") or "")
+        granularity = str(classified.get("evidence_granularity") or "")
+        if coverage in {"relevant", "complete"}:
+            source["coverage"] = (
+                coverage
+                if coverage != "complete" or kind in {"posts", "notes"}
+                else "relevant"
+            )
+        else:
+            source.setdefault("coverage", "relevant")
+        if granularity in {"catalog", "semantic_card", "full_text"}:
+            source["evidence_granularity"] = granularity
     for kind in sorted(required - existing):
+        classified_coverage = str(
+            classified_by_kind.get(kind, {}).get("coverage") or "relevant"
+        )
+        if classified_coverage not in {"relevant", "complete"}:
+            classified_coverage = "relevant"
+        if classified_coverage == "complete" and kind not in {"posts", "notes"}:
+            classified_coverage = "relevant"
+        classified_granularity = str(
+            classified_by_kind.get(kind, {}).get("evidence_granularity") or "full_text"
+        )
+        if classified_granularity not in {"catalog", "semantic_card", "full_text"}:
+            classified_granularity = "full_text"
         sources.append(
             {
                 "source_id": f"workspace-{kind}",
@@ -105,7 +140,8 @@ def _apply_classifier_source_policy(
                 "required": True,
                 "query_goal": f"retrieve {kind} required by the current goal",
                 "min_evidence": 1,
-                "evidence_granularity": "full_text",
+                "coverage": classified_coverage,
+                "evidence_granularity": classified_granularity,
                 "scope": {
                     "mode": "corpus",
                     "target_ids": [],
@@ -311,7 +347,18 @@ async def workspace_agent_node(
         turn_contract,
         required_sources=required_sources,
         classifier_requires_evidence=classifier_requires_evidence,
+        classified_source_requirements=[
+            dict(item)
+            for item in (call.get("source_requirements") or ())
+            if isinstance(item, dict)
+        ],
     )
+    if any(
+        item.get("required") and item.get("coverage") == "complete"
+        for item in turn_contract.get("source_requirements") or ()
+        if isinstance(item, dict)
+    ) and turn_contract.get("task_profile") == "topical_answer":
+        turn_contract["task_profile"] = "workspace_synthesis"
     if (
         turn_contract.get("requires_workspace")
         and target_mode != "ambiguous"

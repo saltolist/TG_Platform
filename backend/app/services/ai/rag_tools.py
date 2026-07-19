@@ -737,6 +737,93 @@ async def tool_list_global_notes(state: AgentState) -> ToolOutcome:
     )
 
 
+async def tool_list_all_notes(state: AgentState) -> ToolOutcome:
+    """Enumerate the complete note corpus across global and post-owned notes."""
+
+    from sqlalchemy import select
+
+    from app.db.models import Post
+
+    ref = "all_notes"
+    existing = _already_visited(state, ref)
+    if existing:
+        return existing
+    _mark_visited(state, ref)
+    try:
+        global_notes = await list_global_notes(
+            state.session, state.user_id, tenant_key=state.tenant_key
+        )
+        posts = list(
+            (
+                await state.session.scalars(
+                    select(Post).where(Post.user_id == state.user_id).order_by(Post.position)
+                )
+            ).all()
+        )
+    except Exception as exc:
+        return ToolOutcome(summary="Не удалось получить полный список заметок.", error=str(exc))
+
+    members: list[dict[str, Any]] = []
+    def note_title(value: Any) -> str:
+        return next(
+            (line.strip() for line in str(value or "").splitlines() if line.strip()),
+            "Без названия",
+        )
+
+    for item in global_notes:
+        note_id = str(item.get("id") or "").strip()
+        if not note_id:
+            continue
+        body = str(item.get("body") or "").strip()
+        members.append(
+            {
+                "kind": "note",
+                "id": note_id,
+                "title": note_title(item.get("title") or note_id),
+                "status": str(item.get("status") or "active"),
+                "preview": body[:80] + ("…" if len(body) > 80 else ""),
+                "revision": object_index_revision(item),
+                "parent_post_id": None,
+            }
+        )
+    for row in posts:
+        post_data = dict(row.data or {})
+        if str(post_data.get("status") or "").strip().lower() == "deleted":
+            continue
+        parent_post_id = str(post_data.get("id") or row.id)
+        for item in post_data.get("notes") or ():
+            if not isinstance(item, Mapping):
+                continue
+            note_id = str(item.get("id") or "").strip()
+            if not note_id:
+                continue
+            body = str(item.get("body") or "").strip()
+            members.append(
+                {
+                    "kind": "note",
+                    "id": note_id,
+                    "title": note_title(item.get("title") or note_id),
+                    "status": str(item.get("status") or "active"),
+                    "preview": body[:80] + ("…" if len(body) > 80 else ""),
+                    "revision": object_index_revision(item),
+                    "parent_post_id": parent_post_id,
+                }
+            )
+    lines = [f"Все заметки пользователя (total={len(members)}):"]
+    lines.extend(
+        f"- note:{item['id']} title={item['title']!r}"
+        + (f" parent_post={item['parent_post_id']}" if item.get("parent_post_id") else "")
+        for item in members
+    )
+    return _record_listing(
+        state,
+        path="/notes/",
+        title="Все заметки",
+        body="\n".join(lines),
+        members=members,
+    )
+
+
 def _note_cite_path(
     state: AgentState,
     note_id: str,

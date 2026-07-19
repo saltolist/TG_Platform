@@ -358,6 +358,32 @@ async def test_compact_planner_cannot_finish_with_actionable_required_source() -
     ]
 
 
+def test_classifier_promotes_complete_semantic_card_source_contract() -> None:
+    from app.services.agent.runtime.workspace_graph import _apply_classifier_source_policy
+
+    contract = build_turn_contract(
+        user_text="Опиши все объекты", history=[], scope="global"
+    )
+    contract = _apply_classifier_source_policy(
+        contract,
+        required_sources=["posts"],
+        classifier_requires_evidence=True,
+        classified_source_requirements=[
+            {
+                "kind": "posts",
+                "coverage": "complete",
+                "evidence_granularity": "semantic_card",
+            }
+        ],
+    )
+    posts = next(
+        source for source in contract["source_requirements"] if source["kind"] == "posts"
+    )
+    assert posts["required"] is True
+    assert posts["coverage"] == "complete"
+    assert posts["evidence_granularity"] == "semantic_card"
+
+
 def test_universal_discovery_is_split_by_source_contract() -> None:
     from app.services.agent.research.graph import _contract_discovery_actions
 

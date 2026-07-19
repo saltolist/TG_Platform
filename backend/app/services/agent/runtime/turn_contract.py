@@ -177,7 +177,8 @@ class SourceRequirement(_ContractModel):
     required: bool
     query_goal: str = Field(min_length=1)
     min_evidence: int = Field(default=1, ge=1, le=8)
-    evidence_granularity: Literal["full_text", "catalog"] = "full_text"
+    coverage: Literal["relevant", "complete"] = "relevant"
+    evidence_granularity: Literal["catalog", "semantic_card", "full_text"] = "full_text"
     scope: SourceScope
     freshness: Freshness
     budget: SourceBudget

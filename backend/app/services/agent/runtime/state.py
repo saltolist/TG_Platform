@@ -103,6 +103,9 @@ class AgentGraphState(TypedDict, total=False):
     selected_candidate_ids: list[str]
     material_plan: dict[str, Any]
     candidate_envelopes: list[dict[str, Any]]
+    # Authoritative catalog refs for sources whose contract requires complete
+    # corpus coverage. Semantic top-k hits must never silently shrink this set.
+    coverage_targets_by_source: dict[str, list[str]]
     requested_status: str | None
     tool_action: dict[str, Any] | None
     # Accumulated planner decisions {step, observations, reasoning, gap, tool,
