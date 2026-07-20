@@ -22,6 +22,7 @@
 - [Workspace Agent phase 7 tools, HITL and observability](workspace-agent-phase7-tools-hitl-observability.md) — consolidated tools, persisted resume state, trace replay and SLO dashboards
 - [Workspace Agent phase 8 scale and batch](workspace-agent-phase8-scale-batch.md) — 1000+1000 corpus benchmark, PostgreSQL indexes, resumable batch path and queue isolation
 - [Workspace Agent adaptive evidence depth](workspace-agent-adaptive-evidence-depth-plan.md) — план разделения candidate assessment, semantic-card evidence и ограниченных full-text reads
+- [Упрощение диалогового контекста и возврат к Smart RAG](smart-rag-dialog-context-simplification-plan.md) — отказ от отдельного resolver анафор, общий контекст planner/final и компактные карточки использованных материалов
 - [Workspace Agent current limitations](workspace-agent-current-limitations.md) — текущие ограничения, release blockers, фаза 3 и оставшиеся работы
 - [Сценарий: Agentic Graph RAG (legacy)](agentic-rag-scenario.md) — deprecated, legacy L2
 - [Сценарий: сводки, ветки и окно LLM](summary-branch-scenario.md) — эталонное поведение при форках и 3+ поколениях bundle
