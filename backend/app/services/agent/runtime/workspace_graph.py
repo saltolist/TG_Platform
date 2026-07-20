@@ -1740,6 +1740,7 @@ async def run_workspace_graph(
         "message_context_manifest": {},
         "repair_count": 0,
         "max_steps": runtime_context.settings.rag_agent_max_steps,
+        "current_post_notes": [],
         "search_ledger": [],
         "finish_retrieval_attempted": False,
         "validator_events": [],

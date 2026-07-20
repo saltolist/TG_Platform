@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import json
 from unittest.mock import AsyncMock, patch
 from uuid import uuid4
 
@@ -10,12 +11,17 @@ import pytest
 from app.core.config import Settings
 from app.services.agent.research.evidence import EvidenceRecord
 from app.services.agent.research.graph import (
+    CURRENT_POST_NOTE_PREVIEW_CHARS,
+    _compact_state_snapshot,
+    _current_post_note_catalog,
+    unopened_prefetch_hits,
     parse_tool_action,
     research_planner_node,
     route_research_after_tool,
     run_research_graph,
     validate_observations,
 )
+from app.services.agent.research.material_plan import normalize_candidates
 from app.services.ai.rag_tools import ToolOutcome
 from app.services.agent.research.pack import build_evidence_pack
 from app.services.agent.research.verifier import verify_evidence
@@ -23,6 +29,86 @@ from app.services.agent.runtime.context import RuntimeContext
 from app.services.agent.runtime.turn_contract import build_turn_contract
 from app.services.ai.note_citations import NoteCite
 from app.services.ai.rag_tools import AgentState
+
+
+def test_current_post_note_catalog_exposes_all_valid_note_cards() -> None:
+    long_body = "x" * (CURRENT_POST_NOTE_PREVIEW_CHARS + 20)
+    catalog = _current_post_note_catalog(
+        {
+            "id": "post-1",
+            "notes": [
+                "invalid",
+                {"id": "", "title": "missing id"},
+                {
+                    "id": "note-1",
+                    "title": "\n  First title  \nSecond title",
+                    "body": long_body,
+                    "status": "active",
+                    "files": [
+                        {"id": "image-1", "type": "image/png"},
+                        {"id": "doc-1", "mimeType": "application/pdf"},
+                        "invalid",
+                    ],
+                },
+                {
+                    "id": "note-2",
+                    "title": "",
+                    "body": "\n  Body title\nMore text",
+                    "files": [],
+                },
+            ],
+        }
+    )
+
+    assert [item["ref"] for item in catalog] == ["note:note-1", "note:note-2"]
+    assert catalog[0]["title"] == "First title"
+    assert catalog[0]["preview"] == "x" * CURRENT_POST_NOTE_PREVIEW_CHARS + "…"
+    assert catalog[0]["parent_post_id"] == "post-1"
+    assert catalog[0]["attachment_count"] == 2
+    assert catalog[0]["image_count"] == 1
+    assert catalog[0]["source_requirement_id"] == "workspace-notes"
+    assert catalog[1]["title"] == "Body title"
+    normalized = normalize_candidates(catalog)
+    assert normalized[0]["card_origin"] == "current_post_catalog"
+
+
+def test_compact_snapshot_includes_current_post_note_registry() -> None:
+    catalog = _current_post_note_catalog(
+        {
+            "id": "post-1",
+            "notes": [
+                {
+                    "id": "note-1",
+                    "title": "Local note",
+                    "body": "Short preview",
+                    "files": [{"id": "image-1", "type": "image/jpeg"}],
+                }
+            ],
+        }
+    )
+    snapshot = json.loads(
+        _compact_state_snapshot(
+            state={"user_text": "Question", "current_post_notes": catalog},
+            records={},
+            sufficiency={},
+        )
+    )
+
+    assert snapshot["current_post_notes"][0]["ref"] == "note:note-1"
+    assert snapshot["current_post_notes"][0]["parent_post_id"] == "post-1"
+    assert snapshot["current_post_notes"][0]["attachment_count"] == 1
+    assert snapshot["current_post_notes"][0]["image_count"] == 1
+    assert "Short preview" in snapshot["current_post_notes"][0]["preview"]
+
+
+def test_current_post_catalog_cards_do_not_trigger_unopened_prefetch_guard() -> None:
+    catalog = _current_post_note_catalog(
+        {
+            "id": "post-1",
+            "notes": [{"id": "note-1", "title": "Local note", "body": "Preview"}],
+        }
+    )
+    assert unopened_prefetch_hits(catalog, {}) == []
 
 
 def test_parse_tool_action_finish() -> None:

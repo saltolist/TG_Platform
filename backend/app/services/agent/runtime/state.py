@@ -69,6 +69,10 @@ class AgentGraphState(TypedDict, total=False):
     # Consecutive tool calls that produced no new evidence.
     no_progress_count: int
     research_transcript: list[str]
+    # Ambient metadata catalog for notes attached to the current post. These
+    # cards are planner-visible context, not citable evidence; full note text
+    # enters evidence only after OpenNote or explicit material selection.
+    current_post_notes: list[dict[str, Any]]
     research_hints: list[str]
     # Self-contained search query the workspace classifier resolved from the raw
     # user_text + dialog (anaphora expanded, e.g. "а сколько там?" → "сколько

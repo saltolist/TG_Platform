@@ -92,6 +92,7 @@ def normalize_candidate(
     index_revision = int(candidate.get("index_revision") or 0)
     source_revision = int(candidate.get("source_revision") or 0)
     summary_model = str(candidate.get("summary_model") or "")
+    candidate_origin = str(candidate.get("card_origin") or "").strip()
     parent_post_id = str(candidate.get("parent_post_id") or "")
     parent_note_id = str(candidate.get("parent_note_id") or candidate.get("note_id") or "")
     post_id = str(candidate.get("post_id") or "")
@@ -115,7 +116,7 @@ def normalize_candidate(
         "source_revision": source_revision,
         "summary_version": int(candidate.get("summary_version") or 0),
         "summary_model": summary_model,
-        "card_origin": card_origin(summary_model),
+        "card_origin": candidate_origin or card_origin(summary_model),
         "status": str(candidate.get("status") or "active"),
         "parent_post_id": parent_post_id or None,
         "parent_note_id": parent_note_id or None,

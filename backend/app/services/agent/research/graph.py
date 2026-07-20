@@ -7,6 +7,7 @@ import json
 import logging
 import time
 import uuid
+from collections.abc import Mapping
 from dataclasses import dataclass, replace
 from typing import Any, Literal
 
@@ -75,6 +76,7 @@ from app.services.agent.runtime.turn_contract import (
 )
 from app.services.ai.note_citations import NoteCite
 from app.services.ai.providers import ProviderSpec
+from app.services.ai.rag import object_index_revision
 from app.services.ai.rag_dialog_ledger import (
     TurnSnapshot,
     format_ledger_for_planner,
@@ -132,6 +134,84 @@ _PREFETCH_GUARD_TYPES = frozenset(
     {"note_chunk", "post_text", "note_summary", "post_summary"}
 )
 
+# Keep the ambient catalog useful for normal posts while preventing an
+# unexpectedly large post payload from consuming the planner prompt budget.
+MAX_CURRENT_POST_NOTE_CATALOG = 100
+CURRENT_POST_NOTE_PREVIEW_CHARS = 180
+
+
+def _first_non_empty_line(value: Any, *, fallback: str = "") -> str:
+    return next(
+        (line.strip() for line in str(value or "").splitlines() if line.strip()),
+        fallback,
+    )
+
+
+def _current_post_note_catalog(post_data: Mapping[str, Any] | None) -> list[dict[str, Any]]:
+    """Build bounded, non-citable metadata cards for notes on the open post."""
+
+    if not isinstance(post_data, Mapping):
+        return []
+    post_id = str(post_data.get("id") or "").strip()
+    if not post_id:
+        return []
+
+    catalog: list[dict[str, Any]] = []
+    for raw_note in post_data.get("notes") or ():
+        if not isinstance(raw_note, Mapping):
+            continue
+        note_id = str(raw_note.get("id") or "").strip()
+        if not note_id:
+            continue
+        body = str(raw_note.get("body") or "").strip()
+        title = _first_non_empty_line(
+            raw_note.get("title"),
+            fallback=_first_non_empty_line(body, fallback=note_id),
+        )
+        preview = body[:CURRENT_POST_NOTE_PREVIEW_CHARS]
+        if len(body) > CURRENT_POST_NOTE_PREVIEW_CHARS:
+            preview += "…"
+        files = [item for item in (raw_note.get("files") or ()) if isinstance(item, Mapping)]
+        images = sum(
+            1
+            for item in files
+            if str(item.get("type") or item.get("mimeType") or "").startswith("image/")
+        )
+        revision = object_index_revision(raw_note)
+        catalog.append(
+            {
+                "ref": f"note:{note_id}",
+                "id": note_id,
+                "kind": "note",
+                "label": f"note:{note_id}",
+                "title": title[:240],
+                "preview": preview,
+                "card_text": preview,
+                "status": str(raw_note.get("status") or "active"),
+                "parent_post_id": post_id,
+                "attachment_count": len(files),
+                "file_count": len(files),
+                "image_count": images,
+                "files": len(files),
+                "images": images,
+                "source_revision": revision,
+                "index_revision": revision,
+                "summary_version": 0,
+                "summary_model": "",
+                "summary_only": True,
+                "node_type": "note_summary",
+                "similarity": 1.0,
+                "score": 1.0,
+                "has_more": False,
+                "card_origin": "current_post_catalog",
+                "source_requirement_id": "workspace-notes",
+                "citation_path": f"/note/post/{post_id}/{note_id}/",
+            }
+        )
+        if len(catalog) >= MAX_CURRENT_POST_NOTE_CATALOG:
+            break
+    return catalog
+
 
 def unopened_prefetch_hits(
     hits: list[dict[str, Any]],
@@ -144,6 +224,12 @@ def unopened_prefetch_hits(
     keys = " ".join(records.keys())
     out: list[dict[str, Any]] = []
     for h in hits:
+        # The current-post catalog is ambient orientation, not semantic
+        # discovery. It must not turn FinishRetrieval into an implicit
+        # OpenNote-all loop; selected cards/full reads still materialize in the
+        # normal planner path.
+        if str(h.get("card_origin") or "") == "current_post_catalog":
+            continue
         if str(h.get("node_type") or "") not in _PREFETCH_GUARD_TYPES:
             continue
         if float(h.get("similarity") or 0.0) < PREFETCH_GUARD_MIN_SIMILARITY:
@@ -855,6 +941,23 @@ def _compact_state_snapshot(
             for item in contract.get("source_requirements") or ()
         ],
         "sufficiency": sufficiency,
+        "current_post_notes": [
+            {
+                "ref": str(item.get("ref") or ""),
+                "title": str(item.get("title") or ""),
+                "preview": wrap_untrusted_block(
+                    identifier=str(item.get("ref") or "note"),
+                    title=str(item.get("title") or ""),
+                    body=str(item.get("preview") or ""),
+                ),
+                "parent_post_id": str(item.get("parent_post_id") or ""),
+                "status": str(item.get("status") or ""),
+                "attachment_count": int(item.get("attachment_count") or 0),
+                "image_count": int(item.get("image_count") or 0),
+            }
+            for item in state.get("current_post_notes") or ()
+            if isinstance(item, dict)
+        ],
         "candidates": [
             {
                 "ref": str(item.get("ref") or ""),
@@ -871,6 +974,7 @@ def _compact_state_snapshot(
                 "source_revision": item.get("source_revision"),
                 "summary_version": item.get("summary_version"),
                 "summary_model": item.get("summary_model"),
+                "card_origin": item.get("card_origin"),
                 "card_eligible": bool(item.get("card_eligible")),
                 "status": str(item.get("status") or ""),
                 "has_more": bool(item.get("has_more")),
@@ -1528,6 +1632,9 @@ async def research_seed_node(state: AgentGraphState, config: RunnableConfig) -> 
     transcript = list(state.get("research_transcript") or [])
     search_ledger = list(state.get("search_ledger") or [])
     prefetch_hits: list[dict[str, Any]] = []
+    current_post_notes: list[dict[str, Any]] = list(
+        state.get("current_post_notes") or ()
+    )
     stale_refs: list[dict[str, Any]] = list(state.get("stale_refs") or [])
     adaptive_enabled = bool(
         getattr(ctx.settings, "agent_adaptive_evidence_depth_v1_enabled", False)
@@ -1766,6 +1873,42 @@ async def research_seed_node(state: AgentGraphState, config: RunnableConfig) -> 
                 outcome = await seed_action(ToolAction(tool="OpenPost", args={"post_id": post_id}))
                 transcript.append(f"[seed] OpenPost: {outcome.summary}")
                 agent_state.resolved_target_post_id = post_id
+                opened_post = agent_state.opened_posts.get(post_id) or ctx.post_data
+                current_post_notes = _current_post_note_catalog(opened_post)
+                if current_post_notes:
+                    transcript.append(
+                        f"[seed] Current post note catalog (ambient, not evidence) "
+                        f"post={post_id} count={len(current_post_notes)}:\n"
+                        + "\n".join(
+                            "- {ref} title={title!r} preview={preview!r} files={files} images={images}".format(
+                                ref=item["ref"],
+                                title=item["title"],
+                                preview=item["preview"],
+                                files=item["attachment_count"],
+                                images=item["image_count"],
+                            )
+                            for item in current_post_notes
+                        )
+                    )
+                    # These cards are deliberately separate from context_blocks:
+                    # they orient the planner but cannot be cited accidentally.
+                    note_source_id = next(
+                        (
+                            str(source.get("source_id") or "")
+                            for source in contract.get("source_requirements") or ()
+                            if isinstance(source, dict)
+                            and source.get("kind") == "notes"
+                            and str(source.get("source_id") or "").startswith("workspace-")
+                        ),
+                        "workspace-notes",
+                    )
+                    prefetch_hits.extend(
+                        {
+                            **item,
+                            "source_requirement_id": note_source_id,
+                        }
+                        for item in current_post_notes
+                    )
         # A complete-coverage source is an inventory contract, not a semantic
         # search. Enumerate the authoritative catalog first, then load fresh
         # discovery cards by object id so low-similarity objects cannot vanish
@@ -1961,6 +2104,7 @@ async def research_seed_node(state: AgentGraphState, config: RunnableConfig) -> 
     return {
         **state,
         "research_transcript": transcript,
+        "current_post_notes": current_post_notes,
         "stale_refs": stale_refs,
         "prefetch_hits": prefetch_hits,
         "search_ledger": search_ledger,
@@ -4059,6 +4203,7 @@ async def run_research_graph(
         "max_steps": max_steps,
         "no_progress_count": 0,
         "research_transcript": [],
+        "current_post_notes": [],
         "research_hints": research_hints,
         "turn_contract": dict(ctx.turn_contract or {}),
         "search_ledger": [],
