@@ -46,7 +46,12 @@ def test_open_post_is_a_target_with_open_object_provenance() -> None:
         open_post={"id": "post-open", "text": "Заголовок\nТекст"},
     )
 
-    assert contract["target_contract"]["target_mode"] == "exact"
+    assert contract["target_contract"]["target_mode"] == "mixed"
+    assert contract["target_contract"]["corpora"] == [{
+        "kind": "workspace",
+        "role": "context",
+        "scope": "current_user",
+    }]
     assert contract["target_contract"]["targets"] == [
         {
             "kind": "post",
@@ -190,6 +195,57 @@ def test_open_post_precedes_unrelated_ledger_for_post_scope() -> None:
         "old-note",
         "dialog_ledger",
     )
+
+
+def test_post_scope_keeps_workspace_corpus_alongside_open_post() -> None:
+    contract = build_turn_contract(
+        user_text="Этот пост получился не слишком большим, относительно других постов?",
+        history=[],
+        scope="post",
+        open_post={"id": "current-post", "text": "Draft"},
+    )
+
+    target = contract["target_contract"]
+    assert target["target_mode"] == "mixed"
+    assert target["corpora"] == [{
+        "kind": "workspace",
+        "role": "context",
+        "scope": "current_user",
+    }]
+    sources = {item["source_id"]: item for item in contract["source_requirements"]}
+    assert sources["target-post-1"]["required"] is True
+    assert sources["workspace-posts"]["kind"] == "posts"
+    assert sources["workspace-notes"]["kind"] == "notes"
+
+
+def test_post_scope_classifier_applies_complete_coverage_to_workspace_only() -> None:
+    from app.services.agent.runtime.workspace_graph import _apply_classifier_source_policy
+
+    contract = build_turn_contract(
+        user_text="Этот пост получился не слишком большим, относительно других постов?",
+        history=[],
+        scope="post",
+        open_post={"id": "current-post", "text": "Draft"},
+    )
+    classified = _apply_classifier_source_policy(
+        contract,
+        required_sources=["posts"],
+        classifier_requires_evidence=True,
+        classified_source_requirements=[{
+            "kind": "posts",
+            "coverage": "complete",
+            "evidence_granularity": "catalog",
+        }],
+    )
+
+    sources = {item["source_id"]: item for item in classified["source_requirements"]}
+    assert sources["target-post-1"]["required"] is True
+    assert sources["target-post-1"]["coverage"] == "relevant"
+    assert sources["target-post-1"]["evidence_granularity"] == "full_text"
+    assert sources["workspace-posts"]["required"] is True
+    assert sources["workspace-posts"]["coverage"] == "complete"
+    assert sources["workspace-posts"]["evidence_granularity"] == "catalog"
+    assert sources["workspace-notes"]["required"] is False
 
 
 def test_v1_flag_is_a_real_rollback() -> None:
@@ -555,7 +611,7 @@ def test_phase2_golden_target_accuracy_is_at_least_95_percent() -> None:
         ({"user_text": "Открой https://app.test/post/url-post/"}, ("exact", ["url-post"])),
         ({"user_text": "Открой https://app.test/note/global/url-note/"}, ("exact", ["url-note"])),
         ({"user_text": "Сравни /post/p1/ и снова /post/p1/"}, ("exact", ["p1"])),
-        ({"user_text": "Как тебе этот пост?", "scope": "post", "open_post": {"id": "open-p"}}, ("exact", ["open-p"])),
+        ({"user_text": "Как тебе этот пост?", "scope": "post", "open_post": {"id": "open-p"}}, ("mixed", ["open-p"])),
         ({"user_text": "Я создал заметку. Что дальше?", "recent_note": {"id": "recent-n", "title": "N"}}, ("exact", ["recent-n"])),
         ({"user_text": "Что там в этой заметке?", "dialog_ledger": note_ledger}, ("exact", ["ledger-note"])),
         ({"user_text": "Что общего у этих постов?", "dialog_ledger": posts_ledger}, ("set", ["ledger-p1", "ledger-p2"])),

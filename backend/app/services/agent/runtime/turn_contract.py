@@ -765,7 +765,13 @@ def _target_contract_for(*, legacy: Mapping[str, Any], user_text: str, scope: st
     corpora: list[CorpusRef] = []
     if legacy.get("corpus") == "feed_posts":
         corpora.append(CorpusRef(kind="feed_posts", role="comparison"))
-    elif not targets and legacy.get("requires_workspace"):
+    elif legacy.get("requires_workspace") and (
+        not targets
+        or (scope == "post" and open_post is not None)
+    ):
+        # A post chat has an authoritative current-post target, but it must
+        # retain the same workspace corpus as a global chat. The open post is
+        # additive context, not a reason to downgrade retrieval to exact-only.
         corpora.append(CorpusRef(kind="workspace", role="context"))
     ambiguities = tuple(TargetAmbiguity.model_validate(item) for item in ambiguities_raw)
     if ambiguities:

@@ -39,7 +39,7 @@ from app.services.ai.rag import (
     upsert_attachment_extraction,
     _post_title_from_text,
 )
-from app.services.ai.rag_retrieval_policy import post_id_aliases, retrieve_for_chat
+from app.services.ai.rag_retrieval_policy import retrieve_for_chat
 from app.services.analytics.analytics_snapshot import load_post_snapshots
 from app.services.analytics.channel_metrics import VALID_PERIODS
 from app.services.analytics.post_metrics import build_post_trend
@@ -191,17 +191,6 @@ def _attachment_suffix(files: Any) -> str:
     if images:
         parts.append(f"images={images}")
     return " " + " ".join(parts)
-
-
-def _is_current_chat_post(state: AgentState, canonical_post_id: str) -> bool:
-    """True when opening the post the user is already editing in a post-scoped chat."""
-    if state.scope != "post" or not state.base_post_data:
-        return False
-    post_id = str(canonical_post_id or "").strip()
-    if not post_id:
-        return False
-    aliases = post_id_aliases(state.base_post_data)
-    return post_id in aliases
 
 
 def _post_data_for(state: AgentState, post_id: str) -> dict[str, Any] | None:
@@ -480,9 +469,8 @@ async def tool_open_post(state: AgentState, *, post_id: str) -> ToolOutcome:
     _mark_visited(state, ref)
     state.opened_posts[canonical_post_id] = post_data
 
-    skip_text = _is_current_chat_post(state, canonical_post_id)
     text_value = str(post_data.get("text") or "").strip()
-    if text_value and not skip_text:
+    if text_value:
         cite = NoteCite(
             path=f"/post/{canonical_post_id}/",
             title=_post_title_from_text(text_value),
@@ -492,10 +480,9 @@ async def tool_open_post(state: AgentState, *, post_id: str) -> ToolOutcome:
     notes_count = len(post_data.get("notes") or [])
     media_count = len(post_data.get("media") or [])
     comments_count = len(post_data.get("comments") or [])
-    primer_note = " (текст уже в primer)" if skip_text else ""
     return ToolOutcome(
         summary=(
-            f"Открыт пост tech_id={canonical_post_id}{primer_note}. "
+            f"Открыт пост tech_id={canonical_post_id}. "
             f"notes={notes_count}, media={media_count}, comments={comments_count}."
         )
     )

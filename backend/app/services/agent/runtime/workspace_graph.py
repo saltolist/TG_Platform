@@ -127,6 +127,10 @@ def _apply_classifier_source_policy(
     }
     required.update(classified_by_kind.keys())
     sources = [dict(item) for item in contract.get("source_requirements") or ()]
+    preserve_post_target_fidelity = (
+        str(contract.get("scope") or "") == "post"
+        and str((contract.get("target_contract") or {}).get("target_mode") or "") == "mixed"
+    )
     if classifier_requires_evidence and not required:
         required.update(
             str(item.get("kind") or "") for item in sources if item.get("required")
@@ -134,12 +138,12 @@ def _apply_classifier_source_policy(
     existing = {str(item.get("kind") or "") for item in sources}
     for source in sources:
         kind = str(source.get("kind") or "")
+        scope_mode = str((source.get("scope") or {}).get("mode") or "")
         source["required"] = kind in required
         classified = classified_by_kind.get(kind) or {}
         coverage = str(classified.get("coverage") or "")
         granularity = str(classified.get("evidence_granularity") or "")
         if coverage in {"relevant", "complete"}:
-            scope_mode = str((source.get("scope") or {}).get("mode") or "")
             source["coverage"] = (
                 coverage
                 if coverage != "complete"
@@ -148,7 +152,10 @@ def _apply_classifier_source_policy(
             )
         else:
             source.setdefault("coverage", "relevant")
-        if granularity in {"catalog", "semantic_card", "full_text"}:
+        if (
+            granularity in {"catalog", "semantic_card", "full_text"}
+            and (scope_mode == "corpus" or not preserve_post_target_fidelity)
+        ):
             source["evidence_granularity"] = granularity
         elif not source["required"] and kind in {"notes", "posts"}:
             # Optional enrichment is for topical context. Exact claims can still

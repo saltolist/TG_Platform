@@ -175,7 +175,7 @@ async def test_tool_open_post_caches_and_adds_context() -> None:
 
 
 @pytest.mark.asyncio
-async def test_tool_open_post_skips_text_for_current_post_in_post_scope() -> None:
+async def test_tool_open_post_adds_text_for_current_post_in_post_scope() -> None:
     post = {
         "id": "post-1",
         "text": "Мартовский дайджест",
@@ -194,8 +194,9 @@ async def test_tool_open_post_skips_text_for_current_post_in_post_scope() -> Non
     assert outcome.error is None
     assert state.opened_posts["post-1"] == post
     assert "post:post-1" in state.visited
-    assert state.context_blocks == []
-    assert "primer" in outcome.summary
+    assert len(state.context_blocks) == 1
+    assert state.context_blocks[0][1] == "Мартовский дайджест"
+    assert "primer" not in outcome.summary
 
 
 @pytest.mark.asyncio
