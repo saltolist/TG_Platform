@@ -38,6 +38,9 @@ class AgentGraphState(TypedDict, total=False):
     stopped_reason: str
     current_tool: str | None
     tool_call: dict[str, Any] | None
+    direct_finish: bool
+    known_context_refs: list[str]
+    stale_refs: list[dict[str, Any]]
     answer_text: str
     claims: list[dict[str, Any]]
     used_context_refs: list[str]

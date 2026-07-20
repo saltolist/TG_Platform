@@ -10,11 +10,36 @@ import pytest
 from app.services.ai.rag_escalation import TierAResult, TierASignals
 from app.services.ai.rag_sufficiency import TierBResult
 from app.services.ai.rag_query import (
+    build_planner_dialog_context,
     build_rag_query_from_history,
     build_rag_rewrite_messages,
     retrieve_rag_for_reply,
     rewrite_rag_query_llm,
 )
+
+
+def test_planner_dialog_context_includes_only_used_manifest_cards() -> None:
+    context = build_planner_dialog_context(
+        "Напиши текст этого поста",
+        [
+            {"role": "user", "text": "Про что написать следующий пост?"},
+            {"role": "ai", "text": "Про каскадный обход пространства."},
+        ],
+        message_manifests=({
+            "context_refs": [
+                {"ref": "note:n1", "role": "used_context", "title": "Идеи", "summary": "Короткая карточка"},
+                {"ref": "post:p1", "role": "target", "title": "Legacy target"},
+            ],
+            "considered_context": [{"evidence_id": "internal-hit"}],
+            "artifacts": [{"ref": "artifact:sha256:answer"}],
+        },),
+    )
+
+    assert "Про каскадный обход пространства" in context
+    assert "note:n1 — Идеи — Короткая карточка" in context
+    assert "post:p1" not in context
+    assert "internal-hit" not in context
+    assert "artifact:sha256" not in context
 
 
 def test_build_rag_query_without_history_returns_current_message() -> None:

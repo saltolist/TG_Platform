@@ -95,6 +95,8 @@ def build_planner_dialog_context(
     *,
     history_turns: int = 5,
     max_chars: int = 3000,
+    message_manifests: tuple[Mapping[str, Any], ...] | list[Mapping[str, Any]] = (),
+    max_context_refs: int = 8,
 ) -> str:
     """Recent dialogue for L2 brief/planner (excludes duplicate current user turn).
 
@@ -105,13 +107,8 @@ def build_planner_dialog_context(
     them from the front.
     """
     pairs = _history_pairs_excluding_current(history, user_text)
-    if not pairs or history_turns <= 0:
-        return ""
-
-    exchanges = exchanges_from_messages(pairs)
+    exchanges = exchanges_from_messages(pairs) if pairs and history_turns > 0 else []
     recent = exchanges[-history_turns:] if history_turns > 0 else []
-    if not recent:
-        return ""
 
     lines: list[str] = []
     for user_msg, assistant_msg in recent:
@@ -124,8 +121,42 @@ def build_planner_dialog_context(
             lines.append(f"Ассистент: {snippet}")
 
     text = "\n".join(lines)
+    cards: list[str] = []
+    seen_refs: set[str] = set()
+    for manifest in message_manifests or ():
+        if not isinstance(manifest, Mapping):
+            continue
+        for raw in manifest.get("context_refs") or ():
+            if not isinstance(raw, Mapping):
+                continue
+            role = str(raw.get("role") or "")
+            ref = str(raw.get("ref") or "").strip()
+            if role not in {"used_context", "claim_support"} or not ref or ref in seen_refs:
+                continue
+            seen_refs.add(ref)
+            title = str(raw.get("title") or "Источник").strip()
+            summary = " ".join(str(raw.get("summary") or "").split())
+            if len(summary) > 240:
+                summary = f"{summary[:239]}…"
+            cards.append(f"- {ref} — {title}" + (f" — {summary}" if summary else ""))
+            if len(cards) >= max_context_refs:
+                break
+        if len(cards) >= max_context_refs:
+            break
+    if cards:
+        card_block = "Материалы, использованные при подготовке предыдущего ответа:\n" + "\n".join(cards)
+        text = f"{text}\n\n{card_block}" if text else card_block
     if len(text) <= max_chars:
         return text
+    # Keep the newest dialogue and the complete bounded card block. Older
+    # dialogue is the first thing to drop because cards are the durable handoff.
+    if cards:
+        card_block = "Материалы, использованные при подготовке предыдущего ответа:\n" + "\n".join(cards)
+        if len(card_block) >= max_chars:
+            return card_block[:max_chars]
+        dialogue_budget = max_chars - len(card_block) - 2
+        dialogue = text[: -(len(card_block) + 2)] if text.endswith(card_block) else text
+        return f"{dialogue[-dialogue_budget:]}\n\n{card_block}".strip()
     return text[-max_chars:]
 
 

@@ -35,6 +35,7 @@ def _pack():
                 "source_ref": "post:p2",
                 "content": "Полный текст",
                 "fidelity": "full_text",
+                "metadata": {"card_text": "Короткая карточка второго поста"},
                 "provenance": {"source_revision": 3, "ref": "post:p2"},
             },
             {
@@ -67,7 +68,11 @@ def test_manifest_only_cites_validated_claims_and_excludes_catalog():
     assert manifest.cited_evidence == ("card-1",)
     assert {item.ref for item in manifest.context_refs} == {"post:p1", "post:p2"}
     assert not any(item.kind == "catalog" for item in manifest.context_refs)
-    assert manifest.reference_sets[0].ordered_members == ("post:p1", "post:p2")
+    assert manifest.reference_sets == ()
+    refs = {item.ref: item for item in manifest.context_refs}
+    assert refs["post:p1"].role == "claim_support"
+    assert refs["post:p2"].role == "used_context"
+    assert refs["post:p2"].summary == "Короткая карточка второго поста"
     assert manifest.artifacts[0].ref.startswith("artifact:sha256:")
     assert validate_manifest(manifest.model_dump(mode="json")) == []
 
@@ -79,6 +84,7 @@ def test_manifest_only_cites_validated_claims_and_excludes_catalog():
         claims=[{"text": "Два поста", "evidence_ids": ["catalog"]}],
     )
     assert {item.ref for item in catalog_manifest.context_refs} == {"post:p1", "post:p2"}
+    assert all(item.role == "claim_support" for item in catalog_manifest.context_refs)
 
 
 def test_referent_resolution_handles_subset_and_rejects_invented_ids():
@@ -228,3 +234,16 @@ def test_turn_contract_resolves_previous_assistant_artifact_without_search():
     assert target["targets"][0]["kind"] == "dialog_artifact"
     assert target["referent_resolution"]["references"][0]["target_type"] == "artifact"
     assert contract["source_requirements"] == []
+
+
+def test_turn_contract_does_not_create_dialog_artifact_when_legacy_resolver_is_off():
+    contract = build_turn_contract(
+        user_text="Напиши мне текст этого поста",
+        history=[{"role": "ai", "text": "Предлагаю тему, которой ещё нет в БД"}],
+        scope="global",
+        semantic_referent_enabled=False,
+    )
+
+    assert contract["target"] is None
+    assert contract["target_contract"]["targets"] == []
+    assert contract["target_contract"]["target_mode"] == "corpus"

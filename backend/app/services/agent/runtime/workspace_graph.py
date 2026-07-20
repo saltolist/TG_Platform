@@ -5,7 +5,7 @@ from __future__ import annotations
 import logging
 import asyncio
 import uuid
-from typing import Any, Literal
+from typing import Any, Literal, Mapping
 
 from langchain_core.runnables import RunnableConfig
 from langgraph.config import get_stream_writer
@@ -34,16 +34,19 @@ from app.services.agent.runtime.answer_stream import extract_complete_answer, ex
 from app.services.agent.runtime.budget import call_llm_with_deadline, stream_llm_with_deadline
 from app.services.agent.runtime.checkpoint import ensure_checkpointer_ready, get_checkpointer
 from app.services.agent.runtime.context import RuntimeContext
-from app.services.agent.runtime.result_quality import (
-    build_style_profile,
-    validate_result_contract,
+from app.services.agent.runtime.message_context import (
+    evidence_id_aliases,
+    supplied_object_refs,
 )
 from app.services.agent.runtime.output_contract import (
     is_factual_profile,
     resolve_output_schema,
     validate_answer_output,
 )
-from app.services.agent.runtime.message_context import supplied_object_refs
+from app.services.agent.runtime.result_quality import (
+    build_style_profile,
+    validate_result_contract,
+)
 from app.services.agent.runtime.state import AgentGraphState
 from app.services.agent.runtime.turn_contract import render_turn_contract
 
@@ -54,18 +57,19 @@ WORKSPACE_SYSTEM = """Ты единственный WorkspaceAgent платфо�
 Верни один JSON tool call:
 - {"type":"read","requires_evidence":true,"required_sources":["notes|posts|analytics|comments|attachments|images"],"source_requirements":[{"kind":"posts","coverage":"relevant|complete","evidence_granularity":"catalog|semantic_card|full_text"}]} — ответ невозможен без фактов workspace;
 - {"type":"finish","requires_evidence":false,"required_sources":[]} — на сообщение можно полноценно ответить по его тексту, диалогу и общим знаниям;
+- {"type":"reuse_context","context_refs":["note:ID|post:ID"]} — нужны детали уже использованных материалов; открывай только эти проверенные refs по ID;
 - {"type":"post_proposal","command":"create_post|edit_post|schedule_post|publish_post|cancel_schedule|delete_post|restore_post","payload":{...}} — только когда передан блок "Текущий пост";
 - {"type":"media_proposal","kind":"image|video","prompt":"...","options":{},"cost_ceiling":number}.
 Не выполняй мутации напрямую. Выбирай только тип вызова, без keyword routing.
 Не предлагай функций, которых нет в перечисленных tools. В частности, в платформе
 нет действия «связать заметку с постами или файлами»; заметки и файлы уже являются
 частью workspace и доступны AI после сохранения.
-Ходы, на которые можно полноценно ответить без фактов workspace, получают ограниченный optional-поиск по заметкам и постам. Для factual "read" required_sources — это источники, без которых grounded-ответ будет неполным; включи туда КАЖДЫЙ такой источник. Optional discovery всё равно может найти скрытый поддерживающий контекст, который planner оценит отдельно; optional-источник не должен блокировать завершение и не должен автоматически раскрываться целиком. Выбирай "read", когда пользователь просит найти, перечислить, посчитать, проверить или описать свои объекты/метрики; совет, оценка или общий вопрос без утверждений о содержимом workspace — "finish".
+Ходы, на которые можно полноценно ответить без новых фактов workspace, завершаются без поиска. Для factual "read" required_sources — это источники, без которых grounded-ответ будет неполным; включи туда КАЖДЫЙ такой источник. Выбирай "read", когда пользователь просит найти, перечислить, посчитать, проверить или описать свои объекты/метрики; совет, оценка, продолжение или правка предыдущего ответа без новых фактов — "finish".
 Для каждого обязательного источника заполни source_requirements. coverage="relevant" означает, что достаточно относящегося к вопросу подмножества; coverage="complete" означает, что ответ должен охватить каждый объект указанного корпуса. Выбирай complete для полного перечня, подсчёта по всей категории, описания каждого объекта и других задач, где пропуск хотя бы одного объекта делает ответ неверным. evidence_granularity="catalog" достаточно для количества, названий, статусов и наличия; "semantic_card" — для общей темы или назначения каждого объекта; "full_text" — для точных деталей, сравнений, цитат и редактирования. Не подменяй complete семантическим top-k.
 Если передан блок "Диалог" — используй его, чтобы понять контекст запроса. Короткая правка твоего предыдущего ответа без новых фактических вопросов (перефразируй, покороче, на другом языке, другим тоном) — это "finish", даже если предыдущий ответ был по фактам workspace: факты уже собраны и лежат в диалоге, повторный поиск не нужен.
 Если передан блок "Текущий пост" и пользователь просит изменить его текст (убрать/добавить/переформулировать что-то в посте) — верни ровно {"type":"post_proposal","command":"edit_post","payload":{}}. Полный текст поста и его id проставляются отдельным детерминированным шагом — тебе НЕ нужно возвращать ни текст, ни id здесь, только классифицировать запрос как edit_post. Если блока "Текущий пост" нет, НЕ выбирай post_proposal: запрос на изменение серии или постов означает, что сначала нужно найти соответствующие материалы workspace, поэтому выбирай read.
 
-Дополнительно ВСЕГДА добавляй в JSON поле "search_query" — самодостаточную формулировку того, что пользователь ищет, пригодную для семантического поиска по заметкам и постам. Раскрой анафоры и подразумеваемое из блока "Диалог": "а сколько там с картинками?" → "сколько заметок с изображениями"; "покороче" (правка ответа) → повтори тему прошлого ответа своими словами. Если запрос и так самодостаточный — повтори его суть без изменений. Не оставляй "search_query" пустым для "read"-запросов."""
+Для "read" добавь поле "search_query" — самодостаточную формулировку для поиска по workspace. Для "finish" поле не требуется и может быть пустым. Не пытайся превратить материалы прошлого ответа в один целевой DB-объект."""
 
 _CLASSIFIER_SOURCE_KINDS = frozenset(
     {"notes", "posts", "analytics", "comments", "attachments", "images"}
@@ -81,6 +85,18 @@ def _fast_path_needs_fidelity_classification(contract: dict[str, Any]) -> bool:
         for reference in resolution.get("references") or ()
         if isinstance(reference, dict)
     )
+
+
+def _prompt_turn_contract(contract: Mapping[str, Any], *, legacy_resolver: bool) -> dict[str, Any]:
+    """Keep retrieval/output policy while hiding legacy referent machinery."""
+    result = dict(contract or {})
+    if not legacy_resolver:
+        result.pop("target_contract", None)
+        result.pop("target_contract_ref", None)
+        result.pop("target", None)
+        result.pop("referent_resolution", None)
+        result.pop("resolution_events", None)
+    return result
 
 
 def _apply_classifier_source_policy(
@@ -247,7 +263,14 @@ async def workspace_agent_node(
         or ctx.turn_contract
         or {}
     )
-    target_mode = str((deterministic_contract.get("target_contract") or {}).get("target_mode") or "")
+    runtime_settings = getattr(ctx, "settings", None)
+    legacy_resolver = bool(
+        getattr(runtime_settings, "agent_referent_resolution_legacy", False)
+    )
+    target_mode = (
+        str((deterministic_contract.get("target_contract") or {}).get("target_mode") or "")
+        if legacy_resolver else ""
+    )
     if target_mode == "ambiguous":
         call = {"type": "finish", "search_query": ""}
     elif (
@@ -276,7 +299,7 @@ async def workspace_agent_node(
         if dialog_context.strip():
             content_parts.append(f"Диалог:\n{dialog_context.strip()}")
         if turn_contract:
-            target_contract = dict(turn_contract.get("target_contract") or {})
+            target_contract = dict(turn_contract.get("target_contract") or {}) if legacy_resolver else {}
             classifier_contract = {
                 "goal": turn_contract.get("goal"),
                 "intent": turn_contract.get("intent"),
@@ -327,6 +350,22 @@ async def workspace_agent_node(
         or {}
     )
     classified_type = str(call.get("type") or "read")
+    if classified_type == "reuse_context":
+        allowed_refs = {
+            str(item.get("ref") or "")
+            for item in getattr(ctx, "known_context_refs", ())
+            if isinstance(item, Mapping)
+        }
+        requested_refs = [
+            str(item).strip()
+            for item in (call.get("context_refs") or ())
+            if str(item).strip() in allowed_refs
+        ]
+        if not requested_refs:
+            call = {**call, "type": "read", "context_refs": []}
+            classified_type = "read"
+        else:
+            call = {**call, "type": "reuse_context", "context_refs": list(dict.fromkeys(requested_refs))}
     if classified_type == "post_proposal" and ctx.scope != "post":
         # A global chat has no authoritative mutation target. Preserve the
         # user's requested command only as answer context, then force factual
@@ -382,17 +421,21 @@ async def workspace_agent_node(
         if isinstance(item, dict)
     ) and turn_contract.get("task_profile") == "topical_answer":
         turn_contract["task_profile"] = "workspace_synthesis"
+    has_required_sources = any(
+        isinstance(item, dict) and item.get("required")
+        for item in turn_contract.get("source_requirements") or ()
+    )
     if (
-        turn_contract.get("requires_workspace")
+        has_required_sources
         and target_mode != "ambiguous"
         and classified_type == "finish"
     ):
         call = {**call, "type": "read"}
-    if turn_contract.get("intent") in {"write_post", "compare_with_feed_posts", "inspect_note"}:
+    if turn_contract.get("intent") in {"compare_with_feed_posts", "inspect_note"}:
         if str(call.get("type") or "") != "read" and ctx.scope != "post":
             call = {**call, "type": "read"}
     call_type = str(call.get("type") or "read")
-    if call_type not in {"read", "finish", "post_proposal", "media_proposal"}:
+    if call_type not in {"read", "finish", "reuse_context", "post_proposal", "media_proposal"}:
         call = {"type": "read"}
         call_type = "read"
     # Resolved search query for the seed prefetch (anaphora expanded). Fall back
@@ -404,20 +447,32 @@ async def workspace_agent_node(
         if target_mode in {"exact", "set"} or str(turn_contract.get("corpus") or "") == "exact_note"
         else classifier_query or contract_query or str(state.get("user_text") or "")
     )
+    if call_type == "reuse_context":
+        search_query = ""
     return {
         **state,
         "current_tool": call_type,
         "tool_call": call,
         "search_query": search_query,
         "turn_contract": turn_contract,
+        "known_context_refs": list(call.get("context_refs") or ())
+        if call_type == "reuse_context" else [],
+        "direct_finish": bool(
+            call_type == "finish"
+            and getattr(runtime_settings, "agent_finish_without_research", True)
+            and not has_required_sources
+            and target_mode != "ambiguous"
+        ),
     }
 
 
 def route_workspace_call(
     state: AgentGraphState,
-) -> Literal["seed"]:
-    """Every user turn enters bounded workspace research before any output."""
+) -> Literal["seed", "answer"]:
+    """Route conversational finishes directly; factual reads enter research."""
 
+    if state.get("direct_finish") and str(state.get("current_tool") or "") == "finish":
+        return "answer"
     return "seed"
 
 
@@ -552,7 +607,8 @@ async def answer_node(state: AgentGraphState, config: RunnableConfig) -> dict[st
     phase6_enabled = bool(getattr(ctx.settings, "agent_answer_phase6_enabled", True))
     output_schema = resolve_output_schema(turn_contract)
     target_contract = dict(turn_contract.get("target_contract") or {})
-    if target_contract.get("target_mode") == "ambiguous":
+    legacy_resolver = bool(getattr(ctx.settings, "agent_referent_resolution_legacy", False))
+    if legacy_resolver and target_contract.get("target_mode") == "ambiguous":
         ambiguity = next(iter(target_contract.get("ambiguities") or ()), {})
         question = str(
             ambiguity.get("question")
@@ -582,6 +638,7 @@ async def answer_node(state: AgentGraphState, config: RunnableConfig) -> dict[st
         if isinstance(item, dict) and item.get("fidelity") == "semantic_card"
     }
     supplied_context_refs = supplied_object_refs(evidence_pack)
+    claim_evidence_aliases = evidence_id_aliases(evidence_pack)
     evidence_fidelity = {
         str(item.get("id") or ""): str(item.get("fidelity") or "full_text")
         for item in evidence_pack.get("items") or ()
@@ -626,9 +683,9 @@ async def answer_node(state: AgentGraphState, config: RunnableConfig) -> dict[st
     prompt_parts: list[str] = []
     if turn_contract:
         prompt_parts.append(
-            "Контракт результата (авторитетен; выполни target, corpus, output и "
+            "Контракт результата (авторитетен; выполни corpus, output и "
             "success_criteria буквально):\n"
-            + render_turn_contract(turn_contract)
+            + render_turn_contract(_prompt_turn_contract(turn_contract, legacy_resolver=legacy_resolver))
         )
     if style_profile:
         prompt_parts.append(
@@ -736,6 +793,8 @@ async def answer_node(state: AgentGraphState, config: RunnableConfig) -> dict[st
         prompt_parts.append(
             'Верни JSON {"answer":"...","claims":[{"text":"...","evidence_ids":[...],'
             '"claim_scope":"topic_only|content|exact"}],"used_context_refs":[...]}. '
+            "В claims[].evidence_ids используй только точные IDs из списка EvidencePack ids; "
+            "короткие object refs вида post:ID и note:ID туда не помещай. "
             "used_context_refs может содержать только реально использованные объекты из: "
             + str(sorted(supplied_context_refs))
         )
@@ -867,6 +926,7 @@ async def answer_node(state: AgentGraphState, config: RunnableConfig) -> dict[st
         factual=factual,
         schema=output_schema,
         supplied_context_refs=supplied_context_refs,
+        evidence_id_aliases=claim_evidence_aliases,
         evidence_fidelity=evidence_fidelity,
         evidence_roles=evidence_roles,
         allow_optional_only_claims=allow_optional_only_claims,
@@ -926,6 +986,7 @@ async def answer_node(state: AgentGraphState, config: RunnableConfig) -> dict[st
             factual=factual,
             schema=output_schema,
             supplied_context_refs=supplied_context_refs,
+            evidence_id_aliases=claim_evidence_aliases,
             evidence_fidelity=evidence_fidelity,
             evidence_roles=evidence_roles,
             allow_optional_only_claims=allow_optional_only_claims,
@@ -947,6 +1008,7 @@ async def answer_node(state: AgentGraphState, config: RunnableConfig) -> dict[st
                 factual=False,
                 schema=output_schema,
                 supplied_context_refs=supplied_context_refs,
+                evidence_id_aliases=claim_evidence_aliases,
                 evidence_fidelity=evidence_fidelity,
                 evidence_roles=evidence_roles,
                 allow_optional_only_claims=allow_optional_only_claims,
@@ -981,6 +1043,7 @@ async def answer_node(state: AgentGraphState, config: RunnableConfig) -> dict[st
                 factual=True,
                 schema=output_schema,
                 supplied_context_refs=supplied_context_refs,
+                evidence_id_aliases=claim_evidence_aliases,
                 evidence_fidelity=evidence_fidelity,
                 evidence_roles=evidence_roles,
                 allow_optional_only_claims=allow_optional_only_claims,
@@ -1018,6 +1081,7 @@ async def answer_node(state: AgentGraphState, config: RunnableConfig) -> dict[st
             factual=factual,
             schema=output_schema,
             supplied_context_refs=supplied_context_refs,
+            evidence_id_aliases=claim_evidence_aliases,
             evidence_fidelity=evidence_fidelity,
             evidence_roles=evidence_roles,
             allow_optional_only_claims=allow_optional_only_claims,
@@ -1608,7 +1672,11 @@ def build_workspace_graph() -> StateGraph:
     graph.add_node("complete", complete_node)
     graph.set_entry_point("bootstrap")
     graph.add_edge("bootstrap", "workspace_agent")
-    graph.add_conditional_edges("workspace_agent", route_workspace_call)
+    graph.add_conditional_edges(
+        "workspace_agent",
+        route_workspace_call,
+        {"seed": "seed", "answer": "answer"},
+    )
     # read → research loop (seed → planner ⇄ tool → verify → pack) → answer
     graph.add_conditional_edges("seed", route_research_seed)
     graph.add_conditional_edges("planner", route_research_plan)

@@ -634,8 +634,13 @@ def _target_contract_for(*, legacy: Mapping[str, Any], user_text: str, scope: st
         not targets
         and scope == "post"
         and open_post
-        and not _NOTE_REFERENT_RE.search(user_text)
-        and not plural_referent
+        and (
+            not semantic_referent_enabled
+            or (
+                not _NOTE_REFERENT_RE.search(user_text)
+                and not plural_referent
+            )
+        )
     ):
         post_id = str(open_post.get("id") or "").strip()
         if post_id:
@@ -664,7 +669,7 @@ def _target_contract_for(*, legacy: Mapping[str, Any], user_text: str, scope: st
             "title": legacy_target.get("title") or legacy_target.get("label"),
             "content": content,
         }]
-    if not targets:
+    if not targets and semantic_referent_enabled:
         targets, ambiguities_raw = _ledger_targets(user_text=user_text, dialog_ledger=dialog_ledger)
     # Position/complement/implicit follow-ups are resolved against the bounded
     # ledger graph. No workspace search is performed here and no ID can be
@@ -946,7 +951,7 @@ def _upgrade_contract_v2(*, legacy: dict[str, Any], user_text: str, scope: str,
     revision = target_contract.revision
     prior_revision = int((prior_contract or {}).get("revision") or 0) or None
     goal = user_text.strip()
-    if prior_contract and _is_referential_text(user_text) and len(goal) < 80:
+    if semantic_referent_enabled and prior_contract and _is_referential_text(user_text) and len(goal) < 80:
         prior_goal = str(prior_contract.get("goal") or "").strip()
         if prior_goal:
             goal = f"{prior_goal}; follow-up: {goal}"
@@ -1048,16 +1053,13 @@ def build_turn_contract(
     else:
         intent = "answer"
 
-    target = _recent_note_target(
-        user_text=current,
-        pairs=pairs,
-        recent_note=recent_note,
+    target = (
+        _recent_note_target(user_text=current, pairs=pairs, recent_note=recent_note)
+        if semantic_referent_enabled
+        else None
     )
-    if target is None:
-        target = _ledger_note_target(
-            user_text=current,
-            dialog_ledger=dialog_ledger,
-        )
+    if target is None and semantic_referent_enabled:
+        target = _ledger_note_target(user_text=current, dialog_ledger=dialog_ledger)
     explicit_targets = _explicit_targets(current)
     if target is None and len(explicit_targets) == 1 and explicit_targets[0]["kind"] == "note":
         explicit = explicit_targets[0]
@@ -1067,7 +1069,7 @@ def build_turn_contract(
             "title": explicit["id"],
             "authoritative": True,
         }
-    if target is None and last_assistant and (
+    if semantic_referent_enabled and target is None and last_assistant and (
         _POST_REFERENT_RE.search(lowered) or "этого поста" in lowered or "этому посту" in lowered
     ):
         referent_content = working_artifact if write_post and working_artifact else last_assistant

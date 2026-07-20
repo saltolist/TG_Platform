@@ -158,6 +158,26 @@ def supplied_object_refs(evidence_pack: Mapping[str, Any] | None) -> set[str]:
     return refs
 
 
+def evidence_id_aliases(evidence_pack: Mapping[str, Any] | None) -> dict[str, str]:
+    """Map model-friendly object refs to authoritative EvidencePack IDs.
+
+    Only primary object items create aliases. Catalog membership alone is not
+    sufficient evidence for a claim about an object's full content.
+    """
+
+    aliases: dict[str, str] = {}
+    for item in (evidence_pack or {}).get("items") or ():
+        if not isinstance(item, Mapping):
+            continue
+        evidence_id = str(item.get("id") or "")
+        if not evidence_id or str(item.get("kind") or "") == "catalog":
+            continue
+        resolved = _object_ref(item, evidence_id)
+        if resolved is not None:
+            aliases.setdefault(resolved[0], evidence_id)
+    return aliases
+
+
 def _route(kind: str, ref: str) -> str | None:
     identifier = ref.split(":", 1)[-1]
     if kind == "post":
@@ -174,6 +194,60 @@ def _route_for_item(kind: str, ref: str, item: Mapping[str, Any]) -> str | None:
         if match and match.group(1):
             return f"/note/post/{match.group(1)}/{ref.split(':', 1)[-1]}/"
     return _route(kind, ref)
+
+
+def _display_summary(item: Mapping[str, Any]) -> str | None:
+    """Return the bounded semantic card used in cross-turn context.
+
+    EvidencePack content is commonly hydrated to full text before generation;
+    it must never silently replace the discovery card in the durable manifest.
+    """
+    metadata = item.get("metadata") if isinstance(item.get("metadata"), Mapping) else {}
+    for key in ("card_text", "preview"):
+        value = metadata.get(key)
+        if isinstance(value, str) and value.strip():
+            return value.strip()[:240]
+    content = str(item.get("content") or "").strip()
+    return content[:240] or None
+
+
+def _context_ref_from_item(
+    *, ref: str, kind: str, item: Mapping[str, Any], source_turn_id: str,
+    role: str, provenance: str,
+) -> ContextRef:
+    return ContextRef(
+        ref=ref,
+        kind=kind,
+        title=str(item.get("title") or "") or None,
+        summary=_display_summary(item),
+        revision=_revision(item),
+        source_turn_id=source_turn_id,
+        role=role,
+        provenance=provenance,
+        route=_route_for_item(kind, ref, item),
+    )
+
+
+def _context_ref_from_member(
+    *, member: Mapping[str, Any], source_turn_id: str, role: str, provenance: str,
+) -> ContextRef | None:
+    kind = str(member.get("kind") or "")
+    identifier = str(member.get("id") or "").strip()
+    if kind not in {"post", "note"} or not identifier:
+        return None
+    ref = f"{kind}:{identifier}"
+    preview = str(member.get("card_text") or member.get("preview") or "").strip()
+    return ContextRef(
+        ref=ref,
+        kind=kind,
+        title=str(member.get("title") or "") or None,
+        summary=preview[:240] or None,
+        revision=_revision(member),
+        source_turn_id=source_turn_id,
+        role=role,
+        provenance=provenance,
+        route=_route(kind, ref),
+    )
 
 
 def artifact_ref(*, answer_text: str, source_turn_id: str, kind: str = "assistant_answer", route_id: str | None = None) -> ArtifactRef | None:
@@ -235,36 +309,22 @@ def build_message_context_manifest(
         if obj is None:
             if str(item.get("kind") or "") == "catalog":
                 metadata = item.get("metadata") if isinstance(item.get("metadata"), Mapping) else {}
-                for member in metadata.get("members") or item.get("members") or ():
+                for member in metadata.get("members") or ():
                     if not isinstance(member, Mapping):
                         continue
-                    member_kind = str(member.get("kind") or "")
-                    identifier = str(member.get("id") or "")
-                    if member_kind not in {"post", "note"} or not identifier:
-                        continue
-                    member_ref = f"{member_kind}:{identifier}"
-                    refs.setdefault(member_ref, ContextRef(
-                        ref=member_ref,
-                        kind=member_kind,
-                        title=str(member.get("title") or "") or None,
-                        revision=_revision(member),
+                    context_ref = _context_ref_from_member(
+                        member=member,
                         source_turn_id=source_turn_id,
                         role="claim_support",
                         provenance=provenance,
-                        route=_route(member_kind, member_ref),
-                    ))
+                    )
+                    if context_ref is not None:
+                        refs.setdefault(context_ref.ref, context_ref)
             continue
         ref, kind = obj
-        refs.setdefault(ref, ContextRef(
-            ref=ref,
-            kind=kind,
-            title=str(item.get("title") or "") or None,
-            summary=str(item.get("content") or "")[:240] or None,
-            revision=_revision(item),
-            source_turn_id=source_turn_id,
-            role="claim_support",
-            provenance=provenance,
-            route=_route_for_item(kind, ref, item),
+        refs.setdefault(ref, _context_ref_from_item(
+            ref=ref, kind=kind, item=item, source_turn_id=source_turn_id,
+            role="claim_support", provenance=provenance,
         ))
     supplied_refs: dict[str, ContextRef] = {}
     for raw in used_context_refs:
@@ -274,76 +334,25 @@ def build_message_context_manifest(
         for eid, item in item_by_id.items():
             obj = _object_ref(item, eid)
             if obj and obj[0] == ref:
-                supplied_refs.setdefault(ref, ContextRef(
-                    ref=ref, kind=obj[1], title=str(item.get("title") or "") or None,
-                    summary=str(item.get("content") or "")[:240] or None,
-                    revision=_revision(item), source_turn_id=source_turn_id,
-                    role="context", provenance=provenance, route=_route_for_item(obj[1], ref, item),
+                supplied_refs.setdefault(ref, _context_ref_from_item(
+                    ref=ref, kind=obj[1], item=item, source_turn_id=source_turn_id,
+                    role="used_context", provenance=provenance,
                 ))
                 continue
             if str(item.get("kind") or "") == "catalog":
                 metadata = item.get("metadata") if isinstance(item.get("metadata"), Mapping) else {}
-                for member in metadata.get("members") or item.get("members") or ():
+                for member in metadata.get("members") or ():
                     if not isinstance(member, Mapping):
                         continue
-                    kind = str(member.get("kind") or "")
-                    identifier = str(member.get("id") or "")
-                    if ref != f"{kind}:{identifier}":
-                        continue
-                    supplied_refs.setdefault(ref, ContextRef(
-                        ref=ref, kind=kind, title=str(member.get("title") or "") or None,
-                        revision=_revision(member), source_turn_id=source_turn_id,
-                        role="context", provenance=provenance, route=_route(kind, ref),
-                    ))
+                    context_ref = _context_ref_from_member(
+                        member=member,
+                        source_turn_id=source_turn_id,
+                        role="used_context",
+                        provenance=provenance,
+                    )
+                    if context_ref is not None and context_ref.ref == ref:
+                        supplied_refs.setdefault(ref, context_ref)
     refs.update(supplied_refs)
-
-    target_refs = {
-        f"{str(item.get('kind'))}:{str(item.get('id'))}"
-        for item in ((target_contract or {}).get("targets") or ())
-        if isinstance(item, Mapping) and str(item.get("kind") or "") in {"post", "note"}
-    }
-    sets: list[ReferenceSet] = []
-    # Catalogs remain service provenance, but their ordered members are what
-    # makes positional/complement follow-ups deterministic on the next turn.
-    for item in pack_items:
-        if str(item.get("kind") or "") != "catalog":
-            continue
-        metadata = item.get("metadata") if isinstance(item.get("metadata"), Mapping) else {}
-        members = metadata.get("members") or item.get("members") or ()
-        ordered = tuple(
-            f"{str(member.get('kind'))}:{str(member.get('id'))}"
-            for member in members
-            if isinstance(member, Mapping)
-            and str(member.get("kind") or "") in {"post", "note"}
-            and str(member.get("id") or "")
-        )
-        if ordered:
-            selected = tuple(item for item in ordered if item in target_refs) if target_refs else ordered
-            sets.append(ReferenceSet(
-                ref=f"set:{source_turn_id}:{str(item.get('source_ref') or item.get('citation_path') or 'catalog')}",
-                kind=str(ordered[0]).split(":", 1)[0], ordered_members=ordered,
-                selected_members=selected, selection_mode="all" if selected == ordered else "explicit_subset",
-                source_turn_id=source_turn_id,
-            ))
-    for source in (target_contract or {}).get("targets") or ():
-        if not isinstance(source, Mapping):
-            continue
-        kind = str(source.get("kind") or "")
-        identifier = str(source.get("id") or "")
-        if kind not in {"post", "note"} or not identifier:
-            continue
-        ref = f"{kind}:{identifier}"
-        sets.append(ReferenceSet(
-            ref=f"set:{source_turn_id}:{kind}", kind=kind,
-            ordered_members=(ref,), selected_members=(ref,),
-            selection_mode="explicit_subset", source_turn_id=source_turn_id,
-        ))
-    for ref in sorted(target_refs):
-        kind = ref.split(":", 1)[0]
-        refs.setdefault(ref, ContextRef(
-            ref=ref, kind=kind, source_turn_id=source_turn_id,
-            role="target", provenance=provenance, route=_route(kind, ref),
-        ))
     artifact = artifact_ref(
         answer_text=answer_text,
         source_turn_id=source_turn_id,
@@ -355,7 +364,9 @@ def build_message_context_manifest(
         considered_context=considered,
         cited_evidence=cited,
         context_refs=tuple(refs.values()),
-        reference_sets=tuple(sets),
+        # Reference sets and target refs are legacy resolver data. Keep the
+        # fields in the schema for replay, but never create them for new turns.
+        reference_sets=(),
         artifacts=(artifact,) if artifact else (), stale_refs=stale,
         provenance=provenance,
     )
@@ -464,6 +475,6 @@ __all__ = [
     "MESSAGE_CONTEXT_SCHEMA", "REFERENT_RESOLUTION_SCHEMA", "MessageContextManifest",
     "ReferentResolution", "build_message_context_manifest", "validate_manifest",
     "persist_message_context", "load_message_context", "source_revision_digest",
-    "supplied_object_refs",
+    "evidence_id_aliases", "supplied_object_refs",
     "load_recent_message_contexts",
 ]

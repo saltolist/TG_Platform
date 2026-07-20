@@ -87,6 +87,43 @@ AGENT_REFERENT_CONFIDENCE = Histogram(
     "Confidence of bounded referent selections",
     buckets=(0, 0.25, 0.5, 0.7, 0.85, 0.95, 1.0),
 )
+AGENT_ROUTES = Counter(
+    "agent_route_total",
+    "WorkspaceAgent classifier routes",
+    ("route",),
+)
+AGENT_RETRIEVAL_SEARCHES = Counter(
+    "agent_retrieval_search_total",
+    "New semantic search calls by tool",
+    ("tool",),
+)
+AGENT_REUSED_CONTEXT_REFS = Histogram(
+    "agent_reused_context_refs",
+    "Known message-context refs reopened by exact id",
+    buckets=(0, 1, 2, 3, 5, 8),
+)
+AGENT_USED_CONTEXT_REFS = Histogram(
+    "agent_used_context_refs",
+    "Validated context refs used by the final answer",
+    buckets=(0, 1, 2, 3, 5, 8, 13),
+)
+AGENT_EVIDENCE_FIDELITY = Counter(
+    "agent_evidence_fidelity_total",
+    "Final EvidencePack items by fidelity",
+    ("fidelity",),
+)
+AGENT_CLARIFICATIONS = Counter(
+    "agent_clarifications_total",
+    "Deterministic clarification responses",
+)
+AGENT_LEGACY_RESOLVER = Counter(
+    "agent_legacy_resolver_total",
+    "Legacy semantic referent resolver selections",
+)
+AGENT_CONTEXT_MISMATCH = Counter(
+    "agent_message_context_mismatch_total",
+    "Message context refs absent from the final EvidencePack",
+)
 AGENT_STOPPED_REASON = Counter(
     "agent_stopped_reason_total",
     "Terminal stopped_reason of WorkspaceAgent runs",

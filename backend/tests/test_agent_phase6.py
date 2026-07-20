@@ -11,6 +11,7 @@ import pytest
 
 from app.services.agent.research.evidence import EvidenceRecord
 from app.services.agent.research.pack import build_verified_pack
+from app.services.agent.runtime.message_context import evidence_id_aliases
 from app.services.agent.runtime.output_contract import (
     OUTPUT_SCHEMA_V1,
     validate_answer_output,
@@ -63,6 +64,25 @@ def test_verified_pack_keeps_authoritative_catalog_records() -> None:
     assert pack.items[0].kind == "catalog"
 
 
+def test_verified_pack_keeps_catalog_members_for_message_context() -> None:
+    records = {
+        "/posts/": EvidenceRecord(
+            id="/posts/",
+            kind="catalog",
+            source_ref="/posts/",
+            content="catalog",
+            citation_path="/posts/",
+            citation_title="Список постов",
+            metadata={"members": [{"kind": "post", "id": "p1", "title": "Пост 1", "preview": "Карточка"}]},
+        )
+    }
+    pack = build_verified_pack(records=records, evidence_ids=["/posts/"])
+
+    assert pack.items[0].metadata == {
+        "members": [{"kind": "post", "id": "p1", "title": "Пост 1", "preview": "Карточка"}]
+    }
+
+
 def test_output_validator_rejects_dangling_factual_citation() -> None:
     result = validate_answer_output(
         {
@@ -84,6 +104,43 @@ def test_output_validator_accepts_versioned_grounded_output() -> None:
     )
     assert result.ok
     assert result.schema == OUTPUT_SCHEMA_V1
+
+
+def test_output_validator_normalizes_supplied_object_ref_claim_aliases() -> None:
+    pack = {
+        "items": [
+            {
+                "id": "/note/global/n1/",
+                "kind": "note_chunk",
+                "source_ref": "/note/global/n1/",
+                "citation_path": "/note/global/n1/",
+            },
+            {
+                "id": "/post/p1/",
+                "kind": "post_text",
+                "source_ref": "post:p1",
+                "citation_path": "/post/p1/",
+            },
+        ]
+    }
+    aliases = evidence_id_aliases(pack)
+
+    result = validate_answer_output(
+        {
+            "answer": "Fact",
+            "claims": [
+                {"text": "Note fact", "evidence_ids": ["note:n1"]},
+                {"text": "Post fact", "evidence_ids": ["post:p1"]},
+            ],
+        },
+        evidence_ids={"/note/global/n1/", "/post/p1/"},
+        evidence_id_aliases=aliases,
+        factual=True,
+    )
+
+    assert result.ok
+    assert result.claims[0]["evidence_ids"] == ["/note/global/n1/"]
+    assert result.claims[1]["evidence_ids"] == ["/post/p1/"]
 
 
 @pytest.mark.asyncio

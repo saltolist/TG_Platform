@@ -123,6 +123,67 @@ async def test_candidate_first_fuses_summary_and_context_and_supports_quota_swee
 
 
 @pytest.mark.asyncio
+async def test_contextual_discovery_hit_is_promoted_to_existing_llm_card() -> None:
+    backend = AsyncMock()
+    backend.embed_query.return_value = [0.1, 0.2]
+    chunk = _hit(
+        "note_chunk",
+        "n1",
+        0.83,
+        chunk_text="Сырой фрагмент заметки",
+        index_revision=7,
+    )
+    card = {
+        "ref": "note:n1",
+        "label": "note:n1",
+        "similarity": 1.0,
+        "node_type": NODE_NOTE_SUMMARY,
+        "summary_only": True,
+        "index_revision": 7,
+        "source_revision": 7,
+        "summary_version": 1,
+        "summary_model": "llm:OpenAI:gpt-4.1-mini:v1",
+        "title": "Заметка",
+        "preview": "Готовая смысловая карточка",
+        "status": "active",
+        "parent_post_id": None,
+        "has_more": False,
+        "source_requirement_id": "",
+    }
+    with (
+        patch(
+            "app.services.agent.research.prefetch.hybrid_prefetch",
+            new_callable=AsyncMock,
+            side_effect=[[], [chunk]],
+        ),
+        patch(
+            "app.services.agent.research.prefetch.resolve_current_source_revisions",
+            new_callable=AsyncMock,
+            return_value={"n1": 7},
+        ),
+        patch(
+            "app.services.agent.research.prefetch.load_discovery_cards_for_objects",
+            new_callable=AsyncMock,
+            return_value=[card],
+        ) as load_cards,
+    ):
+        results = await retrieve_for_discovery(
+            session=AsyncMock(),
+            user_id=uuid.uuid4(),
+            scope="global",
+            query_text="следующая тема",
+            embedding_backend=backend,
+            tenant_key=None,
+        )
+
+    assert results[0]["node_type"] == NODE_NOTE_SUMMARY
+    assert results[0]["preview"] == "Готовая смысловая карточка"
+    assert results[0]["summary_model"] == "llm:OpenAI:gpt-4.1-mini:v1"
+    assert results[0]["similarity"] == 0.83
+    load_cards.assert_awaited_once()
+
+
+@pytest.mark.asyncio
 async def test_chunk_search_requires_and_filters_to_selected_objects() -> None:
     backend = AsyncMock()
     backend.embed_query.return_value = [0.1]

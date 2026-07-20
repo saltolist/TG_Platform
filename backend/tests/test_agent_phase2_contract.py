@@ -429,7 +429,7 @@ async def test_classifier_promotes_only_semantically_required_source() -> None:
 
 
 @pytest.mark.asyncio
-async def test_classifier_finish_still_runs_optional_workspace_enrichment() -> None:
+async def test_classifier_finish_skips_optional_workspace_enrichment() -> None:
     contract = build_turn_contract(user_text="Идти тестировать?", history=[], scope="global")
     ctx = SimpleNamespace(
         reasoner_spec=object(), reasoner_model="planner", reasoner_api_key="secret",
@@ -449,7 +449,8 @@ async def test_classifier_finish_still_runs_optional_workspace_enrichment() -> N
             {"configurable": {"runtime_context": ctx, "turn_contract": contract}},
         )
 
-    assert result["tool_call"]["type"] == "read"
+    assert result["tool_call"]["type"] == "finish"
+    assert result["direct_finish"] is True
     assert result["turn_contract"]["answerability_without_evidence"] is True
     assert {
         item["kind"] for item in result["turn_contract"]["source_requirements"]

@@ -196,26 +196,6 @@ async def rebuild_runtime_context_for_run(
     from app.services.ai.chat_history import extract_last_proposed_edit
 
     history = await load_run_history(session, run, user)
-    dialog_context = build_planner_dialog_context(effective_user_text, history) if history else ""
-    if history:
-        # Turns older than the verbatim window above are lossy in dialog_context
-        # (build_planner_dialog_context only keeps the last N pairs) — summarize
-        # them so a reference a few turns back doesn't just vanish. Computed
-        # fresh from history each call (template fallback, no LLM, no stored
-        # state) rather than the legacy label-thread rolling_summary machinery:
-        # agent runs don't go through refresh_context_meta_after_reply, so
-        # there is no persisted rolling_summary to read here anyway.
-        from app.services.ai.chat_history import filter_alternating_roles, linearize_for_llm
-        from app.services.ai.rolling_summary import rolling_summary_for_assembly
-
-        valid_pairs = filter_alternating_roles(linearize_for_llm(history))
-        older_summary = rolling_summary_for_assembly({}, valid_pairs)
-        if older_summary:
-            dialog_context = (
-                f"Ранее в диалоге: {older_summary}\n\n{dialog_context}"
-                if dialog_context
-                else f"Ранее в диалоге: {older_summary}"
-            )
     last_proposed_post_html = extract_last_proposed_edit(history) if history else None
     recent_note_row = await session.scalar(
         select(GlobalNote)
@@ -253,6 +233,55 @@ async def rebuild_runtime_context_for_run(
             user_id=user.id,
             ledger_key=ledger_key,
         )
+    dialog_context = build_planner_dialog_context(
+        effective_user_text,
+        history,
+        message_manifests=(
+            message_manifests
+            if getattr(settings, "agent_dialog_context_v2", True)
+            else ()
+        ),
+    ) if history or message_manifests else ""
+    known_refs: list[dict[str, Any]] = []
+    seen_refs: set[str] = set()
+    for manifest in message_manifests:
+        for raw in manifest.get("context_refs") or ():
+            if not isinstance(raw, Mapping):
+                continue
+            ref = str(raw.get("ref") or "").strip()
+            role = str(raw.get("role") or "")
+            if not ref or role not in {"used_context", "claim_support"} or ref in seen_refs:
+                continue
+            seen_refs.add(ref)
+            known_refs.append({
+                "ref": ref,
+                "kind": str(raw.get("kind") or ""),
+                "revision": raw.get("revision"),
+                "title": str(raw.get("title") or "") or None,
+            })
+            if len(known_refs) >= 8:
+                break
+        if len(known_refs) >= 8:
+            break
+    if history:
+        # Preserve a bounded summary for turns outside the verbatim window.
+        from app.services.ai.chat_history import filter_alternating_roles, linearize_for_llm
+        from app.services.ai.rolling_summary import rolling_summary_for_assembly
+
+        valid_pairs = filter_alternating_roles(linearize_for_llm(history))
+        older_summary = rolling_summary_for_assembly({}, valid_pairs)
+        if older_summary:
+            dialog_context = (
+                f"Ранее в диалоге: {older_summary}\n\n{dialog_context}"
+                if dialog_context
+                else f"Ранее в диалоге: {older_summary}"
+            )
+    if len(dialog_context) > 4000:
+        dialog_context = dialog_context[-4000:]
+    legacy_resolver_enabled = bool(
+        getattr(settings, "agent_referent_resolution_legacy", False)
+        and getattr(settings, "semantic_referent_resolution_v1", True)
+    )
     prior_contract = next(
         (dict(turn.turn_contract) for turn in reversed(dialog_ledger) if turn.turn_contract),
         None,
@@ -262,13 +291,11 @@ async def rebuild_runtime_context_for_run(
         history=history,
         scope=run.scope,
         recent_note=recent_note,
-        dialog_ledger=dialog_ledger,
+        dialog_ledger=dialog_ledger if legacy_resolver_enabled else (),
         open_post=post_data,
         prior_contract=prior_contract,
-        message_manifests=message_manifests,
-        semantic_referent_enabled=bool(
-            getattr(settings, "semantic_referent_resolution_v1", True)
-        ),
+        message_manifests=message_manifests if legacy_resolver_enabled else (),
+        semantic_referent_enabled=legacy_resolver_enabled,
         v2_enabled=settings.agent_turn_contract_v2_enabled,
         batch_enabled=settings.agent_batch_path_v1_enabled,
     )
@@ -296,6 +323,7 @@ async def rebuild_runtime_context_for_run(
         answer_model=answer_llm[1] if answer_llm else "",
         answer_api_key=answer_llm[2] if answer_llm else "",
         dialog_context=dialog_context,
+        known_context_refs=tuple(known_refs),
         turn_contract=turn_contract,
         dialog_ledger=dialog_ledger,
         ledger_key=ledger_key,

@@ -28,6 +28,10 @@ class EvidencePackItem:
     source_requirement_id: str = ""
     fidelity: str = "full_text"
     provenance: dict[str, Any] | None = None
+    # Compact discovery/provenance data retained for the durable message
+    # manifest. The final-answer renderer does not expose this metadata to the
+    # model as an additional instruction or evidence body.
+    metadata: dict[str, Any] | None = None
     allowed_claim_scope: str = "content"
     truncated: bool = False
 
@@ -118,6 +122,11 @@ def build_verified_evidence_pack(
                 ),
             }
         )
+        manifest_metadata = {
+            key: metadata[key]
+            for key in ("card_text", "preview", "members")
+            if key in metadata
+        }
         items.append(
             EvidencePackItem(
                 id=eid,
@@ -131,6 +140,7 @@ def build_verified_evidence_pack(
                 source_requirement_id=str(annotation.get("source_requirement_id") or ""),
                 fidelity=fidelity,
                 provenance=provenance,
+                metadata=manifest_metadata or None,
                 allowed_claim_scope="topic_only" if fidelity == "semantic_card" else "content",
             )
         )

@@ -58,6 +58,7 @@ def validate_answer_output(
     factual: bool,
     schema: str = OUTPUT_SCHEMA_V1,
     supplied_context_refs: set[str] | None = None,
+    evidence_id_aliases: Mapping[str, str] | None = None,
     evidence_fidelity: Mapping[str, str] | None = None,
     evidence_roles: Mapping[str, str] | None = None,
     allow_optional_only_claims: bool = True,
@@ -75,7 +76,17 @@ def validate_answer_output(
 
     issues: list[str] = []
     fatal_issues: list[str] = []
-    claims = tuple(claim.model_dump(mode="json", exclude_none=True) for claim in parsed.claims)
+    claims_list: list[dict[str, Any]] = []
+    for claim in parsed.claims:
+        normalized = claim.model_dump(mode="json", exclude_none=True)
+        normalized["evidence_ids"] = list(
+            dict.fromkeys(
+                str((evidence_id_aliases or {}).get(str(item), str(item)))
+                for item in normalized.get("evidence_ids") or ()
+            )
+        )
+        claims_list.append(normalized)
+    claims = tuple(claims_list)
     for index, claim in enumerate(claims):
         cited = [str(item) for item in claim.get("evidence_ids") or []]
         dangling = [item for item in cited if item not in evidence_ids]

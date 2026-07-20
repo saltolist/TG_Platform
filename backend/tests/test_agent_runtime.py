@@ -265,8 +265,11 @@ async def test_rebuild_runtime_context_targets_latest_created_note(
             "Посмотри на эту заметку и скажи конкретно",
         )
 
-    assert context.turn_contract["corpus"] == "exact_note"
-    assert context.turn_contract["target"]["id"] == str(note_id)
+    # The simplified runtime leaves anaphoric wording for the planner; it no
+    # longer promotes the latest note to an implicit DB target.
+    assert context.turn_contract["corpus"] == "workspace"
+    assert not context.turn_contract.get("target_contract", {}).get("targets")
+    assert context.turn_contract["target"] is None
     assert context.turn_contract["requires_workspace"] is True
 
 
@@ -719,8 +722,7 @@ async def test_execute_agent_run_emits_workspace_step_for_finish(
         ctx.reasoner_model = "gpt-4o-mini"
         ctx.reasoner_api_key = "test-key"
 
-        # Even a conversational finish now performs bounded workspace
-        # discovery before the final answer.
+        # Conversational finish now skips workspace discovery.
         with patch(
             "app.services.ai.llm.complete_chat_completion",
             new_callable=AsyncMock,
@@ -746,7 +748,7 @@ async def test_execute_agent_run_emits_workspace_step_for_finish(
     workspace_events = [evt for evt in events if evt.event_type == "workspace_step"]
     assert len(workspace_events) == 1
     assert workspace_events[0].payload["tool"] == "finish"
-    assert [evt for evt in events if evt.event_type == "planner_step"]
+    assert not [evt for evt in events if evt.event_type == "planner_step"]
 
 
 @pytest.mark.asyncio

@@ -11,7 +11,7 @@ from uuid import uuid4
 import pytest
 from pydantic import ValidationError
 
-from app.services.agent.research.evidence import EvidenceRecord
+from app.services.agent.research.evidence import EvidenceRecord, records_from_agent_state
 from app.services.agent.research.evidence_pack import (
     EVIDENCE_PACK_SCHEMA_V2,
     build_verified_evidence_pack,
@@ -20,6 +20,7 @@ from app.services.agent.research.graph import (
     _apply_complete_source_policy,
     _card_records_from_plan,
     _evidence_pack_annotations,
+    _hydrate_selected_catalog_members,
     _hydrate_selected_semantic_cards,
     _materialize_contract_fixed_plan,
     _materialize_full_read_actions,
@@ -37,7 +38,10 @@ from app.services.agent.research.material_plan import (
 from app.services.agent.research.prefetch import load_discovery_cards_for_objects
 from app.services.agent.research.planner_decision import PlannerDecision
 from app.services.agent.research.sufficiency import evaluate_sufficiency
+from app.services.agent.runtime.context import RuntimeContext
 from app.services.agent.runtime.output_contract import validate_answer_output
+from app.services.ai.note_citations import NoteCite
+from app.services.ai.rag_tools import AgentState
 
 
 def _candidate(ref: str, *, eligible: bool = True, source: str = "workspace-notes") -> dict:
@@ -64,6 +68,31 @@ def _assessment(ref: str, *, resolution: str = "card", relevance: str = "direct"
         "confidence": 0.9,
         "reason_code": "topic_only" if resolution == "card" else "detailed_summary",
     }
+
+
+def test_agent_state_fork_preserves_catalog_members() -> None:
+    base = AgentState(
+        session=AsyncMock(),
+        user_id=uuid4(),
+        scope="global",
+        tenant_key=None,
+        embedding_backend=AsyncMock(),
+    )
+    base.catalog_members["/posts/"] = [
+        {"kind": "post", "id": "p1", "title": "Post 1"}
+    ]
+    base.context_blocks.append(
+        (NoteCite(path="/posts/", title="Список постов"), "catalog preview")
+    )
+    ctx = SimpleNamespace(agent_tool_state=base)
+
+    fork = RuntimeContext.fork_agent_state(ctx, AsyncMock())
+    records = records_from_agent_state(fork)
+
+    assert fork.catalog_members == base.catalog_members
+    assert fork.catalog_members is not base.catalog_members
+    assert fork.catalog_members["/posts/"] is not base.catalog_members["/posts/"]
+    assert records["/posts/"].metadata["members"] == base.catalog_members["/posts/"]
 
 
 def test_planner_assesses_more_than_three_but_action_fanout_stays_three() -> None:
@@ -547,6 +576,55 @@ async def test_handoff_hydrates_selected_cards_without_llm() -> None:
 
     assert stale_card.id not in stale_records
     assert stale_gaps == ("hydration:post:p1:stale_card",)
+
+
+@pytest.mark.asyncio
+async def test_handoff_hydrates_every_selected_catalog_member_to_full_text() -> None:
+    class SessionContext:
+        async def __aenter__(self):
+            return object()
+
+        async def __aexit__(self, exc_type, exc, tb):
+            return False
+
+    catalog = EvidenceRecord(
+        id="/posts/",
+        kind="catalog",
+        source_ref="/posts/",
+        content="catalog previews",
+        citation_path="/posts/",
+        citation_title="Список постов",
+        metadata={
+            "members": [
+                {"kind": "post", "id": "p1", "title": "Post 1", "preview": "Preview 1"},
+                {"kind": "post", "id": "p2", "title": "Post 2", "preview": "Preview 2"},
+            ]
+        },
+    )
+    ctx = SimpleNamespace(
+        user_id=uuid4(),
+        tenant_key=None,
+        session_factory=lambda: SessionContext(),
+    )
+
+    async def resolve_post(_session, _user_id, post_id):
+        return {"id": post_id, "title": f"Post {post_id}", "text": f"Full text {post_id}"}
+
+    with patch(
+        "app.services.ai.rag.resolve_post_data",
+        new=AsyncMock(side_effect=resolve_post),
+    ):
+        records, evidence_ids, gaps = await _hydrate_selected_catalog_members(
+            records={catalog.id: catalog},
+            evidence_ids=[catalog.id],
+            ctx=ctx,
+        )
+
+    assert gaps == ()
+    assert evidence_ids == ["/posts/", "/post/p1/", "/post/p2/"]
+    assert records["/post/p1/"].kind == "post_text"
+    assert records["/post/p1/"].content == "Full text p1"
+    assert records["/post/p1/"].metadata["card_text"] == "Preview 1"
 
 
 @pytest.mark.asyncio

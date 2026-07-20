@@ -565,7 +565,7 @@ async def retrieve_for_discovery(
         user_id=user_id,
         candidates=selected,
     )
-    return [
+    selected = [
         {
             **item,
             "source_revision": revisions.get(
@@ -575,3 +575,82 @@ async def retrieve_for_discovery(
         }
         for item in selected
     ]
+
+    # A contextual chunk may rank above (or pass the threshold when) its
+    # semantic summary does not. Discovery still needs to expose the object's
+    # durable card, not an arbitrary slice of source text. Resolve the cards by
+    # exact object ID after ranking; this is a bounded DB read and does not call
+    # an LLM during the dialog.
+    card_objects: dict[str, list[dict[str, Any]]] = {"notes": [], "posts": []}
+    for item in selected:
+        node_type = str(item.get("node_type") or "")
+        object_kind = (
+            "notes"
+            if node_type == NODE_NOTE_CHUNK
+            else "posts"
+            if node_type == NODE_POST_TEXT
+            else ""
+        )
+        object_id = str(item.get("note_id") or item.get("post_id") or "")
+        if not object_kind or not object_id:
+            continue
+        card_objects[object_kind].append(
+            {
+                "id": object_id,
+                "revision": int(
+                    item.get("source_revision") or item.get("index_revision") or 0
+                ),
+                "title": str(item.get("object_title") or ""),
+                "status": str(item.get("object_status") or "active"),
+                "parent_post_id": str(item.get("post_id") or "") or None,
+            }
+        )
+
+    cards_by_ref: dict[str, dict[str, Any]] = {}
+    for object_kind, objects in card_objects.items():
+        if not objects:
+            continue
+        cards = await load_discovery_cards_for_objects(
+            session,
+            user_id=user_id,
+            object_kind=object_kind,
+            objects=objects,
+            source_requirement_id="",
+            tenant_key=tenant_key,
+        )
+        cards_by_ref.update({str(card.get("ref") or ""): card for card in cards})
+
+    promoted: list[dict[str, Any]] = []
+    for item in selected:
+        node_type = str(item.get("node_type") or "")
+        prefix = (
+            "note"
+            if node_type == NODE_NOTE_CHUNK
+            else "post"
+            if node_type == NODE_POST_TEXT
+            else ""
+        )
+        object_id = str(item.get("note_id") or item.get("post_id") or "")
+        card = (
+            cards_by_ref.get(f"{prefix}:{object_id}")
+            if prefix and object_id
+            else None
+        )
+        if card is None:
+            promoted.append(item)
+            continue
+        promoted.append(
+            {
+                **item,
+                **card,
+                # Preserve discovery ordering and query-specific ranking. The
+                # exact card loader uses similarity=1 only as a lookup marker.
+                "similarity": item.get("similarity"),
+                "blended_score": item.get("blended_score"),
+                "rank_fusion_score": item.get("rank_fusion_score"),
+                "sources": item.get("sources"),
+                "has_more": item.get("has_more"),
+                "source_revision": item.get("source_revision"),
+            }
+        )
+    return promoted

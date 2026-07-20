@@ -16,7 +16,7 @@ import {
 } from "@/shared/lib/noteCitation";
 import { useCallback, useMemo, useState } from "react";
 import type { KbCite, WebCite } from "@/shared/api/schemas/post";
-import type { AgentProposal, MessageArtifactRef, MessageContextRef } from "@/shared/api/schemas/agentRun";
+import type { AgentProposal } from "@/shared/api/schemas/agentRun";
 import { useAgentRunContext } from "@/widgets/agent/model/AgentRunContext";
 import { selectCurrentToolLabel } from "@/widgets/agent/lib/agentActivityLabel";
 import { getCachedPost } from "@/entities/post/lib/getCachedPost";
@@ -46,10 +46,6 @@ type Props = {
   // turn's own slot in the thread, instead of only at the bottom.
   proposal?: AgentProposal;
   proposalDecision?: ProposalDecision | null;
-  contextRefs?: MessageContextRef[];
-  artifacts?: MessageArtifactRef[];
-  staleRefs?: Array<Record<string, unknown>>;
-  contextProvenance?: "exact" | "inferred" | "legacy";
 };
 
 export default function ChatAiMessage({
@@ -67,10 +63,6 @@ export default function ChatAiMessage({
   isStreaming = false,
   proposal,
   proposalDecision = null,
-  contextRefs = [],
-  artifacts = [],
-  staleRefs = [],
-  contextProvenance,
 }: Props) {
   const { data: posts = [] } = usePosts();
   const { data: globalNotes = [] } = useGlobalNotes();
@@ -161,30 +153,6 @@ export default function ChatAiMessage({
               noteTitleByPath={displayTitleByPath}
               webCites={webCites}
             />
-          </div>
-        ) : null}
-        {(contextRefs.length > 0 || artifacts.length > 0 || staleRefs.length > 0) ? (
-          <div className="ai-context-refs" aria-label="Источники ответа" data-provenance={contextProvenance}>
-            {contextRefs.map((item) => (
-              <a
-                key={item.ref}
-                className={`ai-context-chip${item.provenance === "legacy" ? " is-legacy" : ""}`}
-                href={item.route || undefined}
-                title={item.provenance === "legacy" ? "Источник из старой истории" : item.ref}
-              >
-                {item.title || (item.kind === "post" ? "Пост" : item.kind === "note" ? "Заметка" : "Источник")}
-              </a>
-            ))}
-            {artifacts.map((item) => (
-              <a key={item.ref} className="ai-context-chip artifact" href={item.route || `#${item.ref}`}>
-                {item.title || "Материал ответа"}
-              </a>
-            ))}
-            {staleRefs.map((item, index) => (
-              <span key={`${String(item.ref || "stale")}-${index}`} className="ai-context-chip stale">
-                Источник недоступен
-              </span>
-            ))}
           </div>
         ) : null}
         {showFooter ? (

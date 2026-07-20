@@ -239,6 +239,12 @@ class Settings(BaseSettings):
     agent_adaptive_evidence_depth_v1_enabled: bool = False
     # Durable message-level provenance and bounded semantic referent binding.
     dialog_message_context_manifest_v1: bool = True
+    # Compact message cards are shared by the planner and final answer.
+    agent_dialog_context_v2: bool = True
+    # Roll back to the pre-simplification resolver only for a controlled canary.
+    agent_referent_resolution_legacy: bool = False
+    # Allow the classifier to finish conversational follow-ups without seed.
+    agent_finish_without_research: bool = True
     semantic_referent_resolution_v1: bool = True
     # Phase-8 exhaustive work is checkpointed and routed to a dedicated queue.
     agent_batch_path_v1_enabled: bool = True
@@ -274,6 +280,9 @@ class Settings(BaseSettings):
         "agent_answer_phase6_enabled",
         "agent_adaptive_evidence_depth_v1_enabled",
         "dialog_message_context_manifest_v1",
+        "agent_dialog_context_v2",
+        "agent_referent_resolution_legacy",
+        "agent_finish_without_research",
         "semantic_referent_resolution_v1",
         "agent_batch_path_v1_enabled",
         "cookie_secure",

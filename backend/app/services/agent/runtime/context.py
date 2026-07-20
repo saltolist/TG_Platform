@@ -51,6 +51,9 @@ class RuntimeContext:
     # for the research planner (agent-runtime-sprints §2.1). Deliberately a
     # string, not native state["messages"] — see agent-runtime-remaining.md §2.
     dialog_context: str = ""
+    # Verified object refs from recent message manifests. These are compact
+    # provenance cards for exact-by-ID reuse, never implicit targets.
+    known_context_refs: tuple[dict[str, Any], ...] = ()
     # One deterministic goal/referent contract shared by classifier, planner
     # and answer generation for this turn.
     turn_contract: dict[str, Any] = field(default_factory=dict)
@@ -145,6 +148,10 @@ class RuntimeContext:
             context_blocks=list(base.context_blocks),
             opened_posts=dict(base.opened_posts),
             query_vector_cache=dict(base.query_vector_cache),
+            catalog_members={
+                path: [dict(item) for item in members]
+                for path, members in base.catalog_members.items()
+            },
             vision_calls_used=base.vision_calls_used,
             hydrated_text_files=set(base.hydrated_text_files),
             listed_image_attachment_refs=list(base.listed_image_attachment_refs),

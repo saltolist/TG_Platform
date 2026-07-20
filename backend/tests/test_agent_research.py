@@ -676,6 +676,30 @@ async def test_workspace_agent_node_forwards_dialog_context_to_classifier_prompt
 
 
 @pytest.mark.asyncio
+async def test_workspace_agent_node_reuses_only_verified_context_refs() -> None:
+    from app.services.agent.runtime.workspace_graph import workspace_agent_node
+
+    ctx = _reasoner_ctx()
+    ctx.known_context_refs = (
+        {"ref": "note:n1", "kind": "note", "revision": 2},
+    )
+    state = {"user_text": "Раскрой подробнее материал из прошлого ответа"}
+    config = {"configurable": {"runtime_context": ctx}}
+    with patch(
+        "app.services.ai.llm.complete_chat_completion",
+        new_callable=AsyncMock,
+        return_value=(
+            '{"type":"reuse_context","context_refs":["note:n1","post:invented"]}'
+        ),
+    ):
+        result = await workspace_agent_node(state, config)
+
+    assert result["current_tool"] == "reuse_context"
+    assert result["known_context_refs"] == ["note:n1"]
+    assert result["search_query"] == ""
+
+
+@pytest.mark.asyncio
 async def test_workspace_contract_forces_recent_note_request_to_read() -> None:
     from app.services.agent.runtime.workspace_graph import workspace_agent_node
 
@@ -1149,6 +1173,8 @@ def test_all_workspace_outcomes_research_before_terminal_dispatch() -> None:
 
     for call_type in ("read", "finish", "post_proposal", "media_proposal"):
         assert route_workspace_call({"tool_call": {"type": call_type}}) == "seed"
+    assert route_workspace_call({"current_tool": "finish", "direct_finish": True}) == "answer"
+    assert route_workspace_call({"current_tool": "read", "direct_finish": True}) == "seed"
 
     assert route_after_research({"tool_call": {"type": "finish"}}) == "answer"
     assert route_after_research(

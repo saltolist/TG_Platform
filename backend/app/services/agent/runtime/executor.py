@@ -25,6 +25,14 @@ from app.services.agent.runtime.observability import (
     AGENT_EMPTY_PACK,
     AGENT_MESSAGE_CONTEXT_ITEMS,
     AGENT_REFERENT_CONFIDENCE,
+    AGENT_ROUTES,
+    AGENT_RETRIEVAL_SEARCHES,
+    AGENT_REUSED_CONTEXT_REFS,
+    AGENT_USED_CONTEXT_REFS,
+    AGENT_EVIDENCE_FIDELITY,
+    AGENT_CLARIFICATIONS,
+    AGENT_LEGACY_RESOLVER,
+    AGENT_CONTEXT_MISMATCH,
     AGENT_INTERRUPTS,
     AGENT_RUNS,
     AGENT_STEPS,
@@ -243,6 +251,19 @@ def _record_run_metrics(final_state: dict[str, Any]) -> None:
     if not (final_state.get("evidence_ids") or []):
         AGENT_EMPTY_PACK.inc()
     AGENT_STOPPED_REASON.labels(str(final_state.get("stopped_reason") or "unknown")).inc()
+    call_type = str((final_state.get("tool_call") or {}).get("type") or final_state.get("current_tool") or "unknown")
+    AGENT_ROUTES.labels(call_type).inc()
+    search_rows = list(final_state.get("search_ledger") or ())
+    for row in search_rows:
+        if isinstance(row, dict) and str(row.get("tool") or "") in {"SearchNodes", "SearchObjectChunks"}:
+            AGENT_RETRIEVAL_SEARCHES.labels(str(row.get("tool"))).inc()
+    AGENT_REUSED_CONTEXT_REFS.observe(len(final_state.get("known_context_refs") or ()))
+    AGENT_USED_CONTEXT_REFS.observe(len(final_state.get("used_context_refs") or ()))
+    for item in (final_state.get("evidence_pack") or {}).get("items") or ():
+        if isinstance(item, dict):
+            AGENT_EVIDENCE_FIDELITY.labels(str(item.get("fidelity") or "unknown")).inc()
+    if str(final_state.get("stopped_reason") or "") in {"referent_ambiguity", "clarification"}:
+        AGENT_CLARIFICATIONS.inc()
     manifest = final_state.get("message_context_manifest") or {}
     for kind, field in (
         ("considered_evidence", "considered_context"),
@@ -263,6 +284,18 @@ def _record_run_metrics(final_state: dict[str, Any]) -> None:
     for reference in references:
         if isinstance(reference, dict):
             AGENT_REFERENT_CONFIDENCE.observe(float(reference.get("confidence") or 0.0))
+    if references:
+        AGENT_LEGACY_RESOLVER.inc()
+    manifest_refs = {
+        str(item.get("ref") or "")
+        for item in manifest.get("context_refs") or ()
+        if isinstance(item, dict)
+    }
+    from app.services.agent.runtime.message_context import supplied_object_refs
+
+    pack_refs = supplied_object_refs(final_state.get("evidence_pack") or {})
+    if manifest_refs and not manifest_refs.issubset(pack_refs):
+        AGENT_CONTEXT_MISMATCH.inc()
 
 
 def _llm_metrics_payload(runtime_context: RuntimeContext, *, duration_ms: float) -> dict[str, Any]:
@@ -421,7 +454,11 @@ async def _persist_message_context(
             *tuple((final_state.get("sufficiency") or {}).get("open_requirements") or ()),
         )
     }
-    stale_refs: list[dict[str, Any]] = []
+    stale_refs: list[dict[str, Any]] = [
+        dict(item)
+        for item in final_state.get("stale_refs") or ()
+        if isinstance(item, dict)
+    ]
     for source in contract.get("source_requirements") or ():
         if not isinstance(source, dict):
             continue

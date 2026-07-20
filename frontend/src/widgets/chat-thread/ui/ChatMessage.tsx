@@ -80,10 +80,6 @@ export default function ChatMessage({
       isStreaming={isStreaming}
       proposal={message.proposal}
       proposalDecision={message.proposalDecision ?? null}
-      contextRefs={message.contextRefs}
-      artifacts={message.artifacts}
-      staleRefs={message.staleRefs}
-      contextProvenance={message.contextProvenance}
       />
     </div>
   );
