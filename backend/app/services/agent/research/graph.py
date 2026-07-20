@@ -3476,6 +3476,133 @@ def _evidence_pack_annotations(
     return annotations
 
 
+async def _hydrate_selected_semantic_cards(
+    *,
+    records: dict[str, EvidenceRecord],
+    evidence_ids: list[str],
+    ctx: RuntimeContext | None,
+) -> tuple[dict[str, EvidenceRecord], tuple[str, ...]]:
+    """Replace selected discovery cards with their authoritative source text.
+
+    Cards remain the agent's discovery representation.  This handoff-only
+    operation resolves the already selected ``post:*``/``note:*`` refs through
+    the normal workspace readers so the answer model receives primary evidence,
+    without another planner or LLM step.
+    """
+
+    if ctx is None or not callable(getattr(ctx, "session_factory", None)):
+        return records, ()
+
+    selected = [
+        (str(evidence_id), records.get(str(evidence_id)))
+        for evidence_id in evidence_ids
+        if records.get(str(evidence_id)) is not None
+        and records[str(evidence_id)].kind == "semantic_card"
+    ]
+    if not selected:
+        return records, ()
+
+    from app.services.ai.rag import (
+        get_note_data,
+        markdown_to_index_text,
+        object_index_revision,
+        resolve_post_data,
+    )
+    from app.services.ai.rag_tools import note_file_record
+
+    hydrated = dict(records)
+    gaps: list[str] = []
+    async with ctx.session_factory() as session:
+        for evidence_id, card in selected:
+            assert card is not None
+            ref = canonical_candidate_ref(str(card.source_ref or card.metadata.get("ref") or ""))
+            kind, _, object_id = ref.partition(":")
+            if kind not in {"post", "note"} or not object_id:
+                continue
+
+            source_data: dict[str, Any] | None
+            try:
+                if kind == "post":
+                    source_data = await resolve_post_data(session, ctx.user_id, object_id)
+                else:
+                    source_data = await get_note_data(
+                        session,
+                        ctx.user_id,
+                        str(getattr(ctx, "scope", "global") or "global"),
+                        object_id,
+                        tenant_key=getattr(ctx, "tenant_key", None),
+                    )
+            except Exception:
+                logger.exception("Final handoff hydration failed for %s", ref)
+                hydrated.pop(evidence_id, None)
+                gaps.append(f"hydration:{ref}:read_error")
+                continue
+            if not source_data:
+                hydrated.pop(evidence_id, None)
+                gaps.append(f"hydration:{ref}:not_found")
+                continue
+
+            expected_revision = int(card.metadata.get("source_revision") or 0)
+            actual_revision = object_index_revision(source_data)
+            if expected_revision and actual_revision != expected_revision:
+                hydrated.pop(evidence_id, None)
+                gaps.append(f"hydration:{ref}:stale_card")
+                continue
+
+            title = str(source_data.get("title") or card.citation_title or object_id).strip()
+            if kind == "post":
+                content = str(source_data.get("text") or "").strip()
+                record_kind = "post_text"
+            else:
+                title = next(
+                    (line.strip() for line in title.splitlines() if line.strip()),
+                    object_id,
+                )
+                content = markdown_to_index_text(
+                    title,
+                    str(source_data.get("body") or ""),
+                ).strip()
+                attachment_lines = [
+                    f"- {item['name']} (тип: {item['type'] or 'неизвестно'}, ref: attachment:{item['id']})"
+                    for raw in source_data.get("files") or ()
+                    if isinstance(raw, dict)
+                    and (item := note_file_record(raw))
+                ]
+                if attachment_lines:
+                    content = "\n\n".join(
+                        part
+                        for part in (
+                            content,
+                            "Вложения заметки:\n" + "\n".join(attachment_lines),
+                        )
+                        if part
+                    )
+                record_kind = "note_chunk"
+
+            if not content:
+                hydrated.pop(evidence_id, None)
+                gaps.append(f"hydration:{ref}:empty")
+                continue
+
+            hydrated[evidence_id] = EvidenceRecord(
+                id=card.id,
+                kind=record_kind,
+                source_ref=card.source_ref,
+                content=content,
+                citation_path=card.citation_path,
+                citation_title=title,
+                metadata={
+                    **dict(card.metadata),
+                    "source_revision": actual_revision,
+                    "hydrated_from": "semantic_card",
+                    "hydrated": True,
+                },
+                producer="final_handoff_hydration",
+            )
+
+    return hydrated, tuple(dict.fromkeys(gaps))
+
+
 async def research_pack_node(state: AgentGraphState, config: RunnableConfig) -> dict[str, Any]:
     ctx: RuntimeContext | None = ((config or {}).get("configurable", {}) or {}).get("runtime_context")
     records = {
@@ -3505,12 +3632,18 @@ async def research_pack_node(state: AgentGraphState, config: RunnableConfig) -> 
     if contract.get("target_contract") or contract.get("corpus") in {"feed_posts", "exact_note"}:
         allowed_ids = set(_contract_evidence_ids(contract, records))
         evidence_ids = [eid for eid in evidence_ids if eid in allowed_ids]
+    records, hydration_gaps = await _hydrate_selected_semantic_cards(
+        records=records,
+        evidence_ids=evidence_ids,
+        ctx=ctx,
+    )
     unresolved_items = [str(item) for item in (finish.get("unresolved") or [])]
     material_plan = dict(state.get("material_plan") or {})
     unresolved_items = list(
         dict.fromkeys(
             [
                 *unresolved_items,
+                *hydration_gaps,
                 *[f"material:{item}" for item in material_plan.get("omitted_ids") or ()],
             ]
         )

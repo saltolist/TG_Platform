@@ -27,6 +27,50 @@ def test_this_post_resolves_to_post_four_from_previous_answer() -> None:
     assert contract["target"]["kind"] == "dialog_artifact"
     assert contract["target"]["label"].startswith("Пост 4 — Двусторонняя связь")
     assert "Пост 4" in contract["search_query"]
+    assert contract["target_contract"]["target_mode"] == "exact"
+    assert contract["target_contract"]["ambiguities"] == []
+    assert contract["target_contract"]["targets"][0]["source_user_text"] == "А потом?"
+
+
+def test_post_anaphora_prefers_linked_assistant_artifact_over_workspace_entities() -> None:
+    answer = (
+        "Следующий пост стоит написать про то, как AI-менеджер ходит по пространству "
+        "контента. Это продолжит пост 6, но глубже раскроет механику каскадного поиска."
+    )
+    ledger = (
+        SimpleNamespace(
+            turn_id="turn-1",
+            user_text="Про что написать следующий пост?",
+            entities=(
+                SimpleNamespace(entity_type="post", post_id="p1", title="Первый"),
+                SimpleNamespace(entity_type="post", post_id="p2", title="Второй"),
+                SimpleNamespace(entity_type="note", note_id="n1", title="Серия"),
+                SimpleNamespace(entity_type="assistant_artifact", content=answer),
+            ),
+            turn_contract=None,
+        ),
+    )
+
+    contract = build_turn_contract(
+        user_text="Напиши мне текст этого поста",
+        history=[
+            {"role": "user", "text": "Про что написать следующий пост?"},
+            {"role": "ai", "text": answer},
+        ],
+        scope="global",
+        dialog_ledger=ledger,
+    )
+
+    target = contract["target_contract"]
+    assert target["target_mode"] == "exact"
+    assert target["ambiguities"] == []
+    assert len(target["targets"]) == 1
+    assert target["targets"][0]["kind"] == "dialog_artifact"
+    assert target["targets"][0]["role"] == "subject"
+    assert target["targets"][0]["content"] == answer
+    assert target["targets"][0]["source_turn_id"] == "turn-1"
+    assert target["targets"][0]["source_user_text"] == "Про что написать следующий пост?"
+    assert contract["target"]["label"] == "рекомендованный следующий пост"
 
 
 def test_existing_posts_fix_corpus_to_feed_not_series_note() -> None:

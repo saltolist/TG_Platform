@@ -67,6 +67,7 @@ class TargetRef(_ContractModel):
         "semantic_resolver",
     ]
     source_turn_id: str | None = None
+    source_user_text: str | None = None
     title: str | None = None
     parent_post_id: str | None = None
     content: str | None = None
@@ -338,6 +339,46 @@ def _ledger_artifact(
     return max(candidates, key=len, default="")
 
 
+def _ledger_artifact_context(
+    dialog_ledger: tuple[Any, ...],
+    *,
+    content: str,
+) -> tuple[str | None, str | None]:
+    """Return the turn and user goal that produced a ledger artifact."""
+
+    wanted = str(content or "").strip()
+    if not wanted:
+        return None, None
+    for turn in reversed(dialog_ledger):
+        for entity in reversed(tuple(getattr(turn, "entities", ()) or ())):
+            if str(getattr(entity, "content", "") or "").strip() != wanted:
+                continue
+            return (
+                str(getattr(turn, "turn_id", "") or "").strip() or None,
+                str(getattr(turn, "user_text", "") or "").strip() or None,
+            )
+    return None, None
+
+
+def _history_artifact_user_text(
+    pairs: list[tuple[str, str]],
+    *,
+    content: str,
+) -> str | None:
+    """Return the user message immediately governing an assistant artifact."""
+
+    wanted = str(content or "").strip()
+    for index in range(len(pairs) - 1, -1, -1):
+        role, text = pairs[index]
+        if role != "assistant" or text.strip() != wanted:
+            continue
+        for prior in range(index - 1, -1, -1):
+            prior_role, prior_text = pairs[prior]
+            if prior_role == "user" and prior_text.strip():
+                return prior_text.strip()
+    return None
+
+
 def _post_idea_label(text: str) -> str:
     match = _POST_IDEA_RE.search(text or "")
     if not match:
@@ -603,6 +644,26 @@ def _target_contract_for(*, legacy: Mapping[str, Any], user_text: str, scope: st
                 "confidence": 1.0, "resolved_by": "open_object",
                 "title": _post_title_from_text(str(open_post.get("text") or "")) or None,
             }]
+    legacy_target = dict(legacy.get("target") or {})
+    if (
+        not targets
+        and legacy_target.get("kind") == "dialog_artifact"
+        and legacy_target.get("authoritative", True)
+    ):
+        content = str(legacy_target.get("content") or "").strip()
+        target_id = str(legacy_target.get("id") or "").strip() or _stable_artifact_id(content)
+        targets = [{
+            "kind": "dialog_artifact",
+            "id": target_id,
+            "role": "subject",
+            "authoritative": True,
+            "confidence": 0.95,
+            "resolved_by": "dialog_artifact",
+            "source_turn_id": legacy_target.get("source_turn_id"),
+            "source_user_text": legacy_target.get("source_user_text"),
+            "title": legacy_target.get("title") or legacy_target.get("label"),
+            "content": content,
+        }]
     if not targets:
         targets, ambiguities_raw = _ledger_targets(user_text=user_text, dialog_ledger=dialog_ledger)
     # Position/complement/implicit follow-ups are resolved against the bounded
@@ -693,6 +754,7 @@ def _target_contract_for(*, legacy: Mapping[str, Any], user_text: str, scope: st
                 "recent_object" if raw.get("kind") == "recent_note" else "dialog_ledger"
             ),
             "source_turn_id": raw.get("source_turn_id"), "title": raw.get("title") or raw.get("label"),
+            "source_user_text": raw.get("source_user_text"),
             "content": raw.get("content"),
         }]
     corpora: list[CorpusRef] = []
@@ -1009,12 +1071,28 @@ def build_turn_contract(
         _POST_REFERENT_RE.search(lowered) or "этого поста" in lowered or "этому посту" in lowered
     ):
         referent_content = working_artifact if write_post and working_artifact else last_assistant
+        source_turn_id, source_user_text = _ledger_artifact_context(
+            dialog_ledger,
+            content=referent_content,
+        )
+        source_user_text = source_user_text or _history_artifact_user_text(
+            pairs,
+            content=referent_content,
+        )
+        label = _post_idea_label(referent_content)
+        if not label and source_user_text and re.search(
+            r"следующ\w*\s+пост|про\s+что\s+написать",
+            source_user_text.casefold(),
+        ):
+            label = "рекомендованный следующий пост"
         target = {
             "kind": "dialog_artifact",
             "role": "assistant",
-            "label": _post_idea_label(referent_content) or "предмет предыдущего ответа ассистента",
+            "label": label or "предмет предыдущего ответа ассистента",
             "content": referent_content[:12000],
             "authoritative": True,
+            "source_turn_id": source_turn_id,
+            "source_user_text": source_user_text,
         }
 
     output: dict[str, Any] = {"kind": "answer"}
@@ -1126,6 +1204,30 @@ _SOURCE_RECORD_KINDS: dict[str, frozenset[str]] = {
 }
 
 
+def _semantic_card_object_kind(evidence_id: str, record: Mapping[str, Any]) -> str:
+    """Resolve the workspace object represented by a generic semantic card."""
+
+    metadata = record.get("metadata") or {}
+    explicit = str(record.get("object_kind") or metadata.get("object_kind") or "").strip()
+    if explicit in {"note", "notes"}:
+        return "notes"
+    if explicit in {"post", "posts"}:
+        return "posts"
+
+    source_ref = str(record.get("source_ref") or metadata.get("ref") or "").strip("/")
+    if source_ref.startswith("note:"):
+        return "notes"
+    if source_ref.startswith("post:"):
+        return "posts"
+
+    normalized_id = f"/{str(evidence_id).strip('/')}/"
+    if normalized_id.startswith("/note/"):
+        return "notes"
+    if normalized_id.startswith("/post/"):
+        return "posts"
+    return ""
+
+
 def evidence_matches_source(
     source: Mapping[str, Any],
     *,
@@ -1136,6 +1238,10 @@ def evidence_matches_source(
     source_kind = str(source.get("kind") or "")
     record_kind = str(record.get("kind") or "")
     granularity = str(source.get("evidence_granularity") or "full_text")
+    if record_kind == "semantic_card":
+        card_object_kind = _semantic_card_object_kind(evidence_id, record)
+        if card_object_kind != source_kind:
+            return False
     catalog_match = False
     if source_kind == "posts":
         catalog_match = record_kind == "catalog" and evidence_id.startswith("/posts/")

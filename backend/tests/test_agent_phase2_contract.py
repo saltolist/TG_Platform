@@ -54,9 +54,10 @@ def test_open_post_is_a_target_with_open_object_provenance() -> None:
             "role": "subject",
             "authoritative": True,
             "confidence": 1.0,
-            "resolved_by": "open_object",
-            "source_turn_id": None,
-            "title": "Заголовок",
+                "resolved_by": "open_object",
+                "source_turn_id": None,
+                "source_user_text": None,
+                "title": "Заголовок",
             "parent_post_id": None,
             "content": None,
         }
@@ -231,6 +232,57 @@ def test_scope_and_freshness_are_rechecked_at_evidence_boundary() -> None:
         evidence_id="/note/global/note-7/",
         record={"kind": "note_chunk", "metadata": {"revision": 2}},
     )
+
+
+def test_semantic_cards_only_cover_their_own_object_kind() -> None:
+    contract = {
+        "source_requirements": [
+            {
+                "source_id": "workspace-notes",
+                "kind": "notes",
+                "required": True,
+                "scope": {"mode": "corpus", "corpus": "workspace"},
+                "freshness": {"mode": "latest_available"},
+                "min_evidence": 1,
+                "evidence_granularity": "semantic_card",
+            },
+            {
+                "source_id": "workspace-posts",
+                "kind": "posts",
+                "required": True,
+                "scope": {"mode": "corpus", "corpus": "workspace"},
+                "freshness": {"mode": "latest_available"},
+                "min_evidence": 1,
+                "evidence_granularity": "semantic_card",
+            },
+        ]
+    }
+    post_cards = {
+        f"/post/p{index}/": {
+            "kind": "semantic_card",
+            "source_ref": f"post:p{index}",
+            "metadata": {"ref": f"post:p{index}"},
+        }
+        for index in range(5)
+    }
+
+    covered = covered_source_ids(contract, post_cards)
+
+    assert covered == frozenset({"workspace-posts"})
+    assert missing_required_sources(contract, covered) == ("workspace-notes",)
+
+    covered = covered_source_ids(
+        contract,
+        {
+            **post_cards,
+            "/note/global/series/": {
+                "kind": "semantic_card",
+                "source_ref": "note:series",
+                "metadata": {"ref": "note:series"},
+            },
+        },
+    )
+    assert covered == frozenset({"workspace-notes", "workspace-posts"})
 
 
 def test_required_source_gap_blocks_ready_but_optional_gap_does_not() -> None:

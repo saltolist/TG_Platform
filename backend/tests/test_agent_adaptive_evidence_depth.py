@@ -20,6 +20,7 @@ from app.services.agent.research.graph import (
     _apply_complete_source_policy,
     _card_records_from_plan,
     _evidence_pack_annotations,
+    _hydrate_selected_semantic_cards,
     _materialize_contract_fixed_plan,
     _materialize_full_read_actions,
     _compact_planner_node,
@@ -472,6 +473,80 @@ def test_complete_coverage_does_not_finish_with_only_three_of_five_cards() -> No
     assert result.status == "follow_up_allowed"
     assert "coverage:workspace-posts:post:p3" in result.open_requirements
     assert "coverage:workspace-posts:post:p4" in result.open_requirements
+
+
+@pytest.mark.asyncio
+async def test_handoff_hydrates_selected_cards_without_llm() -> None:
+    class SessionContext:
+        async def __aenter__(self):
+            return object()
+
+        async def __aexit__(self, exc_type, exc, tb):
+            return False
+
+    post_card = EvidenceRecord(
+        id="/post/p1/",
+        kind="semantic_card",
+        source_ref="post:p1",
+        content="card summary",
+        citation_path="/post/p1/",
+        citation_title="Post 1",
+        metadata={"ref": "post:p1", "source_revision": 0},
+    )
+    note_card = EvidenceRecord(
+        id="/note/global/n1/",
+        kind="semantic_card",
+        source_ref="note:n1",
+        content="note summary",
+        citation_path="/note/global/n1/",
+        citation_title="Note 1",
+        metadata={"ref": "note:n1", "source_revision": 0},
+    )
+    ctx = SimpleNamespace(
+        user_id=uuid4(),
+        scope="global",
+        tenant_key=None,
+        session_factory=lambda: SessionContext(),
+    )
+
+    with patch(
+        "app.services.ai.rag.resolve_post_data",
+        new=AsyncMock(return_value={"id": "p1", "title": "Post 1", "text": "full post"}),
+    ), patch(
+        "app.services.ai.rag.get_note_data",
+        new=AsyncMock(return_value={"id": "n1", "title": "Note 1", "body": "full note"}),
+    ):
+        hydrated, gaps = await _hydrate_selected_semantic_cards(
+            records={post_card.id: post_card, note_card.id: note_card},
+            evidence_ids=[post_card.id, note_card.id],
+            ctx=ctx,
+        )
+
+    assert gaps == ()
+    assert hydrated[post_card.id].kind == "post_text"
+    assert hydrated[post_card.id].content == "full post"
+    assert hydrated[note_card.id].kind == "note_chunk"
+    assert hydrated[note_card.id].content.endswith("full note")
+    assert all(record.metadata["hydrated"] for record in hydrated.values())
+
+    stale_card = EvidenceRecord(
+        **{
+            **post_card.to_dict(),
+            "metadata": {**post_card.metadata, "source_revision": 1},
+        }
+    )
+    with patch(
+        "app.services.ai.rag.resolve_post_data",
+        new=AsyncMock(return_value={"id": "p1", "title": "Post 1", "text": "changed"}),
+    ):
+        stale_records, stale_gaps = await _hydrate_selected_semantic_cards(
+            records={stale_card.id: stale_card},
+            evidence_ids=[stale_card.id],
+            ctx=ctx,
+        )
+
+    assert stale_card.id not in stale_records
+    assert stale_gaps == ("hydration:post:p1:stale_card",)
 
 
 @pytest.mark.asyncio
