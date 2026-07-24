@@ -1,0 +1,34 @@
+{
+  "schema": "workspace.unified-phase6-measurements/v1",
+  "source_commit": "dcc3aeae0781ff6e773ff0bc9f52d7d94d5d4d36",
+  "owner": "workspace-agent",
+  "compatibility_remove_after": "2026-10-24",
+  "scenario_inventory": {
+    "golden": 10,
+    "held_out": 3,
+    "source": "agent_unified_phase0/v1 plus phase1-phase6 focused tests"
+  },
+  "measurements": {
+    "fallback_select_all_rate": {"availability": "measured", "value": 0, "sample_size": 2, "source": "phase3 invalid/schema-timeout fixtures"},
+    "required_source_forced_selection_rate": {"availability": "measured", "value": 0, "sample_size": 4, "source": "phase3 labeled selector replay"},
+    "fidelity_mismatch_rate": {"availability": "measured", "value": 0, "sample_size": 8, "source": "phase4 verified-pack fixtures"},
+    "structural_count_error_rate": {"availability": "measured", "value": 0, "sample_size": 8, "source": "phase1/phase5 structural golden fixtures"},
+    "card_only_exact_quote_edit_mutation_rate": {"availability": "measured", "value": 0, "sample_size": 4, "source": "phase4 fidelity and frozen exact/edit/mutation fixtures"},
+    "complete_coverage": {"availability": "measured", "value": 1, "baseline": 1, "sample_size": 5, "source": "phase3/phase5 complete registry fixtures"},
+    "relevant_recall": {"availability": "unavailable", "value": null, "baseline": null, "sample_size": 0, "source": "production-like shadow ground truth not captured"},
+    "irrelevant_selection_rate": {"availability": "unavailable", "value": null, "baseline": null, "sample_size": 0, "source": "production-like shadow ground truth not captured"},
+    "p95_latency_ms": {"availability": "unavailable", "value": null, "threshold": 119061.25, "sample_size": 0, "source": "no unified canary traces"},
+    "llm_calls_per_run": {"availability": "unavailable", "value": null, "threshold": 1, "sample_size": 0, "source": "no unified canary traces"},
+    "selector_p95_latency_ms": {"availability": "unavailable", "value": null, "threshold": 30000, "sample_size": 0, "source": "provider Selector latency not measured for 256 refs"},
+    "selector_p95_prompt_tokens": {"availability": "measured", "value": 49736, "threshold": 30000, "sample_size": 50, "source": "256-ref boundary using runtime chars_div_4 estimator"},
+    "checkpoint_resume_pass_rate": {"availability": "measured", "value": 1, "sample_size": 1, "source": "frozen checkpoint/resume plus rollback projection"},
+    "interrupted_cancelled_pass_rate": {"availability": "measured", "value": 1, "sample_size": 2, "source": "frozen interrupted/cancelled fixtures"},
+    "tenant_status_security_guard_pass_rate": {"availability": "measured", "value": 1, "sample_size": 12, "source": "phase1/phase4 and security regression tests"},
+    "shadow_answer_model_calls": {"availability": "measured", "value": 0, "sample_size": 2, "source": "read-only shadow comparison tests"},
+    "shadow_user_answer_change_rate": {"availability": "measured", "value": 0, "sample_size": 2, "source": "shadow trace has no answer output surface"},
+    "planner_trace_coverage": {"availability": "measured", "value": 1, "sample_size": 3, "source": "phase5 decision/no-op rollout trace tests"},
+    "additive_search_trace_coverage": {"availability": "measured", "value": 1, "sample_size": 2, "source": "phase5 additive-search rollout trace tests"},
+    "registry_overflow_ready_rate": {"availability": "measured", "value": 0, "sample_size": 1, "source": "257-member complete semantic registry fixture"},
+    "rollback_drill_pass_rate": {"availability": "measured", "value": 1, "sample_size": 5, "source": "phase6 rollback drill"}
+  }
+}

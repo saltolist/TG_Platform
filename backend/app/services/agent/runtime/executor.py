@@ -31,6 +31,10 @@ from app.services.agent.runtime.observability import (
     AGENT_RETRIEVAL_SEARCHES,
     AGENT_REUSED_CONTEXT_REFS,
     AGENT_USED_CONTEXT_REFS,
+    AGENT_SELECTOR_ASSESSMENT_COVERAGE,
+    AGENT_SELECTOR_REGISTRY_SIZE,
+    AGENT_UNIFIED_READY_BLOCKS,
+    AGENT_UNIFIED_RUNS,
     AGENT_EVIDENCE_FIDELITY,
     AGENT_CLARIFICATIONS,
     AGENT_LEGACY_RESOLVER,
@@ -44,6 +48,8 @@ from app.services.agent.runtime.observability import (
     normalize_phase_timings,
     observe_run_phases,
 )
+from app.services.agent.runtime.replay import capture_unified_rollout_trace
+from app.services.agent.runtime.rollout import runtime_rollout_flags
 from app.services.agent.runtime.trace import render_run_trace
 from app.services.agent.runtime.workspace_graph import get_compiled_workspace_graph
 from app.services.ai.llm import _HTTP_TIMEOUT
@@ -267,9 +273,52 @@ def _record_run_metrics(final_state: dict[str, Any]) -> None:
             ).inc()
     for _ in range(int(final_state.get("planner_noop_count") or 0)):
         AGENT_PLANNER_NOOPS.inc()
+    plan = final_state.get("material_plan") or {}
+    assessments = [
+        item for item in plan.get("assessments") or () if isinstance(item, dict)
+    ]
+    selector_steps = [
+        item
+        for item in final_state.get("planner_steps") or ()
+        if isinstance(item, dict)
+        and str(item.get("schema") or "") == "workspace.context-selector/v2"
+    ]
+    selector_step = selector_steps[-1] if selector_steps else {}
+    selector_schema = "workspace.context-selector/v2" if selector_steps else "none"
+    pack = final_state.get("evidence_pack") or {}
+    pack_schema = str(pack.get("schema") or "none")
+    coverage = str(pack.get("coverage") or plan.get("coverage") or "unknown")
+    if (
+        selector_steps
+        or pack_schema == "workspace.evidence-pack/v2"
+        or str(plan.get("schema") or "") == "workspace.material-plan/v2"
+    ):
+        AGENT_UNIFIED_RUNS.labels(selector_schema, pack_schema, coverage).inc()
+    visible_refs = {
+        str(item)
+        for item in selector_step.get("visible_refs") or ()
+        if str(item or "")
+    }
+    if not visible_refs and selector_steps:
+        visible_refs = {
+            str(item.get("ref") or "")
+            for item in selector_step.get("assessments") or ()
+            if isinstance(item, dict) and item.get("ref")
+        }
+    if visible_refs:
+        AGENT_SELECTOR_REGISTRY_SIZE.observe(len(visible_refs))
+        assessed_refs = {
+            str(item.get("ref") or "") for item in assessments if item.get("ref")
+        }
+        AGENT_SELECTOR_ASSESSMENT_COVERAGE.observe(
+            len(assessed_refs & visible_refs) / len(visible_refs)
+        )
+    for gap in final_state.get("evidence_gaps") or ():
+        if isinstance(gap, dict) and gap.get("blocks_ready"):
+            AGENT_UNIFIED_READY_BLOCKS.labels(str(gap.get("kind") or "unknown")).inc()
     AGENT_REUSED_CONTEXT_REFS.observe(len(final_state.get("known_context_refs") or ()))
     AGENT_USED_CONTEXT_REFS.observe(len(final_state.get("used_context_refs") or ()))
-    for item in (final_state.get("evidence_pack") or {}).get("items") or ():
+    for item in pack.get("items") or ():
         if isinstance(item, dict):
             AGENT_EVIDENCE_FIDELITY.labels(str(item.get("fidelity") or "unknown")).inc()
     if str(final_state.get("stopped_reason") or "") in {"referent_ambiguity", "clarification"}:
@@ -343,7 +392,47 @@ def _llm_metrics_payload(runtime_context: RuntimeContext, *, duration_ms: float)
     }
 
 
-async def _emit_llm_metrics(session, *, run_id: uuid.UUID, runtime_context: RuntimeContext, started_at: float) -> None:
+def _runtime_rollout_state(runtime_context: RuntimeContext) -> dict[str, bool]:
+    rollout_flags = runtime_rollout_flags(
+        runtime_context.settings,
+        contract_version=int(runtime_context.turn_contract.get("version") or 0),
+    )
+    phase5_enabled = bool(
+        runtime_context.settings.agent_planner_phase5_enabled
+        and int(runtime_context.turn_contract.get("version") or 0) >= 2
+    )
+    return {
+        "adaptive_evidence_depth_enabled": bool(
+            phase5_enabled
+            and (
+                getattr(
+                    runtime_context.settings,
+                    "agent_adaptive_evidence_depth_v1_enabled",
+                    False,
+                )
+                or rollout_flags["unified_selector"]
+            )
+        ),
+        "unified_selector_enabled": bool(
+            phase5_enabled and rollout_flags["unified_selector"]
+        ),
+        "verified_pack_boundary_enabled": bool(
+            phase5_enabled and rollout_flags["verified_pack_boundary"]
+        ),
+        "planner_policy_enabled": bool(
+            phase5_enabled and rollout_flags["planner_policy"]
+        ),
+    }
+
+
+async def _emit_llm_metrics(
+    session,
+    *,
+    run_id: uuid.UUID,
+    runtime_context: RuntimeContext,
+    started_at: float,
+    final_state: dict[str, Any] | None = None,
+) -> None:
     payload = _llm_metrics_payload(
         runtime_context,
         duration_ms=(time.perf_counter() - started_at) * 1000,
@@ -354,6 +443,23 @@ async def _emit_llm_metrics(session, *, run_id: uuid.UUID, runtime_context: Runt
         event_type="run_metrics",
         payload=payload,
     )
+    unified_observability_requested = any(
+        bool(getattr(runtime_context.settings, name, False))
+        for name in (
+            "agent_unified_catalog_v1_enabled",
+            "agent_typed_requirements_v1_enabled",
+            "agent_unified_selector_v1_enabled",
+            "agent_verified_pack_boundary_v1_enabled",
+            "agent_planner_policy_v1_enabled",
+        )
+    )
+    if final_state is not None and unified_observability_requested:
+        await emit_run_event(
+            session,
+            run_id=run_id,
+            event_type="unified_rollout_trace",
+            payload=capture_unified_rollout_trace(final_state, run_metrics=payload),
+        )
 
 
 def _phase_for_node(node: str) -> str:
@@ -807,6 +913,7 @@ async def execute_agent_run(
                 run_id=run.id,
                 runtime_context=runtime_context,
                 started_at=started_at,
+                final_state=final_state,
             )
             await emit_run_event(
                 session,
@@ -850,6 +957,7 @@ async def execute_agent_run(
                 run_id=run.id,
                 runtime_context=runtime_context,
                 started_at=started_at,
+                final_state=final_state,
             )
             await emit_run_event(
                 session,
@@ -875,6 +983,7 @@ async def execute_agent_run(
                 run_id=run.id,
                 runtime_context=runtime_context,
                 started_at=started_at,
+                final_state=final_state,
             )
             await emit_run_event(
                 session,
@@ -936,11 +1045,12 @@ async def resume_agent_graph(
             "turn_contract": runtime_context.turn_contract,
         }
     }
+    resume_rollout_update = _runtime_rollout_state(runtime_context)
     final_state: dict[str, Any] = {}
     pending_interrupt: dict[str, Any] | None = None
     last_graph_update_at = time.perf_counter()
     async for event in graph.astream(
-        Command(resume=resume_value),
+        Command(resume=resume_value, update=resume_rollout_update),
         cfg,
         stream_mode=["values", "updates", "custom"],
         version="v2",
@@ -1060,6 +1170,7 @@ async def resume_agent_graph(
         run_id=run.id,
         runtime_context=runtime_context,
         started_at=started_at,
+        final_state=final_state,
     )
     await emit_run_event(
         session,

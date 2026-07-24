@@ -289,6 +289,10 @@ async def rebuild_runtime_context_for_run(
         (dict(turn.turn_contract) for turn in reversed(dialog_ledger) if turn.turn_contract),
         None,
     )
+    typed_requirements_enabled = bool(
+        getattr(settings, "agent_typed_requirements_v1_enabled", False)
+        and getattr(settings, "agent_unified_catalog_v1_enabled", False)
+    )
     turn_contract = build_turn_contract(
         user_text=effective_user_text,
         history=history,
@@ -300,13 +304,13 @@ async def rebuild_runtime_context_for_run(
         message_manifests=message_manifests if legacy_resolver_enabled else (),
         semantic_referent_enabled=legacy_resolver_enabled,
         v2_enabled=settings.agent_turn_contract_v2_enabled,
-        typed_requirements_enabled=settings.agent_typed_requirements_v1_enabled,
+        typed_requirements_enabled=typed_requirements_enabled,
         batch_enabled=settings.agent_batch_path_v1_enabled,
     )
     if not user_text and isinstance(persisted_contract, dict) and persisted_contract:
         turn_contract = (
             normalize_turn_contract(persisted_contract)
-            if settings.agent_typed_requirements_v1_enabled
+            if typed_requirements_enabled
             else dict(persisted_contract)
         )
     return RuntimeContext(

@@ -479,7 +479,12 @@ async def test_verified_boundary_keeps_structural_catalog_without_member_reads()
     )
     contract = _contract(fidelity="catalog", predicate="structural")
     ctx = SimpleNamespace(
-        settings=Settings(agent_verified_pack_boundary_v1_enabled=True),
+        settings=Settings(
+            agent_unified_catalog_v1_enabled=True,
+            agent_typed_requirements_v1_enabled=True,
+            agent_unified_selector_v1_enabled=True,
+            agent_verified_pack_boundary_v1_enabled=True,
+        ),
         session_factory=AsyncMock(),
         user_id=uuid4(),
         scope="global",

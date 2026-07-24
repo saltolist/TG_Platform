@@ -17,16 +17,12 @@ from app.services.agent.runtime.baseline import (
 )
 from app.services.agent.runtime.graders import grade_unified_phase0_snapshot
 from app.services.agent.runtime.replay import replay_snapshot_fixture
+from app.services.agent.runtime.rollout import runtime_rollout_flags
 from scripts.agent_unified_phase0_report import build_report, check_report
 
 BACKEND_ROOT = Path(__file__).resolve().parents[1]
 FIXTURE_PATH = BACKEND_ROOT / "tests/fixtures/agent_unified_phase0/v1/scenarios.json"
 BASELINE_COMMIT = "128a96497416bc40d5d019ad3be97866ad094394"
-FUTURE_FLAG_NAMES = (
-    "agent_unified_default_on",
-)
-
-
 @pytest.fixture(scope="module")
 def fixture() -> dict:
     return load_unified_phase0_fixture(FIXTURE_PATH)
@@ -152,7 +148,7 @@ def test_resume_interrupted_and_cancelled_checkpoints_are_frozen(fixture: dict) 
     )
 
 
-def test_rollout_flags_default_off_and_future_flags_have_no_runtime_consumers(
+def test_rollout_flags_default_off_and_default_on_has_only_gated_consumer(
     fixture: dict,
 ) -> None:
     assert fixture["rollback"]["baseline_commit"] == BASELINE_COMMIT
@@ -177,13 +173,25 @@ def test_rollout_flags_default_off_and_future_flags_have_no_runtime_consumers(
         if "agent_verified_pack_boundary_v1_enabled" in path.read_text(encoding="utf-8")
     ]
     assert pack_boundary_consumers
-    for flag_name in FUTURE_FLAG_NAMES:
-        consumers = [
-            path
-            for path in runtime_root.rglob("*.py")
-            if flag_name in path.read_text(encoding="utf-8")
-        ]
-        assert consumers == [], f"reserved phase-0 flag is consumed: {flag_name}"
+    default_on_consumers = [
+        path
+        for path in runtime_root.rglob("*.py")
+        if "agent_unified_default_on" in path.read_text(encoding="utf-8")
+    ]
+    assert default_on_consumers == [runtime_root / "runtime/rollout.py"]
+    requested = type(
+        "RolloutSettings",
+        (),
+        {
+            "agent_unified_catalog_v1_enabled": True,
+            "agent_typed_requirements_v1_enabled": True,
+            "agent_unified_selector_v1_enabled": True,
+            "agent_verified_pack_boundary_v1_enabled": True,
+            "agent_planner_policy_v1_enabled": True,
+            "agent_unified_default_on": True,
+        },
+    )()
+    assert runtime_rollout_flags(requested, contract_version=3)["default_on"] is False
 
 
 def test_combined_report_gate_passes_and_replays_twice() -> None:

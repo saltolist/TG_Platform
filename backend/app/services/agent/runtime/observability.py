@@ -106,6 +106,26 @@ AGENT_PLANNER_NOOPS = Counter(
     "agent_planner_noops_total",
     "Planner calls suppressed because authoritative state had no delta",
 )
+AGENT_UNIFIED_RUNS = Counter(
+    "agent_unified_runs_total",
+    "Unified integrity runs by selector, pack boundary and terminal coverage",
+    ("selector_schema", "pack_schema", "coverage"),
+)
+AGENT_SELECTOR_REGISTRY_SIZE = Histogram(
+    "agent_selector_registry_size",
+    "Visible candidates presented to the single Context Selector",
+    buckets=(0, 1, 4, 8, 16, 32, 64, 100, 128, 192, 256, 257, 512),
+)
+AGENT_SELECTOR_ASSESSMENT_COVERAGE = Histogram(
+    "agent_selector_assessment_coverage_ratio",
+    "Fraction of visible semantic refs with a typed Selector assessment",
+    buckets=(0, 0.25, 0.5, 0.75, 0.9, 0.99, 1.0),
+)
+AGENT_UNIFIED_READY_BLOCKS = Counter(
+    "agent_unified_ready_blocks_total",
+    "Unified ready decisions blocked by deterministic safety reason",
+    ("reason",),
+)
 AGENT_REUSED_CONTEXT_REFS = Histogram(
     "agent_reused_context_refs",
     "Known message-context refs reopened by exact id",

@@ -47,6 +47,7 @@ from app.services.agent.runtime.result_quality import (
     build_style_profile,
     validate_result_contract,
 )
+from app.services.agent.runtime.rollout import runtime_rollout_flags
 from app.services.agent.runtime.state import AgentGraphState
 from app.services.agent.runtime.turn_contract import (
     EVIDENCE_REQUIREMENT_SCHEMA,
@@ -1814,6 +1815,10 @@ async def run_workspace_graph(
 ) -> AgentGraphState:
     await ensure_checkpointer_ready()
     graph = get_compiled_workspace_graph()
+    rollout_flags = runtime_rollout_flags(
+        runtime_context.settings,
+        contract_version=int(runtime_context.turn_contract.get("version") or 0),
+    )
     initial: AgentGraphState = {
         "run_id": str(run_id),
         "assistant_message_id": str(run_id),
@@ -1840,7 +1845,7 @@ async def run_workspace_graph(
             (
                 getattr(runtime_context.settings, "agent_adaptive_evidence_depth_v1_enabled", False)
                 or (
-                    getattr(runtime_context.settings, "agent_unified_selector_v1_enabled", False)
+                    rollout_flags["unified_selector"]
                     and int(runtime_context.turn_contract.get("version") or 0) >= 3
                 )
             )
@@ -1848,23 +1853,17 @@ async def run_workspace_graph(
             and int(runtime_context.turn_contract.get("version") or 0) >= 2
         ),
         "unified_selector_enabled": bool(
-            getattr(runtime_context.settings, "agent_unified_selector_v1_enabled", False)
+            rollout_flags["unified_selector"]
             and runtime_context.settings.agent_planner_phase5_enabled
             and int(runtime_context.turn_contract.get("version") or 0) >= 3
         ),
         "verified_pack_boundary_enabled": bool(
-            getattr(runtime_context.settings, "agent_verified_pack_boundary_v1_enabled", False)
+            rollout_flags["verified_pack_boundary"]
             and runtime_context.settings.agent_planner_phase5_enabled
             and int(runtime_context.turn_contract.get("version") or 0) >= 3
         ),
         "planner_policy_enabled": bool(
-            getattr(runtime_context.settings, "agent_planner_policy_v1_enabled", False)
-            and getattr(runtime_context.settings, "agent_unified_selector_v1_enabled", False)
-            and getattr(
-                runtime_context.settings,
-                "agent_verified_pack_boundary_v1_enabled",
-                False,
-            )
+            rollout_flags["planner_policy"]
             and runtime_context.settings.agent_planner_phase5_enabled
             and int(runtime_context.turn_contract.get("version") or 0) >= 3
         ),

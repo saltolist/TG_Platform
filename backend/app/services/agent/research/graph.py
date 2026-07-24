@@ -71,6 +71,7 @@ from app.services.agent.research.prefetch import (
     resolve_current_source_revisions,
 )
 from app.services.agent.runtime.context import RuntimeContext
+from app.services.agent.runtime.rollout import runtime_rollout_flags
 from app.services.agent.runtime.state import AgentGraphState
 from app.services.agent.runtime.tool_contracts import (
     CONSOLIDATED_TOOLS,
@@ -1769,20 +1770,19 @@ async def research_seed_node(state: AgentGraphState, config: RunnableConfig) -> 
         state.get("current_post_notes") or ()
     )
     stale_refs: list[dict[str, Any]] = list(state.get("stale_refs") or [])
+    rollout_flags = runtime_rollout_flags(
+        ctx.settings,
+        contract_version=int(contract.get("version") or 0),
+    )
     unified_selector_enabled = bool(
-        getattr(ctx.settings, "agent_unified_selector_v1_enabled", False)
-        and ctx.settings.agent_planner_phase5_enabled
-        and int(contract.get("version") or 0) >= 3
+        rollout_flags["unified_selector"] and ctx.settings.agent_planner_phase5_enabled
     )
     verified_pack_boundary_enabled = bool(
-        getattr(ctx.settings, "agent_verified_pack_boundary_v1_enabled", False)
+        rollout_flags["verified_pack_boundary"]
         and ctx.settings.agent_planner_phase5_enabled
-        and int(contract.get("version") or 0) >= 3
     )
     planner_policy_enabled = bool(
-        getattr(ctx.settings, "agent_planner_policy_v1_enabled", False)
-        and unified_selector_enabled
-        and verified_pack_boundary_enabled
+        rollout_flags["planner_policy"] and ctx.settings.agent_planner_phase5_enabled
     )
     adaptive_enabled = bool(
         (
@@ -2998,6 +2998,7 @@ async def _unified_context_selector_step(
         "actions": actions,
         "assessments": assessments,
         "source_dispositions": dispositions,
+        "visible_refs": [str(item.get("ref") or "") for item in candidates],
         "schema": "workspace.context-selector/v2",
         "planner_call_kind": "context_selector",
         "attempts": attempts,
@@ -4908,12 +4909,18 @@ async def research_pack_node(state: AgentGraphState, config: RunnableConfig) -> 
         or ((config or {}).get("configurable", {}) or {}).get("turn_contract")
         or {}
     )
-    verified_boundary = bool(
-        state.get("verified_pack_boundary_enabled")
-        or (
-            getattr(getattr(ctx, "settings", None), "agent_verified_pack_boundary_v1_enabled", False)
-            and int(contract.get("version") or 0) >= 3
+    configured_rollout = (
+        runtime_rollout_flags(
+            ctx.settings,
+            contract_version=int(contract.get("version") or 0),
         )
+        if ctx is not None
+        else {}
+    )
+    verified_boundary = bool(
+        configured_rollout.get("verified_pack_boundary")
+        if ctx is not None
+        else state.get("verified_pack_boundary_enabled")
     )
     material_plan = dict(state.get("material_plan") or {})
     if state.get("adaptive_evidence_depth_enabled") and not verified_boundary:
@@ -5226,6 +5233,10 @@ async def run_research_graph(
             "turn_contract": dict(ctx.turn_contract or {}),
         }
     }
+    rollout_flags = runtime_rollout_flags(
+        ctx.settings,
+        contract_version=int((ctx.turn_contract or {}).get("version") or 0),
+    )
     initial: AgentGraphState = {
         "user_text": user_text,
         "scope": ctx.scope,
@@ -5253,7 +5264,7 @@ async def run_research_graph(
             (
                 getattr(ctx.settings, "agent_adaptive_evidence_depth_v1_enabled", False)
                 or (
-                    getattr(ctx.settings, "agent_unified_selector_v1_enabled", False)
+                    rollout_flags["unified_selector"]
                     and int((ctx.turn_contract or {}).get("version") or 0) >= 3
                 )
             )
@@ -5261,19 +5272,17 @@ async def run_research_graph(
             and int((ctx.turn_contract or {}).get("version") or 0) >= 2
         ),
         "unified_selector_enabled": bool(
-            getattr(ctx.settings, "agent_unified_selector_v1_enabled", False)
+            rollout_flags["unified_selector"]
             and ctx.settings.agent_planner_phase5_enabled
             and int((ctx.turn_contract or {}).get("version") or 0) >= 3
         ),
         "verified_pack_boundary_enabled": bool(
-            getattr(ctx.settings, "agent_verified_pack_boundary_v1_enabled", False)
+            rollout_flags["verified_pack_boundary"]
             and ctx.settings.agent_planner_phase5_enabled
             and int((ctx.turn_contract or {}).get("version") or 0) >= 3
         ),
         "planner_policy_enabled": bool(
-            getattr(ctx.settings, "agent_planner_policy_v1_enabled", False)
-            and getattr(ctx.settings, "agent_unified_selector_v1_enabled", False)
-            and getattr(ctx.settings, "agent_verified_pack_boundary_v1_enabled", False)
+            rollout_flags["planner_policy"]
             and ctx.settings.agent_planner_phase5_enabled
             and int((ctx.turn_contract or {}).get("version") or 0) >= 3
         ),
