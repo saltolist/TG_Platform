@@ -143,7 +143,10 @@ async def rebuild_runtime_context_for_run(
     from app.services.ai.rag_query import build_planner_dialog_context
     from app.services.ai.rag_reasoner import resolve_rag_reasoner_llm
     from app.services.ai.orchestrator import resolve_answer_llm
-    from app.services.agent.runtime.turn_contract import build_turn_contract
+    from app.services.agent.runtime.turn_contract import (
+        build_turn_contract,
+        normalize_turn_contract,
+    )
 
     settings = get_settings()
     # A HITL resume is a continuation of the interrupted run, not a new turn.
@@ -297,10 +300,15 @@ async def rebuild_runtime_context_for_run(
         message_manifests=message_manifests if legacy_resolver_enabled else (),
         semantic_referent_enabled=legacy_resolver_enabled,
         v2_enabled=settings.agent_turn_contract_v2_enabled,
+        typed_requirements_enabled=settings.agent_typed_requirements_v1_enabled,
         batch_enabled=settings.agent_batch_path_v1_enabled,
     )
     if not user_text and isinstance(persisted_contract, dict) and persisted_contract:
-        turn_contract = dict(persisted_contract)
+        turn_contract = (
+            normalize_turn_contract(persisted_contract)
+            if settings.agent_typed_requirements_v1_enabled
+            else dict(persisted_contract)
+        )
     return RuntimeContext(
         session_factory=async_session_factory,
         user_id=user.id,

@@ -112,6 +112,9 @@ class AgentGraphState(TypedDict, total=False):
     tool_calls_used: int
     planner_invalid_count: int
     sufficiency: dict[str, Any]
+    # Durable typed blockers. Duplicated from sufficiency.gaps for checkpoint
+    # inspection and resume without parsing human-readable open requirements.
+    evidence_gaps: list[dict[str, Any]]
     deadline_exhausted: bool
     selected_candidate_ids: list[str]
     material_plan: dict[str, Any]

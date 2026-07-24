@@ -13,6 +13,8 @@ import re
 from dataclasses import dataclass
 from typing import Any, Mapping
 
+from app.services.agent.runtime.turn_contract import source_evidence_required
+
 INTENT_STATES = frozenset({"planned", "running", "satisfied", "exhausted"})
 TERMINAL_INTENT_STATES = frozenset({"satisfied", "exhausted"})
 SEARCH_TOOLS = frozenset({"SearchNodes", "SearchObjectChunks"})
@@ -144,7 +146,7 @@ def resolve_source_requirement_id(
         ]
         if searchable:
             candidates = searchable
-    required = [source for source in candidates if bool(source.get("required"))]
+    required = [source for source in candidates if source_evidence_required(source)]
     selected = (required or candidates or sources)[0]
     return str(selected.get("source_id") or "unscoped")
 

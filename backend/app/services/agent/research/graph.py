@@ -74,6 +74,9 @@ from app.services.agent.runtime.turn_contract import (
     evidence_matches_source,
     missing_required_sources,
     render_turn_contract,
+    source_evidence_required,
+    source_required_fidelity,
+    source_selection_cardinality,
 )
 from app.services.ai.note_citations import NoteCite
 from app.services.ai.providers import ProviderSpec
@@ -997,9 +1000,14 @@ def _compact_state_snapshot(
             {
                 "id": item.get("source_id"),
                 "kind": item.get("kind"),
-                "required": item.get("required"),
-                "min_evidence": item.get("min_evidence", 1),
-                "evidence_granularity": item.get("evidence_granularity", "full_text"),
+                "evidence_obligation": (
+                    "required" if source_evidence_required(item) else "optional"
+                ),
+                "selection_cardinality": {
+                    "min": source_selection_cardinality(item)[0],
+                    "max": source_selection_cardinality(item)[1],
+                },
+                "required_fidelity": source_required_fidelity(item),
                 "goal": item.get("query_goal"),
             }
             for item in contract.get("source_requirements") or ()
@@ -1438,7 +1446,7 @@ def _conservative_candidate_assessments(
     assessments: list[CandidateAssessment] = []
     for candidate in candidates:
         source = requirements.get(str(candidate.get("source_requirement_id") or ""), {})
-        granularity = str(source.get("evidence_granularity") or "full_text")
+        granularity = source_required_fidelity(source)
         card_allowed = granularity in {"catalog", "semantic_card"} and bool(
             candidate.get("card_eligible")
         )
@@ -1478,6 +1486,9 @@ def _apply_complete_source_policy(
     answer contract.
     """
 
+    if int(contract.get("version") or 0) >= 3:
+        return assessments
+
     requirements = {
         str(source.get("source_id") or ""): dict(source)
         for source in contract.get("source_requirements") or ()
@@ -1502,7 +1513,7 @@ def _apply_complete_source_policy(
             "confidence": 1.0,
         })
         if source is not None:
-            granularity = str(source.get("evidence_granularity") or "full_text")
+            granularity = source_required_fidelity(source)
             assessment["relevance"] = "direct"
             if granularity == "semantic_card":
                 assessment["resolution"] = "card"
@@ -1527,10 +1538,11 @@ def _materialize_contract_fixed_plan(
         str(source.get("source_id") or "")
         for source in contract.get("source_requirements") or ()
         if isinstance(source, dict)
-        and source.get("required")
+        and int(contract.get("version") or 0) < 3
+        and source_evidence_required(source)
         and source.get("coverage") == "complete"
         and (source.get("scope") or {}).get("mode") == "corpus"
-        and source.get("evidence_granularity") in {"semantic_card", "full_text"}
+        and source_required_fidelity(source) in {"semantic_card", "full_text"}
     }
     selected_complete = [
         candidate
@@ -1541,8 +1553,8 @@ def _materialize_contract_fixed_plan(
         str(source.get("source_id") or "")
         for source in contract.get("source_requirements") or ()
         if isinstance(source, dict)
-        and source.get("required")
-        and source.get("evidence_granularity") == "semantic_card"
+        and source_evidence_required(source)
+        and source_required_fidelity(source) == "semantic_card"
         and (source.get("scope") or {}).get("mode") == "targets"
     }
     selected_targets = [
@@ -1721,7 +1733,7 @@ async def research_seed_node(state: AgentGraphState, config: RunnableConfig) -> 
     adaptive_enabled = bool(
         getattr(ctx.settings, "agent_adaptive_evidence_depth_v1_enabled", False)
         and ctx.settings.agent_planner_phase5_enabled
-        and contract.get("version") == 2
+        and int(contract.get("version") or 0) >= 2
     )
     async with ctx.session_factory() as session:
         agent_state = ctx.bind_agent_state(session)
@@ -1846,7 +1858,7 @@ async def research_seed_node(state: AgentGraphState, config: RunnableConfig) -> 
             target_sources[(target_kind, target_id)] = target_source
             if (
                 adaptive_enabled
-                and target_source.get("evidence_granularity") == "semantic_card"
+                and source_required_fidelity(target_source) == "semantic_card"
             ):
                 semantic_targets[source_kind].append(
                     {
@@ -1883,7 +1895,7 @@ async def research_seed_node(state: AgentGraphState, config: RunnableConfig) -> 
             if (
                 adaptive_enabled
                 and target_source
-                and target_source.get("evidence_granularity") == "semantic_card"
+                and source_required_fidelity(target_source) == "semantic_card"
             ):
                 card = target_cards.get(f"{target_kind}:{target_id}")
                 if card:
@@ -2015,7 +2027,7 @@ async def research_seed_node(state: AgentGraphState, config: RunnableConfig) -> 
             dict(source)
             for source in contract.get("source_requirements") or ()
             if isinstance(source, dict)
-            and source.get("required")
+            and source_evidence_required(source)
             and source.get("coverage") == "complete"
             and (source.get("scope") or {}).get("mode") == "corpus"
         ]
@@ -2050,7 +2062,7 @@ async def research_seed_node(state: AgentGraphState, config: RunnableConfig) -> 
             ]
             coverage_targets[source_id] = refs
             transcript.append(f"[contract] complete {source_id}: {listing.summary}")
-            if source.get("evidence_granularity") in {"semantic_card", "full_text"} and members:
+            if source_required_fidelity(source) in {"semantic_card", "full_text"} and members:
                 cards = await load_discovery_cards_for_objects(
                     session,
                     user_id=ctx.user_id,
@@ -2194,7 +2206,7 @@ async def research_seed_node(state: AgentGraphState, config: RunnableConfig) -> 
             str(source.get("source_id") or "")
             for source in contract.get("source_requirements") or ()
             if isinstance(source, dict)
-            and not source.get("required")
+            and not source_evidence_required(source)
             and str(source.get("source_id") or "")
         }
         assessed_refs = {
@@ -2219,7 +2231,7 @@ async def research_seed_node(state: AgentGraphState, config: RunnableConfig) -> 
         "step_count": 0,
         "repair_count": 0,
         "phase5_enabled": bool(
-            ctx.settings.agent_planner_phase5_enabled and contract.get("version") == 2
+            ctx.settings.agent_planner_phase5_enabled and int(contract.get("version") or 0) >= 2
         ),
         "adaptive_evidence_depth_enabled": adaptive_enabled,
         "material_plan": material_plan,
@@ -2262,7 +2274,7 @@ def _selector_fallback(
     selections: list[dict[str, str]] = []
     for candidate in candidates:
         source = requirements.get(str(candidate.get("source_requirement_id") or ""), {})
-        required = bool(source.get("required"))
+        required = source_evidence_required(source)
         selections.append(
             {
                 "ref": str(candidate.get("ref") or ""),
@@ -2296,11 +2308,13 @@ def _selector_decision_is_valid(
         if source_id and ref:
             by_source.setdefault(source_id, set()).add(ref)
     for source in contract.get("source_requirements") or ():
-        if not isinstance(source, dict) or not source.get("required"):
+        if not isinstance(source, dict):
             continue
         source_id = str(source.get("source_id") or "")
         refs = by_source.get(source_id, set())
-        if refs and not refs.intersection(selected | already_selected):
+        selected_count = len(refs.intersection(selected | already_selected))
+        minimum, maximum = source_selection_cardinality(source)
+        if selected_count < minimum or selected_count > maximum:
             return False
     return True
 
@@ -2317,7 +2331,7 @@ def _selector_assessments(
     required_sources = {
         str(source.get("source_id") or "")
         for source in contract.get("source_requirements") or ()
-        if isinstance(source, dict) and source.get("required")
+        if isinstance(source, dict) and source_evidence_required(source)
     }
     assessments: list[dict[str, Any]] = []
     for candidate in candidates:
@@ -3454,7 +3468,7 @@ async def research_verify_node(state: AgentGraphState, config: RunnableConfig) -
                     str((state.get("evidence_records") or {}).get(record_id, {}).get("kind") or "")
                     == "catalog"
                     and any(
-                        source.get("required")
+                        source_evidence_required(source)
                         and evidence_matches_source(
                             source,
                             evidence_id=record_id,
@@ -3464,7 +3478,7 @@ async def research_verify_node(state: AgentGraphState, config: RunnableConfig) -
                     )
                 )
                 or any(
-                    source.get("required") and
+                    source_evidence_required(source) and
                     evidence_matches_source(
                         source,
                         evidence_id=record_id,
@@ -3483,6 +3497,7 @@ async def research_verify_node(state: AgentGraphState, config: RunnableConfig) -
         return {
             **state,
             "sufficiency": result.to_dict(),
+            "evidence_gaps": [dict(item) for item in result.gaps],
             "finish_retrieval": {
                 "status": "ready" if result.status == "ready" else "partial",
                 "evidence_ids": list(evidence_ids),
@@ -3794,7 +3809,7 @@ def _evidence_pack_annotations(
                     record=record.to_dict(),
                 )
             ]
-            source = next((item for item in matching if item.get("required")), None)
+            source = next((item for item in matching if source_evidence_required(item)), None)
             source = source or (matching[0] if matching else None)
             source_id = str((source or {}).get("source_id") or "")
         ref_kind = ref.partition(":")[0]
@@ -3809,7 +3824,7 @@ def _evidence_pack_annotations(
         )
         if source is None:
             role = "supporting"
-        elif source.get("required"):
+        elif source_evidence_required(source):
             role = "required_target"
         else:
             role = "supporting_optional"
@@ -4331,16 +4346,17 @@ async def run_research_graph(
         "research_hints": research_hints,
         "turn_contract": dict(ctx.turn_contract or {}),
         "search_ledger": [],
+        "evidence_gaps": [],
         "finish_retrieval_attempted": False,
         "validator_events": [],
         "phase5_enabled": bool(
             ctx.settings.agent_planner_phase5_enabled
-            and (ctx.turn_contract or {}).get("version") == 2
+            and int((ctx.turn_contract or {}).get("version") or 0) >= 2
         ),
         "adaptive_evidence_depth_enabled": bool(
             getattr(ctx.settings, "agent_adaptive_evidence_depth_v1_enabled", False)
             and ctx.settings.agent_planner_phase5_enabled
-            and (ctx.turn_contract or {}).get("version") == 2
+            and int((ctx.turn_contract or {}).get("version") or 0) >= 2
         ),
         "material_plan": empty_material_plan(),
         "candidate_envelopes": [],

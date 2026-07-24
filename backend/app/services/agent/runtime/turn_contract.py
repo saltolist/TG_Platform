@@ -37,14 +37,21 @@ SUPPORTED_CAPABILITIES = (
 )
 
 TURN_CONTRACT_SCHEMA = "workspace.turn/v2"
+TYPED_TURN_CONTRACT_SCHEMA = "workspace.turn/v3"
 TARGET_CONTRACT_SCHEMA = "workspace.target/v2"
 REFERENT_RESOLUTION_SCHEMA = "workspace.referent-resolution/v1"
+EVIDENCE_REQUIREMENT_SCHEMA = "workspace.evidence-requirement/v1"
 
 TargetRole = Literal["subject", "source", "comparison", "style_reference", "context"]
 TargetMode = Literal["exact", "set", "corpus", "mixed", "ambiguous"]
 ExecutionMode = Literal["fast", "compact", "deep", "batch"]
 SourceKind = Literal["notes", "posts", "analytics", "comments", "attachments", "images", "dialog"]
 SourceRole = Literal["source", "comparison", "style_reference", "context"]
+Obligation = Literal["required", "optional"]
+PredicateKind = Literal["structural", "semantic", "mixed"]
+RequiredFidelity = Literal[
+    "catalog", "semantic_card", "full_text", "metadata", "vision", "analytics"
+]
 
 
 class _ContractModel(BaseModel):
@@ -209,6 +216,61 @@ class SourceRequirement(_ContractModel):
     budget: SourceBudget
 
 
+class SelectionCardinality(_ContractModel):
+    min: int = Field(default=0, ge=0, le=8)
+    max: int = Field(default=6, ge=0, le=100)
+
+    @model_validator(mode="after")
+    def validate_bounds(self) -> "SelectionCardinality":
+        if self.min > self.max:
+            raise ValueError("selection cardinality min cannot exceed max")
+        return self
+
+
+class EvidenceRequirement(_ContractModel):
+    requirement_schema: Literal["workspace.evidence-requirement/v1"] = Field(
+        default=EVIDENCE_REQUIREMENT_SCHEMA, alias="schema"
+    )
+    requirement_id: str = Field(min_length=1)
+    source_id: str = Field(min_length=1)
+    subject: str = Field(min_length=1)
+    property: str = Field(min_length=1)
+    operator: Literal["exists", "count", "filter", "equals", "contains"]
+    scope: Literal["source", "target", "member", "corpus", "aggregate"]
+
+
+class SourceRequirementV3(_ContractModel):
+    source_id: str = Field(min_length=1)
+    kind: SourceKind
+    role: SourceRole
+    query_goal: str = Field(min_length=1)
+    discovery_obligation: Obligation
+    evidence_obligation: Obligation
+    selection_cardinality: SelectionCardinality
+    coverage: Literal["relevant", "complete"] = "relevant"
+    predicate_kind: PredicateKind
+    required_fidelity: RequiredFidelity
+    evidence_requirements: tuple[EvidenceRequirement, ...] = ()
+    scope: SourceScope
+    freshness: Freshness
+    budget: SourceBudget
+
+    @model_validator(mode="after")
+    def validate_evidence_requirements(self) -> "SourceRequirementV3":
+        if any(item.source_id != self.source_id for item in self.evidence_requirements):
+            raise ValueError("evidence requirement source_id must match its source")
+        if self.evidence_obligation == "optional" and self.selection_cardinality.min > 0:
+            raise ValueError("optional evidence cannot require a positive selection minimum")
+        return self
+
+
+class ContractPlanDecision(_ContractModel):
+    route: Literal["deterministic_fast_path", "typed_planner"]
+    reason_code: Literal[
+        "STRUCTURAL_PREDICATE", "EXACT_TARGET", "SEMANTIC_PREDICATE", "MIXED_PREDICATE"
+    ]
+
+
 class RunBudget(_ContractModel):
     soft_deadline_ms: int = Field(gt=0)
     hard_deadline_ms: int = Field(gt=0)
@@ -284,6 +346,206 @@ class TurnContractV2(_ContractModel):
         if self.execution_mode == "fast" and self.budgets.planner_calls != 0:
             raise ValueError("fast mode cannot spend planner calls")
         return self
+
+
+class TurnContractV3(_ContractModel):
+    contract_schema: Literal["workspace.turn/v3"] = Field(
+        default=TYPED_TURN_CONTRACT_SCHEMA, alias="schema"
+    )
+    version: Literal[3] = 3
+    revision: int = Field(ge=1)
+    parent_revision: int | None = Field(default=None, ge=1)
+    goal: str = Field(min_length=1)
+    task_profile: Literal[
+        "exact_lookup",
+        "topical_answer",
+        "workspace_synthesis",
+        "recommendation",
+        "comparison",
+        "exhaustive_inventory",
+        "artifact_revision",
+        "channel_profile_draft",
+        "mutation_proposal",
+    ]
+    target_contract_ref: str
+    target_contract: TargetContract
+    source_requirements: tuple[SourceRequirementV3, ...]
+    evidence_requirements: tuple[EvidenceRequirement, ...]
+    plan_decision: ContractPlanDecision
+    answer_requires: tuple[str, ...]
+    output_schema: str
+    execution_mode: ExecutionMode
+    budgets: RunBudget
+    # Stable compatibility surface unrelated to source-obligation semantics.
+    intent: str
+    scope: str
+    corpus: str
+    target: dict[str, Any] | None
+    output: dict[str, Any]
+    requires_workspace: bool
+    required_evidence_kinds: tuple[str, ...]
+    search_query: str
+    max_steps: int
+    success_criteria: tuple[str, ...]
+    supported_capabilities: tuple[str, ...]
+    prohibited_recommendations: tuple[str, ...]
+    answerability_without_evidence: bool
+
+    @model_validator(mode="after")
+    def validate_contract(self) -> "TurnContractV3":
+        source_ids = [source.source_id for source in self.source_requirements]
+        if len(source_ids) != len(set(source_ids)):
+            raise ValueError("source_id must be unique")
+        requirement_ids = [item.requirement_id for item in self.evidence_requirements]
+        if len(requirement_ids) != len(set(requirement_ids)):
+            raise ValueError("evidence requirement_id must be unique")
+        nested = tuple(
+            item
+            for source in self.source_requirements
+            for item in source.evidence_requirements
+        )
+        if tuple(self.evidence_requirements) != nested:
+            raise ValueError("contract evidence requirements must equal source requirements")
+        if sum(source.budget.search_calls for source in self.source_requirements) > self.budgets.search_calls:
+            raise ValueError("local search budgets exceed run budget")
+        if sum(source.budget.deep_reads for source in self.source_requirements) > self.budgets.deep_reads:
+            raise ValueError("local deep-read budgets exceed run budget")
+        if self.execution_mode == "fast" and self.budgets.planner_calls != 0:
+            raise ValueError("fast mode cannot spend planner calls")
+        return self
+
+
+def source_discovery_required(source: Mapping[str, Any]) -> bool:
+    """Read both typed and legacy source obligations without changing payloads."""
+
+    obligation = source.get("discovery_obligation")
+    if obligation is not None:
+        return str(obligation) == "required"
+    return bool(source.get("required"))
+
+
+def source_evidence_required(source: Mapping[str, Any]) -> bool:
+    obligation = source.get("evidence_obligation")
+    if obligation is not None:
+        return str(obligation) == "required"
+    return bool(source.get("required"))
+
+
+def source_selection_cardinality(source: Mapping[str, Any]) -> tuple[int, int]:
+    raw = source.get("selection_cardinality")
+    if isinstance(raw, Mapping):
+        minimum = max(0, int(raw.get("min") or 0))
+        maximum = max(minimum, int(raw.get("max") or 0))
+        return minimum, maximum
+    minimum = int(source.get("min_evidence") or 1) if source_evidence_required(source) else 0
+    return minimum, max(minimum, int((source.get("budget") or {}).get("candidate_limit") or 8))
+
+
+def source_required_fidelity(source: Mapping[str, Any]) -> str:
+    return str(
+        source.get("required_fidelity")
+        or source.get("evidence_granularity")
+        or "full_text"
+    )
+
+
+def _legacy_evidence_requirement(source: Mapping[str, Any]) -> dict[str, Any]:
+    source_id = str(source.get("source_id") or "unscoped")
+    return {
+        "schema": EVIDENCE_REQUIREMENT_SCHEMA,
+        "requirement_id": f"{source_id}:grounded_evidence",
+        "source_id": source_id,
+        "subject": str(source.get("kind") or "source"),
+        "property": "grounded_evidence",
+        "operator": "exists",
+        "scope": "source",
+    }
+
+
+def normalize_turn_contract(contract: Mapping[str, Any] | None) -> dict[str, Any]:
+    """Project v2/legacy checkpoints into v3 without persisting legacy coupling.
+
+    The adapter is deliberately tolerant because historical checkpoints can be
+    partial dictionaries. New contracts are validated by ``TurnContractV3`` at
+    creation time; resumed contracts only need a deterministic readable view.
+    """
+
+    raw = dict(contract or {})
+    if not raw:
+        return raw
+    if int(raw.get("version") or 0) >= 3 or raw.get("schema") == TYPED_TURN_CONTRACT_SCHEMA:
+        return raw
+
+    typed_sources: list[dict[str, Any]] = []
+    typed_requirements: list[dict[str, Any]] = []
+    for raw_source in raw.get("source_requirements") or ():
+        if not isinstance(raw_source, Mapping):
+            continue
+        source = dict(raw_source)
+        evidence_required = bool(source.get("required"))
+        minimum = int(source.get("min_evidence") or 1) if evidence_required else 0
+        requirement = _legacy_evidence_requirement(source)
+        requirements = [requirement] if evidence_required else []
+        typed_requirements.extend(requirements)
+        typed_sources.append(
+            {
+                "source_id": str(source.get("source_id") or "unscoped"),
+                "kind": str(source.get("kind") or "dialog"),
+                "role": str(source.get("role") or "source"),
+                "query_goal": str(source.get("query_goal") or "read required source"),
+                "discovery_obligation": "required" if evidence_required else "optional",
+                "evidence_obligation": "required" if evidence_required else "optional",
+                "selection_cardinality": {
+                    "min": minimum,
+                    "max": max(
+                        minimum,
+                        int((source.get("budget") or {}).get("candidate_limit") or 8),
+                    ),
+                },
+                "coverage": str(source.get("coverage") or "relevant"),
+                "predicate_kind": (
+                    "structural"
+                    if str(source.get("evidence_granularity") or "") == "catalog"
+                    else "semantic"
+                ),
+                "required_fidelity": source_required_fidelity(source),
+                "evidence_requirements": requirements,
+                "scope": dict(source.get("scope") or {}),
+                "freshness": dict(source.get("freshness") or {}),
+                "budget": dict(source.get("budget") or {}),
+            }
+        )
+    target_mode = str((raw.get("target_contract") or {}).get("target_mode") or "")
+    predicate_kinds = {str(source.get("predicate_kind") or "") for source in typed_sources}
+    plan_decision = {
+        "route": (
+            "deterministic_fast_path"
+            if target_mode in {"exact", "set"} or predicate_kinds == {"structural"}
+            else "typed_planner"
+        ),
+        "reason_code": (
+            "EXACT_TARGET"
+            if target_mode in {"exact", "set"}
+            else "STRUCTURAL_PREDICATE"
+            if predicate_kinds == {"structural"}
+            else "SEMANTIC_PREDICATE"
+        ),
+    }
+    result = {
+        key: value
+        for key, value in raw.items()
+        if key not in {"source_requirements", "evidence_requirements", "schema", "version"}
+    }
+    result.update(
+        {
+            "schema": TYPED_TURN_CONTRACT_SCHEMA,
+            "version": 3,
+            "source_requirements": typed_sources,
+            "evidence_requirements": typed_requirements,
+            "plan_decision": plan_decision,
+        }
+    )
+    return result
 
 
 def _dialog_pairs(history: list[Mapping[str, Any]] | None) -> list[tuple[str, str]]:
@@ -982,6 +1244,173 @@ def _upgrade_contract_v2(*, legacy: dict[str, Any], user_text: str, scope: str,
     return model.model_dump(mode="json", by_alias=True)
 
 
+def _typed_structural_properties(user_text: str, kind: str) -> tuple[tuple[str, str, str], ...]:
+    lowered = user_text.casefold()
+    kind_named = (
+        any(marker in lowered for marker in ("замет", "note"))
+        if kind == "notes"
+        else any(marker in lowered for marker in ("пост", "post"))
+    )
+    structural = any(
+        marker in lowered
+        for marker in (
+            "сколько",
+            "количеств",
+            "перечисли",
+            "список",
+            "все ",
+            "всё ",
+            "how many",
+            "count",
+            "list all",
+        )
+    )
+    if not structural or not kind_named:
+        return ()
+    result: list[tuple[str, str, str]] = [
+        ("total_notes" if kind == "notes" else "total_posts", "count", "aggregate")
+    ]
+    if any(marker in lowered for marker in ("изображ", "картин", "фото", "image")):
+        result.extend(
+            (
+                ("has_images" if kind == "notes" else "has_any_images", "filter", "corpus"),
+                ("image_count", "count", "aggregate"),
+            )
+        )
+    if any(marker in lowered for marker in ("файл", "вложен", "attachment")):
+        result.extend((("has_files", "filter", "corpus"), ("file_count", "count", "aggregate")))
+    return tuple(dict.fromkeys(result))
+
+
+def _has_semantic_predicate(user_text: str) -> bool:
+    lowered = user_text.casefold()
+    return any(
+        marker in lowered
+        for marker in (
+            " про ",
+            " о теме",
+            " которые ",
+            " содержащ",
+            " релевант",
+            " related to ",
+            " about ",
+        )
+    )
+
+
+def _upgrade_contract_v3(v2: Mapping[str, Any], *, user_text: str) -> dict[str, Any]:
+    typed_sources: list[SourceRequirementV3] = []
+    all_requirements: list[EvidenceRequirement] = []
+    has_structural_source = any(
+        _typed_structural_properties(user_text, str(raw.get("kind") or ""))
+        for raw in v2.get("source_requirements") or ()
+        if isinstance(raw, Mapping) and (raw.get("scope") or {}).get("mode") == "corpus"
+    )
+    for raw_source in v2.get("source_requirements") or ():
+        source = SourceRequirement.model_validate(raw_source)
+        structural_properties = (
+            _typed_structural_properties(user_text, source.kind)
+            if source.scope.mode == "corpus"
+            else ()
+        )
+        predicate_kind: PredicateKind = (
+            "mixed"
+            if structural_properties and _has_semantic_predicate(f" {user_text} ")
+            else "structural"
+            if structural_properties
+            else "semantic"
+        )
+        evidence_required = bool(source.required or structural_properties)
+        requirements: list[EvidenceRequirement] = []
+        for property_name, operator, requirement_scope in structural_properties:
+            requirements.append(
+                EvidenceRequirement(
+                    requirement_id=f"{source.source_id}:{source.kind}.{property_name}",
+                    source_id=source.source_id,
+                    subject=source.kind,
+                    property=property_name,
+                    operator=operator,
+                    scope=requirement_scope,
+                )
+            )
+        if evidence_required and not requirements:
+            requirements.append(EvidenceRequirement.model_validate(_legacy_evidence_requirement(raw_source)))
+        all_requirements.extend(requirements)
+        minimum = (
+            0
+            if predicate_kind in {"structural", "mixed"} or not evidence_required
+            else source.min_evidence
+        )
+        maximum = 0 if predicate_kind == "structural" else max(minimum, source.budget.candidate_limit)
+        typed_sources.append(
+            SourceRequirementV3(
+                source_id=source.source_id,
+                kind=source.kind,
+                role=source.role,
+                query_goal=source.query_goal,
+                discovery_obligation=(
+                    "required"
+                    if evidence_required or (source.scope.mode == "corpus" and not has_structural_source)
+                    else "optional"
+                ),
+                evidence_obligation="required" if evidence_required else "optional",
+                selection_cardinality=SelectionCardinality(min=minimum, max=maximum),
+                coverage=(
+                    "complete"
+                    if predicate_kind in {"structural", "mixed"}
+                    else source.coverage
+                ),
+                predicate_kind=predicate_kind,
+                required_fidelity=(
+                    "catalog" if predicate_kind == "structural" else source.evidence_granularity
+                ),
+                evidence_requirements=tuple(requirements),
+                scope=source.scope,
+                freshness=source.freshness,
+                budget=source.budget,
+            )
+        )
+
+    target_mode = str((v2.get("target_contract") or {}).get("target_mode") or "")
+    required_predicates = {
+        source.predicate_kind for source in typed_sources if source.evidence_obligation == "required"
+    }
+    if target_mode in {"exact", "set"}:
+        plan_decision = ContractPlanDecision(route="deterministic_fast_path", reason_code="EXACT_TARGET")
+    elif required_predicates and required_predicates <= {"structural"}:
+        plan_decision = ContractPlanDecision(
+            route="deterministic_fast_path", reason_code="STRUCTURAL_PREDICATE"
+        )
+    elif "mixed" in required_predicates:
+        plan_decision = ContractPlanDecision(route="typed_planner", reason_code="MIXED_PREDICATE")
+    else:
+        plan_decision = ContractPlanDecision(route="typed_planner", reason_code="SEMANTIC_PREDICATE")
+
+    compatibility = {
+        key: value
+        for key, value in dict(v2).items()
+        if key
+        not in {
+            "schema",
+            "version",
+            "source_requirements",
+            "evidence_requirements",
+            "plan_decision",
+            "answerability_without_evidence",
+        }
+    }
+    model = TurnContractV3(
+        source_requirements=tuple(typed_sources),
+        evidence_requirements=tuple(all_requirements),
+        plan_decision=plan_decision,
+        answerability_without_evidence=not any(
+            source.evidence_obligation == "required" for source in typed_sources
+        ),
+        **compatibility,
+    )
+    return model.model_dump(mode="json", by_alias=True)
+
+
 def build_turn_contract(
     *,
     user_text: str,
@@ -994,6 +1423,7 @@ def build_turn_contract(
     message_manifests: tuple[Mapping[str, Any], ...] = (),
     semantic_referent_enabled: bool = True,
     v2_enabled: bool = True,
+    typed_requirements_enabled: bool = False,
     batch_enabled: bool = True,
 ) -> dict[str, Any]:
     current = (user_text or "").strip()
@@ -1169,7 +1599,7 @@ def build_turn_contract(
     }
     if not v2_enabled:
         return legacy
-    return _upgrade_contract_v2(
+    v2_contract = _upgrade_contract_v2(
         legacy=legacy,
         user_text=current,
         scope=scope,
@@ -1180,6 +1610,9 @@ def build_turn_contract(
         message_manifests=message_manifests,
         semantic_referent_enabled=semantic_referent_enabled,
     )
+    if typed_requirements_enabled:
+        return _upgrade_contract_v3(v2_contract, user_text=current)
+    return v2_contract
 
 
 def render_turn_contract(contract: Mapping[str, Any] | None) -> str:
@@ -1192,11 +1625,12 @@ def missing_required_sources(
     contract: Mapping[str, Any],
     satisfied_source_ids: set[str] | frozenset[str],
 ) -> tuple[str, ...]:
-    """Return only required source gaps; optional sources never block ready."""
+    """Return evidence-obligation gaps; discovery and selection remain separate."""
     return tuple(
         str(source.get("source_id") or "")
         for source in contract.get("source_requirements") or []
-        if source.get("required")
+        if isinstance(source, Mapping)
+        and source_evidence_required(source)
         and str(source.get("source_id") or "") not in satisfied_source_ids
     )
 
@@ -1245,7 +1679,20 @@ def evidence_matches_source(
     """Revalidate source kind, immutable scope and freshness at evidence use."""
     source_kind = str(source.get("kind") or "")
     record_kind = str(record.get("kind") or "")
-    granularity = str(source.get("evidence_granularity") or "full_text")
+    granularity = source_required_fidelity(source)
+    if "required_fidelity" in source:
+        fidelity_kinds: dict[str, frozenset[str]] = {
+            "catalog": frozenset({"catalog"}),
+            "semantic_card": frozenset(
+                {"semantic_card", "note_chunk", "post_text", "attachment_text"}
+            ),
+            "full_text": frozenset({"note_chunk", "post_text", "attachment_text"}),
+            "metadata": frozenset({"catalog", "media_meta"}),
+            "vision": frozenset({"vision"}),
+            "analytics": frozenset({"analytics"}),
+        }
+        if record_kind not in fidelity_kinds.get(granularity, frozenset()):
+            return False
     if record_kind == "semantic_card":
         card_object_kind = _semantic_card_object_kind(evidence_id, record)
         if card_object_kind != source_kind:
@@ -1307,6 +1754,7 @@ def covered_source_ids(
             for evidence_id, record in records.items()
             if evidence_matches_source(source, evidence_id=evidence_id, record=record)
         )
-        if source_id and matches >= int(source.get("min_evidence") or 1):
+        minimum, _ = source_selection_cardinality(source)
+        if source_id and matches >= max(1, minimum):
             covered.add(source_id)
     return frozenset(covered)

@@ -597,7 +597,7 @@ async def execute_agent_run(
         "validator_events": [],
         "phase5_enabled": bool(
             runtime_context.settings.agent_planner_phase5_enabled
-            and runtime_context.turn_contract.get("version") == 2
+            and int(runtime_context.turn_contract.get("version") or 0) >= 2
         ),
         "planner_calls_used": 0,
         "search_calls_used": 0,
@@ -605,6 +605,7 @@ async def execute_agent_run(
         "tool_calls_used": 0,
         "planner_invalid_count": 0,
         "sufficiency": {},
+        "evidence_gaps": [],
         "deadline_exhausted": False,
     }
     await emit_run_event(

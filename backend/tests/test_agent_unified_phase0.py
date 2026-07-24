@@ -23,7 +23,6 @@ BACKEND_ROOT = Path(__file__).resolve().parents[1]
 FIXTURE_PATH = BACKEND_ROOT / "tests/fixtures/agent_unified_phase0/v1/scenarios.json"
 BASELINE_COMMIT = "128a96497416bc40d5d019ad3be97866ad094394"
 FUTURE_FLAG_NAMES = (
-    "agent_typed_requirements_v1_enabled",
     "agent_unified_selector_v1_enabled",
     "agent_verified_pack_boundary_v1_enabled",
     "agent_planner_policy_v1_enabled",

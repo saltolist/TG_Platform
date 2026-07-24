@@ -91,11 +91,17 @@ def _fmt_run_metrics(p: Mapping[str, Any]) -> list[str]:
 
 
 def _fmt_sufficiency(p: Mapping[str, Any]) -> list[str]:
+    gaps = [
+        f"{item.get('kind')}:{item.get('required')}"
+        for item in p.get("gaps") or []
+        if isinstance(item, Mapping)
+    ]
     return [
         "sufficiency: "
         f"status={p.get('status') or '?'} "
         f"ready={p.get('decision_code') or ''}",
         f"    evidence={list(p.get('evidence_ids') or [])} open={list(p.get('open_requirements') or [])}",
+        f"    typed_gaps={gaps}",
     ]
 
 

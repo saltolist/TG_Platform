@@ -48,7 +48,11 @@ from app.services.agent.runtime.result_quality import (
     validate_result_contract,
 )
 from app.services.agent.runtime.state import AgentGraphState
-from app.services.agent.runtime.turn_contract import render_turn_contract
+from app.services.agent.runtime.turn_contract import (
+    EVIDENCE_REQUIREMENT_SCHEMA,
+    render_turn_contract,
+    source_evidence_required,
+)
 
 logger = logging.getLogger(__name__)
 _compiled_graphs: dict[int, tuple[object, Any]] = {}
@@ -126,6 +130,7 @@ def _apply_classifier_source_policy(
         and str(item.get("kind") or "").strip().lower() in _CLASSIFIER_SOURCE_KINDS
     }
     required.update(classified_by_kind.keys())
+    typed = int(contract.get("version") or 0) >= 3
     sources = [dict(item) for item in contract.get("source_requirements") or ()]
     preserve_post_target_fidelity = (
         str(contract.get("scope") or "") == "post"
@@ -133,13 +138,30 @@ def _apply_classifier_source_policy(
     )
     if classifier_requires_evidence and not required:
         required.update(
-            str(item.get("kind") or "") for item in sources if item.get("required")
+            str(item.get("kind") or "") for item in sources if source_evidence_required(item)
         )
     existing = {str(item.get("kind") or "") for item in sources}
+
+    def typed_fidelity(kind: str, legacy_fidelity: str) -> str:
+        if not typed:
+            return legacy_fidelity
+        if kind == "images":
+            return "vision"
+        if kind == "analytics":
+            return "analytics"
+        if kind == "attachments" and legacy_fidelity == "catalog":
+            return "metadata"
+        return legacy_fidelity
+
     for source in sources:
         kind = str(source.get("kind") or "")
         scope_mode = str((source.get("scope") or {}).get("mode") or "")
-        source["required"] = kind in required
+        if typed:
+            source["evidence_obligation"] = "required" if kind in required else "optional"
+            if kind in required:
+                source["discovery_obligation"] = "required"
+        else:
+            source["required"] = kind in required
         classified = classified_by_kind.get(kind) or {}
         coverage = str(classified.get("coverage") or "")
         granularity = str(classified.get("evidence_granularity") or "")
@@ -156,12 +178,44 @@ def _apply_classifier_source_policy(
             granularity in {"catalog", "semantic_card", "full_text"}
             and (scope_mode == "corpus" or not preserve_post_target_fidelity)
         ):
-            source["evidence_granularity"] = granularity
-        elif not source["required"] and kind in {"notes", "posts"}:
+            source["required_fidelity" if typed else "evidence_granularity"] = (
+                typed_fidelity(kind, granularity)
+            )
+        elif not source_evidence_required(source) and kind in {"notes", "posts"}:
             # Optional enrichment is for topical context. Exact claims can still
             # be promoted by the research planner, but a planner failure must not
             # turn every ambient match into an expensive full-object read.
-            source["evidence_granularity"] = "semantic_card"
+            source["required_fidelity" if typed else "evidence_granularity"] = "semantic_card"
+        if typed:
+            cardinality = dict(source.get("selection_cardinality") or {})
+            cardinality["min"] = (
+                0
+                if not source_evidence_required(source)
+                or str(source.get("predicate_kind") or "semantic") in {"structural", "mixed"}
+                else max(1, int(cardinality.get("min") or 0))
+            )
+            cardinality["max"] = max(
+                int(cardinality.get("min") or 0),
+                int(
+                    cardinality.get("max")
+                    or (source.get("budget") or {}).get("candidate_limit")
+                    or 8
+                ),
+            )
+            source["selection_cardinality"] = cardinality
+            if source_evidence_required(source) and not source.get("evidence_requirements"):
+                source_id = str(source.get("source_id") or f"workspace-{kind}")
+                source["evidence_requirements"] = [
+                    {
+                        "schema": EVIDENCE_REQUIREMENT_SCHEMA,
+                        "requirement_id": f"{source_id}:grounded_evidence",
+                        "source_id": source_id,
+                        "subject": kind,
+                        "property": "grounded_evidence",
+                        "operator": "exists",
+                        "scope": "source",
+                    }
+                ]
     for kind in sorted(required - existing):
         classified_coverage = str(
             classified_by_kind.get(kind, {}).get("coverage") or "relevant"
@@ -175,37 +229,63 @@ def _apply_classifier_source_policy(
         )
         if classified_granularity not in {"catalog", "semantic_card", "full_text"}:
             classified_granularity = "full_text"
-        sources.append(
-            {
-                "source_id": f"workspace-{kind}",
-                "kind": kind,
-                "role": "source",
-                "required": True,
-                "query_goal": f"retrieve {kind} required by the current goal",
-                "min_evidence": 1,
-                "coverage": classified_coverage,
-                "evidence_granularity": classified_granularity,
-                "scope": {
-                    "mode": "corpus",
-                    "target_ids": [],
-                    "corpus": "workspace",
-                    "owner": "current_user",
-                    "statuses": [],
-                },
-                "freshness": {
-                    "mode": "latest_available",
-                    "revision": None,
-                    "max_age_seconds": None,
-                    "snapshot_at": None,
-                },
-                "budget": {
-                    "search_calls": 1,
-                    "rewrite_calls": 0,
-                    "candidate_limit": 6,
-                    "deep_reads": 1,
-                },
-            }
-        )
+        added = {
+            "source_id": f"workspace-{kind}",
+            "kind": kind,
+            "role": "source",
+            "query_goal": f"retrieve {kind} required by the current goal",
+            "coverage": classified_coverage,
+            "scope": {
+                "mode": "corpus",
+                "target_ids": [],
+                "corpus": "workspace",
+                "owner": "current_user",
+                "statuses": [],
+            },
+            "freshness": {
+                "mode": "latest_available",
+                "revision": None,
+                "max_age_seconds": None,
+                "snapshot_at": None,
+            },
+            "budget": {
+                "search_calls": 1,
+                "rewrite_calls": 0,
+                "candidate_limit": 6,
+                "deep_reads": 1,
+            },
+        }
+        if typed:
+            source_id = str(added["source_id"])
+            added.update(
+                {
+                    "discovery_obligation": "required",
+                    "evidence_obligation": "required",
+                    "selection_cardinality": {"min": 1, "max": 6},
+                    "predicate_kind": "semantic",
+                    "required_fidelity": typed_fidelity(kind, classified_granularity),
+                    "evidence_requirements": [
+                        {
+                            "schema": EVIDENCE_REQUIREMENT_SCHEMA,
+                            "requirement_id": f"{source_id}:grounded_evidence",
+                            "source_id": source_id,
+                            "subject": kind,
+                            "property": "grounded_evidence",
+                            "operator": "exists",
+                            "scope": "source",
+                        }
+                    ],
+                }
+            )
+        else:
+            added.update(
+                {
+                    "required": True,
+                    "min_evidence": 1,
+                    "evidence_granularity": classified_granularity,
+                }
+            )
+        sources.append(added)
     result = {
         **contract,
         # V1 contracts predate semantic source classification and may still
@@ -216,11 +296,19 @@ def _apply_classifier_source_policy(
         ),
         "source_requirements": sources,
         "answerability_without_evidence": not classifier_requires_evidence,
-        "evidence_requirements": [
-            f"{item.get('source_id')}:grounded_evidence"
-            for item in sources
-            if item.get("required")
-        ],
+        "evidence_requirements": (
+            [
+                requirement
+                for item in sources
+                for requirement in item.get("evidence_requirements") or ()
+            ]
+            if typed
+            else [
+                f"{item.get('source_id')}:grounded_evidence"
+                for item in sources
+                if item.get("required")
+            ]
+        ),
     }
     budgets = dict(result.get("budgets") or {})
     budgets["search_calls"] = max(
@@ -396,7 +484,7 @@ async def workspace_agent_node(
         else []
     )
     deterministic_required = any(
-        bool(item.get("required"))
+        source_evidence_required(item)
         for item in turn_contract.get("source_requirements") or ()
         if isinstance(item, dict)
     )
@@ -423,13 +511,13 @@ async def workspace_agent_node(
         ],
     )
     if any(
-        item.get("required") and item.get("coverage") == "complete"
+        source_evidence_required(item) and item.get("coverage") == "complete"
         for item in turn_contract.get("source_requirements") or ()
         if isinstance(item, dict)
     ) and turn_contract.get("task_profile") == "topical_answer":
         turn_contract["task_profile"] = "workspace_synthesis"
     has_required_sources = any(
-        isinstance(item, dict) and item.get("required")
+        isinstance(item, dict) and source_evidence_required(item)
         for item in turn_contract.get("source_requirements") or ()
     )
     if (
@@ -658,7 +746,7 @@ async def answer_node(state: AgentGraphState, config: RunnableConfig) -> dict[st
     }
     allow_optional_only_claims = not any(
         isinstance(source, dict)
-        and source.get("required")
+        and source_evidence_required(source)
         and source.get("coverage") == "complete"
         for source in turn_contract.get("source_requirements") or ()
     )
@@ -1746,12 +1834,12 @@ async def run_workspace_graph(
         "validator_events": [],
         "phase5_enabled": bool(
             runtime_context.settings.agent_planner_phase5_enabled
-            and runtime_context.turn_contract.get("version") == 2
+            and int(runtime_context.turn_contract.get("version") or 0) >= 2
         ),
         "adaptive_evidence_depth_enabled": bool(
             getattr(runtime_context.settings, "agent_adaptive_evidence_depth_v1_enabled", False)
             and runtime_context.settings.agent_planner_phase5_enabled
-            and runtime_context.turn_contract.get("version") == 2
+            and int(runtime_context.turn_contract.get("version") or 0) >= 2
         ),
         "material_plan": empty_material_plan(),
         "candidate_envelopes": [],
@@ -1761,6 +1849,7 @@ async def run_workspace_graph(
         "tool_calls_used": 0,
         "planner_invalid_count": 0,
         "sufficiency": {},
+        "evidence_gaps": [],
         "deadline_exhausted": False,
     }
     cfg = {

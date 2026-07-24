@@ -20,6 +20,7 @@ from app.services.agent.runtime.result_quality import (
     build_style_profile,
     validate_result_contract,
 )
+from app.services.agent.runtime.turn_contract import source_evidence_required
 
 
 @dataclass(frozen=True)
@@ -267,7 +268,11 @@ def grade_complete_catalog_coverage(state: Mapping[str, Any]) -> GraderResult:
     sufficiency = state.get("sufficiency") or {}
     missing: list[str] = []
     for source in contract.get("source_requirements") or ():
-        if not isinstance(source, Mapping) or not source.get("required") or source.get("coverage") != "complete":
+        if (
+            not isinstance(source, Mapping)
+            or not source_evidence_required(source)
+            or source.get("coverage") != "complete"
+        ):
             continue
         source_id = str(source.get("source_id") or "")
         if source_id not in coverage:
