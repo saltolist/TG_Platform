@@ -146,6 +146,9 @@ class RuntimeContext:
             search_k=base.search_k,
             visited=set(base.visited),
             context_blocks=list(base.context_blocks),
+            evidence_metadata={
+                path: dict(metadata) for path, metadata in base.evidence_metadata.items()
+            },
             opened_posts=dict(base.opened_posts),
             query_vector_cache=dict(base.query_vector_cache),
             catalog_members={

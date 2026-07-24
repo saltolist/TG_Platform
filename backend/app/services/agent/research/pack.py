@@ -101,6 +101,9 @@ def build_verified_pack(
     coverage: str = "complete",
     coverage_by_source: dict | None = None,
     item_annotations: Mapping[str, Mapping[str, Any]] | None = None,
+    material_plan: Mapping[str, Any] | None = None,
+    contract: Mapping[str, Any] | None = None,
+    max_objects: int | None = None,
 ):
     """Public compatibility wrapper for the typed phase-6 pack."""
 
@@ -113,4 +116,7 @@ def build_verified_pack(
         coverage=coverage,
         coverage_by_source=coverage_by_source or {},
         item_annotations=item_annotations,
+        material_plan=material_plan,
+        contract=contract,
+        max_objects=max_objects,
     )

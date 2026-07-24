@@ -55,6 +55,7 @@ from app.services.agent.research.planner_decision import (
 from app.services.agent.research.sufficiency import evaluate_sufficiency
 from app.services.agent.research.material_plan import (
     canonical_candidate_ref,
+    compile_material_plan,
     empty_material_plan,
     merge_material_plan,
     next_full_read_batch,
@@ -1550,6 +1551,7 @@ def _materialize_contract_fixed_plan(
     *,
     candidates: list[dict[str, Any]],
     contract: dict[str, Any],
+    verified_boundary: bool = False,
 ) -> dict[str, Any]:
     """Resolve contract-fixed complete and exact-card fidelity without a planner."""
 
@@ -1592,10 +1594,12 @@ def _materialize_contract_fixed_plan(
             selected_targets, contract=contract
         )
     )
-    return merge_material_plan(
+    compiler = compile_material_plan if verified_boundary else merge_material_plan
+    return compiler(
         previous,
         candidates=[*selected_complete, *selected_targets],
         assessments=assessments,
+        **({"contract": contract} if verified_boundary else {}),
     )
 
 
@@ -1751,6 +1755,11 @@ async def research_seed_node(state: AgentGraphState, config: RunnableConfig) -> 
     stale_refs: list[dict[str, Any]] = list(state.get("stale_refs") or [])
     unified_selector_enabled = bool(
         getattr(ctx.settings, "agent_unified_selector_v1_enabled", False)
+        and ctx.settings.agent_planner_phase5_enabled
+        and int(contract.get("version") or 0) >= 3
+    )
+    verified_pack_boundary_enabled = bool(
+        getattr(ctx.settings, "agent_verified_pack_boundary_v1_enabled", False)
         and ctx.settings.agent_planner_phase5_enabled
         and int(contract.get("version") or 0) >= 3
     )
@@ -2234,6 +2243,7 @@ async def research_seed_node(state: AgentGraphState, config: RunnableConfig) -> 
             material_plan,
             candidates=candidate_envelopes,
             contract=contract,
+            verified_boundary=verified_pack_boundary_enabled,
         )
         optional_source_ids = {
             str(source.get("source_id") or "")
@@ -2268,6 +2278,7 @@ async def research_seed_node(state: AgentGraphState, config: RunnableConfig) -> 
         ),
         "adaptive_evidence_depth_enabled": adaptive_enabled,
         "unified_selector_enabled": unified_selector_enabled,
+        "verified_pack_boundary_enabled": verified_pack_boundary_enabled,
         "material_plan": material_plan,
         "candidate_envelopes": candidate_envelopes,
         "catalog_snapshots": {
@@ -2770,14 +2781,59 @@ async def _unified_context_selector_step(
         *list(material_plan.get("source_disposition_batches") or ()),
         dispositions,
     ]
-    actions = (
-        _materialize_full_read_actions(
-            next_full_read_batch(material_plan),
-            list(material_plan.get("candidates") or ()),
+    if state.get("verified_pack_boundary_enabled"):
+        material_plan = compile_material_plan(
+            material_plan,
+            candidates=list(material_plan.get("candidates") or ()),
+            assessments=list(material_plan.get("assessments") or ()),
+            source_dispositions=list(material_plan.get("source_dispositions") or ()),
+            contract=contract,
         )
-        if decision is not None
-        else []
-    )
+    discovery_actions = list(material_plan.get("discovery_actions") or ())
+    if decision is not None and discovery_actions:
+        pending_sources = [
+            str(item.get("source_id") or "")
+            for item in discovery_actions[:3]
+            if isinstance(item, Mapping) and item.get("source_id")
+        ]
+        material_plan["expansion_pending_sources"] = pending_sources
+        actions = [
+            PlannerAction(
+                tool="SearchNodes",
+                args={
+                    "query": str(state.get("search_query") or state.get("user_text") or ""),
+                    "k": min(
+                        10,
+                        max(
+                            1,
+                            int(
+                                next(
+                                    (
+                                        (source.get("budget") or {}).get("candidate_limit")
+                                        for source in contract.get("source_requirements") or ()
+                                        if isinstance(source, Mapping)
+                                        and str(source.get("source_id") or "") == source_id
+                                    ),
+                                    4,
+                                )
+                                or 4
+                            ),
+                        ),
+                    ),
+                    "source_requirement_id": source_id,
+                },
+            ).model_dump(mode="json")
+            for source_id in pending_sources
+        ]
+    else:
+        actions = (
+            _materialize_full_read_actions(
+                next_full_read_batch(material_plan),
+                list(material_plan.get("candidates") or ()),
+            )
+            if decision is not None
+            else []
+        )
     step = {
         "step": len(state.get("planner_steps") or ()) + 1,
         "decision_code": "SELECT_CONTEXT" if decision is not None else "SELECTOR_FAILED",
@@ -3641,6 +3697,9 @@ async def _compact_tool_node(
                 if str(cite.path) not in known_paths
             )
             master.opened_posts.update(agent_state.opened_posts)
+            master.evidence_metadata.update(
+                {path: dict(metadata) for path, metadata in agent_state.evidence_metadata.items()}
+            )
             master.query_vector_cache.update(agent_state.query_vector_cache)
             master.catalog_members.update(
                 {
@@ -4279,6 +4338,13 @@ def _evidence_pack_annotations(
             continue
         ref = canonical_candidate_ref(str(record.source_ref or evidence_id))
         source_id = candidate_sources.get(ref, "")
+        catalog_snapshot = (
+            record.metadata.get("catalog_snapshot")
+            if isinstance(record.metadata.get("catalog_snapshot"), Mapping)
+            else {}
+        )
+        if not source_id:
+            source_id = str(catalog_snapshot.get("source_requirement_id") or "")
         source = requirements.get(source_id)
         if source is None:
             matching = [
@@ -4322,6 +4388,8 @@ async def _hydrate_selected_semantic_cards(
     records: dict[str, EvidenceRecord],
     evidence_ids: list[str],
     ctx: RuntimeContext | None,
+    required_full_text_refs: set[str] | None = None,
+    max_reads: int | None = None,
 ) -> tuple[dict[str, EvidenceRecord], tuple[str, ...]]:
     """Replace selected discovery cards with their authoritative source text.
 
@@ -4339,7 +4407,20 @@ async def _hydrate_selected_semantic_cards(
         for evidence_id in evidence_ids
         if records.get(str(evidence_id)) is not None
         and records[str(evidence_id)].kind == "semantic_card"
+        and (
+            required_full_text_refs is None
+            or canonical_candidate_ref(
+                str(
+                    records[str(evidence_id)].source_ref
+                    or records[str(evidence_id)].metadata.get("ref")
+                    or ""
+                )
+            )
+            in required_full_text_refs
+        )
     ]
+    if max_reads is not None:
+        selected = selected[: max(0, int(max_reads))]
     if not selected:
         return records, ()
 
@@ -4437,6 +4518,12 @@ async def _hydrate_selected_semantic_cards(
                     "source_revision": actual_revision,
                     "hydrated_from": "semantic_card",
                     "hydrated": True,
+                    "status": str(source_data.get("status") or "active"),
+                    "owner_verified": True,
+                    "status_verified": True,
+                    "read_scope": "tenant_scoped_note"
+                    if kind == "note" and getattr(ctx, "tenant_key", None)
+                    else "user_owned_object",
                 },
                 producer="final_handoff_hydration",
             )
@@ -4566,7 +4653,20 @@ async def research_pack_node(state: AgentGraphState, config: RunnableConfig) -> 
         key: EvidenceRecord.from_dict(value)
         for key, value in (state.get("evidence_records") or {}).items()
     }
-    if state.get("adaptive_evidence_depth_enabled"):
+    contract = dict(
+        state.get("turn_contract")
+        or ((config or {}).get("configurable", {}) or {}).get("turn_contract")
+        or {}
+    )
+    verified_boundary = bool(
+        state.get("verified_pack_boundary_enabled")
+        or (
+            getattr(getattr(ctx, "settings", None), "agent_verified_pack_boundary_v1_enabled", False)
+            and int(contract.get("version") or 0) >= 3
+        )
+    )
+    material_plan = dict(state.get("material_plan") or {})
+    if state.get("adaptive_evidence_depth_enabled") and not verified_boundary:
         candidate_revisions = {
             str(item.get("ref") or ""): int(item.get("source_revision") or 0)
             for item in (state.get("material_plan") or {}).get("candidates") or ()
@@ -4581,24 +4681,80 @@ async def research_pack_node(state: AgentGraphState, config: RunnableConfig) -> 
     # into an honest refusal rather than ungrounded text (agent-runtime-sprints §1.3).
     finish = dict(state.get("finish_retrieval") or {})
     evidence_ids = [str(item) for item in (finish.get("evidence_ids") or [])]
-    contract = dict(
-        state.get("turn_contract")
-        or ((config or {}).get("configurable", {}) or {}).get("turn_contract")
-        or {}
-    )
     if contract.get("target_contract") or contract.get("corpus") in {"feed_posts", "exact_note"}:
         allowed_ids = set(_contract_evidence_ids(contract, records))
         evidence_ids = [eid for eid in evidence_ids if eid in allowed_ids]
+    if verified_boundary:
+        queue_refs = {
+            canonical_candidate_ref(str(item.get("ref") or ""))
+            for item in material_plan.get("materialization_queue") or ()
+            if isinstance(item, Mapping) and item.get("ref")
+        }
+        exact_refs = {
+            canonical_candidate_ref(str(item.get("ref") or ""))
+            for item in material_plan.get("candidates") or ()
+            if isinstance(item, Mapping) and str(item.get("origin") or "") == "exact_target"
+        }
+        structural_source_ids = {
+            str(item.get("source_id") or "")
+            for item in contract.get("source_requirements") or ()
+            if isinstance(item, Mapping)
+            and str(item.get("predicate_kind") or "") in {"structural", "mixed"}
+        }
+        annotations = _evidence_pack_annotations(
+            records=records,
+            evidence_ids=evidence_ids,
+            state=state,
+            contract=contract,
+        )
+        evidence_ids = [
+            evidence_id
+            for evidence_id in evidence_ids
+            if evidence_id in records
+            and (
+                (
+                    canonical_candidate_ref(
+                        str(records[evidence_id].source_ref or evidence_id)
+                    )
+                    in queue_refs | exact_refs
+                )
+                or (
+                    records[evidence_id].kind == "catalog"
+                    and str(
+                        (annotations.get(evidence_id) or {}).get(
+                            "source_requirement_id"
+                        )
+                        or ""
+                    )
+                    in structural_source_ids
+                )
+            )
+        ]
+    full_text_refs = {
+        str(item.get("ref") or "")
+        for item in material_plan.get("materialization_queue") or ()
+        if isinstance(item, Mapping)
+        and str(item.get("effective_fidelity") or "") in {"full_text", "vision", "analytics", "text"}
+    }
     records, hydration_gaps = await _hydrate_selected_semantic_cards(
         records=records,
         evidence_ids=evidence_ids,
         ctx=ctx,
+        required_full_text_refs=full_text_refs if verified_boundary else None,
+        max_reads=(
+            int((material_plan.get("budget_usage") or {}).get("objects") or 0)
+            if verified_boundary
+            else None
+        ),
     )
-    records, evidence_ids, catalog_hydration_gaps = await _hydrate_selected_catalog_members(
-        records=records,
-        evidence_ids=evidence_ids,
-        ctx=ctx,
-    )
+    if verified_boundary:
+        catalog_hydration_gaps: tuple[str, ...] = ()
+    else:
+        records, evidence_ids, catalog_hydration_gaps = await _hydrate_selected_catalog_members(
+            records=records,
+            evidence_ids=evidence_ids,
+            ctx=ctx,
+        )
     # Keep the original discovery card beside hydrated full text. The answer
     # model needs the latter, while the durable message manifest needs the
     # compact card for the next turn.
@@ -4622,7 +4778,6 @@ async def research_pack_node(state: AgentGraphState, config: RunnableConfig) -> 
             record.metadata.setdefault("card_text", card_text[:480])
             record.metadata.setdefault("preview", card_text[:240])
     unresolved_items = [str(item) for item in (finish.get("unresolved") or [])]
-    material_plan = dict(state.get("material_plan") or {})
     unresolved_items = list(
         dict.fromkeys(
             [
@@ -4630,6 +4785,11 @@ async def research_pack_node(state: AgentGraphState, config: RunnableConfig) -> 
                 *hydration_gaps,
                 *catalog_hydration_gaps,
                 *[f"material:{item}" for item in material_plan.get("omitted_ids") or ()],
+                *[
+                    f"material:{item.get('kind')}:{item.get('source_id') or item.get('ref') or ''}"
+                    for item in material_plan.get("gaps") or ()
+                    if isinstance(item, Mapping) and item.get("blocks_ready")
+                ],
             ]
         )
     )
@@ -4672,6 +4832,11 @@ async def research_pack_node(state: AgentGraphState, config: RunnableConfig) -> 
             for source_id in source_ids
         },
         item_annotations=item_annotations,
+        material_plan=material_plan if verified_boundary else None,
+        contract=contract if verified_boundary else None,
+        max_objects=(material_plan.get("budget") or {}).get("max_objects")
+        if verified_boundary
+        else None,
     )
     # The string rendering is retained for legacy traces and clients, but the
     # phase-6 answer node receives the typed pack as its sole factual context.
@@ -4847,6 +5012,11 @@ async def run_research_graph(
         ),
         "unified_selector_enabled": bool(
             getattr(ctx.settings, "agent_unified_selector_v1_enabled", False)
+            and ctx.settings.agent_planner_phase5_enabled
+            and int((ctx.turn_contract or {}).get("version") or 0) >= 3
+        ),
+        "verified_pack_boundary_enabled": bool(
+            getattr(ctx.settings, "agent_verified_pack_boundary_v1_enabled", False)
             and ctx.settings.agent_planner_phase5_enabled
             and int((ctx.turn_contract or {}).get("version") or 0) >= 3
         ),

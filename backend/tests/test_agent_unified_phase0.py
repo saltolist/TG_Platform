@@ -23,7 +23,6 @@ BACKEND_ROOT = Path(__file__).resolve().parents[1]
 FIXTURE_PATH = BACKEND_ROOT / "tests/fixtures/agent_unified_phase0/v1/scenarios.json"
 BASELINE_COMMIT = "128a96497416bc40d5d019ad3be97866ad094394"
 FUTURE_FLAG_NAMES = (
-    "agent_verified_pack_boundary_v1_enabled",
     "agent_planner_policy_v1_enabled",
     "agent_unified_default_on",
 )
@@ -173,6 +172,12 @@ def test_rollout_flags_default_off_and_future_flags_have_no_runtime_consumers(
         if "agent_unified_selector_v1_enabled" in path.read_text(encoding="utf-8")
     ]
     assert selector_consumers
+    pack_boundary_consumers = [
+        path
+        for path in runtime_root.rglob("*.py")
+        if "agent_verified_pack_boundary_v1_enabled" in path.read_text(encoding="utf-8")
+    ]
+    assert pack_boundary_consumers
     for flag_name in FUTURE_FLAG_NAMES:
         consumers = [
             path

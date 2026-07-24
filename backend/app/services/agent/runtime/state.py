@@ -107,6 +107,7 @@ class AgentGraphState(TypedDict, total=False):
     phase5_enabled: bool
     adaptive_evidence_depth_enabled: bool
     unified_selector_enabled: bool
+    verified_pack_boundary_enabled: bool
     planner_calls_used: int
     search_calls_used: int
     deep_reads_used: int

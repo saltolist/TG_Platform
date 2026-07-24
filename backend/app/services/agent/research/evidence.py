@@ -86,6 +86,11 @@ def records_from_agent_state(agent_state) -> dict[str, EvidenceRecord]:
         elif path.endswith("/post/") or "/post/" in path and "/note/" not in path:
             kind = "post_text"
         metadata: dict[str, Any] = {"visited": list(agent_state.visited)[-8:]}
+        evidence_metadata = getattr(agent_state, "evidence_metadata", {})
+        if isinstance(evidence_metadata, dict) and isinstance(evidence_metadata.get(path), dict):
+            metadata.update(dict(evidence_metadata[path]))
+        if metadata.get("fidelity") == "vision":
+            kind = "vision"
         catalog_members = getattr(agent_state, "catalog_members", {})
         if kind == "catalog" and isinstance(catalog_members, dict):
             metadata["members"] = [

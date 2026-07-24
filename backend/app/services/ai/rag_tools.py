@@ -100,6 +100,7 @@ class AgentState:
     search_k: int = 4
     visited: set[str] = field(default_factory=set)
     context_blocks: list[tuple[NoteCite, str]] = field(default_factory=list)
+    evidence_metadata: dict[str, dict[str, Any]] = field(default_factory=dict)
     opened_posts: dict[str, dict[str, Any]] = field(default_factory=dict)
     query_vector_cache: dict[str, list[float]] = field(default_factory=dict)
     catalog_members: dict[str, list[dict[str, Any]]] = field(default_factory=dict)
@@ -516,6 +517,13 @@ async def tool_open_post(state: AgentState, *, post_id: str) -> ToolOutcome:
             title=_post_title_from_text(text_value),
         )
         state.context_blocks.append((cite, text_value))
+        state.evidence_metadata[cite.path] = {
+            "source_revision": object_index_revision(post_data),
+            "status": str(post_data.get("status") or "active"),
+            "owner_verified": True,
+            "status_verified": True,
+            "read_scope": "user_owned_post",
+        }
 
     notes_count = len(post_data.get("notes") or [])
     media_count = len(post_data.get("media") or [])
@@ -1119,6 +1127,13 @@ async def tool_open_note(
             title=title,
         )
         state.context_blocks.append((cite, content))
+        state.evidence_metadata[cite.path] = {
+            "source_revision": object_index_revision(note_data),
+            "status": str(note_data.get("status") or "active"),
+            "owner_verified": True,
+            "status_verified": True,
+            "read_scope": "tenant_scoped_note" if state.tenant_key else "user_owned_note",
+        }
 
     return ToolOutcome(summary=f"Открыта заметка note:{note_id} ({title!r}), files={len(files)}.")
 
@@ -1371,6 +1386,7 @@ async def _append_extracted_text(
     post_id: str | None,
     record: dict[str, str],
     text_value: str,
+    fidelity: str = "full_text",
 ) -> str:
     cite_path = _attachment_cite_path(
         ref_kind=ref_kind,
@@ -1381,6 +1397,15 @@ async def _append_extracted_text(
     )
     cite = NoteCite(path=cite_path, title=record["name"])
     state.context_blocks.append((cite, text_value.strip()))
+    state.evidence_metadata[cite.path] = {
+        "fidelity": fidelity,
+        "status": "active",
+        "owner_verified": True,
+        "status_verified": True,
+        "read_scope": "tenant_scoped_attachment"
+        if state.tenant_key
+        else "user_owned_attachment",
+    }
     state.hydrated_text_files.add(ref)
     # Return the cite_path so callers can surface it in tool summaries — the
     # planner must copy evidence IDs verbatim from the transcript (see AGENT_SYSTEM
@@ -1711,6 +1736,7 @@ async def _tool_hydrate_attachment_vision(
             post_id=post_id,
             record=record,
             text_value=caption,
+            fidelity="vision",
         )
         _mark_visited(state, visit_ref)
         # Surface the canonical citation path in the summary so the planner can

@@ -1,6 +1,6 @@
 # Единый план: фаза 4 — policy compiler, hydration и final EvidencePack
 
-**Статус:** план  
+**Статус:** завершена 2026-07-24
 **Главный план:** [workspace-agent-unified-integrity-counting-plan.md](workspace-agent-unified-integrity-counting-plan.md)  
 **Зависимость:** фазы 1–3
 
@@ -82,3 +82,76 @@ Compiler получает только typed Selector decision и:
 
 Выключить `verified_pack_boundary`, оставить compiler и verifier в shadow mode.
 Старый EvidencePack path остается активным только до прохождения фазы 6.
+
+## Результат
+
+- добавлен `workspace.material-plan/v2`: typed assessments из
+  `workspace.context-selector/v2` компилируются без повторной semantic оценки в
+  детерминированную `materialization_queue`;
+- `irrelevant` исключается до queue, `no_relevant_candidate` создает только
+  typed gap, `search_more` — не более одного bounded discovery action на source,
+  а `ambiguous` и `selector_failed` не расширяют EvidencePack;
+- exact target сохраняется при Selector failure отдельно от ambient/search
+  candidates; parent relation остается provenance metadata;
+- compiler применяет contract fidelity floor и до DB reads резервирует object,
+  full-text и card budgets; legacy id lists являются compatibility projection
+  queue, а каждое promotion/omission записывается в runtime trace;
+- `OpenNote`, `OpenPost` и attachment hydration переносят в evidence фактическую
+  revision, status и owner/scope verification lineage; vision не маркируется как
+  обычный full text;
+- final handoff гидратирует только compiled full-text refs и не разворачивает
+  catalog members; catalog membership больше не считается автоматически
+  supplied object context;
+- post-pack boundary повторно проверяет membership, fidelity, hydration lineage,
+  revision, owner/status provenance, omissions, truncation и per-source
+  coverage; card promotion без verified original read отклоняется;
+- прежние EvidencePack/output schema и catalog hydration сохранены в default-off
+  rollback path под `AGENT_VERIFIED_PACK_BOUNDARY_V1_ENABLED=0`.
+
+## Проверки
+
+```bash
+cd backend
+.venv/bin/pytest -q \
+  tests/test_agent_unified_phase4_materialization.py \
+  tests/test_agent_unified_phase3_selector.py \
+  tests/test_agent_unified_phase2_contract.py \
+  tests/test_agent_unified_phase1_catalog.py \
+  tests/test_agent_unified_phase0.py tests/test_agent_phase5_planner.py \
+  tests/test_agent_adaptive_evidence_depth.py tests/test_agent_phase6.py \
+  tests/test_agent_phase2_contract.py tests/test_turn_contract.py \
+  tests/test_message_context_manifest.py tests/test_agent_runtime.py \
+  tests/test_workspace_graph.py tests/test_rag_tools.py tests/test_agent_research.py \
+  tests/test_rag.py tests/test_rag_query.py tests/test_rag_retrieval_policy.py \
+  tests/test_agent_phase4_retrieval.py tests/test_agent_listing.py \
+  tests/test_agent_e2e.py tests/test_config.py
+.venv/bin/python scripts/agent_unified_phase0_report.py --repeat 2 --check
+```
+
+Связанный regression-набор: `380 passed, 1 warning`, protected fixtures не
+изменились; phase-0 replay дважды сохраняет digest
+`4fe050b7d491861fd0b545471699f4d90c1151063140d7795ea4c16b3119f474`.
+Единственный warning `fastembed` о смене pooling существовал до фазы.
+
+## Exit criteria
+
+- [x] каждый object item pack имеет compiled selection/exact/structural origin,
+  source obligation, fidelity decision и provenance lineage;
+- [x] fidelity mismatch отклоняется verifier-ом и равен нулю на phase-4 tests;
+- [x] повторная проверка membership не добавляет catalog/ambient/irrelevant refs;
+- [x] object/char budget формирует pending read queue до DB access;
+- [x] truncation, hydration/revision failure и pack omission переводят coverage в
+  `partial` и остаются в unresolved/coverage metadata;
+- [x] существующие answer/output schema и default-off compatibility path проходят
+  regression tests.
+
+## Остаточные риски
+
+- authoritative paging больше 100 refs, additive search для complete semantic
+  source и planner policy остаются фазой 5; compiler не пытается компенсировать
+  их повторной relevance оценкой;
+- production telemetry, shadow comparison, budget/latency tuning, canary,
+  default-on и удаление legacy catalog-hydration path остаются фазой 6;
+- `AGENT_VERIFIED_PACK_BOUNDARY_V1_ENABLED` остается default-off до общего
+  rollout gate; legacy path при выключенном флаге намеренно сохраняет прежнее
+  раскрытие выбранного catalog для совместимости.

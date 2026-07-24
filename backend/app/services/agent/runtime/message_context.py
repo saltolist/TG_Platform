@@ -146,15 +146,8 @@ def supplied_object_refs(evidence_pack: Mapping[str, Any] | None) -> set[str]:
         resolved = _object_ref(item, evidence_id)
         if resolved is not None:
             refs.add(resolved[0])
-        elif str(item.get("kind") or "") == "catalog":
-            metadata = item.get("metadata") if isinstance(item.get("metadata"), Mapping) else {}
-            for member in metadata.get("members") or item.get("members") or ():
-                if not isinstance(member, Mapping):
-                    continue
-                kind = str(member.get("kind") or "")
-                identifier = str(member.get("id") or "")
-                if kind in {"post", "note"} and identifier:
-                    refs.add(f"{kind}:{identifier}")
+        # Catalog membership is discovery/structural evidence, not proof that
+        # each member was selected and supplied as object context.
     return refs
 
 

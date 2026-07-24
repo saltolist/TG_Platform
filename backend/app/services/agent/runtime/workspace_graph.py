@@ -1852,6 +1852,11 @@ async def run_workspace_graph(
             and runtime_context.settings.agent_planner_phase5_enabled
             and int(runtime_context.turn_contract.get("version") or 0) >= 3
         ),
+        "verified_pack_boundary_enabled": bool(
+            getattr(runtime_context.settings, "agent_verified_pack_boundary_v1_enabled", False)
+            and runtime_context.settings.agent_planner_phase5_enabled
+            and int(runtime_context.turn_contract.get("version") or 0) >= 3
+        ),
         "material_plan": empty_material_plan(),
         "candidate_envelopes": [],
         "planner_calls_used": 0,

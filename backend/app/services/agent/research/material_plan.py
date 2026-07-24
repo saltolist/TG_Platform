@@ -8,9 +8,26 @@ from app.services.ai.semantic_summary import DISCOVERY_SUMMARY_VERSION
 
 
 MATERIAL_PLAN_SCHEMA = "workspace.material-plan/v1"
+MATERIAL_PLAN_SCHEMA_V2 = "workspace.material-plan/v2"
 MAX_PLANNER_CANDIDATES = 16
 MAX_CANDIDATE_REGISTRY = 100
 FULL_READ_BATCH_SIZE = 3
+DEFAULT_MAX_PACK_OBJECTS = 8
+DEFAULT_MAX_FULL_TEXT_CHARS = 12_000
+DEFAULT_MAX_CARD_CHARS = 6_000
+DEFAULT_FULL_TEXT_RESERVATION_CHARS = 4_000
+
+_FIDELITY_RANK = {
+    "metadata": 0,
+    "catalog": 0,
+    "semantic_card": 1,
+    "card": 1,
+    "text": 2,
+    "full_text": 2,
+    "analytics": 2,
+    "vision": 3,
+    "none": -1,
+}
 
 CANDIDATE_ENVELOPE_SCHEMA = "workspace.candidate-envelope/v1"
 _ORIGIN_INCLUSION_PRIORITY = {
@@ -304,6 +321,13 @@ def empty_material_plan() -> dict[str, Any]:
         "coverage": "complete",
         "full_read_batches": [],
         "card_eligibility_failures": {},
+        # Phase-4 fields are additive so v1 checkpoints remain readable.
+        "materialization_queue": [],
+        "discovery_actions": [],
+        "gaps": [],
+        "runtime_trace": [],
+        "budget": {},
+        "budget_usage": {},
     }
 
 
@@ -449,6 +473,301 @@ def merge_material_plan(
     }
 
 
+def _effective_fidelity(requested: str, required: str) -> str:
+    requested_name = "semantic_card" if requested == "card" else requested
+    required_name = "semantic_card" if required == "card" else required
+    if _FIDELITY_RANK.get(required_name, 2) > _FIDELITY_RANK.get(requested_name, 2):
+        return required_name
+    return requested_name
+
+
+def _candidate_source_ids(candidate: Mapping[str, Any]) -> list[str]:
+    return _unique(
+        [
+            *(candidate.get("source_requirement_ids") or ()),
+            str(candidate.get("source_requirement_id") or ""),
+        ]
+    )
+
+
+def compile_material_plan(
+    previous: Mapping[str, Any] | None,
+    *,
+    candidates: Iterable[Mapping[str, Any]],
+    assessments: Iterable[Mapping[str, Any]],
+    source_dispositions: Iterable[Mapping[str, Any]] = (),
+    contract: Mapping[str, Any] | None = None,
+    max_objects: int = DEFAULT_MAX_PACK_OBJECTS,
+    max_full_text_chars: int = DEFAULT_MAX_FULL_TEXT_CHARS,
+    max_card_chars: int = DEFAULT_MAX_CARD_CHARS,
+) -> dict[str, Any]:
+    """Compile the Selector decision into the only DB-readable material queue.
+
+    Relevance is consumed as typed input and is never recomputed here. The
+    compiler only applies contract fidelity, provenance and deterministic
+    budgets. Its legacy id lists are a compatibility projection of the queue.
+    """
+
+    candidate_list = [dict(item) for item in candidates if isinstance(item, Mapping)]
+    assessment_list = [dict(item) for item in assessments if isinstance(item, Mapping)]
+    plan = merge_material_plan(
+        previous,
+        candidates=candidate_list,
+        assessments=assessment_list,
+    )
+    candidate_map = {
+        canonical_candidate_ref(str(item.get("ref") or "")): dict(item)
+        for item in plan.get("candidates") or ()
+        if isinstance(item, Mapping) and item.get("ref")
+    }
+    assessment_map = {
+        canonical_candidate_ref(str(item.get("ref") or "")): dict(item)
+        for item in plan.get("assessments") or ()
+        if isinstance(item, Mapping) and item.get("ref")
+    }
+    requirements = {
+        str(item.get("source_id") or ""): dict(item)
+        for item in (contract or {}).get("source_requirements") or ()
+        if isinstance(item, Mapping) and item.get("source_id")
+    }
+    dispositions = {
+        str(item.get("source_id") or ""): str(item.get("status") or "")
+        for item in source_dispositions
+        if isinstance(item, Mapping) and item.get("source_id")
+    }
+
+    trace = list(plan.get("runtime_trace") or ())
+    gaps = [
+        dict(item)
+        for item in plan.get("gaps") or ()
+        if isinstance(item, Mapping)
+        and str(item.get("kind") or "") not in {
+            "no_relevant_candidate",
+            "search_more",
+            "material_budget",
+        }
+    ]
+    discovery_actions: list[dict[str, Any]] = []
+    for source_id in sorted(dispositions):
+        status = dispositions[source_id]
+        if status == "no_relevant_candidate":
+            gaps.append(
+                {
+                    "kind": "no_relevant_candidate",
+                    "source_id": source_id,
+                    "blocks_ready": False,
+                }
+            )
+        elif status == "search_more":
+            discovery_actions.append(
+                {
+                    "kind": "bounded_discovery",
+                    "source_id": source_id,
+                    "max_actions": 1,
+                }
+            )
+            gaps.append(
+                {"kind": "search_more", "source_id": source_id, "blocks_ready": True}
+            )
+        elif status == "ambiguous":
+            gaps.append(
+                {"kind": "ambiguous", "source_id": source_id, "blocks_ready": True}
+            )
+
+    selector_failed = bool(plan.get("selector_failure"))
+    selected: list[tuple[tuple[Any, ...], dict[str, Any]]] = []
+    for ref, candidate in candidate_map.items():
+        assessment = assessment_map.get(ref)
+        exact_target = str(candidate.get("origin") or "") == "exact_target"
+        if assessment is None:
+            if not (selector_failed and exact_target):
+                continue
+            assessment = {
+                "ref": ref,
+                "relevance": "direct",
+                "resolution": "full_text",
+                "reason_code": "exact_target_guarantee",
+                "selection_source": "deterministic_exact_target",
+                "confidence": 1.0,
+            }
+            trace.append(
+                {"ref": ref, "kind": "exact_target_preserved_after_selector_failure"}
+            )
+        relevance = str(assessment.get("relevance") or "irrelevant")
+        if relevance not in {"direct", "supporting"}:
+            continue
+
+        source_ids = _candidate_source_ids(candidate)
+        required_fidelities = [
+            str(requirements[source_id].get("required_fidelity") or requirements[source_id].get("evidence_granularity") or "full_text")
+            for source_id in source_ids
+            if source_id in requirements
+        ]
+        required_fidelity = max(
+            required_fidelities or ["metadata"],
+            key=lambda value: _FIDELITY_RANK.get(value, 2),
+        )
+        requested_fidelity = str(assessment.get("resolution") or "full_text")
+        effective_fidelity = _effective_fidelity(requested_fidelity, required_fidelity)
+        if effective_fidelity == "semantic_card" and not bool(candidate.get("card_eligible")):
+            effective_fidelity = "full_text"
+            trace.append(
+                {
+                    "ref": ref,
+                    "kind": "fidelity_promotion",
+                    "from": "semantic_card",
+                    "to": "full_text",
+                    "reason": str(candidate.get("card_eligibility_failure") or "ineligible_card"),
+                }
+            )
+        elif _FIDELITY_RANK.get(effective_fidelity, 2) > _FIDELITY_RANK.get(requested_fidelity, 2):
+            trace.append(
+                {
+                    "ref": ref,
+                    "kind": "fidelity_promotion",
+                    "from": requested_fidelity,
+                    "to": effective_fidelity,
+                    "reason": "contract_fidelity_floor",
+                }
+            )
+
+        estimated_chars = (
+            len(str(candidate.get("card_text") or ""))
+            if effective_fidelity == "semantic_card"
+            else max(
+                1,
+                int(
+                    candidate.get("estimated_full_text_chars")
+                    or candidate.get("estimated_chars")
+                    or DEFAULT_FULL_TEXT_RESERVATION_CHARS
+                ),
+            )
+        )
+        required_source = any(
+            str(requirements.get(source_id, {}).get("evidence_obligation") or "") == "required"
+            or bool(requirements.get(source_id, {}).get("required"))
+            for source_id in source_ids
+        )
+        queue_item = {
+            "ref": ref,
+            "object_kind": str(candidate.get("kind") or ref.partition(":")[0]),
+            "relevance": relevance,
+            "role": str(assessment.get("selected_role") or assessment.get("role") or "answer_evidence"),
+            "requested_fidelity": requested_fidelity,
+            "required_fidelity": required_fidelity,
+            "effective_fidelity": effective_fidelity,
+            "estimated_chars": estimated_chars,
+            "source_requirement_ids": source_ids,
+            "source_requirement_id": source_ids[0] if source_ids else "",
+            "parent": dict(candidate.get("parent")) if isinstance(candidate.get("parent"), Mapping) else None,
+            "citation_path": str(candidate.get("citation_path") or ""),
+            "expected_revision": int(candidate.get("source_revision") or 0),
+            "provenance": {
+                "candidate_origin": str(candidate.get("origin") or ""),
+                "selector_schema": "workspace.context-selector/v2",
+                "selection_source": str(assessment.get("selection_source") or "context_selector_v2"),
+                "reason_code": str(assessment.get("reason_code") or ""),
+                "parent": dict(candidate.get("parent")) if isinstance(candidate.get("parent"), Mapping) else None,
+            },
+        }
+        priority = (
+            0 if exact_target else 1 if relevance == "direct" and required_source else 2 if relevance == "direct" else 3,
+            int(candidate.get("inclusion_priority") or 50),
+            -float(assessment.get("confidence") or 0.0),
+            ref,
+        )
+        selected.append((priority, queue_item))
+
+    selected.sort(key=lambda item: item[0])
+    queue: list[dict[str, Any]] = []
+    omitted = list(plan.get("omitted_ids") or ())
+    used_full = 0
+    used_cards = 0
+    for _priority, item in selected:
+        fidelity = str(item["effective_fidelity"])
+        estimate = int(item["estimated_chars"])
+        reason = ""
+        if len(queue) >= max(0, int(max_objects)):
+            reason = "object_budget"
+        elif fidelity == "semantic_card" and used_cards + estimate > max(0, int(max_card_chars)):
+            reason = "card_char_budget"
+        elif fidelity != "semantic_card" and used_full + estimate > max(0, int(max_full_text_chars)):
+            reason = "full_text_char_budget"
+        if reason:
+            omitted.append(str(item["ref"]))
+            gaps.append(
+                {
+                    "kind": "material_budget",
+                    "source_id": str(item.get("source_requirement_id") or ""),
+                    "ref": str(item["ref"]),
+                    "reason": reason,
+                    "blocks_ready": item["relevance"] == "direct",
+                }
+            )
+            trace.append({"ref": item["ref"], "kind": "budget_omission", "reason": reason})
+            continue
+        queue.append(item)
+        if fidelity == "semantic_card":
+            used_cards += estimate
+        else:
+            used_full += estimate
+
+    card_ids = [item["ref"] for item in queue if item["effective_fidelity"] == "semantic_card"]
+    full_ids = [item["ref"] for item in queue if item["effective_fidelity"] != "semantic_card"]
+    direct_refs = {item["ref"] for item in queue if item["relevance"] == "direct"}
+    opened = _unique(plan.get("opened_full_text_ids") or ())
+    failed = _unique(plan.get("failed_full_text_ids") or ())
+    pending = [ref for ref in full_ids if ref not in opened and ref not in failed]
+    required_full = [ref for ref in full_ids if ref in direct_refs]
+    optional_full = [ref for ref in full_ids if ref not in direct_refs]
+    omitted = _unique((*omitted, *failed))
+    return {
+        **plan,
+        "schema": MATERIAL_PLAN_SCHEMA_V2,
+        "candidates": [
+            {
+                **candidate_map[ref],
+                **(
+                    {"selected_resolution": next(item["effective_fidelity"] for item in queue if item["ref"] == ref)}
+                    if any(item["ref"] == ref for item in queue)
+                    else {}
+                ),
+            }
+            for ref in candidate_map
+        ],
+        "source_dispositions": [
+            {"source_id": source_id, "status": dispositions[source_id]}
+            for source_id in sorted(dispositions)
+        ],
+        "materialization_queue": queue,
+        "card_ids": card_ids,
+        "required_full_text_ids": required_full,
+        "optional_full_text_ids": optional_full,
+        "pending_full_text_ids": pending,
+        "omitted_ids": omitted,
+        "promoted_to_full_text_ids": _unique(
+            item["ref"]
+            for item in queue
+            if item["effective_fidelity"] == "full_text"
+            and item["requested_fidelity"] in {"card", "semantic_card"}
+        ),
+        "discovery_actions": discovery_actions,
+        "gaps": gaps,
+        "runtime_trace": trace,
+        "budget": {
+            "max_objects": max(0, int(max_objects)),
+            "max_full_text_chars": max(0, int(max_full_text_chars)),
+            "max_card_chars": max(0, int(max_card_chars)),
+        },
+        "budget_usage": {
+            "objects": len(queue),
+            "full_text_chars_reserved": used_full,
+            "card_chars_reserved": used_cards,
+        },
+        "coverage": "partial" if omitted or selector_failed or any(item.get("blocks_ready") for item in gaps) else "complete",
+    }
+
+
 def next_full_read_batch(plan: Mapping[str, Any], *, size: int = FULL_READ_BATCH_SIZE) -> list[str]:
     pending = set(str(item) for item in plan.get("pending_full_text_ids") or ())
     ordered = [
@@ -508,7 +827,21 @@ def record_full_read_results(
             _unique(batch),
         ]
     required = set(str(ref) for ref in result.get("required_full_text_ids") or ())
-    result["coverage"] = "partial" if required & set(result["omitted_ids"]) else "complete"
+    v2_partial = (
+        str(result.get("schema") or "") == MATERIAL_PLAN_SCHEMA_V2
+        and (
+            bool(result["omitted_ids"])
+            or any(
+                bool(item.get("blocks_ready"))
+                for item in result.get("gaps") or ()
+                if isinstance(item, Mapping)
+            )
+            or bool(result.get("selector_failure"))
+        )
+    )
+    result["coverage"] = (
+        "partial" if required & set(result["omitted_ids"]) or v2_partial else "complete"
+    )
     return result
 
 
@@ -517,11 +850,13 @@ __all__ = [
     "CandidateEnvelope",
     "FULL_READ_BATCH_SIZE",
     "MATERIAL_PLAN_SCHEMA",
+    "MATERIAL_PLAN_SCHEMA_V2",
     "MAX_CANDIDATE_REGISTRY",
     "MAX_PLANNER_CANDIDATES",
     "canonical_candidate_ref",
     "card_eligibility",
     "citation_path_for_ref",
+    "compile_material_plan",
     "empty_material_plan",
     "merge_material_plan",
     "next_full_read_batch",
