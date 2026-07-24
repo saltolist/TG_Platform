@@ -9,7 +9,7 @@ from app.services.agent.research.graph import (
     _apply_complete_source_policy,
     _selector_decision_is_valid,
 )
-from app.services.agent.research.planner_decision import ContextSelectorDecision
+from app.services.agent.research.planner_decision import LegacyContextSelectorDecision
 from app.services.agent.research.sufficiency import evaluate_sufficiency
 from app.services.agent.runtime.turn_contract import (
     TYPED_TURN_CONTRACT_SCHEMA,
@@ -297,7 +297,7 @@ def test_v3_selector_validation_uses_cardinality_and_never_forces_complete_selec
         {"ref": "note:n1", "source_requirement_id": notes["source_id"]},
         {"ref": "note:n2", "source_requirement_id": notes["source_id"]},
     ]
-    empty = ContextSelectorDecision(selections=())
+    empty = LegacyContextSelectorDecision(selections=())
 
     assert _selector_decision_is_valid(
         empty,

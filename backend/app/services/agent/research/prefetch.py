@@ -163,7 +163,8 @@ async def load_discovery_cards_for_objects(
             {
                 "ref": f"{'post' if object_kind == 'posts' else 'note'}:{object_id}",
                 "label": f"{'post' if object_kind == 'posts' else 'note'}:{object_id}",
-                "similarity": 1.0,
+                "origin": "authoritative_catalog",
+                "semantic_score": None,
                 "node_type": node_type,
                 "summary_only": True,
                 "index_revision": index_revision,
@@ -643,8 +644,10 @@ async def retrieve_for_discovery(
             {
                 **item,
                 **card,
-                # Preserve discovery ordering and query-specific ranking. The
-                # exact card loader uses similarity=1 only as a lookup marker.
+                # Preserve query-specific ranking separately from the exact
+                # card lookup that supplied the durable summary.
+                "origin": "semantic_search",
+                "semantic_score": item.get("similarity"),
                 "similarity": item.get("similarity"),
                 "blended_score": item.get("blended_score"),
                 "rank_fusion_score": item.get("rank_fusion_score"),

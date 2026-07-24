@@ -1,0 +1,30 @@
+{
+  "schema": "workspace.unified-phase3-replay/v1",
+  "scenarios": [
+    {
+      "id": "ambient-relevant",
+      "candidates": [
+        {"ref": "note:ambient", "origin": "ambient_current_post", "semantic_score": null, "source_requirement_id": "workspace-notes", "parent_post_id": "post-1"}
+      ],
+      "decision": {"assessments": [{"ref": "note:ambient", "relevance": "direct", "role": "answer_evidence", "resolution": "full_text", "confidence": 0.95, "reason_code": "exact_fact"}], "source_dispositions": [{"source_id": "workspace-notes", "status": "selected"}]},
+      "selected_refs": ["note:ambient"]
+    },
+    {
+      "id": "all-irrelevant",
+      "candidates": [
+        {"ref": "note:weak", "origin": "semantic_search", "semantic_score": 0.12, "source_requirement_id": "workspace-notes"},
+        {"ref": "post:weak", "origin": "semantic_search", "semantic_score": 0.1, "source_requirement_id": "workspace-posts"}
+      ],
+      "decision": {"assessments": [{"ref": "note:weak", "relevance": "irrelevant", "role": "none", "resolution": "none", "confidence": 0.92, "reason_code": "unrelated_topic"}, {"ref": "post:weak", "relevance": "irrelevant", "role": "none", "resolution": "none", "confidence": 0.9, "reason_code": "unrelated_topic"}], "source_dispositions": [{"source_id": "workspace-notes", "status": "no_relevant_candidate"}, {"source_id": "workspace-posts", "status": "no_relevant_candidate"}]},
+      "selected_refs": []
+    },
+    {
+      "id": "parent-is-metadata",
+      "candidates": [
+        {"ref": "note:child", "origin": "authoritative_catalog", "semantic_score": null, "source_requirement_id": "workspace-notes", "parent_post_id": "owner"}
+      ],
+      "decision": {"assessments": [{"ref": "note:child", "relevance": "supporting", "role": "answer_evidence", "resolution": "card", "confidence": 0.88, "reason_code": "topic_only"}], "source_dispositions": [{"source_id": "workspace-notes", "status": "selected"}]},
+      "selected_refs": ["note:child"]
+    }
+  ]
+}

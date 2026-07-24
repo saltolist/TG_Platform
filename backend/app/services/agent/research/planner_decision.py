@@ -63,13 +63,15 @@ class ContextSelection(BaseModel):
     resolution: ContextResolution
 
 
-class ContextSelectorDecision(BaseModel):
+class LegacyContextSelectorDecision(BaseModel):
+    """Rollback-only positive-selection projection used by the v1 path."""
+
     model_config = ConfigDict(extra="forbid", frozen=True)
 
     selections: tuple[ContextSelection, ...] = Field(default=(), max_length=16)
 
     @model_validator(mode="after")
-    def validate_unique_refs(self) -> "ContextSelectorDecision":
+    def validate_unique_refs(self) -> "LegacyContextSelectorDecision":
         refs = [item.ref for item in self.selections]
         if len(refs) != len(set(refs)):
             raise ValueError("selector contains duplicate refs")
@@ -86,6 +88,81 @@ class CandidateReasonCode(StrEnum):
     ATTACHMENT_OR_MEDIA = "attachment_or_media"
     ANALYTICS = "analytics"
     LOW_CARD_QUALITY = "low_card_quality"
+    UNRELATED_TOPIC = "unrelated_topic"
+    AMBIGUOUS = "ambiguous"
+    SEARCH_MORE = "search_more"
+
+
+class SelectorRole(StrEnum):
+    ANSWER_EVIDENCE = "answer_evidence"
+    NONE = "none"
+
+
+class SelectorResolution(StrEnum):
+    NONE = "none"
+    CARD = "card"
+    FULL_TEXT = "full_text"
+    METADATA = "metadata"
+    TEXT = "text"
+    VISION = "vision"
+    ANALYTICS = "analytics"
+
+
+class SourceDispositionStatus(StrEnum):
+    SELECTED = "selected"
+    NO_RELEVANT_CANDIDATE = "no_relevant_candidate"
+    SEARCH_MORE = "search_more"
+    AMBIGUOUS = "ambiguous"
+
+
+class ContextSelectorAssessment(BaseModel):
+    """The selector's complete semantic assessment of one visible ref."""
+
+    model_config = ConfigDict(extra="forbid", frozen=True)
+
+    ref: str = Field(min_length=3, max_length=240)
+    relevance: CandidateRelevance
+    role: SelectorRole
+    resolution: SelectorResolution
+    confidence: float = Field(ge=0.0, le=1.0)
+    reason_code: CandidateReasonCode
+
+    @model_validator(mode="after")
+    def validate_semantics(self) -> "ContextSelectorAssessment":
+        if self.relevance == CandidateRelevance.IRRELEVANT:
+            if self.role != SelectorRole.NONE or self.resolution != SelectorResolution.NONE:
+                raise ValueError("irrelevant assessment requires role=none and resolution=none")
+        elif self.role != SelectorRole.ANSWER_EVIDENCE or self.resolution == SelectorResolution.NONE:
+            raise ValueError(
+                "direct/supporting assessment requires role=answer_evidence and a resolution"
+            )
+        return self
+
+
+class SourceDisposition(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True)
+
+    source_id: str = Field(min_length=1, max_length=160)
+    status: SourceDispositionStatus
+
+
+class ContextSelectorDecision(BaseModel):
+    """Canonical v2 selector output: every visible ref and source is explicit."""
+
+    model_config = ConfigDict(extra="forbid", frozen=True)
+
+    assessments: tuple[ContextSelectorAssessment, ...] = Field(max_length=16)
+    source_dispositions: tuple[SourceDisposition, ...] = Field(max_length=16)
+
+    @model_validator(mode="after")
+    def validate_unique_keys(self) -> "ContextSelectorDecision":
+        refs = [item.ref for item in self.assessments]
+        if len(refs) != len(set(refs)):
+            raise ValueError("selector contains duplicate assessment refs")
+        source_ids = [item.source_id for item in self.source_dispositions]
+        if len(source_ids) != len(set(source_ids)):
+            raise ValueError("selector contains duplicate source dispositions")
+        return self
 
 
 class CandidateAssessment(BaseModel):
@@ -213,7 +290,29 @@ def parse_context_selector_decision(raw: str) -> ContextSelectorDecision | None:
         return None
 
 
+def parse_legacy_context_selector_decision(raw: str) -> LegacyContextSelectorDecision | None:
+    payload = extract_json_object(raw or "")
+    if not isinstance(payload, Mapping):
+        return None
+    try:
+        return LegacyContextSelectorDecision.model_validate(payload)
+    except (ValidationError, TypeError, ValueError):
+        return None
+
+
 def render_context_selector_schema() -> str:
+    return (
+        '{"assessments":[{"ref":"post:ID","relevance":"direct",'
+        '"role":"answer_evidence","resolution":"card","confidence":0.94,'
+        '"reason_code":"topic_only"},{"ref":"note:ID","relevance":"irrelevant",'
+        '"role":"none","resolution":"none","confidence":0.97,'
+        '"reason_code":"unrelated_topic"}],"source_dispositions":['
+        '{"source_id":"workspace-posts","status":"selected"},'
+        '{"source_id":"workspace-notes","status":"no_relevant_candidate"}]}'
+    )
+
+
+def render_legacy_context_selector_schema() -> str:
     return (
         '{"selections":[{"ref":"post:ID","role":"target",'
         '"resolution":"card"},{"ref":"note:ID","role":"supporting",'
@@ -243,11 +342,19 @@ __all__ = [
     "ContextRole",
     "ContextSelection",
     "ContextSelectorDecision",
+    "ContextSelectorAssessment",
+    "LegacyContextSelectorDecision",
+    "SelectorResolution",
+    "SelectorRole",
+    "SourceDisposition",
+    "SourceDispositionStatus",
     "PlannerAction",
     "PlannerDecision",
     "PlannerStateUpdates",
     "parse_planner_decision",
     "parse_context_selector_decision",
+    "parse_legacy_context_selector_decision",
     "render_context_selector_schema",
+    "render_legacy_context_selector_schema",
     "render_planner_schema",
 ]

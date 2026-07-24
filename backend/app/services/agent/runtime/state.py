@@ -106,6 +106,7 @@ class AgentGraphState(TypedDict, total=False):
     validator_events: list[dict[str, Any]]
     phase5_enabled: bool
     adaptive_evidence_depth_enabled: bool
+    unified_selector_enabled: bool
     planner_calls_used: int
     search_calls_used: int
     deep_reads_used: int

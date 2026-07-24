@@ -1837,9 +1837,20 @@ async def run_workspace_graph(
             and int(runtime_context.turn_contract.get("version") or 0) >= 2
         ),
         "adaptive_evidence_depth_enabled": bool(
-            getattr(runtime_context.settings, "agent_adaptive_evidence_depth_v1_enabled", False)
+            (
+                getattr(runtime_context.settings, "agent_adaptive_evidence_depth_v1_enabled", False)
+                or (
+                    getattr(runtime_context.settings, "agent_unified_selector_v1_enabled", False)
+                    and int(runtime_context.turn_contract.get("version") or 0) >= 3
+                )
+            )
             and runtime_context.settings.agent_planner_phase5_enabled
             and int(runtime_context.turn_contract.get("version") or 0) >= 2
+        ),
+        "unified_selector_enabled": bool(
+            getattr(runtime_context.settings, "agent_unified_selector_v1_enabled", False)
+            and runtime_context.settings.agent_planner_phase5_enabled
+            and int(runtime_context.turn_contract.get("version") or 0) >= 3
         ),
         "material_plan": empty_material_plan(),
         "candidate_envelopes": [],

@@ -658,7 +658,8 @@ async def test_complete_catalog_loads_cards_by_id_without_similarity_ranking() -
         source_requirement_id="workspace-posts",
     )
     assert [item["ref"] for item in cards] == [f"post:p{index}" for index in range(5)]
-    assert all(item["similarity"] == 1.0 for item in cards)
+    assert all(item["origin"] == "authoritative_catalog" for item in cards)
+    assert all(item["semantic_score"] is None for item in cards)
 
 
 def test_five_full_reads_dispatch_as_three_plus_two_without_planner() -> None:

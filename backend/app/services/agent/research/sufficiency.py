@@ -389,6 +389,11 @@ def evaluate_sufficiency(
             evidence_ids=evidence_ids,
         )
         typed_gaps = list(gaps)
+        typed_gaps.extend(
+            dict(item)
+            for item in state.get("evidence_gaps") or ()
+            if isinstance(item, Mapping) and str(item.get("kind") or "").startswith("selector_")
+        )
         for missing_ref in material_missing:
             typed_gaps.append(
                 _gap(

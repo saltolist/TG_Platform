@@ -2,14 +2,56 @@
 
 from __future__ import annotations
 
-from typing import Any, Iterable, Mapping
+from typing import Any, Iterable, Mapping, NotRequired, TypedDict
 
 from app.services.ai.semantic_summary import DISCOVERY_SUMMARY_VERSION
 
 
 MATERIAL_PLAN_SCHEMA = "workspace.material-plan/v1"
 MAX_PLANNER_CANDIDATES = 16
+MAX_CANDIDATE_REGISTRY = 100
 FULL_READ_BATCH_SIZE = 3
+
+CANDIDATE_ENVELOPE_SCHEMA = "workspace.candidate-envelope/v1"
+_ORIGIN_INCLUSION_PRIORITY = {
+    "exact_target": 0,
+    "ambient_current_post": 10,
+    "dialog_reference": 20,
+    "authoritative_catalog": 30,
+    "catalog_member": 30,
+    "semantic_search": 40,
+}
+
+
+class CandidateEnvelope(TypedDict):
+    schema: str
+    ref: str
+    kind: str
+    title: str
+    card_text: str
+    origin: str
+    inclusion_priority: int
+    semantic_score: float | None
+    source_requirement_ids: list[str]
+    source_requirement_id: str
+    parent: dict[str, str] | None
+    available_fidelity: list[str]
+    card_eligible: bool
+    card_eligibility_failure: str | None
+    index_revision: int
+    source_revision: int
+    summary_version: int
+    summary_model: str
+    card_origin: str
+    status: str
+    parent_post_id: str | None
+    parent_note_id: str | None
+    post_id: str | None
+    file_id: str | None
+    node_type: str
+    citation_path: str
+    has_more: bool
+    score: NotRequired[float | None]
 
 
 def canonical_candidate_ref(value: str) -> str:
@@ -84,7 +126,7 @@ def normalize_candidate(
     candidate: Mapping[str, Any],
     *,
     scope: str = "global",
-) -> dict[str, Any] | None:
+) -> CandidateEnvelope | None:
     ref = canonical_candidate_ref(str(candidate.get("ref") or candidate.get("label") or ""))
     kind, _, object_id = ref.partition(":")
     if kind not in {"note", "post", "file", "attachment", "media", "analytics"} or not object_id:
@@ -100,6 +142,7 @@ def normalize_candidate(
     citation_path = str(candidate.get("citation_path") or "")
     if not citation_path and kind == "note" and parent_post_id:
         citation_path = f"/note/post/{parent_post_id}/{object_id}/"
+    origin = str(candidate.get("origin") or "semantic_search").strip() or "semantic_search"
     raw_semantic_score = (
         candidate.get("semantic_score")
         if "semantic_score" in candidate
@@ -113,7 +156,27 @@ def normalize_candidate(
         )
     except (TypeError, ValueError):
         semantic_score = None
-    envelope = {
+    if origin != "semantic_search":
+        semantic_score = None
+    source_requirement_ids = list(
+        dict.fromkeys(
+            str(item)
+            for item in [
+                *(candidate.get("source_requirement_ids") or ()),
+                candidate.get("source_requirement_id"),
+            ]
+            if str(item or "")
+        )
+    )
+    parent = (
+        {"kind": "post", "ref": f"post:{parent_post_id}"}
+        if parent_post_id
+        else {"kind": "note", "ref": f"note:{parent_note_id}"}
+        if parent_note_id
+        else None
+    )
+    envelope: CandidateEnvelope = {
+        "schema": CANDIDATE_ENVELOPE_SCHEMA,
         "ref": ref,
         "kind": kind,
         "title": str(candidate.get("title") or candidate.get("label") or ref)[:240],
@@ -123,10 +186,16 @@ def normalize_candidate(
             or candidate.get("chunk_text")
             or ""
         )[:480],
-        "origin": str(candidate.get("origin") or "semantic_search"),
+        "origin": origin,
+        "inclusion_priority": int(
+            candidate.get("inclusion_priority")
+            if candidate.get("inclusion_priority") is not None
+            else _ORIGIN_INCLUSION_PRIORITY.get(origin, 50)
+        ),
         "semantic_score": semantic_score,
         "score": semantic_score,
-        "source_requirement_id": str(candidate.get("source_requirement_id") or ""),
+        "source_requirement_ids": source_requirement_ids,
+        "source_requirement_id": source_requirement_ids[0] if source_requirement_ids else "",
         "index_revision": index_revision,
         "source_revision": source_revision,
         "summary_version": int(candidate.get("summary_version") or 0),
@@ -135,15 +204,26 @@ def normalize_candidate(
         "status": str(candidate.get("status") or "active"),
         "parent_post_id": parent_post_id or None,
         "parent_note_id": parent_note_id or None,
+        "parent": parent,
         "post_id": post_id or None,
         "file_id": file_id or None,
         "node_type": str(candidate.get("node_type") or ""),
         "citation_path": citation_path or citation_path_for_ref(ref, scope=scope),
         "has_more": bool(candidate.get("has_more")),
+        "available_fidelity": [],
     }
     eligible, failure = card_eligibility(envelope)
     envelope["card_eligible"] = eligible
     envelope["card_eligibility_failure"] = failure
+    if kind in {"note", "post"}:
+        envelope["available_fidelity"] = [
+            *(["semantic_card"] if eligible else []),
+            "full_text",
+        ]
+    elif kind in {"file", "attachment", "media"}:
+        envelope["available_fidelity"] = ["metadata", "text", "vision"]
+    elif kind == "analytics":
+        envelope["available_fidelity"] = ["analytics"]
     return envelope
 
 
@@ -151,18 +231,53 @@ def normalize_candidates(
     candidates: Iterable[Mapping[str, Any]],
     *,
     scope: str = "global",
-    limit: int = MAX_PLANNER_CANDIDATES,
+    limit: int = MAX_CANDIDATE_REGISTRY,
 ) -> list[dict[str, Any]]:
     normalized: list[dict[str, Any]] = []
-    seen: set[str] = set()
+    by_ref: dict[str, int] = {}
     for raw in candidates:
         candidate = normalize_candidate(raw, scope=scope)
-        if candidate is None or candidate["ref"] in seen:
+        if candidate is None:
             continue
-        seen.add(candidate["ref"])
-        normalized.append(candidate)
+        ref = candidate["ref"]
+        if ref in by_ref:
+            index = by_ref[ref]
+            previous = normalized[index]
+            source_ids = list(
+                dict.fromkeys(
+                    [
+                        *previous.get("source_requirement_ids", ()),
+                        *candidate.get("source_requirement_ids", ()),
+                    ]
+                )
+            )
+            preferred = (
+                candidate
+                if int(candidate["inclusion_priority"]) < int(previous["inclusion_priority"])
+                else previous
+            )
+            normalized[index] = {
+                **preferred,
+                "source_requirement_ids": source_ids,
+                "source_requirement_id": source_ids[0] if source_ids else "",
+                "has_more": bool(previous.get("has_more") or candidate.get("has_more")),
+            }
+            continue
         if len(normalized) >= limit:
-            break
+            continue
+        by_ref[ref] = len(normalized)
+        normalized.append(candidate)
+    normalized.sort(
+        key=lambda item: (
+            int(item["inclusion_priority"])
+            if item.get("inclusion_priority") is not None
+            else 50,
+            -float(item["semantic_score"])
+            if item.get("semantic_score") is not None
+            else 0.0,
+            str(item.get("ref") or ""),
+        )
+    )
     return normalized
 
 
@@ -398,8 +513,11 @@ def record_full_read_results(
 
 
 __all__ = [
+    "CANDIDATE_ENVELOPE_SCHEMA",
+    "CandidateEnvelope",
     "FULL_READ_BATCH_SIZE",
     "MATERIAL_PLAN_SCHEMA",
+    "MAX_CANDIDATE_REGISTRY",
     "MAX_PLANNER_CANDIDATES",
     "canonical_candidate_ref",
     "card_eligibility",

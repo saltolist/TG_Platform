@@ -66,14 +66,20 @@ def test_compact_decision_is_strict_and_allows_bounded_batch() -> None:
 
 def test_context_selector_is_id_only_and_rejects_generated_content() -> None:
     decision = parse_context_selector_decision(
-        '{"selections":[{"ref":"post:p1","role":"target","resolution":"card"},'
-        '{"ref":"attachment:f1","role":"supporting","resolution":"vision"}]}'
+        '{"assessments":[{"ref":"post:p1","relevance":"direct",'
+        '"role":"answer_evidence","resolution":"card","confidence":0.9,'
+        '"reason_code":"topic_only"},{"ref":"attachment:f1",'
+        '"relevance":"supporting","role":"answer_evidence","resolution":"vision",'
+        '"confidence":0.8,"reason_code":"attachment_or_media"}],'
+        '"source_dispositions":[{"source_id":"workspace-posts","status":"selected"}]}'
     )
     assert isinstance(decision, ContextSelectorDecision)
-    assert [item.ref for item in decision.selections] == ["post:p1", "attachment:f1"]
+    assert [item.ref for item in decision.assessments] == ["post:p1", "attachment:f1"]
     assert parse_context_selector_decision(
-        '{"selections":[{"ref":"post:p1","role":"target",'
-        '"resolution":"card","content":"generated summary"}]}'
+        '{"assessments":[{"ref":"post:p1","relevance":"direct",'
+        '"role":"answer_evidence","resolution":"card","confidence":0.9,'
+        '"reason_code":"topic_only","content":"generated summary"}],'
+        '"source_dispositions":[]}'
     ) is None
 
 
