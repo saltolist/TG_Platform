@@ -88,6 +88,20 @@ def test_agent_feature_flags_parse_strings() -> None:
     assert Settings(agent_media_enabled="true").agent_media_enabled is True
 
 
+def test_unified_integrity_rollout_flags_are_reserved_off() -> None:
+    settings = Settings()
+    flag_names = (
+        "agent_unified_catalog_v1_enabled",
+        "agent_typed_requirements_v1_enabled",
+        "agent_unified_selector_v1_enabled",
+        "agent_verified_pack_boundary_v1_enabled",
+        "agent_planner_policy_v1_enabled",
+        "agent_unified_default_on",
+    )
+    assert all(getattr(settings, name) is False for name in flag_names)
+    assert Settings(agent_unified_catalog_v1_enabled="1").agent_unified_catalog_v1_enabled is True
+
+
 def test_provider_keys_default_empty() -> None:
     settings = Settings()
     assert settings.openai_api_key == ""

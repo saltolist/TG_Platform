@@ -324,6 +324,29 @@ cardinality, fidelity floor, parent metadata и право на materialization.
 - `planner_noop_rate` и evidence delta;
 - p50/p95 latency, tool calls, planner calls и context tokens.
 
+### Quality floors, зафиксированные фазой 0
+
+Точка отсчета: commit `128a96497416bc40d5d019ad3be97866ad094394`.
+Read-only отчет: `cd backend && .venv/bin/python
+scripts/agent_unified_phase0_report.py --repeat 2 --check`.
+
+- существующие golden/held-out expected results и evidence не изменяются без
+  отдельной regression note; их fixtures защищены SHA-256;
+- fast/exact/mutation flows не получают дополнительный planner call;
+- latency и tool/planner calls не ухудшаются без отдельно согласованного budget;
+- отсутствующая telemetry всегда имеет `availability=unavailable` и `value=null`,
+  но не `0`; на baseline context tokens отсутствуют для 32 из 32 trace runs;
+- `fallback_select_all_rate`, `required_source_forced_selection_rate`,
+  `fidelity_mismatch_rate` и `structural_count_error_rate` должны стать `0` на
+  соответствующих fixtures до default-on;
+- selector precision/recall, required evidence recall, final pack precision,
+  catalog unknown rate и planner noop rate не считаются прошедшими gate, пока
+  typed state не сделает их измеримыми; до этого отчет явно помечает их
+  `unavailable` либо `derived` только на синтетическом ground truth;
+- frozen regressions (`invalid selector -> select-all`, forced parent/required
+  hit, ambient false positive, скрытые catalog members) сохраняются как baseline,
+  а не как допустимое целевое поведение.
+
 Default-on разрешен только если:
 
 - ни один golden exact/quote/edit scenario не завершается card-only;

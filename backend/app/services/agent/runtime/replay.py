@@ -8,6 +8,8 @@ errors, and evidence coverage.
 
 from __future__ import annotations
 
+import hashlib
+import json
 from collections.abc import Mapping, Sequence
 from typing import Any
 
@@ -128,4 +130,46 @@ def render_comparison_report(comparison: Mapping[str, Any]) -> str:
     )
 
 
-__all__ = ["compare_traces", "render_comparison_report", "summarize_trace"]
+def replay_snapshot_fixture(payload: Mapping[str, Any]) -> dict[str, Any]:
+    """Return a stable digest of observable fixture snapshots.
+
+    Timing telemetry remains in the baseline report; the replay digest freezes
+    decisions and evidence while deliberately excluding wall-clock noise.
+    """
+
+    rows: list[dict[str, Any]] = []
+    for scenario in payload.get("scenarios") or ():
+        if not isinstance(scenario, Mapping):
+            continue
+        snapshots = scenario.get("snapshots")
+        if not isinstance(snapshots, Mapping):
+            continue
+        canonical = json.dumps(
+            snapshots, ensure_ascii=True, sort_keys=True, separators=(",", ":")
+        )
+        rows.append(
+            {
+                "id": str(scenario.get("id") or ""),
+                "digest": hashlib.sha256(canonical.encode("utf-8")).hexdigest(),
+                "terminal_status": str(scenario.get("status") or "unknown"),
+                "final_evidence_refs": sorted(
+                    str(item)
+                    for item in (snapshots.get("final_pack") or {}).get("evidence_refs") or ()
+                ),
+            }
+        )
+    aggregate = json.dumps(rows, ensure_ascii=True, sort_keys=True, separators=(",", ":"))
+    return {
+        "schema": "workspace.unified-phase0-replay/v1",
+        "scenario_count": len(rows),
+        "scenarios": rows,
+        "digest": hashlib.sha256(aggregate.encode("utf-8")).hexdigest(),
+    }
+
+
+__all__ = [
+    "compare_traces",
+    "render_comparison_report",
+    "replay_snapshot_fixture",
+    "summarize_trace",
+]

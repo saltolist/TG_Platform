@@ -237,6 +237,14 @@ class Settings(BaseSettings):
     # Adaptive candidate assessment, semantic-card evidence and deterministic
     # multi-batch full reads. Kept off until golden/held-out canary gates pass.
     agent_adaptive_evidence_depth_v1_enabled: bool = False
+    # Reserved for the unified integrity rollout. Phase 0 defines only the
+    # rollback surface; no runtime branch may consume these flags yet.
+    agent_unified_catalog_v1_enabled: bool = False
+    agent_typed_requirements_v1_enabled: bool = False
+    agent_unified_selector_v1_enabled: bool = False
+    agent_verified_pack_boundary_v1_enabled: bool = False
+    agent_planner_policy_v1_enabled: bool = False
+    agent_unified_default_on: bool = False
     # Durable message-level provenance and bounded semantic referent binding.
     dialog_message_context_manifest_v1: bool = True
     # Compact message cards are shared by the planner and final answer.
@@ -279,6 +287,12 @@ class Settings(BaseSettings):
         "agent_planner_phase5_enabled",
         "agent_answer_phase6_enabled",
         "agent_adaptive_evidence_depth_v1_enabled",
+        "agent_unified_catalog_v1_enabled",
+        "agent_typed_requirements_v1_enabled",
+        "agent_unified_selector_v1_enabled",
+        "agent_verified_pack_boundary_v1_enabled",
+        "agent_planner_policy_v1_enabled",
+        "agent_unified_default_on",
         "dialog_message_context_manifest_v1",
         "agent_dialog_context_v2",
         "agent_referent_resolution_legacy",

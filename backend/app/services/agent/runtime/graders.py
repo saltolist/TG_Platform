@@ -558,3 +558,30 @@ def grade_trace(events: Sequence[Any]) -> GraderReport:
             grade_output_event_schema(events),
         ]
     )
+
+
+def grade_unified_phase0_snapshot(scenario: Mapping[str, Any]) -> GraderReport:
+    """Grade only frozen observable safety facts, never model prose."""
+
+    snapshots = scenario.get("snapshots") or {}
+    final_pack = snapshots.get("final_pack") or {}
+    checkpoint = snapshots.get("checkpoint") or {}
+    expected = scenario.get("expected") or {}
+    actual_refs = sorted(str(item) for item in final_pack.get("evidence_refs") or ())
+    expected_refs = sorted(str(item) for item in expected.get("final_evidence_refs") or ())
+    evidence = GraderResult(
+        name="frozen_final_evidence",
+        passed=actual_refs == expected_refs,
+        reason=f"expected={expected_refs}, actual={actual_refs}",
+    )
+    status = str(scenario.get("status") or "unknown")
+    checkpoint_ok = (
+        status not in {"interrupted", "cancelled"}
+        or str(checkpoint.get("status") or "") == status
+    )
+    checkpoint_result = GraderResult(
+        name="terminal_checkpoint_status",
+        passed=checkpoint_ok,
+        reason=f"scenario={status}, checkpoint={checkpoint.get('status')}",
+    )
+    return GraderReport(results=[evidence, checkpoint_result])
