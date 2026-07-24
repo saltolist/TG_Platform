@@ -76,6 +76,8 @@ def test_note_snapshot_schema_explicit_zero_and_two_image_aggregate() -> None:
         "members_complete",
         "total_members",
         "aggregates",
+        "result_sets",
+        "result_sets_complete",
         "provided_properties",
         "omitted_properties",
         "next_cursor",

@@ -24,6 +24,8 @@ from app.services.agent.runtime.observability import (
     AGENT_DURATION_BY_MODE,
     AGENT_EMPTY_PACK,
     AGENT_MESSAGE_CONTEXT_ITEMS,
+    AGENT_PLAN_DECISIONS,
+    AGENT_PLANNER_NOOPS,
     AGENT_REFERENT_CONFIDENCE,
     AGENT_ROUTES,
     AGENT_RETRIEVAL_SEARCHES,
@@ -257,6 +259,14 @@ def _record_run_metrics(final_state: dict[str, Any]) -> None:
     for row in search_rows:
         if isinstance(row, dict) and str(row.get("tool") or "") in {"SearchNodes", "SearchObjectChunks"}:
             AGENT_RETRIEVAL_SEARCHES.labels(str(row.get("tool"))).inc()
+    for decision in final_state.get("plan_decisions") or ():
+        if isinstance(decision, dict):
+            AGENT_PLAN_DECISIONS.labels(
+                str(decision.get("route") or "unknown"),
+                str(decision.get("reason_code") or "unknown"),
+            ).inc()
+    for _ in range(int(final_state.get("planner_noop_count") or 0)):
+        AGENT_PLANNER_NOOPS.inc()
     AGENT_REUSED_CONTEXT_REFS.observe(len(final_state.get("known_context_refs") or ()))
     AGENT_USED_CONTEXT_REFS.observe(len(final_state.get("used_context_refs") or ()))
     for item in (final_state.get("evidence_pack") or {}).get("items") or ():

@@ -179,6 +179,19 @@ async def load_discovery_cards_for_objects(
                 ) or None,
                 "has_more": False,
                 "source_requirement_id": source_requirement_id,
+                **{
+                    key: item.get(key)
+                    for key in (
+                        "file_count",
+                        "image_count",
+                        "has_files",
+                        "has_images",
+                        "direct_image_count",
+                        "note_image_files_total",
+                        "has_any_images",
+                    )
+                    if key in item
+                },
             }
         )
     return result_rows

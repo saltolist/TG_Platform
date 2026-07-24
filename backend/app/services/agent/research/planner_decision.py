@@ -7,6 +7,7 @@ echoed by the model.
 
 from __future__ import annotations
 
+import hashlib
 import json
 from enum import StrEnum
 from typing import Any, Mapping
@@ -26,6 +27,166 @@ class DecisionCode(StrEnum):
     PROPOSE_MUTATION = "PROPOSE_MUTATION"
     FINISH_READY = "FINISH_READY"
     FINISH_PARTIAL = "FINISH_PARTIAL"
+
+
+PLAN_DECISION_SCHEMA = "workspace.plan-decision/v1"
+
+
+class PlanDecisionRoute(StrEnum):
+    USE_FAST_PATH = "USE_FAST_PATH"
+    CALL_CONTEXT_SELECTOR = "CALL_CONTEXT_SELECTOR"
+    CALL_ACTION_PLANNER = "CALL_ACTION_PLANNER"
+    FINISH_READY = "FINISH_READY"
+    FINISH_PARTIAL = "FINISH_PARTIAL"
+    PLANNER_NOOP = "PLANNER_NOOP"
+
+
+class PlanDecisionTrace(BaseModel):
+    """Deterministic policy decision made before any optional planner call."""
+
+    model_config = ConfigDict(extra="forbid", frozen=True)
+
+    schema_version: str = PLAN_DECISION_SCHEMA
+    route: PlanDecisionRoute
+    reason_code: str = Field(min_length=1, max_length=80)
+    state_signature: str = Field(default="", max_length=64)
+    evidence_delta: int = Field(default=0, ge=0)
+    gap_delta: int = Field(default=0, ge=0)
+    authoritative_state_delta: bool = False
+    blocks_ready: bool = False
+
+    def to_dict(self) -> dict[str, Any]:
+        payload = self.model_dump(mode="json")
+        payload["schema"] = payload.pop("schema_version")
+        return payload
+
+
+def planner_state_signature(
+    state: Mapping[str, Any], sufficiency: Mapping[str, Any]
+) -> str:
+    """Hash only authoritative planner inputs; prompt wording is not progress."""
+
+    records = state.get("evidence_records") or {}
+    evidence = []
+    for key, raw in sorted(records.items()):
+        if not isinstance(raw, Mapping):
+            continue
+        metadata = raw.get("metadata") if isinstance(raw.get("metadata"), Mapping) else {}
+        evidence.append(
+            (
+                str(key),
+                str(raw.get("source_ref") or ""),
+                int(metadata.get("source_revision") or 0),
+                len(str(raw.get("content") or "")),
+            )
+        )
+    catalogs = []
+    for key, raw in sorted((state.get("catalog_snapshots") or {}).items()):
+        if not isinstance(raw, Mapping):
+            continue
+        catalogs.append(
+            (
+                str(key),
+                str(raw.get("source_requirement_id") or ""),
+                int(raw.get("total_members") or 0),
+                bool(raw.get("members_complete")),
+                str(raw.get("next_cursor") or ""),
+                tuple(sorted(str(item) for item in raw.get("provided_properties") or ())),
+            )
+        )
+    payload = {
+        "evidence": evidence,
+        "gaps": sorted(
+            (
+                str(item.get("kind") or ""),
+                str(item.get("source_id") or ""),
+                str(item.get("required") or ""),
+            )
+            for item in sufficiency.get("gaps") or ()
+            if isinstance(item, Mapping)
+        ),
+        "coverage": {
+            str(source): tuple(str(ref) for ref in refs or ())
+            for source, refs in sorted((state.get("coverage_targets_by_source") or {}).items())
+        },
+        "catalogs": catalogs,
+        "discovery": sorted(
+            (
+                str(item.get("intent_key") or ""),
+                str(item.get("state") or ""),
+                str(item.get("exhausted_reason") or ""),
+                tuple(str(ref) for ref in item.get("record_ids") or ()),
+                tuple(
+                    str(hit.get("ref") or "")
+                    for hit in item.get("hits") or ()
+                    if isinstance(hit, Mapping)
+                ),
+            )
+            for item in state.get("search_ledger") or ()
+            if isinstance(item, Mapping)
+        ),
+    }
+    encoded = json.dumps(payload, sort_keys=True, separators=(",", ":"), default=str)
+    return hashlib.sha256(encoded.encode("utf-8")).hexdigest()
+
+
+def decide_plan_route(
+    *,
+    contract: Mapping[str, Any],
+    state: Mapping[str, Any],
+    sufficiency: Mapping[str, Any],
+    has_semantic_candidates: bool = False,
+) -> PlanDecisionTrace:
+    """Choose deterministic fast path, the one Selector, or a typed planner call."""
+
+    signature = planner_state_signature(state, sufficiency)
+    status = str(sufficiency.get("status") or "")
+    has_blocker = bool(
+        sufficiency.get("open_requirements")
+        or sufficiency.get("gaps")
+        or sufficiency.get("allowed_next_intent_ids")
+    )
+    configured = contract.get("plan_decision") or {}
+    if status == "ready" and not has_blocker:
+        route = (
+            PlanDecisionRoute.USE_FAST_PATH
+            if str(configured.get("route") or "") == "deterministic_fast_path"
+            else PlanDecisionRoute.FINISH_READY
+        )
+        return PlanDecisionTrace(
+            route=route,
+            reason_code=str(configured.get("reason_code") or "SUFFICIENCY_VERIFIED"),
+            state_signature=signature,
+        )
+    material = state.get("material_plan") or {}
+    if has_semantic_candidates and not bool(material.get("context_selection_done")):
+        return PlanDecisionTrace(
+            route=PlanDecisionRoute.CALL_CONTEXT_SELECTOR,
+            reason_code="SEMANTIC_ASSESSMENT_REQUIRED",
+            state_signature=signature,
+            blocks_ready=True,
+        )
+    previous = tuple(str(item) for item in state.get("planner_input_signatures") or ())
+    if signature in previous:
+        return PlanDecisionTrace(
+            route=PlanDecisionRoute.PLANNER_NOOP,
+            reason_code="NO_AUTHORITATIVE_STATE_DELTA",
+            state_signature=signature,
+            blocks_ready=has_blocker,
+        )
+    if has_blocker:
+        return PlanDecisionTrace(
+            route=PlanDecisionRoute.CALL_ACTION_PLANNER,
+            reason_code="TYPED_GAP_OR_PENDING_ACTION",
+            state_signature=signature,
+            blocks_ready=True,
+        )
+    return PlanDecisionTrace(
+        route=PlanDecisionRoute.FINISH_PARTIAL,
+        reason_code="SUFFICIENCY_NOT_READY",
+        state_signature=signature,
+        blocks_ready=True,
+    )
 
 
 class CandidateRelevance(StrEnum):
@@ -151,7 +312,7 @@ class ContextSelectorDecision(BaseModel):
 
     model_config = ConfigDict(extra="forbid", frozen=True)
 
-    assessments: tuple[ContextSelectorAssessment, ...] = Field(max_length=16)
+    assessments: tuple[ContextSelectorAssessment, ...] = Field(max_length=256)
     source_dispositions: tuple[SourceDisposition, ...] = Field(max_length=16)
 
     @model_validator(mode="after")
@@ -333,6 +494,11 @@ def render_planner_schema() -> str:
 
 
 __all__ = [
+    "PLAN_DECISION_SCHEMA",
+    "PlanDecisionRoute",
+    "PlanDecisionTrace",
+    "decide_plan_route",
+    "planner_state_signature",
     "DecisionCode",
     "CandidateAssessment",
     "CandidateReasonCode",

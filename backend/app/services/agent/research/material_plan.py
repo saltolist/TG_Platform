@@ -10,7 +10,7 @@ from app.services.ai.semantic_summary import DISCOVERY_SUMMARY_VERSION
 MATERIAL_PLAN_SCHEMA = "workspace.material-plan/v1"
 MATERIAL_PLAN_SCHEMA_V2 = "workspace.material-plan/v2"
 MAX_PLANNER_CANDIDATES = 16
-MAX_CANDIDATE_REGISTRY = 100
+MAX_CANDIDATE_REGISTRY = 256
 FULL_READ_BATCH_SIZE = 3
 DEFAULT_MAX_PACK_OBJECTS = 8
 DEFAULT_MAX_FULL_TEXT_CHARS = 12_000
@@ -49,6 +49,8 @@ class CandidateEnvelope(TypedDict):
     origin: str
     inclusion_priority: int
     semantic_score: float | None
+    semantic_rank_score: NotRequired[float | None]
+    search_enriched: NotRequired[bool]
     source_requirement_ids: list[str]
     source_requirement_id: str
     parent: dict[str, str] | None
@@ -68,6 +70,13 @@ class CandidateEnvelope(TypedDict):
     node_type: str
     citation_path: str
     has_more: bool
+    file_count: NotRequired[int | None]
+    image_count: NotRequired[int | None]
+    has_files: NotRequired[bool | None]
+    has_images: NotRequired[bool | None]
+    direct_image_count: NotRequired[int | None]
+    note_image_files_total: NotRequired[int | None]
+    has_any_images: NotRequired[bool | None]
     score: NotRequired[float | None]
 
 
@@ -210,6 +219,7 @@ def normalize_candidate(
             else _ORIGIN_INCLUSION_PRIORITY.get(origin, 50)
         ),
         "semantic_score": semantic_score,
+        "semantic_rank_score": semantic_score,
         "score": semantic_score,
         "source_requirement_ids": source_requirement_ids,
         "source_requirement_id": source_requirement_ids[0] if source_requirement_ids else "",
@@ -229,6 +239,17 @@ def normalize_candidate(
         "has_more": bool(candidate.get("has_more")),
         "available_fidelity": [],
     }
+    for structural_field in (
+        "file_count",
+        "image_count",
+        "has_files",
+        "has_images",
+        "direct_image_count",
+        "note_image_files_total",
+        "has_any_images",
+    ):
+        if structural_field in candidate:
+            envelope[structural_field] = candidate.get(structural_field)  # type: ignore[literal-required]
     eligible, failure = card_eligibility(envelope)
     envelope["card_eligible"] = eligible
     envelope["card_eligibility_failure"] = failure
@@ -278,6 +299,21 @@ def normalize_candidates(
                 "source_requirement_ids": source_ids,
                 "source_requirement_id": source_ids[0] if source_ids else "",
                 "has_more": bool(previous.get("has_more") or candidate.get("has_more")),
+                "semantic_rank_score": max(
+                    (
+                        float(value)
+                        for value in (
+                            previous.get("semantic_rank_score"),
+                            candidate.get("semantic_rank_score"),
+                        )
+                        if value is not None
+                    ),
+                    default=None,
+                ),
+                "search_enriched": bool(
+                    previous.get("semantic_score") is not None
+                    or candidate.get("semantic_score") is not None
+                ),
             }
             continue
         if len(normalized) >= limit:
@@ -291,6 +327,8 @@ def normalize_candidates(
             else 50,
             -float(item["semantic_score"])
             if item.get("semantic_score") is not None
+            else -float(item["semantic_rank_score"])
+            if item.get("semantic_rank_score") is not None
             else 0.0,
             str(item.get("ref") or ""),
         )

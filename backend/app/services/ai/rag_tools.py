@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import logging
 import uuid
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from typing import Any, Mapping
 
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -13,6 +13,8 @@ from app.core.config import Settings, get_settings
 from app.db.models import Profile, User
 from app.db.resolve import get_owned_post
 from app.services.agent.research.catalog import (
+    build_note_catalog_item,
+    build_post_catalog_item,
     build_catalog_snapshot,
     is_catalog_visible,
     is_image_file,
@@ -710,7 +712,12 @@ async def tool_list_posts(
         if _typed_catalog_enabled(state)
         else None
     )
-    return _record_listing(
+    typed_members = [
+        item
+        for source in snapshot_sources
+        if (item := build_post_catalog_item(source)) is not None
+    ]
+    outcome = _record_listing(
         state,
         path=listing_path,
         title=listing_title,
@@ -718,6 +725,7 @@ async def tool_list_posts(
         members=catalog_members,
         catalog_snapshot=snapshot,
     )
+    return replace(outcome, items=tuple(typed_members)) if snapshot is not None else outcome
 
 
 def tool_list_post_notes(
@@ -807,7 +815,18 @@ def tool_list_post_notes(
         if _typed_catalog_enabled(state)
         else None
     )
-    return _record_listing(
+    typed_members = [
+        item
+        for source in snapshot_sources
+        if (
+            item := build_note_catalog_item(
+                source,
+                parent_post_id=str(source.get("_parent_post_id") or "").strip() or None,
+            )
+        )
+        is not None
+    ]
+    outcome = _record_listing(
         state,
         path=listing_path,
         title=listing_title,
@@ -815,6 +834,7 @@ def tool_list_post_notes(
         members=members,
         catalog_snapshot=snapshot,
     )
+    return replace(outcome, items=tuple(typed_members)) if snapshot is not None else outcome
 
 
 async def tool_list_global_notes(
@@ -1036,7 +1056,18 @@ async def tool_list_all_notes(
         if _typed_catalog_enabled(state)
         else None
     )
-    return _record_listing(
+    typed_members = [
+        item
+        for source in snapshot_sources
+        if (
+            item := build_note_catalog_item(
+                source,
+                parent_post_id=str(source.get("_parent_post_id") or "").strip() or None,
+            )
+        )
+        is not None
+    ]
+    outcome = _record_listing(
         state,
         path="/notes/",
         title="Все заметки",
@@ -1044,6 +1075,7 @@ async def tool_list_all_notes(
         members=members,
         catalog_snapshot=snapshot,
     )
+    return replace(outcome, items=tuple(typed_members)) if snapshot is not None else outcome
 
 
 def _note_cite_path(

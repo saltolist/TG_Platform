@@ -364,6 +364,40 @@ def render_search_ledger_for_planner(ledger: list[dict[str, Any]] | None) -> str
     return "\n".join(lines)
 
 
+def annotate_additive_search(
+    ledger: list[dict[str, Any]],
+    *,
+    source_requirement_id: str,
+    authoritative_refs: list[str] | tuple[str, ...],
+    hits: list[Mapping[str, Any]] | tuple[Mapping[str, Any], ...],
+) -> list[dict[str, Any]]:
+    """Trace that semantic ranking enriched, but did not replace, a complete corpus."""
+
+    authoritative = tuple(dict.fromkeys(str(ref) for ref in authoritative_refs if str(ref)))
+    hit_refs = tuple(
+        dict.fromkeys(str(hit.get("ref") or "") for hit in hits if str(hit.get("ref") or ""))
+    )
+    updated = [dict(item) for item in ledger]
+    for index in range(len(updated) - 1, -1, -1):
+        item = updated[index]
+        if (
+            str(item.get("source_requirement_id") or "") == source_requirement_id
+            and str(item.get("tool") or "") in SEARCH_TOOLS
+        ):
+            updated[index] = {
+                **item,
+                "search_relation": "additive_to_authoritative_catalog",
+                "authoritative_ref_count": len(authoritative),
+                "semantic_hit_count": len(hit_refs),
+                "ranked_authoritative_ref_count": len(set(authoritative).intersection(hit_refs)),
+                "related_candidate_count": len(set(hit_refs).difference(authoritative)),
+                "discovery_ref_count_before": len(authoritative),
+                "discovery_ref_count_after": len(authoritative),
+            }
+            break
+    return updated
+
+
 def cached_outcome(entry: Mapping[str, Any]) -> tuple[str, str | None, tuple[dict[str, Any], ...]]:
     return (
         str(entry.get("summary") or f"Intent {entry.get('intent_key')} already terminal."),

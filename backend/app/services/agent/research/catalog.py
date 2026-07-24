@@ -53,6 +53,8 @@ class CatalogSnapshot(TypedDict):
     members_complete: bool
     total_members: int
     aggregates: dict[str, int | None]
+    result_sets: dict[str, list[str] | None]
+    result_sets_complete: bool
     provided_properties: list[str]
     omitted_properties: list[str]
     next_cursor: str | None
@@ -411,6 +413,41 @@ def _posts_aggregates(members: list[CatalogMember]) -> dict[str, int | None]:
     }
 
 
+def _structural_result_sets(
+    members: list[CatalogMember], *, kind: Literal["notes", "posts"]
+) -> dict[str, list[str] | None]:
+    """Return backend-computed filter membership without collapsing unknown to false."""
+
+    def matching(property_name: str) -> list[str] | None:
+        values = [item.get(property_name) for item in members]
+        if any(value is None for value in values):
+            return None
+        return [str(item["ref"]) for item, value in zip(members, values) if value is True]
+
+    if kind == "notes":
+        return {
+            "notes_with_files": matching("has_files"),
+            "notes_with_images": matching("has_images"),
+        }
+    return {
+        "posts_with_direct_images": (
+            None
+            if any(item.get("direct_image_count") is None for item in members)
+            else [str(item["ref"]) for item in members if int(item.get("direct_image_count") or 0) > 0]
+        ),
+        "posts_with_images_in_notes": (
+            None
+            if any(item.get("note_image_files_total") is None for item in members)
+            else [
+                str(item["ref"])
+                for item in members
+                if int(item.get("note_image_files_total") or 0) > 0
+            ]
+        ),
+        "posts_with_any_images": matching("has_any_images"),
+    }
+
+
 def build_catalog_snapshot(
     raw_members: Iterable[Mapping[str, Any]],
     *,
@@ -449,6 +486,10 @@ def build_catalog_snapshot(
         "aggregates": (
             _notes_aggregates(built) if kind == "notes" else _posts_aggregates(built)
         ),
+        "result_sets": _structural_result_sets(built, kind=kind),
+        # Result sets and aggregates are computed over ``built`` before the
+        # member projection is paged, so structural queries remain complete.
+        "result_sets_complete": True,
         "provided_properties": provided,
         "omitted_properties": omitted,
         "next_cursor": next_cursor,

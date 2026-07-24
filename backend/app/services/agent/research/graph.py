@@ -25,6 +25,7 @@ from app.services.agent.research.plan import (
     render_plan_for_planner,
 )
 from app.services.agent.research.search_ledger import (
+    annotate_additive_search,
     cached_outcome,
     finish_intent,
     prepare_intent,
@@ -45,6 +46,8 @@ from app.services.agent.research.planner_decision import (
     DecisionCode,
     PlannerAction,
     PlannerDecision,
+    PlanDecisionRoute,
+    decide_plan_route,
     parse_planner_decision,
     parse_context_selector_decision,
     parse_legacy_context_selector_decision,
@@ -999,6 +1002,17 @@ def _compact_state_snapshot(
 ) -> str:
     contract = dict(state.get("turn_contract") or {})
     target_contract = dict(contract.get("target_contract") or {})
+    selector_candidate_limit = (
+        256
+        if state.get("unified_selector_enabled")
+        and any(
+            isinstance(source, Mapping)
+            and source.get("coverage") == "complete"
+            and str(source.get("predicate_kind") or "semantic") in {"semantic", "mixed"}
+            for source in contract.get("source_requirements") or ()
+        )
+        else 16
+    )
     snapshot = {
         "question": str(state.get("user_text") or "")[:1000],
         "dialog_context": str(dialog_context or "")[:3000],
@@ -1089,7 +1103,9 @@ def _compact_state_snapshot(
                 "status": str(item.get("status") or ""),
                 "has_more": bool(item.get("has_more")),
             }
-            for item in list(state.get("candidate_envelopes") or state.get("prefetch_hits") or ())[:16]
+            for item in list(
+                state.get("candidate_envelopes") or state.get("prefetch_hits") or ()
+            )[:selector_candidate_limit]
             if isinstance(item, dict)
         ],
         "evidence": [
@@ -1112,7 +1128,7 @@ def _compact_state_snapshot(
             "deep_reads_used": state.get("deep_reads_used", 0),
             "tool_calls_used": state.get("tool_calls_used", 0),
             "max_steps": state.get("max_steps", 0),
-            "planner_candidate_input": 16,
+            "planner_candidate_input": selector_candidate_limit,
             "card_context_chars": 6000,
             "full_read_budget": (contract.get("budgets") or {}).get("deep_reads", 0),
             "parallel_full_read_batch": 3,
@@ -1763,6 +1779,11 @@ async def research_seed_node(state: AgentGraphState, config: RunnableConfig) -> 
         and ctx.settings.agent_planner_phase5_enabled
         and int(contract.get("version") or 0) >= 3
     )
+    planner_policy_enabled = bool(
+        getattr(ctx.settings, "agent_planner_policy_v1_enabled", False)
+        and unified_selector_enabled
+        and verified_pack_boundary_enabled
+    )
     adaptive_enabled = bool(
         (
             getattr(ctx.settings, "agent_adaptive_evidence_depth_v1_enabled", False)
@@ -2147,6 +2168,19 @@ async def research_seed_node(state: AgentGraphState, config: RunnableConfig) -> 
                             "parent_post_id": str(item.get("parent_post_id") or "") or None,
                             "has_more": False,
                             "source_requirement_id": source_id,
+                            **{
+                                key: item.get(key)
+                                for key in (
+                                    "file_count",
+                                    "image_count",
+                                    "has_files",
+                                    "has_images",
+                                    "direct_image_count",
+                                    "note_image_files_total",
+                                    "has_any_images",
+                                )
+                                if key in item
+                            },
                         }
                     )
                 transcript.append(
@@ -2171,10 +2205,21 @@ async def research_seed_node(state: AgentGraphState, config: RunnableConfig) -> 
         complete_source_ids = {
             str(source.get("source_id") or "") for source in complete_sources
         }
+        complete_predicates = {
+            str(source.get("source_id") or ""): str(source.get("predicate_kind") or "semantic")
+            for source in complete_sources
+        }
         contract_discovery = [
             action
             for action in _contract_discovery_actions(contract, query=search_query)
             if str(action.args.get("source_requirement_id") or "") not in complete_source_ids
+            or (
+                planner_policy_enabled
+                and complete_predicates.get(
+                    str(action.args.get("source_requirement_id") or ""), ""
+                )
+                in {"semantic", "mixed"}
+            )
         ]
         if contract_discovery:
             for action in contract_discovery:
@@ -2184,6 +2229,13 @@ async def research_seed_node(state: AgentGraphState, config: RunnableConfig) -> 
                     prefetch_hits.extend(
                         {**dict(hit), "source_requirement_id": source_id}
                         for hit in search_outcome.hits
+                    )
+                if source_id in complete_source_ids and planner_policy_enabled:
+                    search_ledger = annotate_additive_search(
+                        search_ledger,
+                        source_requirement_id=source_id,
+                        authoritative_refs=coverage_targets.get(source_id, ()),
+                        hits=search_outcome.hits,
                     )
                 transcript.append(
                     f"[seed] {source_id} SearchNodes "
@@ -2263,6 +2315,22 @@ async def research_seed_node(state: AgentGraphState, config: RunnableConfig) -> 
             for candidate in candidate_envelopes
         )
         evidence_records.update(_card_records_from_plan(material_plan))
+    plan_decisions = list(state.get("plan_decisions") or ())
+    configured_plan = contract.get("plan_decision") or {}
+    if planner_policy_enabled and str(configured_plan.get("route") or "") == "deterministic_fast_path":
+        plan_decisions.append(
+            {
+                "schema": "workspace.plan-decision/v1",
+                "route": "USE_FAST_PATH",
+                "reason_code": str(configured_plan.get("reason_code") or "DETERMINISTIC_FAST_PATH"),
+                "state_signature": "",
+                "evidence_delta": len(evidence_records),
+                "gap_delta": 0,
+                "authoritative_state_delta": bool(coverage_targets),
+                "blocks_ready": False,
+                "llm_calls": 0,
+            }
+        )
     return {
         **state,
         "research_transcript": transcript,
@@ -2279,6 +2347,10 @@ async def research_seed_node(state: AgentGraphState, config: RunnableConfig) -> 
         "adaptive_evidence_depth_enabled": adaptive_enabled,
         "unified_selector_enabled": unified_selector_enabled,
         "verified_pack_boundary_enabled": verified_pack_boundary_enabled,
+        "planner_policy_enabled": planner_policy_enabled,
+        "plan_decisions": plan_decisions,
+        "planner_input_signatures": list(state.get("planner_input_signatures") or ()),
+        "planner_noop_count": int(state.get("planner_noop_count") or 0),
         "material_plan": material_plan,
         "candidate_envelopes": candidate_envelopes,
         "catalog_snapshots": {
@@ -2464,6 +2536,91 @@ def _semantic_selector_candidates(
             }
         )
     return result
+
+
+def _selector_candidate_limit(contract: Mapping[str, Any]) -> int:
+    return (
+        256
+        if any(
+            isinstance(source, Mapping)
+            and source.get("coverage") == "complete"
+            and str(source.get("predicate_kind") or "semantic") in {"semantic", "mixed"}
+            for source in contract.get("source_requirements") or ()
+        )
+        else 16
+    )
+
+
+_STRUCTURAL_FILTER_FIELDS = {
+    ("notes", "has_images"): "has_images",
+    ("notes", "has_files"): "has_files",
+    ("posts", "has_any_images"): "has_any_images",
+    ("posts", "has_images"): "has_any_images",
+}
+
+
+def _structural_prefilter_candidates(
+    candidates: list[dict[str, Any]],
+    *,
+    contract: Mapping[str, Any],
+) -> tuple[list[dict[str, Any]], dict[str, Any]]:
+    """Apply typed mixed-flow filters before the one semantic Selector."""
+
+    filters_by_source: dict[str, list[str]] = {}
+    for source in contract.get("source_requirements") or ():
+        if not isinstance(source, Mapping) or source.get("predicate_kind") != "mixed":
+            continue
+        source_id = str(source.get("source_id") or "")
+        for requirement in source.get("evidence_requirements") or ():
+            if not isinstance(requirement, Mapping) or requirement.get("operator") != "filter":
+                continue
+            field = _STRUCTURAL_FILTER_FIELDS.get(
+                (
+                    str(requirement.get("subject") or source.get("kind") or ""),
+                    str(requirement.get("property") or ""),
+                )
+            )
+            if field:
+                filters_by_source.setdefault(source_id, []).append(field)
+    if not filters_by_source:
+        return candidates, {
+            "schema": "workspace.structural-prefilter/v1",
+            "applied": False,
+            "input_count": len(candidates),
+            "output_count": len(candidates),
+            "unknown_refs": [],
+        }
+    accepted: list[dict[str, Any]] = []
+    rejected: list[str] = []
+    unknown: list[str] = []
+    for candidate in candidates:
+        fields = list(
+            dict.fromkeys(
+                field
+                for source_id in _candidate_source_ids(candidate)
+                for field in filters_by_source.get(source_id, ())
+            )
+        )
+        if not fields:
+            accepted.append(candidate)
+            continue
+        values = [candidate.get(field) for field in fields]
+        ref = str(candidate.get("ref") or "")
+        if any(value is None for value in values):
+            unknown.append(ref)
+        elif all(value is True for value in values):
+            accepted.append(candidate)
+        else:
+            rejected.append(ref)
+    return accepted, {
+        "schema": "workspace.structural-prefilter/v1",
+        "applied": True,
+        "input_count": len(candidates),
+        "output_count": len(accepted),
+        "rejected_refs": rejected,
+        "unknown_refs": unknown,
+        "unknown_is_false": False,
+    }
 
 
 def _unified_selector_decision_is_valid(
@@ -2671,7 +2828,7 @@ async def _unified_context_selector_step(
                 model=model,
                 api_key=api_key,
                 temperature=0.0,
-                max_tokens=900,
+                max_tokens=max(900, min(12_000, len(candidates) * 96)),
             )
         except RunDeadlineExceeded:
             calls_made += 1
@@ -3045,8 +3202,16 @@ async def _compact_planner_node(
             ],
             scope=str(state.get("scope") or "global"),
         )
+    policy_trace = None
     if state.get("unified_selector_enabled"):
         semantic_candidates = _semantic_selector_candidates(candidates, contract=contract)
+        semantic_candidates, structural_prefilter = _structural_prefilter_candidates(
+            semantic_candidates,
+            contract=contract,
+        )
+        material_with_prefilter = dict(state.get("material_plan") or empty_material_plan())
+        material_with_prefilter["structural_prefilter"] = structural_prefilter
+        state = {**state, "material_plan": material_with_prefilter}
         already_assessed = {
             str(item.get("ref") or "")
             for item in (state.get("material_plan") or {}).get("assessments") or ()
@@ -3056,10 +3221,75 @@ async def _compact_planner_node(
             item
             for item in semantic_candidates
             if str(item.get("ref") or "") not in already_assessed
-        ][:16]
+        ][:_selector_candidate_limit(contract)]
     else:
         semantic_candidates = candidates
         selector_candidates = candidates
+    if state.get("planner_policy_enabled"):
+        policy_trace = decide_plan_route(
+            contract=contract,
+            state=state,
+            sufficiency=sufficiency,
+            has_semantic_candidates=bool(selector_candidates),
+        )
+        trace_payload = policy_trace.to_dict()
+        trace_payload.update(
+            {
+                "evidence_delta": max(
+                    0,
+                    len(records) - int(state.get("planner_last_evidence_count") or 0),
+                ),
+                "gap_delta": max(
+                    0,
+                    len(sufficiency.get("gaps") or ())
+                    - int(state.get("planner_last_gap_count") or 0),
+                ),
+                "authoritative_state_delta": policy_trace.state_signature
+                != str(state.get("planner_last_state_signature") or ""),
+            }
+        )
+        state = {
+            **state,
+            "plan_decisions": [*(state.get("plan_decisions") or ()), trace_payload],
+        }
+        if policy_trace.route in {
+            PlanDecisionRoute.FINISH_READY,
+            PlanDecisionRoute.USE_FAST_PATH,
+        }:
+            return {
+                **state,
+                "tool_action": {
+                    "tool": "SufficiencyCheck",
+                    "actions": [],
+                    "requested_status": "ready",
+                    "decision_code": policy_trace.route.value,
+                },
+                "planner_last_evidence_count": len(records),
+                "planner_last_gap_count": len(sufficiency.get("gaps") or ()),
+                "planner_last_state_signature": policy_trace.state_signature,
+            }
+        if policy_trace.route == PlanDecisionRoute.PLANNER_NOOP:
+            noop_step = {
+                "step": len(state.get("planner_steps") or ()) + 1,
+                "decision_code": "PLANNER_NOOP",
+                "tool": "SufficiencyCheck",
+                "actions": [],
+                "schema": "workspace.plan-decision/v1",
+                "planner_call_kind": "noop",
+                "state_signature": policy_trace.state_signature,
+            }
+            return {
+                **state,
+                "step_count": int(state.get("step_count") or 0) + 1,
+                "planner_steps": [*(state.get("planner_steps") or ()), noop_step],
+                "planner_noop_count": int(state.get("planner_noop_count") or 0) + 1,
+                "tool_action": {
+                    "tool": "SufficiencyCheck",
+                    "actions": [],
+                    "requested_status": "partial",
+                    "decision_code": "PLANNER_NOOP",
+                },
+            }
     if (
         adaptive
         and selector_candidates
@@ -3261,16 +3491,28 @@ async def _compact_planner_node(
                     confidence=0.0,
                 )
 
+    finish_blocked = (
+        str(sufficiency.get("status") or "") != "ready"
+        or bool(sufficiency.get("open_requirements"))
+        or bool(sufficiency.get("gaps"))
+        or bool(sufficiency.get("allowed_next_intent_ids"))
+    )
     if (
         decision.decision_code in {DecisionCode.FINISH_READY, DecisionCode.FINISH_PARTIAL}
-        and str(sufficiency.get("status") or "") == "follow_up_allowed"
-        and bool(sufficiency.get("open_requirements"))
-        and calls_used + calls_made < planner_limit
-        and not state.get("unified_selector_enabled")
+        and finish_blocked
+        and (
+            decision.decision_code == DecisionCode.FINISH_READY
+            or calls_used + calls_made < planner_limit
+        )
     ):
         continuation = _required_source_fallback_decision(state, contract, sufficiency)
         if continuation is not None:
             decision = continuation
+        elif decision.decision_code == DecisionCode.FINISH_READY:
+            decision = PlannerDecision(
+                decision_code=DecisionCode.FINISH_PARTIAL,
+                confidence=1.0,
+            )
 
     actions = [item.model_dump(mode="json") for item in decision.actions]
     material_plan = dict(state.get("material_plan") or empty_material_plan())
@@ -3408,6 +3650,14 @@ async def _compact_planner_node(
             "decision_code": decision.decision_code.value,
         },
     }
+    if policy_trace is not None and calls_made:
+        result["planner_input_signatures"] = [
+            *(state.get("planner_input_signatures") or ()),
+            policy_trace.state_signature,
+        ]
+        result["planner_last_evidence_count"] = len(records)
+        result["planner_last_gap_count"] = len(sufficiency.get("gaps") or ())
+        result["planner_last_state_signature"] = policy_trace.state_signature
     if adaptive:
         result["material_plan"] = material_plan
         result["evidence_records"] = {
@@ -5020,6 +5270,16 @@ async def run_research_graph(
             and ctx.settings.agent_planner_phase5_enabled
             and int((ctx.turn_contract or {}).get("version") or 0) >= 3
         ),
+        "planner_policy_enabled": bool(
+            getattr(ctx.settings, "agent_planner_policy_v1_enabled", False)
+            and getattr(ctx.settings, "agent_unified_selector_v1_enabled", False)
+            and getattr(ctx.settings, "agent_verified_pack_boundary_v1_enabled", False)
+            and ctx.settings.agent_planner_phase5_enabled
+            and int((ctx.turn_contract or {}).get("version") or 0) >= 3
+        ),
+        "plan_decisions": [],
+        "planner_input_signatures": [],
+        "planner_noop_count": 0,
         "material_plan": empty_material_plan(),
         "candidate_envelopes": [],
         "planner_calls_used": 0,

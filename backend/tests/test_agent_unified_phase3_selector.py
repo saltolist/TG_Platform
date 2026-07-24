@@ -353,11 +353,11 @@ async def test_required_discovery_min_zero_accepts_no_relevant_candidate_without
 
 
 @pytest.mark.asyncio
-async def test_complete_semantic_registry_is_assessed_in_bounded_batches() -> None:
+async def test_complete_semantic_registry_is_assessed_by_one_selector_call() -> None:
     candidates = normalize_candidates([_candidate(f"note:n{index}") for index in range(20)])
     source = _source("workspace-notes", maximum=20)
     source["coverage"] = "complete"
-    contract = _contract(source, planner_calls=2)
+    contract = _contract(source, planner_calls=1)
 
     async def selector_output(*_args, **kwargs) -> str:
         content = kwargs["messages"][1]["content"]
@@ -384,16 +384,10 @@ async def test_complete_semantic_registry_is_assessed_in_bounded_batches() -> No
             _state(contract, candidates),
             {"configurable": {"runtime_context": _ctx(), "turn_contract": contract}},
         )
-        second = await _compact_planner_node(
-            first,
-            {"configurable": {"runtime_context": _ctx(), "turn_contract": contract}},
-        )
 
-    assert selector.await_count == 2
-    assert len(first["material_plan"]["assessments"]) == 16
-    assert first["material_plan"]["context_selection_done"] is False
-    assert len(second["material_plan"]["assessments"]) == 20
-    assert second["material_plan"]["context_selection_done"] is True
+    assert selector.await_count == 1
+    assert len(first["material_plan"]["assessments"]) == 20
+    assert first["material_plan"]["context_selection_done"] is True
 
 
 @pytest.mark.asyncio

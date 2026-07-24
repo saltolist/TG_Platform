@@ -289,6 +289,43 @@ def grade_complete_catalog_coverage(state: Mapping[str, Any]) -> GraderResult:
     )
 
 
+def grade_finish_ready_has_no_blockers(state: Mapping[str, Any]) -> GraderResult:
+    """A ready terminal decision requires the deterministic sufficiency gate to agree."""
+
+    contract = state.get("turn_contract") or {}
+    if int(contract.get("version") or 0) < 3 or not bool(state.get("planner_policy_enabled")):
+        return GraderResult(
+            name="finish_ready_has_no_blockers",
+            passed=True,
+            reason="typed planner policy not enabled",
+        )
+    sufficiency = state.get("sufficiency") or {}
+    requested = str((state.get("tool_action") or {}).get("requested_status") or "")
+    stopped = str(state.get("stopped_reason") or "")
+    ready = requested == "ready" or stopped == "ready"
+    blockers = [
+        *[str(item) for item in sufficiency.get("open_requirements") or ()],
+        *[str(item) for item in sufficiency.get("allowed_next_intent_ids") or ()],
+        *[
+            str(item.get("required") or item.get("kind") or "typed_gap")
+            for item in sufficiency.get("gaps") or ()
+            if isinstance(item, Mapping) and item.get("blocks_ready", True)
+        ],
+    ]
+    passed = not ready or (str(sufficiency.get("status") or "") == "ready" and not blockers)
+    return GraderResult(
+        name="finish_ready_has_no_blockers",
+        passed=passed,
+        reason=(
+            f"ready with blockers: {blockers}"
+            if not passed
+            else "ready is backed by deterministic sufficiency"
+            if ready
+            else "ready gate not applicable"
+        ),
+    )
+
+
 def grade_trajectory_includes(
     state: Mapping[str, Any],
     *,
@@ -381,6 +418,7 @@ def grade_run(
         grade_context_refs_subset_supplied(state),
         grade_referent_targets_bounded(state),
         grade_complete_catalog_coverage(state),
+        grade_finish_ready_has_no_blockers(state),
         grade_result_contract(state),
     ]
     if must_call:

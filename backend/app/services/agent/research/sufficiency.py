@@ -211,7 +211,11 @@ def _typed_contract_gaps(
                                 allowed_actions=("assess_candidates",),
                             )
                         )
-            elif snapshot is not None and not bool(snapshot.get("members_complete")):
+            elif (
+                snapshot is not None
+                and not bool(snapshot.get("members_complete"))
+                and not bool(snapshot.get("result_sets_complete"))
+            ):
                 gaps.append(
                     _gap(
                         kind="incomplete_discovery",

@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import json
 from dataclasses import asdict, dataclass
 from typing import Any, Mapping
 
@@ -61,7 +62,14 @@ def _catalog_verification_issues(
     if str(snapshot.get("source_requirement_id") or "") != source_id:
         issues.append(f"catalog:{source_id}:source")
     members = [item for item in snapshot.get("members") or () if isinstance(item, Mapping)]
-    if source.get("coverage") == "complete" and not bool(snapshot.get("members_complete")):
+    structural_projection_complete = bool(snapshot.get("result_sets_complete")) and str(
+        source.get("predicate_kind") or ""
+    ) == "structural"
+    if (
+        source.get("coverage") == "complete"
+        and not bool(snapshot.get("members_complete"))
+        and not structural_projection_complete
+    ):
         issues.append(f"catalog:{source_id}:coverage")
     if bool(snapshot.get("members_complete")) and int(snapshot.get("total_members") or 0) != len(members):
         issues.append(f"catalog:{source_id}:membership_count")
@@ -241,6 +249,22 @@ def build_verified_evidence_pack(
                 if catalog_issues:
                     verification_issues.extend(catalog_issues)
                     continue
+                structural_projection = {
+                    "schema": "workspace.structural-result/v1",
+                    "source_requirement_id": source_id,
+                    "kind": snapshot.get("kind"),
+                    "total_members": snapshot.get("total_members"),
+                    "aggregates": dict(snapshot.get("aggregates") or {}),
+                    "result_sets": dict(snapshot.get("result_sets") or {}),
+                    "provided_properties": list(snapshot.get("provided_properties") or ()),
+                    "omitted_properties": list(snapshot.get("omitted_properties") or ()),
+                }
+                content = content + "\n\nBackend structural result:\n" + json.dumps(
+                    structural_projection,
+                    ensure_ascii=False,
+                    sort_keys=True,
+                    separators=(",", ":"),
+                )
         fidelity = _record_fidelity(record)
         if fidelity == "semantic_card":
             eligible, _failure = card_eligibility(metadata)

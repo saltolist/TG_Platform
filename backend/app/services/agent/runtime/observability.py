@@ -97,6 +97,15 @@ AGENT_RETRIEVAL_SEARCHES = Counter(
     "New semantic search calls by tool",
     ("tool",),
 )
+AGENT_PLAN_DECISIONS = Counter(
+    "agent_plan_decisions_total",
+    "Deterministic plan decisions before optional planner calls",
+    ("route", "reason_code"),
+)
+AGENT_PLANNER_NOOPS = Counter(
+    "agent_planner_noops_total",
+    "Planner calls suppressed because authoritative state had no delta",
+)
 AGENT_REUSED_CONTEXT_REFS = Histogram(
     "agent_reused_context_refs",
     "Known message-context refs reopened by exact id",
