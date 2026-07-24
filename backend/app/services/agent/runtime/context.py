@@ -152,6 +152,10 @@ class RuntimeContext:
                 path: [dict(item) for item in members]
                 for path, members in base.catalog_members.items()
             },
+            catalog_snapshots={
+                path: dict(snapshot)
+                for path, snapshot in base.catalog_snapshots.items()
+            },
             vision_calls_used=base.vision_calls_used,
             hydrated_text_files=set(base.hydrated_text_files),
             listed_image_attachment_refs=list(base.listed_image_attachment_refs),

@@ -73,6 +73,9 @@ class AgentGraphState(TypedDict, total=False):
     # cards are planner-visible context, not citable evidence; full note text
     # enters evidence only after OpenNote or explicit material selection.
     current_post_notes: list[dict[str, Any]]
+    # Versioned authoritative catalogs are persisted beside the legacy textual
+    # projection in evidence metadata. This checkpoint index keeps paths explicit.
+    catalog_snapshots: dict[str, dict[str, Any]]
     research_hints: list[str]
     # Self-contained search query the workspace classifier resolved from the raw
     # user_text + dialog (anaphora expanded, e.g. "а сколько там?" → "сколько

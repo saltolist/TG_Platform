@@ -93,6 +93,11 @@ def records_from_agent_state(agent_state) -> dict[str, EvidenceRecord]:
                 for item in catalog_members.get(path, ())
                 if isinstance(item, dict)
             ]
+        catalog_snapshots = getattr(agent_state, "catalog_snapshots", {})
+        if kind == "catalog" and isinstance(catalog_snapshots, dict):
+            snapshot = catalog_snapshots.get(path)
+            if isinstance(snapshot, dict):
+                metadata["catalog_snapshot"] = dict(snapshot)
         records[path] = EvidenceRecord(
             id=path,
             kind=kind,

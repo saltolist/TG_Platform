@@ -12,6 +12,11 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.core.config import Settings, get_settings
 from app.db.models import Profile, User
 from app.db.resolve import get_owned_post
+from app.services.agent.research.catalog import (
+    build_catalog_snapshot,
+    is_catalog_visible,
+    is_image_file,
+)
 from app.services.ai.attachment_fetch import resolve_attachment_bytes
 from app.services.ai.attachment_text import (
     bytes_content_hash,
@@ -98,6 +103,7 @@ class AgentState:
     opened_posts: dict[str, dict[str, Any]] = field(default_factory=dict)
     query_vector_cache: dict[str, list[float]] = field(default_factory=dict)
     catalog_members: dict[str, list[dict[str, Any]]] = field(default_factory=dict)
+    catalog_snapshots: dict[str, dict[str, Any]] = field(default_factory=dict)
     vision_calls_used: int = 0
     hydrated_text_files: set[str] = field(default_factory=set)
     listed_image_attachment_refs: list[str] = field(default_factory=list)
@@ -130,6 +136,7 @@ class ToolOutcome:
     cache_hit: bool = False
     duration_ms: float = 0.0
     items: tuple[dict[str, Any], ...] = ()
+    catalog_snapshot: dict[str, Any] | None = None
 
 
 def _already_visited(state: AgentState, ref: str) -> ToolOutcome | None:
@@ -149,6 +156,7 @@ def _record_listing(
     title: str,
     body: str,
     members: list[dict[str, Any]] | None = None,
+    catalog_snapshot: Mapping[str, Any] | None = None,
 ) -> ToolOutcome:
     """Make a listing tool's output first-class citable evidence (§1.4 tail).
 
@@ -165,7 +173,21 @@ def _record_listing(
     state.context_blocks.append((NoteCite(path=path, title=title), body))
     if members is not None:
         state.catalog_members[path] = [dict(item) for item in members[:100]]
-    return ToolOutcome(summary=body, items=tuple(members or ()))
+    snapshot = dict(catalog_snapshot) if catalog_snapshot is not None else None
+    if snapshot is not None:
+        state.catalog_snapshots[path] = snapshot
+    return ToolOutcome(
+        summary=body,
+        items=tuple(members or ()),
+        catalog_snapshot=snapshot,
+    )
+
+
+def _typed_catalog_enabled(state: AgentState) -> bool:
+    return bool(
+        state.settings is not None
+        and getattr(state.settings, "agent_unified_catalog_v1_enabled", False)
+    )
 
 
 def _attachment_suffix(files: Any) -> str:
@@ -182,11 +204,7 @@ def _attachment_suffix(files: Any) -> str:
     items = [f for f in (files or []) if isinstance(f, dict)]
     if not items:
         return ""
-    images = sum(
-        1
-        for f in items
-        if str(f.get("type") or f.get("mimeType") or "").startswith("image/")
-    )
+    images = sum(is_image_file(f) is True for f in items)
     parts = [f"files={len(items)}"]
     if images:
         parts.append(f"images={images}")
@@ -460,6 +478,28 @@ async def tool_open_post(state: AgentState, *, post_id: str) -> ToolOutcome:
     if not post_data:
         return ToolOutcome(summary=f"Пост {post_id} не найден.", error="not_found")
 
+    if state.tenant_key:
+        from app.services.overlay.tenant_notes import list_tenant_notes_with_parents
+
+        try:
+            overlay_notes = await list_tenant_notes_with_parents(
+                state.session,
+                state.user_id,
+                state.tenant_key,
+                "post",
+            )
+        except Exception as exc:
+            return ToolOutcome(summary=f"Пост {post_id} не открыт.", error=str(exc))
+        canonical = str(post_data.get("id") or post_id).strip() or post_id
+        post_data = {
+            **post_data,
+            "notes": [
+                {key: value for key, value in note.items() if key != "_parent_post_id"}
+                for note in overlay_notes
+                if str(note.get("_parent_post_id") or "") == canonical
+            ],
+        }
+
     canonical_post_id = str(post_data.get("id") or post_id).strip() or post_id
     ref = f"post:{canonical_post_id}"
     existing = _already_visited(state, ref)
@@ -494,6 +534,7 @@ async def tool_list_posts(
     status: str | None = None,
     query: str | None = None,
     limit: int | None = None,
+    source_requirement_id: str = "workspace-posts",
 ) -> ToolOutcome:
     from sqlalchemy import select
 
@@ -516,6 +557,26 @@ async def tool_list_posts(
             .order_by(Post.position, Post.created_at)
         )
         rows = list(result.scalars().all())
+        overlay_notes_by_post: dict[str, list[dict[str, Any]]] | None = None
+        if state.tenant_key:
+            from app.services.overlay.tenant_notes import list_tenant_notes_with_parents
+
+            overlay_notes_by_post = {}
+            for note in await list_tenant_notes_with_parents(
+                state.session,
+                state.user_id,
+                state.tenant_key,
+                "post",
+            ):
+                parent_post_id = str(note.get("_parent_post_id") or "")
+                if parent_post_id:
+                    overlay_notes_by_post.setdefault(parent_post_id, []).append(
+                        {
+                            key: value
+                            for key, value in note.items()
+                            if key != "_parent_post_id"
+                        }
+                    )
     except Exception as exc:
         return ToolOutcome(summary="Не удалось получить список постов.", error=str(exc))
 
@@ -527,13 +588,16 @@ async def tool_list_posts(
     shown = 0
     state.catalog_posts = []
     catalog_members: list[dict[str, Any]] = []
+    snapshot_sources: list[dict[str, Any]] = []
     for row in rows:
         data = dict(row.data) if isinstance(row.data, dict) else {}
         post_id = str(data.get("id") or "").strip()
         if not post_id:
             continue
+        if overlay_notes_by_post is not None:
+            data["notes"] = overlay_notes_by_post.get(post_id, [])
         post_status = str(data.get("status") or "draft").strip().lower()
-        if status_filter == "all" and post_status == "deleted":
+        if not is_catalog_visible(data):
             continue
         if status_filter != "all" and post_status != status_filter:
             continue
@@ -543,6 +607,7 @@ async def tool_list_posts(
             continue
         matched += 1
         preview = text_value[:80] + ("…" if len(text_value) > 80 else "")
+        snapshot_sources.append({**data, "title": title})
         catalog_members.append(
             {
                 "kind": "post",
@@ -569,7 +634,7 @@ async def tool_list_posts(
                 if not isinstance(f, dict):
                     continue
                 note_files += 1
-                if str(f.get("type") or f.get("mimeType") or "").startswith("image/"):
+                if is_image_file(f) is True:
                     note_images += 1
         state.catalog_posts.append(
             {
@@ -613,19 +678,46 @@ async def tool_list_posts(
             if query_filter
             else f"Постов со статусом {status_filter!r} не найдено."
         )
-        return _record_listing(
-            state, path=listing_path, title=listing_title, body=empty, members=[]
+        snapshot = (
+            build_catalog_snapshot(
+                [], kind="posts", source_requirement_id=source_requirement_id
+            )
+            if _typed_catalog_enabled(state)
+            else None
         )
+        return _record_listing(
+            state,
+            path=listing_path,
+            title=listing_title,
+            body=empty,
+            members=[],
+            catalog_snapshot=snapshot,
+        )
+    snapshot = (
+        build_catalog_snapshot(
+            snapshot_sources,
+            kind="posts",
+            source_requirement_id=source_requirement_id,
+        )
+        if _typed_catalog_enabled(state)
+        else None
+    )
     return _record_listing(
         state,
         path=listing_path,
         title=listing_title,
         body="\n".join(lines),
         members=catalog_members,
+        catalog_snapshot=snapshot,
     )
 
 
-def tool_list_post_notes(state: AgentState, *, post_id: str) -> ToolOutcome:
+def tool_list_post_notes(
+    state: AgentState,
+    *,
+    post_id: str,
+    source_requirement_id: str = "workspace-notes",
+) -> ToolOutcome:
     post_id = str(post_id or "").strip()
     if not post_id:
         return ToolOutcome(summary="post_id не указан.", error="missing_post_id")
@@ -651,27 +743,77 @@ def tool_list_post_notes(state: AgentState, *, post_id: str) -> ToolOutcome:
     notes = [
         item
         for item in (post_data.get("notes") or [])
-        if isinstance(item, dict) and str(item.get("id") or "").strip()
+        if (
+            isinstance(item, dict)
+            and str(item.get("id") or "").strip()
+            and is_catalog_visible(item)
+        )
     ]
     listing_path = f"/post/{post_id}/notes/"
     listing_title = f"Заметки поста {post_id}"
     if not notes:
+        snapshot = (
+            build_catalog_snapshot(
+                [], kind="notes", source_requirement_id=source_requirement_id
+            )
+            if _typed_catalog_enabled(state)
+            else None
+        )
         return _record_listing(
-            state, path=listing_path, title=listing_title,
+            state,
+            path=listing_path,
+            title=listing_title,
             body=f"У поста {post_id} нет заметок.",
+            members=[],
+            catalog_snapshot=snapshot,
         )
 
     lines = [f"Заметки поста {post_id}:"]
+    members: list[dict[str, Any]] = []
     for item in notes:
         note_id = str(item.get("id") or "").strip()
         title = str(item.get("title") or note_id).strip() or note_id
-        lines.append(f"- note:{note_id} title={title!r}{_attachment_suffix(item.get('files'))}")
+        lines.append(
+            f"- note:{note_id} title={title!r}"
+            f"{_attachment_suffix(item.get('files'))}"
+        )
+        body = str(item.get("body") or "").strip()
+        members.append(
+            {
+                "kind": "note",
+                "id": note_id,
+                "title": title,
+                "status": str(item.get("status") or "active"),
+                "preview": body[:80] + ("…" if len(body) > 80 else ""),
+                "revision": object_index_revision(item),
+                "parent_post_id": post_id,
+            }
+        )
+    snapshot_sources = [{**item, "_parent_post_id": post_id} for item in notes]
+    snapshot = (
+        build_catalog_snapshot(
+            snapshot_sources,
+            kind="notes",
+            source_requirement_id=source_requirement_id,
+        )
+        if _typed_catalog_enabled(state)
+        else None
+    )
     return _record_listing(
-        state, path=listing_path, title=listing_title, body="\n".join(lines),
+        state,
+        path=listing_path,
+        title=listing_title,
+        body="\n".join(lines),
+        members=members,
+        catalog_snapshot=snapshot,
     )
 
 
-async def tool_list_global_notes(state: AgentState) -> ToolOutcome:
+async def tool_list_global_notes(
+    state: AgentState,
+    *,
+    source_requirement_id: str = "workspace-notes",
+) -> ToolOutcome:
     ref = "global_notes"
     existing = _already_visited(state, ref)
     if existing:
@@ -679,16 +821,32 @@ async def tool_list_global_notes(state: AgentState) -> ToolOutcome:
     _mark_visited(state, ref)
 
     try:
-        notes = await list_global_notes(state.session, state.user_id, tenant_key=state.tenant_key)
+        notes = [
+            item
+            for item in await list_global_notes(
+                state.session, state.user_id, tenant_key=state.tenant_key
+            )
+            if isinstance(item, Mapping) and is_catalog_visible(item)
+        ]
     except Exception as exc:
         return ToolOutcome(summary="Не удалось получить список заметок вне постов.", error=str(exc))
 
     listing_path = "/global/notes/"
     listing_title = "Заметки вне постов"
     if not notes:
+        snapshot = (
+            build_catalog_snapshot(
+                [], kind="notes", source_requirement_id=source_requirement_id
+            )
+            if _typed_catalog_enabled(state)
+            else None
+        )
         return _record_listing(
-            state, path=listing_path, title=listing_title,
+            state,
+            path=listing_path,
+            title=listing_title,
             body="У пользователя нет заметок вне постов.", members=[],
+            catalog_snapshot=snapshot,
         )
 
     lines = ["Заметки вне постов:"]
@@ -720,16 +878,30 @@ async def tool_list_global_notes(state: AgentState) -> ToolOutcome:
                 "revision": object_index_revision(item),
             }
         )
+    snapshot = (
+        build_catalog_snapshot(
+            notes,
+            kind="notes",
+            source_requirement_id=source_requirement_id,
+        )
+        if _typed_catalog_enabled(state)
+        else None
+    )
     return _record_listing(
         state,
         path=listing_path,
         title=listing_title,
         body="\n".join(lines),
         members=members,
+        catalog_snapshot=snapshot,
     )
 
 
-async def tool_list_all_notes(state: AgentState) -> ToolOutcome:
+async def tool_list_all_notes(
+    state: AgentState,
+    *,
+    source_requirement_id: str = "workspace-notes",
+) -> ToolOutcome:
     """Enumerate the complete note corpus across global and post-owned notes."""
 
     from sqlalchemy import select
@@ -745,17 +917,33 @@ async def tool_list_all_notes(state: AgentState) -> ToolOutcome:
         global_notes = await list_global_notes(
             state.session, state.user_id, tenant_key=state.tenant_key
         )
-        posts = list(
-            (
-                await state.session.scalars(
-                    select(Post).where(Post.user_id == state.user_id).order_by(Post.position)
-                )
-            ).all()
-        )
+        tenant_post_notes: list[dict[str, Any]] | None = None
+        if state.tenant_key:
+            from app.services.overlay.tenant_notes import list_tenant_notes_with_parents
+
+            tenant_post_notes = await list_tenant_notes_with_parents(
+                state.session,
+                state.user_id,
+                state.tenant_key,
+                "post",
+            )
+            posts = []
+        else:
+            posts = list(
+                (
+                    await state.session.scalars(
+                        select(Post)
+                        .where(Post.user_id == state.user_id)
+                        .order_by(Post.position)
+                    )
+                ).all()
+            )
     except Exception as exc:
         return ToolOutcome(summary="Не удалось получить полный список заметок.", error=str(exc))
 
     members: list[dict[str, Any]] = []
+    snapshot_sources: list[dict[str, Any]] = []
+
     def note_title(value: Any) -> str:
         return next(
             (line.strip() for line in str(value or "").splitlines() if line.strip()),
@@ -763,6 +951,8 @@ async def tool_list_all_notes(state: AgentState) -> ToolOutcome:
         )
 
     for item in global_notes:
+        if not isinstance(item, Mapping) or not is_catalog_visible(item):
+            continue
         note_id = str(item.get("id") or "").strip()
         if not note_id:
             continue
@@ -778,13 +968,14 @@ async def tool_list_all_notes(state: AgentState) -> ToolOutcome:
                 "parent_post_id": None,
             }
         )
+        snapshot_sources.append(dict(item))
     for row in posts:
         post_data = dict(row.data or {})
-        if str(post_data.get("status") or "").strip().lower() == "deleted":
+        if not is_catalog_visible(post_data):
             continue
         parent_post_id = str(post_data.get("id") or row.id)
         for item in post_data.get("notes") or ():
-            if not isinstance(item, Mapping):
+            if not isinstance(item, Mapping) or not is_catalog_visible(item):
                 continue
             note_id = str(item.get("id") or "").strip()
             if not note_id:
@@ -801,11 +992,41 @@ async def tool_list_all_notes(state: AgentState) -> ToolOutcome:
                     "parent_post_id": parent_post_id,
                 }
             )
+            snapshot_sources.append({**dict(item), "_parent_post_id": parent_post_id})
+    for item in tenant_post_notes or ():
+        if not isinstance(item, Mapping) or not is_catalog_visible(item):
+            continue
+        note_id = str(item.get("id") or "").strip()
+        if not note_id:
+            continue
+        parent_post_id = str(item.get("_parent_post_id") or "").strip() or None
+        body = str(item.get("body") or "").strip()
+        members.append(
+            {
+                "kind": "note",
+                "id": note_id,
+                "title": note_title(item.get("title") or note_id),
+                "status": str(item.get("status") or "active"),
+                "preview": body[:80] + ("…" if len(body) > 80 else ""),
+                "revision": object_index_revision(item),
+                "parent_post_id": parent_post_id,
+            }
+        )
+        snapshot_sources.append(dict(item))
     lines = [f"Все заметки пользователя (total={len(members)}):"]
     lines.extend(
         f"- note:{item['id']} title={item['title']!r}"
         + (f" parent_post={item['parent_post_id']}" if item.get("parent_post_id") else "")
         for item in members
+    )
+    snapshot = (
+        build_catalog_snapshot(
+            snapshot_sources,
+            kind="notes",
+            source_requirement_id=source_requirement_id,
+        )
+        if _typed_catalog_enabled(state)
+        else None
     )
     return _record_listing(
         state,
@@ -813,6 +1034,7 @@ async def tool_list_all_notes(state: AgentState) -> ToolOutcome:
         title="Все заметки",
         body="\n".join(lines),
         members=members,
+        catalog_snapshot=snapshot,
     )
 
 

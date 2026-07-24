@@ -100,6 +100,19 @@ def normalize_candidate(
     citation_path = str(candidate.get("citation_path") or "")
     if not citation_path and kind == "note" and parent_post_id:
         citation_path = f"/note/post/{parent_post_id}/{object_id}/"
+    raw_semantic_score = (
+        candidate.get("semantic_score")
+        if "semantic_score" in candidate
+        else (candidate.get("score") or candidate.get("similarity"))
+        if "score" in candidate or "similarity" in candidate
+        else None
+    )
+    try:
+        semantic_score = (
+            float(raw_semantic_score) if raw_semantic_score is not None else None
+        )
+    except (TypeError, ValueError):
+        semantic_score = None
     envelope = {
         "ref": ref,
         "kind": kind,
@@ -110,7 +123,9 @@ def normalize_candidate(
             or candidate.get("chunk_text")
             or ""
         )[:480],
-        "score": float(candidate.get("score") or candidate.get("similarity") or 0.0),
+        "origin": str(candidate.get("origin") or "semantic_search"),
+        "semantic_score": semantic_score,
+        "score": semantic_score,
         "source_requirement_id": str(candidate.get("source_requirement_id") or ""),
         "index_revision": index_revision,
         "source_revision": source_revision,

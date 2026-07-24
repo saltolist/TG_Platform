@@ -14,6 +14,7 @@ from typing import Any, Literal
 from langchain_core.runnables import RunnableConfig
 from langgraph.graph import END, StateGraph
 
+from app.services.agent.research.catalog import build_catalog_snapshot, is_image_file
 from app.services.agent.research.evidence import EvidenceRecord, records_from_agent_state
 from app.services.agent.research.evidence_pack import EVIDENCE_PACK_SCHEMA_V2
 from app.services.agent.research.pack import build_evidence_pack, build_verified_pack
@@ -147,7 +148,11 @@ def _first_non_empty_line(value: Any, *, fallback: str = "") -> str:
     )
 
 
-def _current_post_note_catalog(post_data: Mapping[str, Any] | None) -> list[dict[str, Any]]:
+def _current_post_note_catalog(
+    post_data: Mapping[str, Any] | None,
+    *,
+    typed: bool = False,
+) -> list[dict[str, Any]]:
     """Build bounded, non-citable metadata cards for notes on the open post."""
 
     if not isinstance(post_data, Mapping):
@@ -156,8 +161,26 @@ def _current_post_note_catalog(post_data: Mapping[str, Any] | None) -> list[dict
     if not post_id:
         return []
 
+    raw_notes = [
+        raw_note
+        for raw_note in post_data.get("notes") or ()
+        if isinstance(raw_note, Mapping)
+    ]
+    typed_members: dict[str, dict[str, Any]] = {}
+    if typed:
+        snapshot = build_catalog_snapshot(
+            ({**dict(note), "_parent_post_id": post_id} for note in raw_notes),
+            kind="notes",
+            source_requirement_id="workspace-notes",
+        )
+        typed_members = {
+            str(item.get("ref") or ""): dict(item)
+            for item in snapshot["members"]
+            if isinstance(item, dict)
+        }
+
     catalog: list[dict[str, Any]] = []
-    for raw_note in post_data.get("notes") or ():
+    for raw_note in raw_notes:
         if not isinstance(raw_note, Mapping):
             continue
         note_id = str(raw_note.get("id") or "").strip()
@@ -171,43 +194,63 @@ def _current_post_note_catalog(post_data: Mapping[str, Any] | None) -> list[dict
         preview = body[:CURRENT_POST_NOTE_PREVIEW_CHARS]
         if len(body) > CURRENT_POST_NOTE_PREVIEW_CHARS:
             preview += "…"
+        typed_item = typed_members.get(f"note:{note_id}") if typed else None
+        if typed and typed_item is None:
+            continue
         files = [item for item in (raw_note.get("files") or ()) if isinstance(item, Mapping)]
         images = sum(
             1
             for item in files
-            if str(item.get("type") or item.get("mimeType") or "").startswith("image/")
+            if is_image_file(item) is True
         )
-        revision = object_index_revision(raw_note)
-        catalog.append(
-            {
-                "ref": f"note:{note_id}",
-                "id": note_id,
-                "kind": "note",
-                "label": f"note:{note_id}",
-                "title": title[:240],
-                "preview": preview,
-                "card_text": preview,
-                "status": str(raw_note.get("status") or "active"),
-                "parent_post_id": post_id,
-                "attachment_count": len(files),
-                "file_count": len(files),
-                "image_count": images,
-                "files": len(files),
-                "images": images,
-                "source_revision": revision,
-                "index_revision": revision,
-                "summary_version": 0,
-                "summary_model": "",
-                "summary_only": True,
-                "node_type": "note_summary",
-                "similarity": 1.0,
-                "score": 1.0,
-                "has_more": False,
-                "card_origin": "current_post_catalog",
-                "source_requirement_id": "workspace-notes",
-                "citation_path": f"/note/post/{post_id}/{note_id}/",
-            }
+        file_count = typed_item.get("file_count") if typed_item else len(files)
+        image_count = typed_item.get("image_count") if typed_item else images
+        revision = (
+            int(typed_item["revision"])
+            if typed_item and typed_item.get("revision") is not None
+            else object_index_revision(raw_note)
         )
+        candidate = {
+            "ref": f"note:{note_id}",
+            "id": note_id,
+            "kind": "note",
+            "label": f"note:{note_id}",
+            "title": title[:240],
+            "preview": preview,
+            "card_text": preview,
+            "status": str(raw_note.get("status") or "active"),
+            "parent_post_id": post_id,
+            "attachment_count": file_count,
+            "file_count": file_count,
+            "image_count": image_count,
+            "has_files": typed_item.get("has_files") if typed_item else bool(files),
+            "has_images": typed_item.get("has_images") if typed_item else bool(images),
+            "files": file_count,
+            "images": image_count,
+            "source_revision": revision,
+            "index_revision": revision,
+            "summary_version": 0,
+            "summary_model": "",
+            "summary_only": True,
+            "node_type": "note_summary",
+            "has_more": False,
+            "card_origin": "current_post_catalog",
+            "source_requirement_id": "workspace-notes",
+            "citation_path": f"/note/post/{post_id}/{note_id}/",
+        }
+        if typed:
+            candidate.update(
+                {
+                    "origin": "ambient_current_post",
+                    "semantic_score": None,
+                    "catalog_schema_version": snapshot["schema_version"],
+                    "visibility": typed_item.get("visibility"),
+                    "parent": typed_item.get("parent"),
+                }
+            )
+        else:
+            candidate.update({"similarity": 1.0, "score": 1.0})
+        catalog.append(candidate)
         if len(catalog) >= MAX_CURRENT_POST_NOTE_CATALOG:
             break
     return catalog
@@ -532,21 +575,42 @@ async def _execute_tool_impl(state: AgentState, action: ToolAction) -> ToolOutco
             status=str(args.get("status") or "all") or None,
             query=str(args.get("query") or "") or None,
             limit=int(args.get("limit") or 8),
+            source_requirement_id=str(
+                args.get("source_requirement_id") or "workspace-posts"
+            ),
         )
     if tool == "ListPostNotes":
         post_id = str(args.get("post_id") or "")
-        outcome = tool_list_post_notes(state, post_id=post_id)
+        source_requirement_id = str(
+            args.get("source_requirement_id") or "workspace-notes"
+        )
+        outcome = tool_list_post_notes(
+            state,
+            post_id=post_id,
+            source_requirement_id=source_requirement_id,
+        )
         if outcome.error == "post_not_open" and post_id:
             opened = await tool_open_post(state, post_id=post_id)
             if not opened.error:
-                listed = tool_list_post_notes(state, post_id=post_id)
+                listed = tool_list_post_notes(
+                    state,
+                    post_id=post_id,
+                    source_requirement_id=source_requirement_id,
+                )
                 return ToolOutcome(
                     summary=f"{opened.summary} {listed.summary}",
                     error=listed.error,
+                    items=listed.items,
+                    catalog_snapshot=listed.catalog_snapshot,
                 )
         return outcome
     if tool == "ListGlobalNotes":
-        return await tool_list_global_notes(state)
+        return await tool_list_global_notes(
+            state,
+            source_requirement_id=str(
+                args.get("source_requirement_id") or "workspace-notes"
+            ),
+        )
     if tool == "ListNoteAttachments":
         return await tool_list_note_attachments(
             state,
@@ -952,8 +1016,16 @@ def _compact_state_snapshot(
                 ),
                 "parent_post_id": str(item.get("parent_post_id") or ""),
                 "status": str(item.get("status") or ""),
-                "attachment_count": int(item.get("attachment_count") or 0),
-                "image_count": int(item.get("image_count") or 0),
+                "attachment_count": (
+                    int(item["attachment_count"])
+                    if item.get("attachment_count") is not None
+                    else None
+                ),
+                "image_count": (
+                    int(item["image_count"])
+                    if item.get("image_count") is not None
+                    else None
+                ),
             }
             for item in state.get("current_post_notes") or ()
             if isinstance(item, dict)
@@ -968,7 +1040,17 @@ def _compact_state_snapshot(
                     title=str(item.get("title") or ""),
                     body=str(item.get("card_text") or item.get("preview") or ""),
                 ),
-                "score": float(item.get("score") or item.get("similarity") or 0.0),
+                "origin": item.get("origin"),
+                "semantic_score": (
+                    float(item["semantic_score"])
+                    if item.get("semantic_score") is not None
+                    else None
+                ),
+                "score": (
+                    float(item["score"])
+                    if item.get("score") is not None
+                    else None
+                ),
                 "source_requirement_id": str(item.get("source_requirement_id") or ""),
                 "index_revision": item.get("index_revision"),
                 "source_revision": item.get("source_revision"),
@@ -1874,7 +1956,32 @@ async def research_seed_node(state: AgentGraphState, config: RunnableConfig) -> 
                 transcript.append(f"[seed] OpenPost: {outcome.summary}")
                 agent_state.resolved_target_post_id = post_id
                 opened_post = agent_state.opened_posts.get(post_id) or ctx.post_data
-                current_post_notes = _current_post_note_catalog(opened_post)
+                current_post_notes = _current_post_note_catalog(
+                    opened_post,
+                    typed=bool(ctx.settings.agent_unified_catalog_v1_enabled),
+                )
+                note_source_id = next(
+                    (
+                        str(source.get("source_id") or "")
+                        for source in contract.get("source_requirements") or ()
+                        if isinstance(source, dict)
+                        and source.get("kind") == "notes"
+                        and str(source.get("source_id") or "").startswith("workspace-")
+                    ),
+                    "workspace-notes",
+                )
+                if ctx.settings.agent_unified_catalog_v1_enabled:
+                    agent_state.catalog_snapshots[f"/post/{post_id}/notes/"] = (
+                        build_catalog_snapshot(
+                            (
+                                {**dict(note), "_parent_post_id": post_id}
+                                for note in (opened_post or {}).get("notes") or ()
+                                if isinstance(note, Mapping)
+                            ),
+                            kind="notes",
+                            source_requirement_id=note_source_id,
+                        )
+                    )
                 if current_post_notes:
                     transcript.append(
                         f"[seed] Current post note catalog (ambient, not evidence) "
@@ -1892,16 +1999,6 @@ async def research_seed_node(state: AgentGraphState, config: RunnableConfig) -> 
                     )
                     # These cards are deliberately separate from context_blocks:
                     # they orient the planner but cannot be cited accidentally.
-                    note_source_id = next(
-                        (
-                            str(source.get("source_id") or "")
-                            for source in contract.get("source_requirements") or ()
-                            if isinstance(source, dict)
-                            and source.get("kind") == "notes"
-                            and str(source.get("source_id") or "").startswith("workspace-")
-                        ),
-                        "workspace-notes",
-                    )
                     prefetch_hits.extend(
                         {
                             **item,
@@ -1939,7 +2036,10 @@ async def research_seed_node(state: AgentGraphState, config: RunnableConfig) -> 
             elif kind == "notes":
                 # This internal inventory includes global notes and notes owned
                 # by posts. ListGlobalNotes alone is not complete coverage.
-                listing = await tool_list_all_notes(agent_state)
+                listing = await tool_list_all_notes(
+                    agent_state,
+                    source_requirement_id=source_id,
+                )
             else:
                 continue
             members = [dict(item) for item in listing.items if isinstance(item, dict)]
@@ -1973,7 +2073,14 @@ async def research_seed_node(state: AgentGraphState, config: RunnableConfig) -> 
                         {
                             "ref": ref,
                             "label": ref,
-                            "similarity": 1.0,
+                            **(
+                                {
+                                    "origin": "authoritative_catalog",
+                                    "semantic_score": None,
+                                }
+                                if ctx.settings.agent_unified_catalog_v1_enabled
+                                else {"similarity": 1.0}
+                            ),
                             "node_type": node_type,
                             "summary_only": True,
                             "index_revision": revision,
@@ -2117,6 +2224,10 @@ async def research_seed_node(state: AgentGraphState, config: RunnableConfig) -> 
         "adaptive_evidence_depth_enabled": adaptive_enabled,
         "material_plan": material_plan,
         "candidate_envelopes": candidate_envelopes,
+        "catalog_snapshots": {
+            path: dict(snapshot)
+            for path, snapshot in agent_state.catalog_snapshots.items()
+        },
         "coverage_targets_by_source": coverage_targets,
         "planner_calls_used": int(state.get("planner_calls_used") or 0),
         "search_calls_used": sum(
@@ -3042,6 +3153,12 @@ async def _compact_tool_node(
                     for path, members in agent_state.catalog_members.items()
                 }
             )
+            master.catalog_snapshots.update(
+                {
+                    path: dict(snapshot)
+                    for path, snapshot in agent_state.catalog_snapshots.items()
+                }
+            )
             if hasattr(agent_state, "catalog_posts"):
                 master.catalog_posts = list(agent_state.catalog_posts)
             master.hydrated_text_files.update(agent_state.hydrated_text_files)
@@ -3164,6 +3281,12 @@ async def _compact_tool_node(
         "tool_calls_used": tool_calls,
         "material_plan": material_plan,
         "candidate_envelopes": candidate_envelopes,
+        "catalog_snapshots": {
+            path: dict(snapshot)
+            for path, snapshot in (
+                ctx.agent_tool_state.catalog_snapshots if ctx.agent_tool_state else {}
+            ).items()
+        },
         "research_hints": [
             *(state.get("research_hints") or []),
             *[f"budget_rejected:{item}" for item in budget_rejections],
@@ -4204,6 +4327,7 @@ async def run_research_graph(
         "no_progress_count": 0,
         "research_transcript": [],
         "current_post_notes": [],
+        "catalog_snapshots": {},
         "research_hints": research_hints,
         "turn_contract": dict(ctx.turn_contract or {}),
         "search_ledger": [],

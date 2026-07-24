@@ -22,8 +22,7 @@ from scripts.agent_unified_phase0_report import build_report, check_report
 BACKEND_ROOT = Path(__file__).resolve().parents[1]
 FIXTURE_PATH = BACKEND_ROOT / "tests/fixtures/agent_unified_phase0/v1/scenarios.json"
 BASELINE_COMMIT = "128a96497416bc40d5d019ad3be97866ad094394"
-RESERVED_FLAG_NAMES = (
-    "agent_unified_catalog_v1_enabled",
+FUTURE_FLAG_NAMES = (
     "agent_typed_requirements_v1_enabled",
     "agent_unified_selector_v1_enabled",
     "agent_verified_pack_boundary_v1_enabled",
@@ -157,7 +156,9 @@ def test_resume_interrupted_and_cancelled_checkpoints_are_frozen(fixture: dict) 
     )
 
 
-def test_reserved_flags_are_off_and_have_no_runtime_consumers(fixture: dict) -> None:
+def test_rollout_flags_default_off_and_future_flags_have_no_runtime_consumers(
+    fixture: dict,
+) -> None:
     assert fixture["rollback"]["baseline_commit"] == BASELINE_COMMIT
     assert all(value is False for value in fixture["rollback"]["flags"].values())
     compose = (BACKEND_ROOT.parent / "docker-compose.yml").read_text(encoding="utf-8")
@@ -168,7 +169,7 @@ def test_reserved_flags_are_off_and_have_no_runtime_consumers(fixture: dict) -> 
         assert f"{env_name}=0" in root_env
         assert f"{env_name}=0" in backend_env
     runtime_root = BACKEND_ROOT / "app/services/agent"
-    for flag_name in RESERVED_FLAG_NAMES:
+    for flag_name in FUTURE_FLAG_NAMES:
         consumers = [
             path
             for path in runtime_root.rglob("*.py")
