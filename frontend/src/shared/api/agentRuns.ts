@@ -15,6 +15,7 @@ export type StartAgentRunBody = {
   postId?: string;
   postChatId?: string;
   userText: string;
+  llmId?: string;
 };
 
 export async function startAgentRun(

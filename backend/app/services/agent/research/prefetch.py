@@ -35,16 +35,17 @@ async def resolve_current_source_revisions(
     *,
     user_id: uuid.UUID,
     candidates: list[Mapping[str, Any]],
+    max_candidates: int = 20,
 ) -> dict[str, int]:
     """Resolve note/post revisions in one tenant-scoped bounded DB statement."""
 
     ids = list(
         dict.fromkeys(
-            str(item.get("note_id") or item.get("post_id") or "")
+            str(item.get("note_id") or item.get("post_id") or item.get("id") or "")
             for item in candidates
-            if str(item.get("note_id") or item.get("post_id") or "")
+            if str(item.get("note_id") or item.get("post_id") or item.get("id") or "")
         )
-    )[:20]
+    )[: max(1, int(max_candidates))]
     if not ids:
         return {}
     placeholders = ", ".join(f":rid_{index}" for index in range(len(ids)))
@@ -105,6 +106,7 @@ async def load_discovery_cards_for_objects(
     objects: list[Mapping[str, Any]],
     source_requirement_id: str,
     tenant_key: str | None = None,
+    current_source_revisions: Mapping[str, int] | None = None,
 ) -> list[dict[str, Any]]:
     """Load fresh summary nodes for an authoritative catalog, without ranking.
 
@@ -156,7 +158,12 @@ async def load_discovery_cards_for_objects(
         row = by_id.get(object_id)
         if row is None:
             continue
-        catalog_revision = int(item.get("revision") or 0)
+        if current_source_revisions is not None:
+            catalog_revision = int(current_source_revisions.get(object_id) or 0)
+        else:
+            catalog_revision = int(
+                item.get("index_revision") or item.get("revision") or 0
+            )
         index_revision = int(row.get("index_revision") or 0)
         if catalog_revision <= 0 or index_revision != catalog_revision:
             continue

@@ -67,6 +67,7 @@ class StartAgentRunRequest(BaseModel):
     post_id: str | None = Field(default=None, validation_alias="postId")
     post_chat_id: str | None = Field(default=None, validation_alias="postChatId")
     user_text: str = Field(default="", validation_alias="userText")
+    llm_id: str | None = Field(default=None, max_length=128, validation_alias="llmId")
     # IANA zone name from the browser, used to resolve relative schedule_post
     # phrasing ("через полчаса") into an absolute UTC instant.
     timezone: str | None = Field(default=None, validation_alias="timezone")

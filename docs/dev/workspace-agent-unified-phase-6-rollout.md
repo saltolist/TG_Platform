@@ -1,7 +1,7 @@
 # Единый план: фаза 6 — replay, shadow, canary и default-on
 
-**Статус:** closure-артефакты реализованы локально 2026-07-26; фаза не
-завершена, canary и default-on заблокированы mandatory gates
+**Статус:** closure-артефакты и ограниченный account pilot реализованы
+2026-07-26; фаза не завершена, default-on заблокирован mandatory gates
 
 **Главный план:** [workspace-agent-unified-integrity-counting-plan.md](workspace-agent-unified-integrity-counting-plan.md)  
 **Зависимость:** фазы 0–5
@@ -124,12 +124,33 @@ Rollback не должен терять user message, ledger, known refs или 
   provider/model, cohort, candidate count, latency, timeout, retry, schema result
   и estimator delta. Price snapshot и estimated cost имеют
   `availability=unavailable`, потому что достоверный тариф не задан;
+- migration `027_agent_run_answer_llm` закрепляет выбранную в composer Answer
+  Model за run; runtime отдельно разрешает текущую content revision и больше не
+  принимает phase-1 structural catalog revision за freshness revision RAG-card;
 - frozen synthetic labeled cohort содержит 8 tenant-safe cases на `de`, `en`,
   `es`, `ru` и mixed language. Model replay, recall и non-inferiority варианта
   160 не измерялись и имеют `inconclusive`;
 - compatibility path сохраняется. Владелец: `workspace-agent`; пересмотр срока
   удаления: `2026-10-24`, только после успешного production canary;
-- все unified flags, включая `AGENT_UNIFIED_DEFAULT_ON`, остаются default-off.
+- в account-scoped pilot явно включены пять staged flags, а
+  `AGENT_UNIFIED_DEFAULT_ON=false`; defaults в конфигурации не изменены.
+
+Ограниченный pilot содержит ровно 20 новых чатов и 46 user messages, от 2 до 4
+на чат. Создано 46 runs: 42 completed и 4 failed из-за внешних Answer Model/DNS
+ошибок. Обезличенный fixture хранит только агрегаты, без account/run/thread IDs,
+credentials и raw user content.
+
+Selector был вызван в 16 runs: 31 provider call, 15 bounded retries, 0 timeouts.
+Actual usage и latency измерены для всех 31 calls. Canonical valid result получен
+в 2 из 16 runs; только 1 из 16 прошел с первой попытки. В post-fix окне из двух
+complete-sync runs по 13 refs один retry завершился valid canonical решением с
+13/13 assessments и 2/2 source dispositions, второй run не прошел обе попытки
+(`invalid_canonical`, затем `invalid_transport`). Поэтому schema reliability не
+считается pass.
+
+Deployed account snapshot имеет 13/13 summary rows v2: 7 notes, 6 posts, одна
+extractive fallback row; pending/failed backfill jobs равны 0/0. Это закрывает
+coverage gate только для наблюдаемого account snapshot, не для production fleet.
 
 Quality report строится командой:
 
@@ -140,7 +161,8 @@ cd backend
 
 Blocked attestation quality-части локального closure-прогона
 `unified-phase6-2026-07-26`:
-`sha256:f5b7f27157b3a4835a2db0c9a07ae089699904e36fc91099076f9cbdb86ed370`.
+`sha256:387549cb5845d88a5f8dbf9c9cf2597a6ddf883100554a46840f449348661ebe`.
+Strict report содержит 34 mandatory gates: 26 pass и 8 blocked.
 
 ## Результаты gates
 
@@ -154,19 +176,20 @@ Blocked attestation quality-части локального closure-прогон
 | complete coverage | measured | 1.0 | baseline 1.0 | pass |
 | relevant recall | unavailable | null | baseline unavailable | **blocked** |
 | irrelevant selection rate | unavailable | null | baseline unavailable | **blocked** |
-| end-to-end p95 latency | unavailable | null | 119061.25 ms | **blocked** |
-| LLM calls per run | unavailable | null | 1 | **blocked** |
-| Selector provider p95 latency | unavailable | null | 30000 ms | **blocked** |
-| Selector p95 input tokens (`chars_div_4`) | measured | 17489 | 30000 | pass |
+| end-to-end p95 latency | measured | 18466.8 ms | 119061.25 ms | pass |
+| LLM calls per run | measured | p95 4 | 1 | **failed** |
+| Selector provider p95 latency | measured | 3226.45 ms | 30000 ms | pass |
+| Selector p95 input tokens (`chars_div_4`) | measured | 17646 | 30000 | pass |
 | full system + user request measured | measured | 1.0 | 1.0 | pass |
-| actual provider token usage measured | unavailable | null | 1.0 | **blocked** |
-| relevant <=16 provider p95 total tokens | unavailable | null | 2500 | **blocked** |
-| complete <=100 provider p95 total tokens | unavailable | null | 10000 | **blocked** |
+| actual provider token usage measured | measured | 31/31 calls | 1.0 | pass |
+| relevant <=16 provider p95 total tokens | measured | 1214.85 | 2500 | pass |
+| complete <=100 provider p95 total tokens | measured | 2559 | 10000 | pass |
 | complete boundary 256 provider p95 total tokens | unavailable | null | 22000 | **blocked** |
-| Selector schema/retry telemetry measured | unavailable | null | 1.0 | **blocked** |
+| Selector schema/retry telemetry measured | measured | 31/31 calls | 1.0 | pass |
+| Selector schema reliability within budget | inconclusive | 2/16 canonical, 1/16 first attempt | budget not agreed | **blocked** |
 | monetary ceiling configured | unavailable | null | 1.0 | **blocked** |
 | Selector cost p95 within ceiling | unavailable | null | 1.0 | **blocked** |
-| selector summary deployed backfill coverage | unavailable | null | 1.0 | **blocked** |
+| selector summary deployed backfill coverage | measured | 13/13 | 1.0 | pass |
 | compact decoder completeness | measured | 1.0 | 1.0 | pass |
 | synchronous rollout ceiling guard | measured | 1.0 | 1.0 | pass |
 | checkpoint/resume pass rate | measured | 1.0 | 1.0 | pass |
@@ -185,11 +208,11 @@ Blocked attestation quality-части локального closure-прогон
 
 | Candidates | Input | Maximum valid output | Total | Estimator budget |
 |---:|---:|---:|---:|---|
-| 16 | 2180 | 106 | 2286 | pass (`<=2500`) |
-| 64 | 5229 | 406 | 5635 | offline fixture |
-| 100 | 7520 | 631 | 8151 | pass (`<=10000`) |
-| 128 | 9309 | 813 | 10122 | offline fixture |
-| 256 | 17489 | 1645 | 19134 | pass (`<=22000`) |
+| 16 | 2337 | 106 | 2443 | pass (`<=2500`) |
+| 64 | 5385 | 406 | 5791 | offline fixture |
+| 100 | 7677 | 631 | 8308 | pass (`<=10000`) |
+| 128 | 9467 | 813 | 10280 | offline fixture |
+| 256 | 17646 | 1645 | 19291 | pass (`<=22000`) |
 
 Overflow fixture с 257 refs сохраняет `assessment_coverage=incomplete` и
 `ready=false`. Варианты summary `80/120/240` измерены только как offline size
@@ -220,10 +243,10 @@ cd backend
 .venv/bin/python scripts/agent_unified_phase6_report.py --repeat 50 --check
 ```
 
-Результат regression-набора фаз 0-6, closure и затронутого indexing/telemetry:
-`460 passed, 1 warning` за `43.95s`.
-Warning про смену pooling
-в `fastembed` существовал до фазы. Phase-0 replay сохранил прежний digest.
+Результат scoped regression-набора фаз 0-6 и затронутого indexing/runtime:
+`231 passed, 1 warning`; полный несвязанный suite не повторялся. Warning про
+смену pooling в `fastembed` существовал до фазы. Frontend typecheck и lint
+измененных файлов прошли. Phase-0 replay сохранил прежний digest.
 
 ## Exit criteria
 
@@ -236,25 +259,23 @@ Warning про смену pooling
 - [x] dual summary, compact transport, local full-request benchmark, telemetry
   schema и дополнительные rollback fixtures реализованы;
 - [ ] production-like relevant recall и irrelevant selection rate измерены;
-- [ ] p95 latency, LLM calls и provider Selector latency/token usage измерены и
-  находятся в budget;
+- [ ] latency и provider token usage измерены и проходят, но p95 LLM calls per
+  run `4 > 1`, schema reliability и boundary-256 не проходят closure;
 - [ ] factual-read canary пройден;
 - [ ] semantic-complete canary пройден;
 - [ ] все mandatory gates пройдены и default-on разрешен.
 
 ## Остаточные риски
 
-- локальный estimator проходит budgets, но actual provider usage и provider p95
-  latency отсутствуют, поэтому это не production pass;
-- production shadow/canary telemetry и размеченный ground truth отсутствуют,
-  поэтому recall, irrelevant-selection improvement, end-to-end latency и LLM
-  calls нельзя считать прошедшими;
+- account pilot измерил actual provider usage и latency только на 1-13 refs;
+  provider boundary canary на 256 refs отсутствует;
+- production shadow и размеченный ground truth отсутствуют, поэтому recall и
+  irrelevant-selection improvement нельзя считать прошедшими;
 - synthetic shadow доказывает side-effect boundary и schema diff, но не заменяет
   production-like traffic comparison;
-- canary cohort allocation реализован, но намеренно возвращает
-  `quality_gates_blocked`; factual и semantic canary не запускались;
-- deployed backfill coverage/queue/failures, provider credentials, price snapshot,
-  monetary ceiling и staging/canary infrastructure недоступны;
+- manual account pilot не заменяет formal canary: preconditions не были полностью
+  пройдены, schema success составил 2/16 runs, а p95 LLM calls равен 4;
+- price snapshot, monetary ceiling и staging/canary infrastructure недоступны;
 - `160` остается кандидатом, а не доказанным вариантом: quality comparison с
   `120/240` и compatibility path не запускался;
 - default-on и удаление compatibility path запрещены, пока любой gate имеет

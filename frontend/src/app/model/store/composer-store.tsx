@@ -136,12 +136,13 @@ async function runAgentAssistantTurn(params: {
   threadId: string;
   chatId: string;
   postId?: string;
+  llmId: string;
   userText: string;
   signal: AbortSignal;
   onAnswer: (text: string) => void;
   onContext?: (messageId: string, manifest?: MessageContextManifest) => void;
 }): Promise<string> {
-  const { composerScope, threadId, chatId, postId, userText, signal, onAnswer, onContext } = params;
+  const { composerScope, threadId, chatId, postId, llmId, userText, signal, onAnswer, onContext } = params;
   const created = await startAgentRun(
     {
       threadId,
@@ -154,6 +155,7 @@ async function runAgentAssistantTurn(params: {
       // belongs to (agent-runtime-sprints §2.1 memory).
       postChatId: postId ? chatId : undefined,
       userText,
+      llmId,
     },
     signal,
   );
@@ -656,6 +658,7 @@ export function ComposerProvider({ children }: { children: ReactNode }) {
                       threadId: id,
                       chatId: id,
                       userText: text,
+                      llmId: target.llmId,
                       signal,
                       onAnswer: (answer) =>
                         patchGlobalChatStreamingText(queryClient, id, answer, accountId),
@@ -745,6 +748,7 @@ export function ComposerProvider({ children }: { children: ReactNode }) {
                       threadId: chatId,
                       chatId,
                       userText: text,
+                      llmId: target.llmId,
                       signal,
                       onAnswer: (answer) =>
                         patchGlobalChatStreamingText(queryClient, chatId, answer, accountId),
@@ -854,6 +858,7 @@ export function ComposerProvider({ children }: { children: ReactNode }) {
                       postId,
                       chatId: replyChatId,
                       userText: text,
+                      llmId: target.llmId,
                       signal,
                       onAnswer: (answer) =>
                         patchPostChatStreamingText(
@@ -947,6 +952,7 @@ export function ComposerProvider({ children }: { children: ReactNode }) {
                       threadId: ctx.entityId,
                       chatId: ctx.entityId,
                       userText: text,
+                      llmId: target.llmId,
                       signal,
                       onAnswer: (answer) =>
                         patchGlobalChatStreamingText(queryClient, ctx.entityId, answer, accountId),
@@ -1024,6 +1030,7 @@ export function ComposerProvider({ children }: { children: ReactNode }) {
                       postId: ctx.postId,
                       chatId: ctx.entityId,
                       userText: text,
+                      llmId: target.llmId,
                       signal,
                       onAnswer: (answer) =>
                         patchPostChatStreamingText(

@@ -24,11 +24,27 @@ def pick_active_orchestrator_model(ai_profile: Mapping[str, Any]) -> dict[str, A
     return None
 
 
-def pick_active_answer_model(ai_profile: Mapping[str, Any]) -> dict[str, Any] | None:
+def pick_active_answer_model(
+    ai_profile: Mapping[str, Any],
+    *,
+    model_id: str | None = None,
+) -> dict[str, Any] | None:
     """Return the user-selected answer/chat model, if configured."""
     models = ai_profile.get("llmModels") or []
     if not isinstance(models, list):
         return None
+    selected_id = str(model_id or "").strip()
+    if selected_id:
+        for model in models:
+            if not isinstance(model, Mapping):
+                continue
+            if (
+                str(model.get("id") or "") == selected_id
+                and model.get("active")
+                and str(model.get("provider") or "").strip()
+                and str(model.get("model") or "").strip()
+            ):
+                return dict(model)
     for model in models:
         if not isinstance(model, Mapping):
             continue
@@ -45,13 +61,15 @@ def resolve_answer_llm(
     user: User,
     ai_profile: Mapping[str, Any],
     settings: Settings | None = None,
+    *,
+    model_id: str | None = None,
 ) -> tuple[ProviderSpec, str, str] | None:
     """Resolve the model selected for user-facing answers.
 
     Orchestrator remains a compatibility fallback for profiles created before
     the answer model was separated from planner/reasoner configuration.
     """
-    model = pick_active_answer_model(ai_profile)
+    model = pick_active_answer_model(ai_profile, model_id=model_id)
     if model is not None:
         resolution = resolve_model_api_key(model, user, settings or get_settings())
         provider_name = str(model.get("provider") or "").strip()

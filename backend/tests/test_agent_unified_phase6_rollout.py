@@ -23,7 +23,12 @@ from app.services.agent.runtime.rollout import (
     selected_for_canary,
     validate_flag_sequence,
 )
-from scripts.agent_unified_phase6_report import DEFAULT_FIXTURE, build_report, check_report
+from scripts.agent_unified_phase6_report import (
+    DEFAULT_ACCOUNT_PILOT,
+    DEFAULT_FIXTURE,
+    build_report,
+    check_report,
+)
 
 
 def _all_flags(*, default_on: bool = False) -> dict[str, bool]:
@@ -69,17 +74,11 @@ def test_phase6_quality_report_is_attested_and_keeps_default_off() -> None:
     assert set(report["quality"]["blocking_gates"]) == {
         "relevant_recall",
         "irrelevant_selection_rate",
-        "p95_latency_ms",
         "llm_calls_per_run",
-        "selector_p95_latency_ms",
-        "selector_provider_token_usage_measured",
-        "selector_relevant_p95_total_tokens",
-        "selector_complete_sync_p95_total_tokens",
         "selector_complete_boundary_p95_total_tokens",
-        "selector_schema_retry_telemetry_measured",
+        "selector_schema_reliability_within_budget",
         "selector_monetary_ceiling_configured",
         "selector_cost_p95_within_ceiling",
-        "selector_summary_backfill_coverage",
         "staging_canary_rollback_drill_pass_rate",
     }
     assert report["selector_boundary_benchmark"]["registry_size"] == 256
@@ -96,6 +95,11 @@ def test_phase6_quality_report_is_attested_and_keeps_default_off() -> None:
     assert report["shadow_comparison"]["side_effect_boundary_passed"] is True
     assert report["shadow_comparison"]["planner_decisions"]["shadow_noop_count"] == 1
     assert report["shadow_comparison"]["additive_search"]["shadow"]
+    assert report["account_pilot"]["traffic"]["chat_count"] == 20
+    assert report["account_pilot"]["traffic"]["user_message_count"] == 46
+    assert report["account_pilot"]["post_fix_window"]["canonical_valid_runs"] == 1
+    assert report["account_pilot"]["post_fix_window"]["canonical_failed_runs"] == 1
+    assert report["summary_backfill_observability"]["deployed_coverage"] == 1.0
 
 
 def test_feature_sequence_canary_and_planner_boundary_are_deterministic() -> None:
@@ -339,3 +343,20 @@ def test_registry_over_256_remains_incomplete_and_blocks_ready() -> None:
 def test_measurement_fixture_names_every_mandatory_gate() -> None:
     fixture = json.loads(DEFAULT_FIXTURE.read_text(encoding="utf-8"))
     assert {spec.name for spec in MANDATORY_GATE_SPECS} == set(fixture["measurements"])
+
+
+def test_account_pilot_fixture_is_anonymized_and_respects_traffic_cap() -> None:
+    fixture = json.loads(DEFAULT_ACCOUNT_PILOT.read_text(encoding="utf-8"))
+    serialized = json.dumps(fixture, ensure_ascii=False)
+
+    assert fixture["privacy"] == {
+        "aggregate_only": True,
+        "contains_credentials": False,
+        "contains_raw_user_content": False,
+        "contains_account_identifier": False,
+        "contains_run_or_thread_ids": False,
+    }
+    assert fixture["traffic"]["chat_count"] == 20
+    assert fixture["traffic"]["user_message_count"] == 46
+    assert fixture["traffic"]["chats_over_four_user_messages"] == 0
+    assert "@" not in serialized

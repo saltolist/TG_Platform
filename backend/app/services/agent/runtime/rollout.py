@@ -72,6 +72,7 @@ MANDATORY_GATE_SPECS = (
         "selector_complete_boundary_p95_total_tokens", GateRule.MAX, threshold=22000.0
     ),
     GateSpec("selector_schema_retry_telemetry_measured", GateRule.EQUAL, threshold=1.0),
+    GateSpec("selector_schema_reliability_within_budget", GateRule.EQUAL),
     GateSpec("selector_monetary_ceiling_configured", GateRule.EQUAL, threshold=1.0),
     GateSpec("selector_cost_p95_within_ceiling", GateRule.EQUAL, threshold=1.0),
     GateSpec("selector_summary_backfill_coverage", GateRule.EQUAL, threshold=1.0),

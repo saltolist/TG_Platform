@@ -186,6 +186,9 @@ class AgentRun(Base):
     # several chats, and chat_id alone doesn't identify one for scope="post"
     # (agent-runtime-sprints §2.1 memory).
     post_chat_id: Mapped[str | None] = mapped_column(String(128), nullable=True)
+    # Profile-owned model id selected by the composer for this durable run.
+    # Persist the id, never an API key or client-supplied provider endpoint.
+    answer_llm_id: Mapped[str | None] = mapped_column(String(128), nullable=True)
     # IANA zone name from the browser (Intl.DateTimeFormat().resolvedOptions().
     # timeZone), used to resolve relative schedule_post phrasing ("через
     # полчаса") into an absolute UTC instant. None for runs created before this

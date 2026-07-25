@@ -77,6 +77,7 @@ async def create_agent_run(
         chat_id=body.chat_id,
         post_id=body.post_id,
         post_chat_id=body.post_chat_id,
+        answer_llm_id=body.llm_id,
         timezone=body.timezone,
     )
     if body.user_text.strip():
@@ -113,6 +114,7 @@ async def get_agent_run(
         "chat_id": run.chat_id,
         "post_id": run.post_id,
         "post_chat_id": run.post_chat_id,
+        "answer_llm_id": run.answer_llm_id,
         "current_interrupt": run.current_interrupt,
         "snapshot": run.snapshot,
         "error": run.error,

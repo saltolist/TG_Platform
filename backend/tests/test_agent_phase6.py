@@ -325,6 +325,42 @@ def test_answer_resolver_prefers_active_user_llm_over_orchestrator() -> None:
     assert resolved[1] == "deepseek-chat"
 
 
+def test_answer_resolver_honors_selected_active_model_id() -> None:
+    from app.core.config import Settings
+    from app.db.models import User
+    from app.services.ai.orchestrator import resolve_answer_llm
+
+    user = User(email="selected-answer@example.com", password_hash="x", is_seed=False)
+    resolved = resolve_answer_llm(
+        user,
+        {
+            "llmModels": [
+                {
+                    "id": "deepseek-first",
+                    "active": True,
+                    "provider": "DeepSeek",
+                    "model": "deepseek-chat",
+                    "apiKey": "deepseek-key",
+                },
+                {
+                    "id": "openai-selected",
+                    "active": True,
+                    "provider": "OpenAI",
+                    "model": "gpt-4.1-mini",
+                    "apiKey": "openai-key",
+                },
+            ],
+            "orchestratorModels": [],
+        },
+        Settings(),
+        model_id="openai-selected",
+    )
+
+    assert resolved is not None
+    assert resolved[0].name == "OpenAI"
+    assert resolved[1] == "gpt-4.1-mini"
+
+
 @pytest.mark.asyncio
 async def test_answer_uses_answer_model_verified_pack_and_dialog_context() -> None:
     from app.services.agent.runtime.context import RuntimeContext

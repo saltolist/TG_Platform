@@ -24,6 +24,7 @@ async def start_run(
     chat_id: str | None = None,
     post_id: str | None = None,
     post_chat_id: str | None = None,
+    answer_llm_id: str | None = None,
     timezone: str | None = None,
 ) -> tuple[Any, int]:
     run = await event_service.create_run(
@@ -34,6 +35,7 @@ async def start_run(
         chat_id=chat_id,
         post_id=post_id,
         post_chat_id=post_chat_id,
+        answer_llm_id=answer_llm_id,
         tz_name=timezone,
     )
     evt = await event_service.append_event(
@@ -165,7 +167,12 @@ async def rebuild_runtime_context_for_run(
     channel_profile = dict(profile.channel) if profile and profile.channel else None
     telegram_profile = dict(profile.telegram) if profile and profile.telegram else None
     reasoner = resolve_rag_reasoner_llm(user, ai_profile, settings)
-    answer_llm = resolve_answer_llm(user, ai_profile, settings)
+    answer_llm = resolve_answer_llm(
+        user,
+        ai_profile,
+        settings,
+        model_id=run.answer_llm_id,
+    )
     if reasoner:
         import logging as _logging
         _logging.getLogger(__name__).info(

@@ -27,6 +27,7 @@
     "selector_complete_sync_p95_total_tokens": {"availability": "unavailable", "value": null, "threshold": 10000, "sample_size": 0, "source": "provider input/output usage absent; local chars_div_4 estimator reported separately"},
     "selector_complete_boundary_p95_total_tokens": {"availability": "unavailable", "value": null, "threshold": 22000, "sample_size": 0, "source": "101-256 boundary canary not run; local chars_div_4 estimator reported separately"},
     "selector_schema_retry_telemetry_measured": {"availability": "unavailable", "value": null, "sample_size": 0, "source": "telemetry schema implemented; provider/shadow sample absent"},
+    "selector_schema_reliability_within_budget": {"availability": "unavailable", "value": null, "sample_size": 0, "source": "provider schema reliability and acceptable retry-rate budget not measured"},
     "selector_monetary_ceiling_configured": {"availability": "unavailable", "value": null, "sample_size": 0, "source": "rollout owner has not supplied a provider/model price snapshot or monetary ceiling"},
     "selector_cost_p95_within_ceiling": {"availability": "unavailable", "value": null, "sample_size": 0, "source": "price snapshot, monetary ceiling and provider usage unavailable"},
     "selector_summary_backfill_coverage": {"availability": "unavailable", "value": null, "sample_size": 0, "source": "migration/freshness/backfill tests exist; deployed queue coverage not measured"},

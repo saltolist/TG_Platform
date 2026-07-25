@@ -23,6 +23,7 @@ async def create_run(
     chat_id: str | None = None,
     post_id: str | None = None,
     post_chat_id: str | None = None,
+    answer_llm_id: str | None = None,
     # Named tz_name, not timezone, to avoid shadowing the datetime.timezone
     # import used below for the UTC-aware timestamps.
     tz_name: str | None = None,
@@ -38,6 +39,7 @@ async def create_run(
         chat_id=chat_id,
         post_id=post_id,
         post_chat_id=post_chat_id,
+        answer_llm_id=answer_llm_id,
         timezone=tz_name,
         status="running",
         snapshot=snapshot or {},

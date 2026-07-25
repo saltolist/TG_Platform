@@ -1,7 +1,8 @@
 # Единый план: закрытие фазы 6
 
-**Статус:** безопасные локальные артефакты реализованы 2026-07-26; фаза 6
-остается незавершенной и default-off из-за 14 blocking gates
+**Статус:** безопасные локальные артефакты и ограниченный account pilot
+реализованы 2026-07-26; фаза 6 остается незавершенной и default-off из-за 8
+blocking gates
 
 **Исходная реализация фазы 6:** commit
 `e6bb80c8c984534710e08d2c30514dbd5f7519e7`
@@ -284,40 +285,52 @@ bounded retry, Answer Model boundary и полный runtime/checkpoint
 `CandidateEnvelope` сохранены.
 
 `chars_div_4` estimator для полного system + user request и maximum valid output
-дал totals `2286/5635/8151/10122/19134` для `16/64/100/128/256` candidates.
-Input gate на 256 (`17489 <= 30000`) и локальные estimator ceilings для 16, 100
+дал totals `2443/5791/8308/10280/19291` для `16/64/100/128/256` candidates.
+Input gate на 256 (`17646 <= 30000`) и локальные estimator ceilings для 16, 100
 и 256 проходят. Эти значения не являются provider usage и не закрывают
 provider token gates.
 
-Strict report содержит 33 mandatory gates: 19 measured pass и 14 blockers.
+Account-scoped pilot ограничен 20 чатами и 46 user messages, максимум 4 на чат.
+Он дал 46 runs, actual provider telemetry для 31 Selector call и измеренный
+backfill snapshot 13/13. Relevant p95 total tokens `1214.85 <= 2500`, complete
+sync p95 `2559 <= 10000`, Selector p95 latency `3226.45 <= 30000 ms`, end-to-end
+p95 `18466.8 <= 119061.25 ms`. Post-fix complete-sync окно содержит два runs по
+13 refs: один valid после retry с 13/13 assessments и 2/2 sources, второй invalid
+после обеих попыток. Всего canonical valid только 2/16 Selector runs, first-pass
+valid 1/16; p95 LLM calls per run `4 > 1`.
+
+Strict report содержит 34 mandatory gates: 26 measured pass и 8 blockers.
 Полная таблица приведена в фазовом rollout-плане. Блокируют:
 
 - relevant recall и irrelevant selection rate;
-- end-to-end и Selector provider p95 latency, LLM calls per run;
-- actual provider token usage и три provider total-token budgets;
-- schema/retry telemetry на provider traffic;
+- LLM calls per run;
+- complete boundary 256 provider total-token budget;
+- schema first-attempt/final reliability budget;
 - monetary ceiling, price/cost p95;
-- deployed selector-summary backfill coverage;
 - staging/canary rollback drill.
 
-Недоступны credentials, production-like traffic, deployed backfill state,
-ground truth, trustworthy price snapshot/ceiling и staging/canary infrastructure.
+Недоступны production shadow, размеченный ground truth, boundary-256 traffic,
+trustworthy price snapshot/ceiling и staging/canary infrastructure.
 Для них зафиксированы `unavailable` или `inconclusive`, без выдуманных pass.
 
 Локальный blocked attestation `unified-phase6-2026-07-26`:
-`sha256:f5b7f27157b3a4835a2db0c9a07ae089699904e36fc91099076f9cbdb86ed370`.
+`sha256:387549cb5845d88a5f8dbf9c9cf2597a6ddf883100554a46840f449348661ebe`.
 Phase-0 digest сохранен:
 `4fe050b7d491861fd0b545471699f4d90c1151063140d7795ea4c16b3119f474`.
-Regression-набор фаз 0-6, closure и затронутого indexing/telemetry:
-`460 passed, 1 warning` за `43.95s`; warning `fastembed` существовал до closure.
-Canary не запускался, `AGENT_UNIFIED_DEFAULT_ON` остается выключен.
+Scoped regression-набор фаз 0-6 и затронутого indexing/runtime:
+`231 passed, 1 warning`; полный несвязанный suite не повторялся. Warning
+`fastembed` существовал до closure. Frontend typecheck и lint измененных файлов
+прошли.
+Manual account pilot выполнен с явным включением пяти staged flags;
+`AGENT_UNIFIED_DEFAULT_ON=false`, defaults в конфигурации не изменены.
 
 ## Exit criteria
 
-- [ ] dual discovery/selector summary реализованы, но deployed backfill coverage
-  не измерен;
+- [x] dual discovery/selector summary реализованы, account backfill coverage
+  измерен как 13/13; fleet-wide coverage не заявляется;
 - [x] compact transport декодируется в verified canonical v2 без второго loop;
-- [ ] полный prompt и actual provider token/cost telemetry доступны;
+- [ ] полный prompt и provider token/latency telemetry доступны, но provider cost
+  остается unavailable;
 - [ ] `160` прошел non-inferior recall и остальные offline quality floors;
 - [ ] все исходные и дополнительные gates имеют `measured pass`;
 - [ ] factual, relevant, complete <=100 и boundary/exhaustive canary пройдены;
@@ -329,6 +342,21 @@ Canary не запускался, `AGENT_UNIFIED_DEFAULT_ON` остается в
 Если хотя бы один критерий не выполнен, безопасные артефакты фазы 6 считаются
 реализованными, но сама фаза остается незавершенной, flags default-off, а
 блокирующие причины публикуются в quality report.
+
+## Остаточные риски
+
+- provider usage и latency измерены только для account pilot с 1-13 candidates;
+  provider boundary canary на 256 refs отсутствует;
+- production shadow и размеченный ground truth отсутствуют, поэтому relevant
+  recall, irrelevant selection и non-inferiority summary `160` не доказаны;
+- schema reliability недостаточна: post-fix один из двух complete runs не получил
+  valid canonical decision даже после bounded retry;
+- p95 LLM calls per run равен 4 при обязательном gate 1;
+- manual account pilot не является formal production canary, потому что shadow,
+  ground truth и все mandatory gates до его запуска не были закрыты;
+- price snapshot, monetary ceiling и staging/canary infrastructure недоступны;
+- default-on и удаление compatibility path запрещены, пока любой mandatory gate
+  имеет статус, отличный от measured pass.
 
 ## Артефакты завершения
 

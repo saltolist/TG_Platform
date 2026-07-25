@@ -667,6 +667,75 @@ async def test_complete_catalog_loads_cards_by_id_without_similarity_ranking() -
     assert all(item["semantic_score"] is None for item in cards)
 
 
+@pytest.mark.asyncio
+async def test_complete_catalog_uses_content_revision_not_structural_catalog_revision() -> None:
+    rows = [
+        {
+            "note_id": "n1",
+            "post_id": "",
+            "chunk_text": "Fresh selector card",
+            "object_title": "Note 1",
+            "object_status": "active",
+            "index_revision": 17,
+            "summary_version": DISCOVERY_SUMMARY_VERSION,
+            "summary_model": f"llm:provider:model:v{DISCOVERY_SUMMARY_VERSION}",
+            "selector_summary": "Fresh selector summary",
+            "selector_summary_version": 2,
+        }
+    ]
+    db_result = MagicMock()
+    db_result.mappings.return_value.all.return_value = rows
+    session = AsyncMock()
+    session.execute.return_value = db_result
+
+    cards = await load_discovery_cards_for_objects(
+        session,
+        user_id=uuid4(),
+        object_kind="notes",
+        objects=[{"id": "n1", "revision": 99, "title": "Note 1"}],
+        source_requirement_id="workspace-notes",
+        current_source_revisions={"n1": 17},
+    )
+
+    assert len(cards) == 1
+    assert cards[0]["index_revision"] == 17
+    assert cards[0]["source_revision"] == 17
+    assert cards[0]["selector_summary"] == "Fresh selector summary"
+
+
+@pytest.mark.asyncio
+async def test_complete_catalog_missing_content_revision_fails_closed() -> None:
+    rows = [
+        {
+            "note_id": "n1",
+            "post_id": "",
+            "chunk_text": "Selector card",
+            "object_title": "Note 1",
+            "object_status": "active",
+            "index_revision": 99,
+            "summary_version": DISCOVERY_SUMMARY_VERSION,
+            "summary_model": f"llm:provider:model:v{DISCOVERY_SUMMARY_VERSION}",
+            "selector_summary": "Selector summary",
+            "selector_summary_version": 2,
+        }
+    ]
+    db_result = MagicMock()
+    db_result.mappings.return_value.all.return_value = rows
+    session = AsyncMock()
+    session.execute.return_value = db_result
+
+    cards = await load_discovery_cards_for_objects(
+        session,
+        user_id=uuid4(),
+        object_kind="notes",
+        objects=[{"id": "n1", "revision": 99, "title": "Note 1"}],
+        source_requirement_id="workspace-notes",
+        current_source_revisions={},
+    )
+
+    assert cards == []
+
+
 def test_five_full_reads_dispatch_as_three_plus_two_without_planner() -> None:
     candidates = normalize_candidates([_candidate(f"note:n{index}") for index in range(5)])
     plan = merge_material_plan(

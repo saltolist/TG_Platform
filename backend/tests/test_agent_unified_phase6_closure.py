@@ -17,6 +17,7 @@ from app.services.agent.research.material_plan import empty_material_plan, norma
 from app.services.agent.research.selector_transport import (
     decode_selector_transport_result,
     encode_selector_transport,
+    render_selector_transport_output_requirements,
 )
 from app.services.agent.runtime.budget import call_llm_with_deadline
 from app.services.ai.llm import complete_chat_completion
@@ -109,6 +110,23 @@ def test_compact_transport_round_trip_uses_only_local_indexes_and_neutralizes_fe
         contract=_contract(),
         material_plan=empty_material_plan(),
     )
+
+
+def test_compact_transport_renders_dynamic_every_index_cardinality() -> None:
+    transport = encode_selector_transport(
+        question="q", dialog_context="", contract=_contract(), candidates=_candidates(7)
+    )
+
+    requirements = render_selector_transport_output_requirements(transport.mapping)
+
+    assert "exactly 7 rows" in requirements
+    assert "candidate index 0..6" in requirements
+    assert "exactly 1 rows" in requirements
+    assert "source index 0..0" in requirements
+    assert "resolution code present" in requirements
+    assert "MUST NOT exceed its sc max" in requirements
+    assert "disposition s is allowed exactly when" in requirements
+    assert "do not copy its row count" in requirements
 
 
 @pytest.mark.parametrize(

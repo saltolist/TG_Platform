@@ -214,6 +214,27 @@ def render_selector_transport_result_schema() -> str:
     )
 
 
+def render_selector_transport_output_requirements(
+    mapping: SelectorTransportMapping,
+) -> str:
+    candidate_count = len(mapping.candidate_refs)
+    source_count = len(mapping.source_ids)
+    candidate_range = f"0..{candidate_count - 1}" if candidate_count else "empty"
+    source_range = f"0..{source_count - 1}" if source_count else "empty"
+    return (
+        "Output cardinality for this registry: "
+        f"a MUST contain exactly {candidate_count} rows, one for every candidate index "
+        f"{candidate_range}, in ascending index order; "
+        f"s MUST contain exactly {source_count} rows, one for every source index "
+        f"{source_range}, in ascending index order. "
+        "For each a row, relevance i MUST use role n and resolution n; relevance d or s "
+        "MUST use role a and a resolution code present in that candidate row's final fidelity "
+        "array. For each source, the number of d or s member candidates MUST NOT exceed its "
+        "sc max; disposition s is allowed exactly when at least one member candidate is d or s. "
+        "The system example illustrates codes only; do not copy its row count."
+    )
+
+
 def decode_selector_transport_result(
     raw: str,
     *,
@@ -290,5 +311,6 @@ __all__ = [
     "SelectorTransportMapping",
     "decode_selector_transport_result",
     "encode_selector_transport",
+    "render_selector_transport_output_requirements",
     "render_selector_transport_result_schema",
 ]

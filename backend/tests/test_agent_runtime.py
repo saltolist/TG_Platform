@@ -53,7 +53,12 @@ async def test_create_and_get_agent_run(writer_auth_headers: dict[str, str]) -> 
     async with AsyncClient(transport=transport, base_url="http://test") as client:
         created = await client.post(
             "/api/v1/ai/runs/",
-            json={"threadId": "gc-test", "scope": "global", "chatId": "gc1"},
+            json={
+                "threadId": "gc-test",
+                "scope": "global",
+                "chatId": "gc1",
+                "llmId": "openai-selected",
+            },
             headers=writer_auth_headers,
         )
         assert created.status_code == 201
@@ -64,6 +69,7 @@ async def test_create_and_get_agent_run(writer_auth_headers: dict[str, str]) -> 
         body = fetched.json()
         assert body["status"] == "running"
         assert body["thread_id"] == "gc-test"
+        assert body["answer_llm_id"] == "openai-selected"
 
 
 @pytest.mark.asyncio
