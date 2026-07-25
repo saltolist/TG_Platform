@@ -131,6 +131,102 @@ async def test_startup_backfill_is_model_fingerprint_aware(
     assert jobs == expected_jobs
 
 
+async def _create_backfill_note(email: str, note_id: str) -> User:
+    async with TestSessionLocal() as session:
+        user = User(
+            email=email,
+            password_hash="test-hash",
+            is_seed=False,
+        )
+        session.add(user)
+        await session.flush()
+        session.add(
+            GlobalNote(
+                id=uuid.uuid4(),
+                user_id=user.id,
+                data=sample_global_note(note_id),
+            )
+        )
+        await session.commit()
+        await session.refresh(user)
+        return user
+
+
+async def _run_startup_backfill_with_email(email: str) -> None:
+    backend = MagicMock()
+    backend.model_key = local_embedding_model_key(DEFAULT_LOCAL_EMBEDDING_MODEL)
+    settings = get_settings().model_copy(
+        update={
+            "rag_enabled": True,
+            "rag_startup_backfill_user_email": email,
+        }
+    )
+    with (
+        patch("app.services.ai.rag_worker.get_settings", return_value=settings),
+        patch(
+            "app.services.ai.embeddings.resolve_embedding_backend",
+            return_value=backend,
+        ),
+    ):
+        await startup_backfill_all(TestSessionLocal)
+
+
+async def _backfill_job_counts_by_user(*users: User) -> dict[uuid.UUID, int]:
+    async with TestSessionLocal() as session:
+        return {
+            user.id: int(
+                await session.scalar(
+                    text(
+                        "SELECT count(*) FROM embedding_jobs "
+                        "WHERE user_id = :uid AND op = 'upsert'"
+                    ),
+                    {"uid": str(user.id)},
+                )
+                or 0
+            )
+            for user in users
+        }
+
+
+@pytest.mark.asyncio
+async def test_startup_backfill_empty_email_preserves_all_users() -> None:
+    first = await _create_backfill_note("backfill-one@example.com", "note-one")
+    second = await _create_backfill_note("backfill-two@example.com", "note-two")
+
+    await _run_startup_backfill_with_email("")
+
+    assert await _backfill_job_counts_by_user(first, second) == {
+        first.id: 1,
+        second.id: 1,
+    }
+
+
+@pytest.mark.asyncio
+async def test_startup_backfill_email_only_enqueues_matching_user() -> None:
+    first = await _create_backfill_note("backfill-one@example.com", "note-one")
+    second = await _create_backfill_note("backfill-two@example.com", "note-two")
+
+    await _run_startup_backfill_with_email("  BACKFILL-TWO@example.com ")
+
+    assert await _backfill_job_counts_by_user(first, second) == {
+        first.id: 0,
+        second.id: 1,
+    }
+
+
+@pytest.mark.asyncio
+async def test_startup_backfill_unmatched_email_enqueues_nothing() -> None:
+    first = await _create_backfill_note("backfill-one@example.com", "note-one")
+    second = await _create_backfill_note("backfill-two@example.com", "note-two")
+
+    await _run_startup_backfill_with_email("missing@example.com")
+
+    assert await _backfill_job_counts_by_user(first, second) == {
+        first.id: 0,
+        second.id: 0,
+    }
+
+
 @pytest.mark.asyncio
 async def test_index_note_file_nodes_indexes_attachment_text() -> None:
     user_id = uuid.uuid4()

@@ -13,7 +13,7 @@ import logging
 import uuid
 from typing import Any, Mapping
 
-from sqlalchemy import select, text
+from sqlalchemy import func, select, text
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
 from app.core.config import get_settings
@@ -772,7 +772,15 @@ async def startup_backfill_all(session_factory: async_sessionmaker[AsyncSession]
 
     async with session_factory() as session:
         async with session.begin():
-            users = (await session.execute(select(User))).scalars().all()
+            user_query = select(User)
+            backfill_email = str(
+                settings.rag_startup_backfill_user_email or ""
+            ).strip().lower()
+            if backfill_email:
+                user_query = user_query.where(
+                    func.lower(func.trim(User.email)) == backfill_email
+                )
+            users = (await session.execute(user_query)).scalars().all()
             enqueued = 0
             for user in users:
                 user_id = user.id

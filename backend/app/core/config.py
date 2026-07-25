@@ -187,6 +187,9 @@ class Settings(BaseSettings):
     rag_semantic_summaries_enabled: bool = True
     rag_semantic_summary_timeout_seconds: float = 20.0
     rag_semantic_summary_input_chars: int = 6000
+    # Optional canary boundary for startup-only summary/embedding backfill.
+    # Empty preserves the normal all-user startup behavior.
+    rag_startup_backfill_user_email: str = ""
     # Recent dialogue turns to prepend to the RAG embedding query (0 = current message only).
     rag_query_history_turns: int = 2
     # Max chars for the expanded RAG query sent to the embedder.
