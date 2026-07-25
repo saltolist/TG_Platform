@@ -24,6 +24,10 @@ from app.services.agent.research.planner_decision import (
     parse_context_selector_decision,
 )
 from app.services.agent.research.sufficiency import evaluate_sufficiency
+from app.services.ai.semantic_summary import (
+    DISCOVERY_SUMMARY_VERSION,
+    SELECTOR_SUMMARY_VERSION,
+)
 
 
 def _source(
@@ -76,8 +80,10 @@ def _candidate(
         "parent_post_id": parent_post_id,
         "index_revision": 1,
         "source_revision": 1,
-        "summary_version": 1,
-        "summary_model": "llm:provider:model:v1",
+        "summary_version": DISCOVERY_SUMMARY_VERSION,
+        "summary_model": f"llm:provider:model:v{DISCOVERY_SUMMARY_VERSION}",
+        "selector_summary": f"Selector summary for {ref}",
+        "selector_summary_version": SELECTOR_SUMMARY_VERSION,
         "status": "active",
     }
 
@@ -105,6 +111,24 @@ def _ctx() -> SimpleNamespace:
         reasoner_model="selector",
         reasoner_api_key="key",
         planner_llm=None,
+    )
+
+
+def _wire_output(
+    candidates: list[dict],
+    assessments: dict[str, tuple[str, str, str, float, str]],
+    *,
+    source_status: str,
+) -> str:
+    return json.dumps(
+        {
+            "v": 1,
+            "a": [
+                [index, *assessments[str(candidate["ref"])]]
+                for index, candidate in enumerate(candidates)
+            ],
+            "s": [[0, source_status]],
+        }
     )
 
 
@@ -222,17 +246,18 @@ async def test_ambient_and_parent_are_assessed_without_automatic_parent_selectio
         ]
     )
     contract = _contract(_source("workspace-notes"), planner_calls=1)
-    output = {
-        "assessments": [
-            {"ref": "note:relevant", "relevance": "direct", "role": "answer_evidence", "resolution": "card", "confidence": 0.95, "reason_code": "topic_only"},
-            {"ref": "note:irrelevant", "relevance": "irrelevant", "role": "none", "resolution": "none", "confidence": 0.96, "reason_code": "unrelated_topic"},
-        ],
-        "source_dispositions": [{"source_id": "workspace-notes", "status": "selected"}],
-    }
+    output = _wire_output(
+        candidates,
+        {
+            "note:relevant": ("d", "a", "c", 0.95, "t"),
+            "note:irrelevant": ("i", "n", "n", 0.96, "x"),
+        },
+        source_status="s",
+    )
     with patch(
         "app.services.agent.runtime.budget.call_llm_with_deadline",
         new_callable=AsyncMock,
-        return_value=json.dumps(output),
+        return_value=output,
     ) as selector:
         result = await _compact_planner_node(
             _state(contract, candidates),
@@ -326,18 +351,15 @@ async def test_selector_timeout_retries_once_and_never_selects_all() -> None:
 async def test_required_discovery_min_zero_accepts_no_relevant_candidate_without_fallback() -> None:
     candidates = normalize_candidates([_candidate("note:weak")])
     contract = _contract(_source("workspace-notes", minimum=0), planner_calls=1)
-    output = {
-        "assessments": [
-            {"ref": "note:weak", "relevance": "irrelevant", "role": "none", "resolution": "none", "confidence": 0.99, "reason_code": "unrelated_topic"}
-        ],
-        "source_dispositions": [
-            {"source_id": "workspace-notes", "status": "no_relevant_candidate"}
-        ],
-    }
+    output = _wire_output(
+        candidates,
+        {"note:weak": ("i", "n", "n", 0.99, "x")},
+        source_status="n",
+    )
     with patch(
         "app.services.agent.runtime.budget.call_llm_with_deadline",
         new_callable=AsyncMock,
-        return_value=json.dumps(output),
+        return_value=output,
     ):
         result = await _compact_planner_node(
             _state(contract, candidates),
@@ -362,16 +384,12 @@ async def test_complete_semantic_registry_is_assessed_by_one_selector_call() -> 
     async def selector_output(*_args, **kwargs) -> str:
         content = kwargs["messages"][1]["content"]
         snapshot = json.loads(content[content.index("{"):])
-        visible = snapshot["candidates"]
+        visible = snapshot["c"]
         return json.dumps(
             {
-                "assessments": [
-                    {"ref": item["ref"], "relevance": "direct", "role": "answer_evidence", "resolution": "card", "confidence": 0.9, "reason_code": "topic_only"}
-                    for item in visible
-                ],
-                "source_dispositions": [
-                    {"source_id": "workspace-notes", "status": "selected"}
-                ],
+                "v": 1,
+                "a": [[item[0], "d", "a", "c", 0.9, "t"] for item in visible],
+                "s": [[0, "s"]],
             }
         )
 

@@ -129,7 +129,8 @@ async def load_discovery_cards_for_objects(
     stmt = text(
         f"""
         SELECT note_id, post_id, chunk_text, object_title, object_status,
-               index_revision, summary_version, summary_model
+               index_revision, summary_version, summary_model,
+               selector_summary, selector_summary_version
         FROM note_embeddings
         WHERE user_id = :user_id
           AND (tenant_key = :tenant_key OR tenant_key = '')
@@ -171,6 +172,8 @@ async def load_discovery_cards_for_objects(
                 "source_revision": catalog_revision,
                 "summary_version": int(row.get("summary_version") or 0),
                 "summary_model": str(row.get("summary_model") or ""),
+                "selector_summary": str(row.get("selector_summary") or ""),
+                "selector_summary_version": int(row.get("selector_summary_version") or 0),
                 "title": str(row.get("object_title") or item.get("title") or ""),
                 "preview": str(row.get("chunk_text") or "")[:480],
                 "status": str(row.get("object_status") or item.get("status") or "active"),
@@ -255,7 +258,7 @@ async def fts_search(
         f"""
         SELECT note_id, post_id, node_type, file_id, chunk_text, search_text,
                object_title, object_status, index_revision, keywords,
-               summary_version, summary_model,
+               summary_version, summary_model, selector_summary, selector_summary_version,
                ts_rank({DISCOVERY_FTS_DOCUMENT_SQL},
                        plainto_tsquery('simple', :query)) AS rank
         FROM note_embeddings
@@ -298,6 +301,8 @@ async def fts_search(
                 "index_revision": int(row.get("index_revision") or 1),
                 "summary_version": int(row.get("summary_version") or 0),
                 "summary_model": str(row.get("summary_model") or ""),
+                "selector_summary": str(row.get("selector_summary") or ""),
+                "selector_summary_version": int(row.get("selector_summary_version") or 0),
                 "keywords": (
                     json.loads(row.get("keywords"))
                     if isinstance(row.get("keywords"), str)

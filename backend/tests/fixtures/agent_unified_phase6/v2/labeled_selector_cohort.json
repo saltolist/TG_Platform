@@ -1,0 +1,16 @@
+{
+  "schema": "workspace.selector-labeled-cohort/v1",
+  "version": "2026-07-25",
+  "synthetic": true,
+  "tenant_safe": true,
+  "cases": [
+    {"id": "ru-direct", "language": "ru", "query": "Что относится к запуску?", "title": "План запуска", "selector_summary": "Этапы запуска, владельцы, сроки и критерии отката.", "origin": "authoritative_catalog", "semantic_score": null, "parent_kind": null, "label": "direct"},
+    {"id": "en-irrelevant", "language": "en", "query": "What concerns launch risk?", "title": "Office menu", "selector_summary": "Lunch menu and kitchen opening hours.", "origin": "semantic_search", "semantic_score": 0.61, "parent_kind": null, "label": "irrelevant"},
+    {"id": "es-supporting", "language": "es", "query": "Riesgos del lanzamiento", "title": "Dependencias", "selector_summary": "Dependencias de API; el riesgo de lanzamiento aparece como tema secundario.", "origin": "semantic_search", "semantic_score": 0.44, "parent_kind": "post", "label": "supporting"},
+    {"id": "ru-secondary-late", "language": "ru", "query": "Ограничения бюджета", "title": "Еженедельный отчет", "selector_summary": "Статус команды и сроки. В конце зафиксирован предел бюджета запуска.", "origin": "authoritative_catalog", "semantic_score": null, "parent_kind": "post", "label": "direct"},
+    {"id": "en-ambient-relevant", "language": "en", "query": "Who owns rollback?", "title": "Current post note", "selector_summary": "Rollback ownership belongs to the release manager; timeout is 15 minutes.", "origin": "ambient_current_post", "semantic_score": null, "parent_kind": "post", "label": "direct"},
+    {"id": "ru-ambient-irrelevant", "language": "ru", "query": "Кто владелец отката?", "title": "Текущая заметка", "selector_summary": "Черновик поздравления команды без сведений об откате.", "origin": "ambient_current_post", "semantic_score": null, "parent_kind": "post", "label": "irrelevant"},
+    {"id": "de-long", "language": "de", "query": "Startbedingungen", "title": "Auslieferungsplan", "selector_summary": "Startbedingungen, Verantwortliche, API-Abhaengigkeiten, Budgetgrenze und Abbruchkriterium fuer die Auslieferung.", "origin": "authoritative_catalog", "semantic_score": null, "parent_kind": null, "label": "direct"},
+    {"id": "mixed-multi-source", "language": "mixed", "query": "Compare launch notes and posts", "title": "Запуск / Launch", "selector_summary": "Сопоставляет launch notes с опубликованным post и отмечает расхождение сроков.", "origin": "semantic_search", "semantic_score": 0.73, "parent_kind": "post", "label": "direct"}
+  ]
+}

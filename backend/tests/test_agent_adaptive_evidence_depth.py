@@ -41,6 +41,7 @@ from app.services.agent.research.sufficiency import evaluate_sufficiency
 from app.services.agent.runtime.context import RuntimeContext
 from app.services.agent.runtime.output_contract import validate_answer_output
 from app.services.ai.note_citations import NoteCite
+from app.services.ai.semantic_summary import DISCOVERY_SUMMARY_VERSION
 from app.services.ai.rag_tools import AgentState
 
 
@@ -54,8 +55,12 @@ def _candidate(ref: str, *, eligible: bool = True, source: str = "workspace-note
         "source_requirement_id": source,
         "index_revision": 4,
         "source_revision": 4,
-        "summary_version": 1,
-        "summary_model": "llm:provider:model:v1" if eligible else "extractive:v1",
+        "summary_version": DISCOVERY_SUMMARY_VERSION,
+        "summary_model": (
+            f"llm:provider:model:v{DISCOVERY_SUMMARY_VERSION}"
+            if eligible
+            else f"extractive:v{DISCOVERY_SUMMARY_VERSION}"
+        ),
         "status": "active",
     }
 
@@ -637,8 +642,8 @@ async def test_complete_catalog_loads_cards_by_id_without_similarity_ranking() -
             "object_title": f"Post {index}",
             "object_status": "published",
             "index_revision": index + 1,
-            "summary_version": 1,
-            "summary_model": "llm:provider:model:v1",
+            "summary_version": DISCOVERY_SUMMARY_VERSION,
+            "summary_model": f"llm:provider:model:v{DISCOVERY_SUMMARY_VERSION}",
         }
         for index in range(5)
     ]

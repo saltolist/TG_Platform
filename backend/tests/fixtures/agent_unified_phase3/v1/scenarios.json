@@ -21,7 +21,7 @@
     {
       "id": "parent-is-metadata",
       "candidates": [
-        {"ref": "note:child", "origin": "authoritative_catalog", "semantic_score": null, "source_requirement_id": "workspace-notes", "parent_post_id": "owner"}
+        {"ref": "note:child", "title": "Child", "preview": "Child topic", "origin": "authoritative_catalog", "semantic_score": null, "source_requirement_id": "workspace-notes", "parent_post_id": "owner", "index_revision": 2, "source_revision": 2, "summary_version": 2, "summary_model": "llm:fixture:model:v2"}
       ],
       "decision": {"assessments": [{"ref": "note:child", "relevance": "supporting", "role": "answer_evidence", "resolution": "card", "confidence": 0.88, "reason_code": "topic_only"}], "source_dispositions": [{"source_id": "workspace-notes", "status": "selected"}]},
       "selected_refs": ["note:child"]

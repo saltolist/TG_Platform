@@ -356,7 +356,9 @@ async def tool_search_nodes(
     for item in results[: min(8, k or state.search_k)]:
         label = _node_label(item)
         similarity = float(item.get("similarity") or 0.0)
-        chunk = str(item.get("chunk_text") or "").strip()
+        chunk = str(
+            item.get("selector_summary") or item.get("chunk_text") or ""
+        ).strip()
         preview = chunk[:320] + ("…" if len(chunk) > 320 else "")
         lines.append(f"- {label} similarity={similarity:.2f} preview={preview!r}")
         hits.append(
@@ -370,6 +372,8 @@ async def tool_search_nodes(
                 "source_revision": int(item.get("source_revision") or 0),
                 "summary_version": int(item.get("summary_version") or 0),
                 "summary_model": str(item.get("summary_model") or ""),
+                "selector_summary": str(item.get("selector_summary") or ""),
+                "selector_summary_version": int(item.get("selector_summary_version") or 0),
                 "title": str(item.get("object_title") or ""),
                 "preview": preview,
                 "status": str(item.get("object_status") or ""),

@@ -1,9 +1,13 @@
 # Единый план: фаза 6 — replay, shadow, canary и default-on
 
-**Статус:** безопасные артефакты реализованы 2026-07-24; canary и default-on заблокированы quality gates
+**Статус:** closure-артефакты реализованы локально 2026-07-26; фаза не
+завершена, canary и default-on заблокированы mandatory gates
 
 **Главный план:** [workspace-agent-unified-integrity-counting-plan.md](workspace-agent-unified-integrity-counting-plan.md)  
 **Зависимость:** фазы 0–5
+
+**План закрытия оставшихся gates:**
+[workspace-agent-unified-phase-6-closure.md](workspace-agent-unified-phase-6-closure.md)
 
 ## Цель
 
@@ -76,11 +80,24 @@ Rollback не должен терять user message, ledger, known refs или 
 
 ## Результат
 
-- исходная точка проверена: `HEAD=dcc3aeae0781ff6e773ff0bc9f52d7d94d5d4d36`,
-  рабочее дерево до начала фазы было чистым;
+- исходная точка closure проверена: `HEAD` и commit реализации фазы 6 равны
+  `e6bb80c8c984534710e08d2c30514dbd5f7519e7`; до начала closure в рабочем
+  дереве были только намеренные изменения этого документа и нового closure-плана;
 - offline replay всех 10 golden и 3 held-out phase-0 scenarios выполнен 50 раз
   без Answer Model; digest стабилен:
   `4fe050b7d491861fd0b545471699f4d90c1151063140d7795ea4c16b3119f474`;
+- background indexing одним LLM call формирует versioned
+  `discovery_summary <= 480` и `selector_summary <= 160`; реализованы
+  deterministic extractive fallback, migration `026_selector_summary_projection`,
+  freshness checks и backfill с processing ceiling `120 jobs/min`;
+- Context Selector использует versioned compact transport с локальными integer
+  indexes, sparse candidate/source rows и neutralized untrusted title/summary;
+  decoder восстанавливает canonical `workspace.context-selector/v2` и отклоняет
+  unknown, duplicate, missing и out-of-range indexes;
+- complete source со stale/missing selector summary получает blocking
+  `stale_selector_summary`; synchronous rollout ограничен 100 candidates, а
+  101-256 не получает `ready` без explicit exhaustive flow или measured boundary
+  canary;
 - добавлен `workspace.unified-rollout-trace/v1`: для run с запрошенным unified
   rollout durable event сохраняет
   contract, безопасную metadata-проекцию registry, v2 assessments/dispositions,
@@ -101,9 +118,15 @@ Rollback не должен терять user message, ledger, known refs или 
   содержит 256 refs, coverage target сохраняет 257, а один unassessed ref создает
   blocking `incomplete_assessment`; `ready` недоступен. Лимит не увеличен и
   второй Selector/planner loop не добавлен;
-- rollback drill прошел 5 из 5 сценариев: новый run, resume старого checkpoint,
-  selector timeout, catalog schema mismatch и pack budget overflow. Сохраняются
-  user message, ledger, known refs, evidence records/IDs и старый contract;
+- локальный rollback drill прошел 7 из 7 сценариев, включая interruption summary
+  backfill и compact decode failure. Staging/canary drill не выполнялся;
+- provider observability сохраняет actual input/cached/output/total tokens,
+  provider/model, cohort, candidate count, latency, timeout, retry, schema result
+  и estimator delta. Price snapshot и estimated cost имеют
+  `availability=unavailable`, потому что достоверный тариф не задан;
+- frozen synthetic labeled cohort содержит 8 tenant-safe cases на `de`, `en`,
+  `es`, `ru` и mixed language. Model replay, recall и non-inferiority варианта
+  160 не измерялись и имеют `inconclusive`;
 - compatibility path сохраняется. Владелец: `workspace-agent`; пересмотр срока
   удаления: `2026-10-24`, только после успешного production canary;
 - все unified flags, включая `AGENT_UNIFIED_DEFAULT_ON`, остаются default-off.
@@ -115,8 +138,9 @@ cd backend
 .venv/bin/python scripts/agent_unified_phase6_report.py --repeat 50 --check
 ```
 
-Attestation quality-части финального прогона:
-`sha256:0f73ed9c60a33d5a9f79969c476ff536c2f5b3e36952869a4fd66d890e978204`.
+Blocked attestation quality-части локального closure-прогона
+`unified-phase6-2026-07-26`:
+`sha256:f5b7f27157b3a4835a2db0c9a07ae089699904e36fc91099076f9cbdb86ed370`.
 
 ## Результаты gates
 
@@ -133,7 +157,18 @@ Attestation quality-части финального прогона:
 | end-to-end p95 latency | unavailable | null | 119061.25 ms | **blocked** |
 | LLM calls per run | unavailable | null | 1 | **blocked** |
 | Selector provider p95 latency | unavailable | null | 30000 ms | **blocked** |
-| Selector p95 prompt tokens | measured | 49736 | 30000 | **failed** |
+| Selector p95 input tokens (`chars_div_4`) | measured | 17489 | 30000 | pass |
+| full system + user request measured | measured | 1.0 | 1.0 | pass |
+| actual provider token usage measured | unavailable | null | 1.0 | **blocked** |
+| relevant <=16 provider p95 total tokens | unavailable | null | 2500 | **blocked** |
+| complete <=100 provider p95 total tokens | unavailable | null | 10000 | **blocked** |
+| complete boundary 256 provider p95 total tokens | unavailable | null | 22000 | **blocked** |
+| Selector schema/retry telemetry measured | unavailable | null | 1.0 | **blocked** |
+| monetary ceiling configured | unavailable | null | 1.0 | **blocked** |
+| Selector cost p95 within ceiling | unavailable | null | 1.0 | **blocked** |
+| selector summary deployed backfill coverage | unavailable | null | 1.0 | **blocked** |
+| compact decoder completeness | measured | 1.0 | 1.0 | pass |
+| synchronous rollout ceiling guard | measured | 1.0 | 1.0 | pass |
 | checkpoint/resume pass rate | measured | 1.0 | 1.0 | pass |
 | interrupted/cancelled pass rate | measured | 1.0 | 1.0 | pass |
 | tenant/status/security guard pass rate | measured | 1.0 | 1.0 | pass |
@@ -143,19 +178,29 @@ Attestation quality-части финального прогона:
 | additive-search trace coverage | measured | 1.0 | 1.0 | pass |
 | registry-overflow ready rate | measured | 0 | 0 | pass |
 | rollback drill pass rate | measured | 1.0 | 1.0 | pass |
+| staging/canary rollback drill pass rate | unavailable | null | 1.0 | **blocked** |
 
-Для Selector на полном bounded registry из 256 синтетических cards один
-зафиксированный локальный прогон сериализации на 50 повторах дал p50 `0.976 ms`,
-p95 `1.320 ms`, размер input
-`198944` символа и `49736` tokens по действующему `chars_div_4` estimator;
-output cap остается `12000`. Эти локальные числа не считаются provider latency.
-Provider latency/token usage отсутствуют и не подменены локальным benchmark.
+Полный benchmark измеряет system + user request, maximum valid output и их
+сумму. Результаты `chars_div_4` estimator, не provider usage:
+
+| Candidates | Input | Maximum valid output | Total | Estimator budget |
+|---:|---:|---:|---:|---|
+| 16 | 2180 | 106 | 2286 | pass (`<=2500`) |
+| 64 | 5229 | 406 | 5635 | offline fixture |
+| 100 | 7520 | 631 | 8151 | pass (`<=10000`) |
+| 128 | 9309 | 813 | 10122 | offline fixture |
+| 256 | 17489 | 1645 | 19134 | pass (`<=22000`) |
+
+Overflow fixture с 257 refs сохраняет `assessment_coverage=incomplete` и
+`ready=false`. Варианты summary `80/120/240` измерены только как offline size
+challengers; основной `160` не разрешен к rollout без non-inferior recall.
 
 ## Проверки
 
 ```bash
 cd backend
 .venv/bin/pytest -q tests/test_agent_unified_phase6_rollout.py \
+  tests/test_agent_unified_phase6_closure.py \
   tests/test_agent_unified_phase5_planner_search.py \
   tests/test_agent_unified_phase4_materialization.py \
   tests/test_agent_unified_phase3_selector.py \
@@ -169,12 +214,15 @@ cd backend
   tests/test_rag.py tests/test_rag_query.py tests/test_rag_retrieval_policy.py \
   tests/test_agent_phase4_retrieval.py tests/test_agent_listing.py \
   tests/test_agent_e2e.py tests/test_config.py tests/test_agent_security.py \
-  tests/test_agent_graders.py tests/test_agent_trace.py
+  tests/test_agent_graders.py tests/test_agent_trace.py \
+  tests/test_agent_budget.py tests/test_rag_worker.py tests/test_semantic_summary.py
 .venv/bin/python scripts/agent_unified_phase0_report.py --repeat 2 --check
 .venv/bin/python scripts/agent_unified_phase6_report.py --repeat 50 --check
 ```
 
-Результат regression-набора: `424 passed, 1 warning`. Warning про смену pooling
+Результат regression-набора фаз 0-6, closure и затронутого indexing/telemetry:
+`460 passed, 1 warning` за `43.95s`.
+Warning про смену pooling
 в `fastembed` существовал до фазы. Phase-0 replay сохранил прежний digest.
 
 ## Exit criteria
@@ -185,6 +233,8 @@ cd backend
 - [x] rollback drill пройден, compatibility path имеет владельца и дату
   пересмотра;
 - [x] golden/held-out frozen results и связанные regression tests не изменены;
+- [x] dual summary, compact transport, local full-request benchmark, telemetry
+  schema и дополнительные rollback fixtures реализованы;
 - [ ] production-like relevant recall и irrelevant selection rate измерены;
 - [ ] p95 latency, LLM calls и provider Selector latency/token usage измерены и
   находятся в budget;
@@ -194,8 +244,8 @@ cd backend
 
 ## Остаточные риски
 
-- Selector input для 256 refs уже превышает token budget по текущему estimator;
-  повышать registry limit до устранения и provider-измерений запрещено;
+- локальный estimator проходит budgets, но actual provider usage и provider p95
+  latency отсутствуют, поэтому это не production pass;
 - production shadow/canary telemetry и размеченный ground truth отсутствуют,
   поэтому recall, irrelevant-selection improvement, end-to-end latency и LLM
   calls нельзя считать прошедшими;
@@ -203,5 +253,9 @@ cd backend
   production-like traffic comparison;
 - canary cohort allocation реализован, но намеренно возвращает
   `quality_gates_blocked`; factual и semantic canary не запускались;
+- deployed backfill coverage/queue/failures, provider credentials, price snapshot,
+  monetary ceiling и staging/canary infrastructure недоступны;
+- `160` остается кандидатом, а не доказанным вариантом: quality comparison с
+  `120/240` и compatibility path не запускался;
 - default-on и удаление compatibility path запрещены, пока любой gate имеет
   статус, отличный от измеренного pass.

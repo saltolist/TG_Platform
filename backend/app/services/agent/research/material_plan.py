@@ -4,7 +4,11 @@ from __future__ import annotations
 
 from typing import Any, Iterable, Mapping, NotRequired, TypedDict
 
-from app.services.ai.semantic_summary import DISCOVERY_SUMMARY_VERSION
+from app.services.ai.semantic_summary import (
+    DISCOVERY_SUMMARY_VERSION,
+    SELECTOR_SUMMARY_MAX_CHARS,
+    SELECTOR_SUMMARY_VERSION,
+)
 
 
 MATERIAL_PLAN_SCHEMA = "workspace.material-plan/v1"
@@ -61,6 +65,10 @@ class CandidateEnvelope(TypedDict):
     source_revision: int
     summary_version: int
     summary_model: str
+    selector_summary: str
+    selector_summary_version: int
+    selector_summary_fresh: bool
+    selector_summary_failure: str | None
     card_origin: str
     status: str
     parent_post_id: str | None
@@ -148,6 +156,25 @@ def card_eligibility(candidate: Mapping[str, Any]) -> tuple[bool, str | None]:
     return True, None
 
 
+def selector_summary_freshness(candidate: Mapping[str, Any]) -> tuple[bool, str | None]:
+    summary = str(candidate.get("selector_summary") or "").strip()
+    if not summary:
+        return False, "missing_selector_summary"
+    if len(summary) > SELECTOR_SUMMARY_MAX_CHARS:
+        return False, "selector_summary_too_long"
+    try:
+        version = int(candidate.get("selector_summary_version") or 0)
+        index_revision = int(candidate.get("index_revision") or 0)
+        source_revision = int(candidate.get("source_revision") or 0)
+    except (TypeError, ValueError):
+        return False, "invalid_selector_summary_freshness"
+    if version != SELECTOR_SUMMARY_VERSION:
+        return False, "stale_selector_summary_version"
+    if index_revision <= 0 or source_revision <= 0 or index_revision != source_revision:
+        return False, "stale_selector_summary_revision"
+    return True, None
+
+
 def normalize_candidate(
     candidate: Mapping[str, Any],
     *,
@@ -227,6 +254,8 @@ def normalize_candidate(
         "source_revision": source_revision,
         "summary_version": int(candidate.get("summary_version") or 0),
         "summary_model": summary_model,
+        "selector_summary": str(candidate.get("selector_summary") or ""),
+        "selector_summary_version": int(candidate.get("selector_summary_version") or 0),
         "card_origin": candidate_origin or card_origin(summary_model),
         "status": str(candidate.get("status") or "active"),
         "parent_post_id": parent_post_id or None,
@@ -253,6 +282,9 @@ def normalize_candidate(
     eligible, failure = card_eligibility(envelope)
     envelope["card_eligible"] = eligible
     envelope["card_eligibility_failure"] = failure
+    selector_fresh, selector_failure = selector_summary_freshness(envelope)
+    envelope["selector_summary_fresh"] = selector_fresh
+    envelope["selector_summary_failure"] = selector_failure
     if kind in {"note", "post"}:
         envelope["available_fidelity"] = [
             *(["semantic_card"] if eligible else []),

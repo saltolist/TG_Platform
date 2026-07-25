@@ -17,7 +17,8 @@ from __future__ import annotations
 import asyncio
 import hashlib
 import time
-from typing import AsyncIterator
+from collections.abc import Mapping
+from typing import Any, AsyncIterator
 
 from app.services.agent.runtime.context import RuntimeContext
 from app.services.ai import llm
@@ -40,6 +41,9 @@ def _record_llm_metric(
     completion: str,
     success: bool,
     streaming: bool,
+    provider_usage: Mapping[str, Any] | None = None,
+    telemetry: Mapping[str, Any] | None = None,
+    error_kind: str | None = None,
 ) -> None:
     sink = getattr(ctx, "llm_metrics", None)
     if not isinstance(sink, list):
@@ -54,6 +58,15 @@ def _record_llm_metric(
     cache_key = hashlib.sha256(system_text.encode("utf-8")).hexdigest()[:16] if system_text else ""
     completion_tokens = estimate_tokens_from_text(completion)
     spec = kwargs.get("spec")
+    provider_usage = dict(provider_usage or {})
+    telemetry = dict(telemetry or {})
+    usage_availability = str(provider_usage.get("availability") or "unavailable")
+    actual_input = provider_usage.get("input_tokens") if usage_availability == "measured" else None
+    actual_cached = (
+        provider_usage.get("cached_input_tokens") if usage_availability == "measured" else None
+    )
+    actual_output = provider_usage.get("output_tokens") if usage_availability == "measured" else None
+    actual_total = provider_usage.get("total_tokens") if usage_availability == "measured" else None
     metric = {
         "phase": phase,
         "duration_ms": round((time.perf_counter() - started_at) * 1000, 1),
@@ -65,6 +78,35 @@ def _record_llm_metric(
         "streaming": streaming,
         "provider": str(getattr(spec, "name", "") or getattr(spec, "provider", "") or "unknown"),
         "model": str(kwargs.get("model") or "unknown"),
+        "candidate_count": telemetry.get("candidate_count"),
+        "cohort": telemetry.get("cohort"),
+        "retry": bool(telemetry.get("retry")),
+        "schema_result": telemetry.get("schema_result") or "not_measured",
+        "timeout": error_kind in {"timeout", "deadline"},
+        "provider_latency": {
+            "availability": "measured",
+            "value_ms": round((time.perf_counter() - started_at) * 1000, 1),
+        },
+        "provider_token_usage": {
+            "availability": usage_availability,
+            "input_tokens": actual_input,
+            "cached_input_tokens": actual_cached,
+            "output_tokens": actual_output,
+            "total_tokens": actual_total,
+        },
+        "estimator_provider_delta": {
+            "availability": "measured" if actual_input is not None else "unavailable",
+            "input_tokens": (
+                int(actual_input) - prompt_tokens if actual_input is not None else None
+            ),
+            "total_tokens": (
+                int(actual_total) - (prompt_tokens + completion_tokens)
+                if actual_total is not None
+                else None
+            ),
+        },
+        "price_snapshot": {"availability": "unavailable", "version": None},
+        "estimated_cost": {"availability": "unavailable", "value_usd": None},
     }
     # Cache metadata is meaningful only when there is a stable system prefix.
     # Omitting it for user-only compatibility calls keeps the legacy metric
@@ -86,6 +128,7 @@ async def call_llm_with_deadline(
     ctx: RuntimeContext,
     *,
     phase: str = "unspecified",
+    telemetry: Mapping[str, Any] | None = None,
     **kwargs,
 ) -> str:
     """Call complete_chat_completion, bounded by the run's wall-clock deadline.
@@ -100,6 +143,8 @@ async def call_llm_with_deadline(
     llm_client = getattr(ctx, "llm_client", None)
     if llm_client is not None:
         kwargs.setdefault("client", llm_client)
+    provider_usage: dict[str, Any] = {}
+    kwargs["usage_sink"] = provider_usage
     deadline = ctx.deadline_monotonic
     try:
         if deadline is None:
@@ -112,7 +157,7 @@ async def call_llm_with_deadline(
                 result = await asyncio.wait_for(llm.complete_chat_completion(**kwargs), timeout=remaining)
             except asyncio.TimeoutError as exc:
                 raise RunDeadlineExceeded("run wall-clock budget exhausted during LLM call") from exc
-    except Exception:
+    except Exception as exc:
         _record_llm_metric(
             ctx,
             kwargs=kwargs,
@@ -121,6 +166,15 @@ async def call_llm_with_deadline(
             completion="",
             success=False,
             streaming=False,
+            provider_usage=provider_usage,
+            telemetry=telemetry,
+            error_kind=(
+                "deadline"
+                if isinstance(exc, RunDeadlineExceeded)
+                else "timeout"
+                if isinstance(exc, (asyncio.TimeoutError, TimeoutError))
+                else type(exc).__name__
+            ),
         )
         raise
     _record_llm_metric(
@@ -131,6 +185,8 @@ async def call_llm_with_deadline(
         completion=result,
         success=True,
         streaming=False,
+        provider_usage=provider_usage,
+        telemetry=telemetry,
     )
     return result
 

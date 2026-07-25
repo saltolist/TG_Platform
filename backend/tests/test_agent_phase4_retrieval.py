@@ -20,6 +20,7 @@ from app.services.ai.rag import (
     object_index_revision,
     retrieve_top_k,
 )
+from app.services.ai.semantic_summary import DISCOVERY_SUMMARY_VERSION
 
 
 def _hit(node_type: str, object_id: str, score: float, **extra) -> dict:
@@ -141,8 +142,8 @@ async def test_contextual_discovery_hit_is_promoted_to_existing_llm_card() -> No
         "summary_only": True,
         "index_revision": 7,
         "source_revision": 7,
-        "summary_version": 1,
-        "summary_model": "llm:OpenAI:gpt-4.1-mini:v1",
+        "summary_version": DISCOVERY_SUMMARY_VERSION,
+        "summary_model": f"llm:OpenAI:gpt-4.1-mini:v{DISCOVERY_SUMMARY_VERSION}",
         "title": "Заметка",
         "preview": "Готовая смысловая карточка",
         "status": "active",
@@ -178,7 +179,9 @@ async def test_contextual_discovery_hit_is_promoted_to_existing_llm_card() -> No
 
     assert results[0]["node_type"] == NODE_NOTE_SUMMARY
     assert results[0]["preview"] == "Готовая смысловая карточка"
-    assert results[0]["summary_model"] == "llm:OpenAI:gpt-4.1-mini:v1"
+    assert results[0]["summary_model"] == (
+        f"llm:OpenAI:gpt-4.1-mini:v{DISCOVERY_SUMMARY_VERSION}"
+    )
     assert results[0]["similarity"] == 0.83
     load_cards.assert_awaited_once()
 

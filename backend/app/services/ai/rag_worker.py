@@ -46,7 +46,9 @@ from app.services.ai.rag import (
 )
 from app.services.ai.semantic_summary import (
     DISCOVERY_SUMMARY_VERSION,
-    build_semantic_discovery_card,
+    SELECTOR_SUMMARY_VERSION,
+    SemanticSummaryProjections,
+    build_semantic_summary_projections,
     semantic_summary_model_key,
 )
 
@@ -63,8 +65,8 @@ async def _semantic_card(
     object_kind: str,
     title: str,
     text_value: str,
-) -> tuple[str, str]:
-    return await build_semantic_discovery_card(
+) -> SemanticSummaryProjections:
+    return await build_semantic_summary_projections(
         user=user,
         ai_profile=ai_profile,
         settings=settings,
@@ -84,6 +86,24 @@ def _clean_object_title(value: Any) -> str:
     return next(
         (line.strip() for line in str(value or "").splitlines() if line.strip()),
         "",
+    )
+
+
+def _summary_row_is_fresh(
+    indexed: set[tuple[str, int, int, str, str, int]],
+    *,
+    node_type: str,
+    revision: int,
+    model_key: str,
+) -> bool:
+    return any(
+        item[0] == node_type
+        and item[1] == revision
+        and item[2] == DISCOVERY_SUMMARY_VERSION
+        and item[3] == model_key
+        and bool(item[4])
+        and item[5] == SELECTOR_SUMMARY_VERSION
+        for item in indexed
     )
 
 
@@ -148,6 +168,34 @@ async def purge_post_text_embeddings(
 
 MAX_ATTEMPTS = 3
 BATCH_SIZE = 10
+SUMMARY_BACKFILL_MAX_JOBS_PER_MINUTE = int(BATCH_SIZE * 60 / POLL_INTERVAL_S)
+
+
+async def summary_backfill_observability(session: AsyncSession) -> dict[str, Any]:
+    """Return explicit queue/failure availability without treating unknown cost as zero."""
+
+    rows = (
+        await session.execute(
+            text(
+                "SELECT status, count(*) AS count FROM embedding_jobs "
+                "WHERE op = 'upsert' AND node_type IN (:note_type, :post_type) "
+                "GROUP BY status"
+            ),
+            {"note_type": NODE_NOTE_CHUNK, "post_type": NODE_POST_TEXT},
+        )
+    ).fetchall()
+    counts = {str(row.status): int(row.count or 0) for row in rows}
+    return {
+        "schema": "workspace.selector-summary-backfill-observability/v1",
+        "queue_depth": counts.get("pending", 0) + counts.get("processing", 0),
+        "pending": counts.get("pending", 0),
+        "processing": counts.get("processing", 0),
+        "failed": counts.get("failed", 0),
+        "done": counts.get("done", 0),
+        "rate_limit_jobs_per_minute": SUMMARY_BACKFILL_MAX_JOBS_PER_MINUTE,
+        "provider_token_usage": {"availability": "unavailable", "value": None},
+        "estimated_cost": {"availability": "unavailable", "value_usd": None},
+    }
 
 
 async def enqueue_note_job(
@@ -505,7 +553,7 @@ async def _process_job(
         post_status = str(post_data.get("status") or "draft").strip().lower()
         post_revision = object_index_revision(post_data)
         if text_value:
-            discovery_summary, summary_model = await _semantic_card(
+            summaries = await _semantic_card(
                 user=user,
                 ai_profile=ai_profile,
                 settings=settings,
@@ -543,9 +591,11 @@ async def _process_job(
                 index_revision=post_revision,
                 keywords=discovery_keywords(f"{post_title} {text_value}"),
                 max_chars=max_chars,
-                summary_text=discovery_summary,
+                summary_text=summaries.discovery_summary,
                 summary_version=DISCOVERY_SUMMARY_VERSION,
-                summary_model=summary_model,
+                summary_model=summaries.model_key,
+                selector_summary=summaries.selector_summary,
+                selector_summary_version=SELECTOR_SUMMARY_VERSION,
             )
         else:
             await remove_text_node(
@@ -565,7 +615,7 @@ async def _process_job(
             return
         title = _clean_object_title(note_data.get("title", ""))
         body = note_data.get("body", "")
-        discovery_summary, summary_model = await _semantic_card(
+        summaries = await _semantic_card(
             user=user,
             ai_profile=ai_profile,
             settings=settings,
@@ -586,9 +636,11 @@ async def _process_job(
             tenant_key=tenant_key,
             object_status=str(note_data.get("status") or "active"),
             index_revision=object_index_revision(note_data),
-            discovery_summary=discovery_summary,
+            discovery_summary=summaries.discovery_summary,
             discovery_summary_version=DISCOVERY_SUMMARY_VERSION,
-            discovery_summary_model=summary_model,
+            discovery_summary_model=summaries.model_key,
+            selector_summary=summaries.selector_summary,
+            selector_summary_version=SELECTOR_SUMMARY_VERSION,
         )
         await _index_note_file_nodes(
             session,
@@ -614,7 +666,7 @@ async def _process_job(
         if note_row is None:
             return
         note_data = dict(note_row.data)
-        discovery_summary, summary_model = await _semantic_card(
+        summaries = await _semantic_card(
             user=user,
             ai_profile=ai_profile,
             settings=settings,
@@ -633,9 +685,11 @@ async def _process_job(
             max_chars=max_chars,
             object_status=str(note_data.get("status") or "active"),
             index_revision=object_index_revision(note_data),
-            discovery_summary=discovery_summary,
+            discovery_summary=summaries.discovery_summary,
             discovery_summary_version=DISCOVERY_SUMMARY_VERSION,
-            discovery_summary_model=summary_model,
+            discovery_summary_model=summaries.model_key,
+            selector_summary=summaries.selector_summary,
+            selector_summary_version=SELECTOR_SUMMARY_VERSION,
         )
         await _index_note_file_nodes(
             session,
@@ -668,7 +722,7 @@ async def _process_job(
         for note in (post_row.data.get("notes") or []):
             if str(note.get("id", "")) == note_id:
                 note_data = dict(note)
-                discovery_summary, summary_model = await _semantic_card(
+                summaries = await _semantic_card(
                     user=user,
                     ai_profile=ai_profile,
                     settings=settings,
@@ -688,9 +742,11 @@ async def _process_job(
                     max_chars=max_chars,
                     object_status=str(note_data.get("status") or "active"),
                     index_revision=object_index_revision(note_data),
-                    discovery_summary=discovery_summary,
+                    discovery_summary=summaries.discovery_summary,
                     discovery_summary_version=DISCOVERY_SUMMARY_VERSION,
-                    discovery_summary_model=summary_model,
+                    discovery_summary_model=summaries.model_key,
+                    selector_summary=summaries.selector_summary,
+                    selector_summary_version=SELECTOR_SUMMARY_VERSION,
                 )
                 await _index_note_file_nodes(
                     session,
@@ -742,7 +798,8 @@ async def startup_backfill_all(session_factory: async_sessionmaker[AsyncSession]
                     )
                     exists = await session.execute(
                         text(
-                            "SELECT node_type, index_revision, summary_version, summary_model "
+                            "SELECT node_type, index_revision, summary_version, summary_model, "
+                            "selector_summary, selector_summary_version "
                             "FROM note_embeddings "
                             "WHERE user_id = :uid AND scope = 'global' AND note_id = :nid "
                             "AND node_type IN (:chunk_nt, :summary_nt) AND model_key = :mk"
@@ -761,6 +818,8 @@ async def startup_backfill_all(session_factory: async_sessionmaker[AsyncSession]
                             int(row.index_revision or 1),
                             int(row.summary_version or 0),
                             str(row.summary_model or ""),
+                            str(row.selector_summary or ""),
+                            int(row.selector_summary_version or 0),
                         )
                         for row in exists.fetchall()
                     }
@@ -769,12 +828,12 @@ async def startup_backfill_all(session_factory: async_sessionmaker[AsyncSession]
                             item[0] == NODE_NOTE_CHUNK and item[1] == expected_revision
                             for item in indexed
                         )
-                        or (
-                            NODE_NOTE_SUMMARY,
-                            expected_revision,
-                            DISCOVERY_SUMMARY_VERSION,
-                            expected_summary_model,
-                        ) not in indexed
+                        or not _summary_row_is_fresh(
+                            indexed,
+                            node_type=NODE_NOTE_SUMMARY,
+                            revision=expected_revision,
+                            model_key=expected_summary_model,
+                        )
                     ):
                         await enqueue_note_job(session, user_id, "upsert", "global", note_id)
                         enqueued += 1
@@ -797,7 +856,8 @@ async def startup_backfill_all(session_factory: async_sessionmaker[AsyncSession]
                         )
                         exists = await session.execute(
                             text(
-                                "SELECT node_type, index_revision, summary_version, summary_model "
+                                "SELECT node_type, index_revision, summary_version, summary_model, "
+                                "selector_summary, selector_summary_version "
                                 "FROM note_embeddings "
                                 "WHERE user_id = :uid AND scope = 'post' AND note_id = :nid "
                                 "AND node_type IN (:chunk_nt, :summary_nt) AND model_key = :mk"
@@ -816,6 +876,8 @@ async def startup_backfill_all(session_factory: async_sessionmaker[AsyncSession]
                                 int(row.index_revision or 1),
                                 int(row.summary_version or 0),
                                 str(row.summary_model or ""),
+                                str(row.selector_summary or ""),
+                                int(row.selector_summary_version or 0),
                             )
                             for row in exists.fetchall()
                         }
@@ -824,12 +886,12 @@ async def startup_backfill_all(session_factory: async_sessionmaker[AsyncSession]
                                 item[0] == NODE_NOTE_CHUNK and item[1] == expected_revision
                                 for item in indexed
                             )
-                            or (
-                                NODE_NOTE_SUMMARY,
-                                expected_revision,
-                                DISCOVERY_SUMMARY_VERSION,
-                                expected_summary_model,
-                            ) not in indexed
+                            or not _summary_row_is_fresh(
+                                indexed,
+                                node_type=NODE_NOTE_SUMMARY,
+                                revision=expected_revision,
+                                model_key=expected_summary_model,
+                            )
                         ):
                             await enqueue_note_job(
                                 session, user_id, "upsert", "post", note_id, canonical_id
@@ -839,7 +901,8 @@ async def startup_backfill_all(session_factory: async_sessionmaker[AsyncSession]
                     expected_post_revision = object_index_revision(post_data)
                     exists_canonical = await session.execute(
                         text(
-                            "SELECT node_type, index_revision, summary_version, summary_model "
+                            "SELECT node_type, index_revision, summary_version, summary_model, "
+                            "selector_summary, selector_summary_version "
                             "FROM note_embeddings "
                             "WHERE user_id = :uid AND scope = 'global' AND note_id = :pid "
                             "AND node_type IN (:text_nt, :summary_nt) AND model_key = :mk"
@@ -858,6 +921,8 @@ async def startup_backfill_all(session_factory: async_sessionmaker[AsyncSession]
                             int(row.index_revision or 1),
                             int(row.summary_version or 0),
                             str(row.summary_model or ""),
+                            str(row.selector_summary or ""),
+                            int(row.selector_summary_version or 0),
                         )
                         for row in exists_canonical.fetchall()
                     }
@@ -866,12 +931,12 @@ async def startup_backfill_all(session_factory: async_sessionmaker[AsyncSession]
                             item[0] == NODE_POST_TEXT and item[1] == expected_post_revision
                             for item in indexed
                         )
-                        and (
-                            NODE_POST_SUMMARY,
-                            expected_post_revision,
-                            DISCOVERY_SUMMARY_VERSION,
-                            expected_summary_model,
-                        ) in indexed
+                        and _summary_row_is_fresh(
+                            indexed,
+                            node_type=NODE_POST_SUMMARY,
+                            revision=expected_post_revision,
+                            model_key=expected_summary_model,
+                        )
                     )
                     has_stale_alias = False
                     if canonical_exists:

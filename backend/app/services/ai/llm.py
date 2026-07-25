@@ -100,6 +100,7 @@ async def complete_chat_completion(
     client: httpx.AsyncClient | None = None,
     temperature: float | None = None,
     max_tokens: int | None = None,
+    usage_sink: dict[str, Any] | None = None,
 ) -> str:
     """Non-streaming chat completion (rolling summary, etc.)."""
     url = chat_completions_url(spec)
@@ -125,6 +126,35 @@ async def complete_chat_completion(
         response = await client.post(url, headers=headers, json=body)
         response.raise_for_status()
         data = response.json()
+        if usage_sink is not None:
+            usage = data.get("usage")
+            if isinstance(usage, Mapping):
+                prompt_details = usage.get("prompt_tokens_details")
+                details = prompt_details if isinstance(prompt_details, Mapping) else {}
+                cached = details.get("cached_tokens")
+                if cached is None:
+                    cached = usage.get("prompt_cache_hit_tokens")
+                input_tokens = usage.get("prompt_tokens")
+                if input_tokens is None:
+                    input_tokens = usage.get("input_tokens")
+                output_tokens = usage.get("completion_tokens")
+                if output_tokens is None:
+                    output_tokens = usage.get("output_tokens")
+                total_tokens = usage.get("total_tokens")
+                if all(
+                    isinstance(value, int) and not isinstance(value, bool)
+                    for value in (input_tokens, cached, output_tokens, total_tokens)
+                ):
+                    usage_sink.update(
+                        {
+                            "availability": "measured",
+                            "input_tokens": input_tokens,
+                            "cached_input_tokens": cached,
+                            "output_tokens": output_tokens,
+                            "total_tokens": total_tokens,
+                        }
+                    )
+            usage_sink.setdefault("availability", "unavailable")
         choices = data.get("choices")
         if not isinstance(choices, list) or not choices:
             return ""

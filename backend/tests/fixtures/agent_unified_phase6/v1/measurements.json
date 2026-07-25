@@ -1,6 +1,6 @@
 {
   "schema": "workspace.unified-phase6-measurements/v1",
-  "source_commit": "dcc3aeae0781ff6e773ff0bc9f52d7d94d5d4d36",
+  "source_commit": "e6bb80c8c984534710e08d2c30514dbd5f7519e7",
   "owner": "workspace-agent",
   "compatibility_remove_after": "2026-10-24",
   "scenario_inventory": {
@@ -20,7 +20,18 @@
     "p95_latency_ms": {"availability": "unavailable", "value": null, "threshold": 119061.25, "sample_size": 0, "source": "no unified canary traces"},
     "llm_calls_per_run": {"availability": "unavailable", "value": null, "threshold": 1, "sample_size": 0, "source": "no unified canary traces"},
     "selector_p95_latency_ms": {"availability": "unavailable", "value": null, "threshold": 30000, "sample_size": 0, "source": "provider Selector latency not measured for 256 refs"},
-    "selector_p95_prompt_tokens": {"availability": "measured", "value": 49736, "threshold": 30000, "sample_size": 50, "source": "256-ref boundary using runtime chars_div_4 estimator"},
+    "selector_p95_prompt_tokens": {"availability": "measured", "value": null, "threshold": 30000, "sample_size": 50, "source": "full compact system+user request using chars_div_4 estimator; not provider usage"},
+    "selector_full_request_measured": {"availability": "measured", "value": 1, "sample_size": 6, "source": "full system+user request fixtures for 16/64/100/128/256 plus overflow 257"},
+    "selector_provider_token_usage_measured": {"availability": "unavailable", "value": null, "sample_size": 0, "source": "no provider credentials or unified canary traces"},
+    "selector_relevant_p95_total_tokens": {"availability": "unavailable", "value": null, "threshold": 2500, "sample_size": 0, "source": "provider input/output usage absent; local chars_div_4 estimator reported separately"},
+    "selector_complete_sync_p95_total_tokens": {"availability": "unavailable", "value": null, "threshold": 10000, "sample_size": 0, "source": "provider input/output usage absent; local chars_div_4 estimator reported separately"},
+    "selector_complete_boundary_p95_total_tokens": {"availability": "unavailable", "value": null, "threshold": 22000, "sample_size": 0, "source": "101-256 boundary canary not run; local chars_div_4 estimator reported separately"},
+    "selector_schema_retry_telemetry_measured": {"availability": "unavailable", "value": null, "sample_size": 0, "source": "telemetry schema implemented; provider/shadow sample absent"},
+    "selector_monetary_ceiling_configured": {"availability": "unavailable", "value": null, "sample_size": 0, "source": "rollout owner has not supplied a provider/model price snapshot or monetary ceiling"},
+    "selector_cost_p95_within_ceiling": {"availability": "unavailable", "value": null, "sample_size": 0, "source": "price snapshot, monetary ceiling and provider usage unavailable"},
+    "selector_summary_backfill_coverage": {"availability": "unavailable", "value": null, "sample_size": 0, "source": "migration/freshness/backfill tests exist; deployed queue coverage not measured"},
+    "compact_decoder_completeness": {"availability": "measured", "value": 1, "sample_size": 12, "source": "round-trip, unknown/duplicate/missing/out-of-range and canonical v2 validation tests"},
+    "sync_rollout_ceiling_guard": {"availability": "measured", "value": 1, "sample_size": 3, "source": "100 allowed; 101-256 blocked without explicit exhaustive flow; 257 incomplete"},
     "checkpoint_resume_pass_rate": {"availability": "measured", "value": 1, "sample_size": 1, "source": "frozen checkpoint/resume plus rollback projection"},
     "interrupted_cancelled_pass_rate": {"availability": "measured", "value": 1, "sample_size": 2, "source": "frozen interrupted/cancelled fixtures"},
     "tenant_status_security_guard_pass_rate": {"availability": "measured", "value": 1, "sample_size": 12, "source": "phase1/phase4 and security regression tests"},
@@ -29,6 +40,7 @@
     "planner_trace_coverage": {"availability": "measured", "value": 1, "sample_size": 3, "source": "phase5 decision/no-op rollout trace tests"},
     "additive_search_trace_coverage": {"availability": "measured", "value": 1, "sample_size": 2, "source": "phase5 additive-search rollout trace tests"},
     "registry_overflow_ready_rate": {"availability": "measured", "value": 0, "sample_size": 1, "source": "257-member complete semantic registry fixture"},
-    "rollback_drill_pass_rate": {"availability": "measured", "value": 1, "sample_size": 5, "source": "phase6 rollback drill"}
+    "rollback_drill_pass_rate": {"availability": "measured", "value": 1, "sample_size": 7, "source": "local phase6 rollback drill including summary backfill interruption and compact decode failure"},
+    "staging_canary_rollback_drill_pass_rate": {"availability": "unavailable", "value": null, "sample_size": 0, "source": "staging/canary infrastructure not available in the local workspace"}
   }
 }

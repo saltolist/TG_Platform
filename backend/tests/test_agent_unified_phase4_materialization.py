@@ -22,6 +22,7 @@ from app.services.agent.research.material_plan import (
     normalize_candidates,
 )
 from app.services.agent.runtime.message_context import supplied_object_refs
+from app.services.ai.semantic_summary import DISCOVERY_SUMMARY_VERSION
 
 
 def _candidate(
@@ -42,8 +43,8 @@ def _candidate(
                 "source_requirement_id": source,
                 "index_revision": 5,
                 "source_revision": 5,
-                "summary_version": 1,
-                "summary_model": "llm:test:model:v1",
+                "summary_version": DISCOVERY_SUMMARY_VERSION,
+                "summary_model": f"llm:test:model:v{DISCOVERY_SUMMARY_VERSION}",
                 "status": "active",
                 "parent_post_id": parent_post_id,
             }

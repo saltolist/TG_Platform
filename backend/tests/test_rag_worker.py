@@ -30,7 +30,7 @@ from app.services.ai.rag_worker import (
     is_post_deleted,
     startup_backfill_all,
 )
-from app.services.ai.semantic_summary import DISCOVERY_SUMMARY_VERSION
+from app.services.ai.semantic_summary import DISCOVERY_SUMMARY_VERSION, SELECTOR_SUMMARY_VERSION
 from tests.conftest import TestSessionLocal, sample_global_note
 
 
@@ -103,6 +103,8 @@ async def test_startup_backfill_is_model_fingerprint_aware(
             stored_backend,
             discovery_summary_version=DISCOVERY_SUMMARY_VERSION,
             discovery_summary_model=f"extractive:v{DISCOVERY_SUMMARY_VERSION}",
+            selector_summary="Fresh selector summary",
+            selector_summary_version=SELECTOR_SUMMARY_VERSION,
         )
         await session.commit()
 

@@ -98,6 +98,29 @@ async def test_call_records_phase_timing_and_token_estimates(monkeypatch) -> Non
             "streaming": False,
             "provider": "unknown",
             "model": "m",
+            "candidate_count": None,
+            "cohort": None,
+            "retry": False,
+            "schema_result": "not_measured",
+            "timeout": False,
+            "provider_latency": {
+                "availability": "measured",
+                "value_ms": pytest.approx(0, abs=50),
+            },
+            "provider_token_usage": {
+                "availability": "unavailable",
+                "input_tokens": None,
+                "cached_input_tokens": None,
+                "output_tokens": None,
+                "total_tokens": None,
+            },
+            "estimator_provider_delta": {
+                "availability": "unavailable",
+                "input_tokens": None,
+                "total_tokens": None,
+            },
+            "price_snapshot": {"availability": "unavailable", "version": None},
+            "estimated_cost": {"availability": "unavailable", "value_usd": None},
         }
     ]
 

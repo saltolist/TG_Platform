@@ -37,8 +37,14 @@ def _all_flags(*, default_on: bool = False) -> dict[str, bool]:
     }
 
 
-def test_unavailable_missing_inconclusive_and_not_measured_never_pass() -> None:
-    for availability in ("unavailable", "missing", "inconclusive", "not_measured"):
+def test_non_measured_availability_never_passes() -> None:
+    for availability in (
+        "unavailable",
+        "missing",
+        "inconclusive",
+        "not_measured",
+        "derived",
+    ):
         report = build_quality_report(
             {
                 spec.name: {"availability": availability, "value": None}
@@ -66,11 +72,24 @@ def test_phase6_quality_report_is_attested_and_keeps_default_off() -> None:
         "p95_latency_ms",
         "llm_calls_per_run",
         "selector_p95_latency_ms",
-        "selector_p95_prompt_tokens",
+        "selector_provider_token_usage_measured",
+        "selector_relevant_p95_total_tokens",
+        "selector_complete_sync_p95_total_tokens",
+        "selector_complete_boundary_p95_total_tokens",
+        "selector_schema_retry_telemetry_measured",
+        "selector_monetary_ceiling_configured",
+        "selector_cost_p95_within_ceiling",
+        "selector_summary_backfill_coverage",
+        "staging_canary_rollback_drill_pass_rate",
     }
     assert report["selector_boundary_benchmark"]["registry_size"] == 256
     assert report["selector_boundary_benchmark"]["provider_latency_availability"] == "unavailable"
-    assert report["selector_boundary_benchmark"]["estimated_prompt_tokens_chars_div_4"] > 30000
+    benchmark = report["selector_boundary_benchmark"]
+    assert benchmark["estimated_prompt_tokens_chars_div_4"] <= 30000
+    assert benchmark["estimated_total_tokens_chars_div_4"] <= 22000
+    assert benchmark["scenarios"]["16"]["total_tokens_chars_div_4_estimator"] <= 2500
+    assert benchmark["scenarios"]["100"]["total_tokens_chars_div_4_estimator"] <= 10000
+    assert benchmark["estimator_is_provider_usage"] is False
     assert report["offline_replay"]["stable"] is True
     assert report["offline_replay"]["scenario_count"] == 13
     assert report["offline_replay"]["answer_model_calls"] == 0
@@ -157,6 +176,8 @@ def test_rollback_drill_preserves_durable_user_ledger_refs_and_evidence() -> Non
         "selector_timeout",
         "catalog_schema_mismatch",
         "pack_budget_overflow",
+        "summary_backfill_interrupted",
+        "compact_decode_failure",
     )
     drill = run_rollback_drill(
         _all_flags(),

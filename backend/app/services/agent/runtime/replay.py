@@ -203,6 +203,11 @@ def capture_unified_rollout_trace(
         for item in calls
         if "answer" in str(item.get("phase") or item.get("call_kind") or "").casefold()
     ]
+    selector_calls = [
+        item
+        for item in calls
+        if str(item.get("phase") or "").startswith("research.selector.context")
+    ]
     pack = dict(state.get("evidence_pack") or {})
     raw_plan = dict(state.get("material_plan") or {})
     material_plan = {
@@ -230,16 +235,43 @@ def capture_unified_rollout_trace(
             {
                 key: item.get(key)
                 for key in (
+                    "schema",
                     "ref",
                     "kind",
                     "origin",
+                    "inclusion_priority",
                     "semantic_score",
                     "semantic_rank_score",
+                    "search_enriched",
                     "parent",
                     "source_requirement_ids",
                     "source_requirement_id",
                     "available_fidelity",
+                    "card_eligible",
+                    "card_eligibility_failure",
+                    "index_revision",
                     "source_revision",
+                    "summary_version",
+                    "summary_model",
+                    "selector_summary_version",
+                    "selector_summary_fresh",
+                    "selector_summary_failure",
+                    "card_origin",
+                    "status",
+                    "parent_post_id",
+                    "parent_note_id",
+                    "post_id",
+                    "file_id",
+                    "node_type",
+                    "citation_path",
+                    "has_more",
+                    "file_count",
+                    "image_count",
+                    "has_files",
+                    "has_images",
+                    "direct_image_count",
+                    "note_image_files_total",
+                    "has_any_images",
                 )
                 if key in item
             }
@@ -256,6 +288,34 @@ def capture_unified_rollout_trace(
                 or ()
             ),
             "attempts": selector.get("attempts"),
+            "transport_schema": selector.get("transport_schema"),
+            "provider_observability": [
+                {
+                    key: call.get(key)
+                    for key in (
+                        "phase",
+                        "provider",
+                        "model",
+                        "candidate_count",
+                        "cohort",
+                        "duration_ms",
+                        "provider_latency",
+                        "timeout",
+                        "retry",
+                        "schema_result",
+                        "prompt_tokens",
+                        "completion_tokens",
+                        "total_tokens",
+                        "token_method",
+                        "provider_token_usage",
+                        "estimator_provider_delta",
+                        "price_snapshot",
+                        "estimated_cost",
+                    )
+                    if key in call
+                }
+                for call in selector_calls
+            ],
         },
         "policy": {
             "decisions": [

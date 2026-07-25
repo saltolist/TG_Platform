@@ -31,6 +31,7 @@ NON_PASSING_AVAILABILITY = {
     "missing",
     "inconclusive",
     "not_measured",
+    "derived",
 }
 
 
@@ -63,6 +64,19 @@ MANDATORY_GATE_SPECS = (
     GateSpec("llm_calls_per_run", GateRule.MAX),
     GateSpec("selector_p95_latency_ms", GateRule.MAX),
     GateSpec("selector_p95_prompt_tokens", GateRule.MAX),
+    GateSpec("selector_full_request_measured", GateRule.EQUAL, threshold=1.0),
+    GateSpec("selector_provider_token_usage_measured", GateRule.EQUAL, threshold=1.0),
+    GateSpec("selector_relevant_p95_total_tokens", GateRule.MAX, threshold=2500.0),
+    GateSpec("selector_complete_sync_p95_total_tokens", GateRule.MAX, threshold=10000.0),
+    GateSpec(
+        "selector_complete_boundary_p95_total_tokens", GateRule.MAX, threshold=22000.0
+    ),
+    GateSpec("selector_schema_retry_telemetry_measured", GateRule.EQUAL, threshold=1.0),
+    GateSpec("selector_monetary_ceiling_configured", GateRule.EQUAL, threshold=1.0),
+    GateSpec("selector_cost_p95_within_ceiling", GateRule.EQUAL, threshold=1.0),
+    GateSpec("selector_summary_backfill_coverage", GateRule.EQUAL, threshold=1.0),
+    GateSpec("compact_decoder_completeness", GateRule.EQUAL, threshold=1.0),
+    GateSpec("sync_rollout_ceiling_guard", GateRule.EQUAL, threshold=1.0),
     GateSpec("checkpoint_resume_pass_rate", GateRule.EQUAL, threshold=1.0),
     GateSpec("interrupted_cancelled_pass_rate", GateRule.EQUAL, threshold=1.0),
     GateSpec("tenant_status_security_guard_pass_rate", GateRule.EQUAL, threshold=1.0),
@@ -72,6 +86,7 @@ MANDATORY_GATE_SPECS = (
     GateSpec("additive_search_trace_coverage", GateRule.EQUAL, threshold=1.0),
     GateSpec("registry_overflow_ready_rate", GateRule.EQUAL, threshold=0.0),
     GateSpec("rollback_drill_pass_rate", GateRule.EQUAL, threshold=1.0),
+    GateSpec("staging_canary_rollback_drill_pass_rate", GateRule.EQUAL, threshold=1.0),
 )
 
 
@@ -341,6 +356,8 @@ def run_rollback_drill(
         "selector_timeout",
         "catalog_schema_mismatch",
         "pack_budget_overflow",
+        "summary_backfill_interrupted",
+        "compact_decode_failure",
     }
     for scenario in scenarios:
         name = str(scenario.get("name") or "")
