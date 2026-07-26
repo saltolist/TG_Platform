@@ -726,6 +726,29 @@ async def answer_node(state: AgentGraphState, config: RunnableConfig) -> dict[st
             "answer_repair_count": 0,
             "stopped_reason": "referent_ambiguity",
         }
+    selector_failed = bool((state.get("material_plan") or {}).get("selector_failure")) or any(
+        isinstance(item, dict) and item.get("kind") == "selector_failed"
+        for item in state.get("evidence_gaps") or ()
+    )
+    if selector_failed:
+        return {
+            **state,
+            "answer_text": (
+                "Не удалось надежно оценить контекст рабочего пространства. "
+                "Повторите запрос; вывод по доступным материалам не сформирован."
+            ),
+            "claims": [],
+            "used_context_refs": [],
+            "output_schema": output_schema,
+            "output_validation": {
+                "ok": True,
+                "issues": [],
+                "factual": True,
+                "model": "deterministic_selector_failure",
+            },
+            "answer_repair_count": 0,
+            "stopped_reason": "selector_failed",
+        }
     evidence_pack = dict(state.get("evidence_pack") or {}) if phase6_enabled else {}
     evidence_ids = list(evidence_pack.get("evidence_ids") or state.get("evidence_ids") or [])
     semantic_card_ids = {

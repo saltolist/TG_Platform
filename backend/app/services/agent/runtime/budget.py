@@ -81,7 +81,10 @@ def _record_llm_metric(
         "candidate_count": telemetry.get("candidate_count"),
         "cohort": telemetry.get("cohort"),
         "retry": bool(telemetry.get("retry")),
+        "semantic_attempt": telemetry.get("semantic_attempt") or "initial",
+        "transport_tier": telemetry.get("transport_tier") or "plain",
         "schema_result": telemetry.get("schema_result") or "not_measured",
+        "validation_error_codes": list(telemetry.get("validation_error_codes") or ()),
         "timeout": error_kind in {"timeout", "deadline"},
         "provider_latency": {
             "availability": "measured",
@@ -91,6 +94,9 @@ def _record_llm_metric(
             "availability": usage_availability,
             "input_tokens": actual_input,
             "cached_input_tokens": actual_cached,
+            "cached_input_availability": provider_usage.get(
+                "cached_input_availability", "unavailable"
+            ),
             "output_tokens": actual_output,
             "total_tokens": actual_total,
         },

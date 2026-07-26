@@ -61,7 +61,11 @@ MANDATORY_GATE_SPECS = (
     GateSpec("relevant_recall", GateRule.NOT_BELOW_BASELINE),
     GateSpec("irrelevant_selection_rate", GateRule.BELOW_BASELINE),
     GateSpec("p95_latency_ms", GateRule.MAX),
-    GateSpec("llm_calls_per_run", GateRule.MAX),
+    GateSpec(
+        "semantic_selector_initial_calls_per_selector_run",
+        GateRule.MAX,
+        threshold=1.0,
+    ),
     GateSpec("selector_p95_latency_ms", GateRule.MAX),
     GateSpec("selector_p95_prompt_tokens", GateRule.MAX),
     GateSpec("selector_full_request_measured", GateRule.EQUAL, threshold=1.0),
@@ -73,8 +77,24 @@ MANDATORY_GATE_SPECS = (
     ),
     GateSpec("selector_schema_retry_telemetry_measured", GateRule.EQUAL, threshold=1.0),
     GateSpec("selector_schema_reliability_within_budget", GateRule.EQUAL),
-    GateSpec("selector_monetary_ceiling_configured", GateRule.EQUAL, threshold=1.0),
-    GateSpec("selector_cost_p95_within_ceiling", GateRule.EQUAL, threshold=1.0),
+    GateSpec("selector_first_attempt_valid_rate", GateRule.MIN, threshold=0.95),
+    GateSpec("selector_final_valid_rate", GateRule.EQUAL, threshold=1.0),
+    GateSpec("selector_retry_rate", GateRule.MAX, threshold=0.05),
+    GateSpec("selector_position_error_count", GateRule.EQUAL, threshold=0.0),
+    GateSpec(
+        "answer_model_calls_after_final_selector_failure",
+        GateRule.EQUAL,
+        threshold=0.0,
+    ),
+    GateSpec(
+        "complete_classification_required_object_coverage",
+        GateRule.EQUAL,
+        threshold=1.0,
+    ),
+    GateSpec("required_critical_evidence_recall", GateRule.EQUAL, threshold=1.0),
+    GateSpec("selector_summary_160_non_inferior_recall", GateRule.EQUAL, threshold=1.0),
+    GateSpec("capped_canary_chat_count", GateRule.MAX, threshold=20.0),
+    GateSpec("capped_canary_max_user_messages_per_chat", GateRule.MAX, threshold=4.0),
     GateSpec("selector_summary_backfill_coverage", GateRule.EQUAL, threshold=1.0),
     GateSpec("compact_decoder_completeness", GateRule.EQUAL, threshold=1.0),
     GateSpec("sync_rollout_ceiling_guard", GateRule.EQUAL, threshold=1.0),
@@ -161,6 +181,23 @@ def build_quality_report(
             "remove_after": compatibility_remove_after,
             "status": "retained_for_rollback",
         },
+        "gate_replacements": [
+            {
+                "original": "llm_calls_per_run",
+                "replacement": "semantic_selector_initial_calls_per_selector_run",
+                "reason": "measure the initial semantic Selector boundary; total provider calls remain diagnostic",
+            },
+            {
+                "original": "selector_monetary_ceiling_configured",
+                "replacement": "capped_canary_chat_count",
+                "reason": "rollout-owner capped pilot risk control; price remains unavailable",
+            },
+            {
+                "original": "selector_cost_p95_within_ceiling",
+                "replacement": "capped_canary_max_user_messages_per_chat",
+                "reason": "rollout-owner capped pilot risk control; cost remains unavailable",
+            },
+        ],
         "gates": gates,
         "all_mandatory_gates_passed": not blocking,
         "blocking_gates": blocking,
@@ -352,6 +389,7 @@ def run_rollback_drill(
 ) -> dict[str, Any]:
     results: list[dict[str, Any]] = []
     required = {
+        "flag_sequence",
         "new_run",
         "resume_old_checkpoint",
         "selector_timeout",

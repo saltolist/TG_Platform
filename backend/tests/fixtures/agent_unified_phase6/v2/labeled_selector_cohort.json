@@ -1,16 +1,167 @@
 {
   "schema": "workspace.selector-labeled-cohort/v1",
-  "version": "2026-07-25",
+  "version": "2026-07-26-remediation-v2",
   "synthetic": true,
   "tenant_safe": true,
   "cases": [
     {"id": "ru-direct", "language": "ru", "query": "Что относится к запуску?", "title": "План запуска", "selector_summary": "Этапы запуска, владельцы, сроки и критерии отката.", "origin": "authoritative_catalog", "semantic_score": null, "parent_kind": null, "label": "direct"},
     {"id": "en-irrelevant", "language": "en", "query": "What concerns launch risk?", "title": "Office menu", "selector_summary": "Lunch menu and kitchen opening hours.", "origin": "semantic_search", "semantic_score": 0.61, "parent_kind": null, "label": "irrelevant"},
     {"id": "es-supporting", "language": "es", "query": "Riesgos del lanzamiento", "title": "Dependencias", "selector_summary": "Dependencias de API; el riesgo de lanzamiento aparece como tema secundario.", "origin": "semantic_search", "semantic_score": 0.44, "parent_kind": "post", "label": "supporting"},
-    {"id": "ru-secondary-late", "language": "ru", "query": "Ограничения бюджета", "title": "Еженедельный отчет", "selector_summary": "Статус команды и сроки. В конце зафиксирован предел бюджета запуска.", "origin": "authoritative_catalog", "semantic_score": null, "parent_kind": "post", "label": "direct"},
+    {"id": "ru-secondary-late", "language": "ru", "query": "Ограничения бюджета", "title": "Еженедельный отчет", "selector_summary": "Статус команды и сроки. В конце зафиксирован предел бюджета запуска.", "compatibility_summary": "Статус команды, владельцы задач, календарь релиза, зависимости API и порядок еженедельной отчетности. Вторичная тема: предел бюджета запуска равен согласованному лимиту.", "origin": "authoritative_catalog", "semantic_score": null, "parent_kind": "post", "label": "direct"},
     {"id": "en-ambient-relevant", "language": "en", "query": "Who owns rollback?", "title": "Current post note", "selector_summary": "Rollback ownership belongs to the release manager; timeout is 15 minutes.", "origin": "ambient_current_post", "semantic_score": null, "parent_kind": "post", "label": "direct"},
     {"id": "ru-ambient-irrelevant", "language": "ru", "query": "Кто владелец отката?", "title": "Текущая заметка", "selector_summary": "Черновик поздравления команды без сведений об откате.", "origin": "ambient_current_post", "semantic_score": null, "parent_kind": "post", "label": "irrelevant"},
     {"id": "de-long", "language": "de", "query": "Startbedingungen", "title": "Auslieferungsplan", "selector_summary": "Startbedingungen, Verantwortliche, API-Abhaengigkeiten, Budgetgrenze und Abbruchkriterium fuer die Auslieferung.", "origin": "authoritative_catalog", "semantic_score": null, "parent_kind": null, "label": "direct"},
     {"id": "mixed-multi-source", "language": "mixed", "query": "Compare launch notes and posts", "title": "Запуск / Launch", "selector_summary": "Сопоставляет launch notes с опубликованным post и отмечает расхождение сроков.", "origin": "semantic_search", "semantic_score": 0.73, "parent_kind": "post", "label": "direct"}
-  ]
+  ],
+  "scenarios": [
+    {
+      "id": "relevant-ru-en-mixed",
+      "kind": "semantic",
+      "languages": ["ru", "en", "mixed"],
+      "candidate_ids": ["ru-direct", "en-irrelevant", "mixed-multi-source"],
+      "required_refs": ["note:fixture-ru-direct", "note:fixture-mixed-multi-source"],
+      "allowed_supporting_refs": [],
+      "irrelevant_refs": ["note:fixture-en-irrelevant"],
+      "critical_required_refs": ["note:fixture-mixed-multi-source"]
+    },
+    {
+      "id": "secondary-topic-late",
+      "kind": "semantic",
+      "query": "Какое ограничение бюджета запуска зафиксировано?",
+      "languages": ["ru", "es"],
+      "candidate_ids": ["ru-secondary-late", "es-supporting"],
+      "required_refs": ["note:fixture-ru-secondary-late"],
+      "allowed_supporting_refs": ["note:fixture-es-supporting"],
+      "irrelevant_refs": [],
+      "critical_required_refs": ["note:fixture-ru-secondary-late"]
+    },
+    {
+      "id": "ambient-parent-null-score",
+      "kind": "semantic",
+      "languages": ["en", "ru"],
+      "candidate_ids": ["en-ambient-relevant", "ru-ambient-irrelevant"],
+      "required_refs": ["note:fixture-en-ambient-relevant"],
+      "allowed_supporting_refs": [],
+      "irrelevant_refs": ["note:fixture-ru-ambient-irrelevant"],
+      "critical_required_refs": ["note:fixture-en-ambient-relevant"],
+      "assertions": ["semantic_score_nullable", "parent_relation_not_selected"]
+    },
+    {
+      "id": "de-start-vs-menu",
+      "kind": "semantic",
+      "query": "Welche Startbedingungen und Abbruchkriterien sind festgelegt?",
+      "languages": ["de", "en"],
+      "candidate_ids": ["de-long", "en-irrelevant"],
+      "required_refs": ["note:fixture-de-long"],
+      "allowed_supporting_refs": [],
+      "irrelevant_refs": ["note:fixture-en-irrelevant"],
+      "critical_required_refs": ["note:fixture-de-long"]
+    },
+    {
+      "id": "es-launch-risk",
+      "kind": "semantic",
+      "query": "Que dependencia crea un riesgo para el lanzamiento?",
+      "languages": ["es", "en"],
+      "candidate_ids": ["es-supporting", "en-irrelevant"],
+      "required_refs": ["note:fixture-es-supporting"],
+      "allowed_supporting_refs": [],
+      "irrelevant_refs": ["note:fixture-en-irrelevant"],
+      "critical_required_refs": ["note:fixture-es-supporting"]
+    },
+    {
+      "id": "rollback-owner-cross-language",
+      "kind": "semantic",
+      "query": "Who owns rollback?",
+      "languages": ["en", "ru"],
+      "candidate_ids": ["en-ambient-relevant", "ru-ambient-irrelevant"],
+      "required_refs": ["note:fixture-en-ambient-relevant"],
+      "allowed_supporting_refs": [],
+      "irrelevant_refs": ["note:fixture-ru-ambient-irrelevant"],
+      "critical_required_refs": ["note:fixture-en-ambient-relevant"]
+    },
+    {
+      "id": "budget-specific-near-topic",
+      "kind": "semantic",
+      "query": "Какой предел бюджета запуска зафиксирован?",
+      "languages": ["ru", "mixed"],
+      "candidate_ids": ["ru-secondary-late", "mixed-multi-source"],
+      "required_refs": ["note:fixture-ru-secondary-late"],
+      "allowed_supporting_refs": [],
+      "irrelevant_refs": ["note:fixture-mixed-multi-source"],
+      "critical_required_refs": ["note:fixture-ru-secondary-late"]
+    },
+    {
+      "id": "mixed-compare-with-support",
+      "kind": "semantic",
+      "query": "Compare launch notes and published posts",
+      "languages": ["mixed", "es", "en"],
+      "candidate_ids": ["mixed-multi-source", "es-supporting", "en-irrelevant"],
+      "required_refs": ["note:fixture-mixed-multi-source"],
+      "allowed_supporting_refs": ["note:fixture-es-supporting"],
+      "irrelevant_refs": ["note:fixture-en-irrelevant"],
+      "critical_required_refs": ["note:fixture-mixed-multi-source"]
+    },
+    {
+      "id": "exact-structural-bypass",
+      "kind": "deterministic_bypass",
+      "required_refs": ["fixture:exact-note", "fixture:structural-result"],
+      "allowed_supporting_refs": [],
+      "irrelevant_refs": [],
+      "critical_required_refs": ["fixture:exact-note", "fixture:structural-result"],
+      "expected_selector_calls": 0,
+      "expected_coverage": 1.0
+    },
+    {
+      "id": "complete-coverage-boundaries",
+      "kind": "generated_complete",
+      "candidate_counts": [16, 64, 100, 128, 256],
+      "required_refs": ["fixture:required-boundary-object"],
+      "allowed_supporting_refs": [],
+      "irrelevant_refs": [],
+      "critical_required_refs": ["fixture:required-boundary-object"],
+      "expected_assessment_coverage": 1.0,
+      "sync_ready_max_candidates": 100
+    },
+    {
+      "id": "overflow-257",
+      "kind": "generated_complete",
+      "candidate_counts": [257],
+      "required_refs": [],
+      "allowed_supporting_refs": [],
+      "irrelevant_refs": [],
+      "critical_required_refs": [],
+      "expected_assessment_coverage": "incomplete",
+      "expected_ready": false
+    },
+    {
+      "id": "transport-failures",
+      "kind": "failure",
+      "required_refs": [],
+      "allowed_supporting_refs": [],
+      "irrelevant_refs": [],
+      "critical_required_refs": [],
+      "failure_codes": ["missing_frame", "multiple_frames", "wrong_version", "registry_mismatch", "missing_completion_marker", "wrong_cardinality", "invalid_assessment_code", "invalid_relevance_reason", "unsupported_fidelity", "source_cardinality_exceeded", "invalid_canonical"],
+      "expected_max_retry": 1,
+      "expected_answer_model_calls_after_final_failure": 0
+    },
+    {
+      "id": "runtime-security-resume",
+      "kind": "runtime",
+      "required_refs": ["fixture:preserved-user-message", "fixture:preserved-ledger", "fixture:preserved-checkpoint"],
+      "allowed_supporting_refs": [],
+      "irrelevant_refs": [],
+      "critical_required_refs": [],
+      "assertions": ["checkpoint_resume", "interrupted_cancelled", "tenant_status_security", "forged_frame_fence_neutralized"]
+    }
+  ],
+  "summary_variants": [120, 160, 240],
+  "compatibility_baseline": "frozen-v1-projection",
+  "provider_replay": {
+    "availability": "measured",
+    "sample_size": 8,
+    "primary_summary_chars": 160,
+    "primary_final_valid": 8,
+    "critical_required_recall": 0.875,
+    "gate_passed": false
+  }
 }

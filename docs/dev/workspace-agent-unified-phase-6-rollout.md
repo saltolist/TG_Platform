@@ -280,3 +280,123 @@ cd backend
   `120/240` и compatibility path не запускался;
 - default-on и удаление compatibility path запрещены, пока любой gate имеет
   статус, отличный от измеренного pass.
+
+## Selector reliability remediation: фактический результат 2026-07-27
+
+Эта секция дополняет исторический closure-result выше и является текущим
+состоянием phase-6 remediation. Реализован positional transport
+`workspace.context-selector-transport/v2`: модель возвращает только assessment
+vector, а ref, role, resolution и source dispositions восстанавливаются
+детерминированно. Registry nonce, exact cardinality и completion marker являются
+обязательными. Decoder возвращает typed error codes; retry ограничен одной
+попыткой и получает конкретные codes. V1 decoder сохранён для rollback/checkpoint
+compatibility. Второй Selector, planner loop, Recall Verifier и post-answer
+auditor не добавлены.
+
+Capability negotiation использует metadata адаптера и выбирает ровно один tier
+в порядке `strict_json_schema -> tool_calling -> json_mode -> plain`. Между tiers
+нет runtime fallback. Exact/structural bypass, полный CandidateEnvelope,
+verified EvidencePack boundary, synchronous ceiling 100 и blocking overflow 257
+сохранены. После final Selector failure Answer Model не вызывается; deterministic
+failure response не утверждает, что workspace data отсутствует.
+
+Frozen provider replay выполнен на 8 semantic scenarios и вариантах
+compatibility/120/160/240. Для основного 160 transport дал 8/8 final valid,
+8/8 first-attempt valid, 0 retries и 0 position errors. Required recall равен
+`8/9 = 0.888889`, как compatibility baseline, поэтому non-inferiority проходит.
+Critical required-evidence recall равен `7/8 = 0.875`, а irrelevant selection
+rate `1/7 = 0.142857` при compatibility baseline `0/7`; оба quality floor не
+пройдены. Это подтверждённый semantic false negative после устранения transport
+invalidity. Он остаётся blocker и входным условием отдельного conditional Recall
+Verifier plan, но verifier в этой работе не реализован.
+
+Всего replay сделал 33 provider calls: 32 valid schema results и один внешний
+provider failure в варианте 120; invalid transport/canonical и positional errors
+не наблюдались. Boundary measurement на 256 realistic multilingual candidates с
+3000 characters dialog context прошёл с первой попытки: input `19188`, cached
+input `18944`, output `794`, total `19982`, latency `9531.7 ms`, retry `0`,
+estimator input `17453`, estimator delta `+1735`. Provider gate
+`19982 <= 22000` проходит. Price snapshot и estimated cost остаются
+`availability=unavailable`.
+
+Formal live canary не запускался, поскольку этап F разрешён только после полного
+offline pass. Его фактический sample size: `0 chats`, `0 user messages`,
+`0 Selector decisions`. Поэтому canary schema/coverage gates и staging rollback
+остаются unavailable, а не превращаются в pass. `AGENT_UNIFIED_DEFAULT_ON=false`.
+
+### Актуальные mandatory gates
+
+Strict report содержит 42 gates: 33 pass и 9 blocked.
+
+| Gate | Availability | Факт | Порог/baseline | Результат |
+|---|---|---:|---:|---|
+| fallback select-all rate | measured | 0 | 0 | pass |
+| required-source forced-selection rate | measured | 0 | 0 | pass |
+| fidelity mismatch rate | measured | 0 | 0 | pass |
+| structural count error rate | measured | 0 | 0 | pass |
+| card-only exact/quote/edit/mutation rate | measured | 0 | 0 | pass |
+| complete coverage | measured | 1.0 | baseline 1.0 | pass |
+| relevant recall | measured | 0.888889 | baseline 0.888889 | pass |
+| irrelevant selection rate | measured | 0.142857 | baseline 0 | **blocked** |
+| end-to-end p95 latency | measured | 18466.8 ms | 119061.25 ms | pass |
+| initial semantic Selector calls/run | measured | 1.0 | <=1 | pass |
+| Selector p95 latency | measured | 3226.45 ms | 30000 ms | pass |
+| full-request input estimator | measured | 17453 | 30000 | pass |
+| full Selector request measured | measured | 1.0 | 1.0 | pass |
+| provider token usage measured | measured | 1.0 | 1.0 | pass |
+| relevant <=16 p95 total tokens | measured | 1214.85 | 2500 | pass |
+| complete <=100 p95 total tokens | measured | 2559 | 10000 | pass |
+| complete boundary 256 total tokens | measured | 19982 | 22000 | pass |
+| schema/retry telemetry measured | measured | 1.0 | 1.0 | pass |
+| schema reliability within canary budget | inconclusive | null | agreed canary budget | **blocked** |
+| canary first-attempt valid rate | unavailable | null | >=0.95 | **blocked** |
+| canary final valid rate | unavailable | null | 1.0 | **blocked** |
+| canary retry rate | unavailable | null | <=0.05 | **blocked** |
+| canary position error count | unavailable | null | 0 | **blocked** |
+| Answer Model calls after final failure | measured | 0 | 0 | pass |
+| complete/classification object coverage | unavailable | null | 1.0 | **blocked** |
+| critical required-evidence recall | measured | 0.875 | 1.0 | **blocked** |
+| summary 160 non-inferior recall | measured | 1.0 | 1.0 | pass |
+| capped pilot chat count | measured | 20 | <=20 | pass |
+| capped pilot max messages/chat | measured | 4 | <=4 | pass |
+| selector-summary backfill coverage | measured | 1.0 | 1.0 | pass |
+| compact decoder completeness | measured | 1.0 | 1.0 | pass |
+| synchronous rollout ceiling guard | measured | 1.0 | 1.0 | pass |
+| checkpoint/resume pass rate | measured | 1.0 | 1.0 | pass |
+| interrupted/cancelled pass rate | measured | 1.0 | 1.0 | pass |
+| tenant/status/security guard pass rate | measured | 1.0 | 1.0 | pass |
+| shadow Answer Model calls | measured | 0 | 0 | pass |
+| shadow answer change rate | measured | 0 | 0 | pass |
+| planner trace coverage | measured | 1.0 | 1.0 | pass |
+| additive-search trace coverage | measured | 1.0 | 1.0 | pass |
+| overflow-257 ready rate | measured | 0 | 0 | pass |
+| local rollback drill pass rate | measured | 1.0 | 1.0 | pass |
+| staging/canary rollback drill | unavailable | null | 1.0 | **blocked** |
+
+Исходный `llm_calls_per_run` остаётся diagnostic (`p95=4`), но заменён
+mandatory gate `semantic_selector_initial_calls_per_selector_run <=1`. Monetary
+gates заменены owner-approved risk controls `chat_count <=20` и
+`max_user_messages_per_chat <=4`; price/cost не объявлены известными или
+успешными.
+
+Phase-0 report выполнен дважды и сохранил digest
+`4fe050b7d491861fd0b545471699f4d90c1151063140d7795ea4c16b3119f474`.
+Strict report выполнен с 50 repeats; blocked attestation:
+`sha256:6a2aac8f05934e7bd71904c3ab325cfa030627668e3f7fdf19f6257230deca25`.
+Focused closure/rollout regression: `31 passed`; дополнительные targeted
+capability/decoder/report checks: `8 passed`; compile-check пройден. Более широкий scoped
+прогон остановлен после `229 passed`: два failures и девять teardown errors были
+вызваны подтверждённым `PostgreSQL in recovery mode`, а не assertion regression.
+
+### Актуальные exit criteria и риски
+
+- transport invalidity устранена на frozen replay и boundary-256 measurement;
+- summary 160 non-inferior по required recall, но critical recall и irrelevant
+  selection quality floors не пройдены;
+- formal live canary и staging rollback не выполнялись из-за offline blocker;
+- canary reliability/coverage sample отсутствует, поэтому соответствующие gates
+  unavailable;
+- conditional Recall Verifier остаётся отдельным follow-up только после нового
+  решения; эта remediation не добавляет скрытый semantic call;
+- phase 6 не завершена, compatibility path сохраняется, flags остаются
+  default-off.

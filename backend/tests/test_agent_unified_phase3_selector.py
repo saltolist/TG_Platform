@@ -23,6 +23,7 @@ from app.services.agent.research.planner_decision import (
     ContextSelectorDecision,
     parse_context_selector_decision,
 )
+from app.services.agent.research.selector_transport import encode_selector_transport
 from app.services.agent.research.sufficiency import evaluate_sufficiency
 from app.services.ai.semantic_summary import (
     DISCOVERY_SUMMARY_VERSION,
@@ -118,18 +119,22 @@ def _wire_output(
     candidates: list[dict],
     assessments: dict[str, tuple[str, str, str, float, str]],
     *,
+    contract: dict,
     source_status: str,
 ) -> str:
-    return json.dumps(
-        {
-            "v": 1,
-            "a": [
-                [index, *assessments[str(candidate["ref"])]]
-                for index, candidate in enumerate(candidates)
-            ],
-            "s": [[0, source_status]],
-        }
+    del source_status
+    transport = encode_selector_transport(
+        question="Что относится к теме?",
+        dialog_context="",
+        contract=contract,
+        candidates=candidates,
     )
+    codes = [
+        value[0] + value[4] + str(round(value[3] * 9))
+        for candidate in candidates
+        for value in [assessments[str(candidate["ref"])]]
+    ]
+    return f"CS2|n={len(codes)}|r={transport.mapping.registry_nonce}|a={','.join(codes)}|done"
 
 
 def test_selector_schema_requires_complete_typed_assessments() -> None:
@@ -252,6 +257,7 @@ async def test_ambient_and_parent_are_assessed_without_automatic_parent_selectio
             "note:relevant": ("d", "a", "c", 0.95, "t"),
             "note:irrelevant": ("i", "n", "n", 0.96, "x"),
         },
+        contract=contract,
         source_status="s",
     )
     with patch(
@@ -315,6 +321,8 @@ async def test_invalid_selector_retries_once_preserves_exact_target_and_returns_
 
     assert selector.await_count == 2
     assert selector.await_args_list[1].kwargs["phase"] == "research.selector.context_schema_retry"
+    assert "missing_frame" in selector.await_args_list[1].kwargs["messages"][1]["content"]
+    assert result["planner_steps"][-1]["validation_error_codes"]
     assert result["material_plan"]["card_ids"] == ["note:exact"]
     assert result["material_plan"]["required_full_text_ids"] == []
     assert result["material_plan"]["optional_full_text_ids"] == []
@@ -354,6 +362,7 @@ async def test_required_discovery_min_zero_accepts_no_relevant_candidate_without
     output = _wire_output(
         candidates,
         {"note:weak": ("i", "n", "n", 0.99, "x")},
+        contract=contract,
         source_status="n",
     )
     with patch(
@@ -385,12 +394,9 @@ async def test_complete_semantic_registry_is_assessed_by_one_selector_call() -> 
         content = kwargs["messages"][1]["content"]
         snapshot = json.loads(content[content.index("{"):])
         visible = snapshot["c"]
-        return json.dumps(
-            {
-                "v": 1,
-                "a": [[item[0], "d", "a", "c", 0.9, "t"] for item in visible],
-                "s": [[0, "s"]],
-            }
+        return (
+            f"CS2|n={snapshot['n']}|r={snapshot['r']}|"
+            f"a={','.join('dt8' for _item in visible)}|done"
         )
 
     with patch(

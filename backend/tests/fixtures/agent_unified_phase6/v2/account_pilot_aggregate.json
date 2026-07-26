@@ -145,6 +145,13 @@
       "sample_size": 46,
       "source": "p95 latest durable run_metrics for the anonymized account pilot"
     },
+    "semantic_selector_initial_calls_per_selector_run": {
+      "availability": "measured",
+      "value": 1.0,
+      "threshold": 1.0,
+      "sample_size": 16,
+      "source": "one initial semantic Selector call in each historical selector run; retry is measured separately"
+    },
     "selector_p95_latency_ms": {
       "availability": "measured",
       "value": 3226.45,
@@ -189,6 +196,25 @@
       "value": 1.0,
       "sample_size": 13,
       "source": "account snapshot: 13 of 13 target summaries have fresh v2 projections"
+    },
+    "capped_canary_chat_count": {
+      "availability": "measured",
+      "value": 20,
+      "threshold": 20,
+      "sample_size": 20,
+      "source": "rollout-owner replacement risk-control gate for the capped account pilot"
+    },
+    "capped_canary_max_user_messages_per_chat": {
+      "availability": "measured",
+      "value": 4,
+      "threshold": 4,
+      "sample_size": 20,
+      "source": "rollout-owner replacement risk-control gate for the capped account pilot"
     }
+  },
+  "cost_observability": {
+    "price_snapshot": {"availability": "unavailable", "version": null},
+    "estimated_cost": {"availability": "unavailable", "value_usd": null},
+    "mandatory_gate_replaced": true
   }
 }

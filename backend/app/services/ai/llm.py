@@ -8,7 +8,11 @@ from typing import Any
 
 import httpx
 
-from app.services.ai.providers import ProviderSpec, chat_completions_url
+from app.services.ai.providers import (
+    ChatCompletionCapability,
+    ProviderSpec,
+    chat_completions_url,
+)
 from app.services.ai.sse import format_sse_data
 
 _HTTP_TIMEOUT = httpx.Timeout(120.0, connect=30.0)
@@ -101,6 +105,9 @@ async def complete_chat_completion(
     temperature: float | None = None,
     max_tokens: int | None = None,
     usage_sink: dict[str, Any] | None = None,
+    output_capability: ChatCompletionCapability = ChatCompletionCapability.PLAIN,
+    output_schema_name: str = "structured_output",
+    output_json_schema: Mapping[str, Any] | None = None,
 ) -> str:
     """Non-streaming chat completion (rolling summary, etc.)."""
     url = chat_completions_url(spec)
@@ -117,6 +124,37 @@ async def complete_chat_completion(
         body["temperature"] = temperature
     if max_tokens is not None:
         body["max_tokens"] = max_tokens
+    if output_capability == ChatCompletionCapability.STRICT_JSON_SCHEMA:
+        if not output_json_schema:
+            raise ValueError("strict_json_schema requires output_json_schema")
+        body["response_format"] = {
+            "type": "json_schema",
+            "json_schema": {
+                "name": output_schema_name,
+                "strict": True,
+                "schema": dict(output_json_schema),
+            },
+        }
+    elif output_capability == ChatCompletionCapability.TOOL_CALLING:
+        if not output_json_schema:
+            raise ValueError("tool_calling requires output_json_schema")
+        body["tools"] = [
+            {
+                "type": "function",
+                "function": {
+                    "name": output_schema_name,
+                    "description": "Return the requested structured output.",
+                    "strict": True,
+                    "parameters": dict(output_json_schema),
+                },
+            }
+        ]
+        body["tool_choice"] = {
+            "type": "function",
+            "function": {"name": output_schema_name},
+        }
+    elif output_capability == ChatCompletionCapability.JSON_MODE:
+        body["response_format"] = {"type": "json_object"}
 
     owns_client = client is None
     if client is None:
@@ -141,15 +179,25 @@ async def complete_chat_completion(
                 if output_tokens is None:
                     output_tokens = usage.get("output_tokens")
                 total_tokens = usage.get("total_tokens")
+                core_usage = (input_tokens, output_tokens, total_tokens)
                 if all(
                     isinstance(value, int) and not isinstance(value, bool)
-                    for value in (input_tokens, cached, output_tokens, total_tokens)
+                    for value in core_usage
                 ):
                     usage_sink.update(
                         {
                             "availability": "measured",
                             "input_tokens": input_tokens,
-                            "cached_input_tokens": cached,
+                            "cached_input_tokens": (
+                                cached
+                                if isinstance(cached, int) and not isinstance(cached, bool)
+                                else None
+                            ),
+                            "cached_input_availability": (
+                                "measured"
+                                if isinstance(cached, int) and not isinstance(cached, bool)
+                                else "unavailable"
+                            ),
                             "output_tokens": output_tokens,
                             "total_tokens": total_tokens,
                         }
@@ -161,6 +209,17 @@ async def complete_chat_completion(
         message = choices[0].get("message") if isinstance(choices[0], dict) else None
         if not isinstance(message, dict):
             return ""
+        if output_capability == ChatCompletionCapability.TOOL_CALLING:
+            tool_calls = message.get("tool_calls")
+            if not isinstance(tool_calls, list) or len(tool_calls) != 1:
+                return ""
+            function = (
+                tool_calls[0].get("function")
+                if isinstance(tool_calls[0], Mapping)
+                else None
+            )
+            arguments = function.get("arguments") if isinstance(function, Mapping) else None
+            return arguments if isinstance(arguments, str) else ""
         content = message.get("content")
         return content if isinstance(content, str) else ""
     finally:

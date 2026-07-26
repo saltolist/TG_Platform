@@ -200,6 +200,44 @@ async def test_advisory_answer_salvages_complete_text_from_truncated_claims() ->
 
 
 @pytest.mark.asyncio
+async def test_final_selector_failure_never_calls_answer_model_or_claims_data_absent() -> None:
+    from app.core.config import Settings
+    from app.services.agent.runtime.context import RuntimeContext
+    from app.services.agent.runtime.workspace_graph import answer_node
+
+    ctx = RuntimeContext(
+        session_factory=AsyncMock(),
+        user_id=__import__("uuid").uuid4(),
+        user=None,
+        tenant_key=None,
+        settings=Settings(),
+        embedding_backend=AsyncMock(),
+        scope="global",
+        post_data=None,
+        ai_profile={},
+        answer_spec=ProviderSpec("fixture", "https://answer.invalid"),
+        answer_model="answer-model",
+        answer_api_key="secret",
+    )
+    state = {
+        "user_text": "Что есть в workspace?",
+        "tool_call": {"type": "read"},
+        "turn_contract": {"version": 3, "requires_workspace": True},
+        "material_plan": {"selector_failure": {"kind": "selector_failed"}},
+        "evidence_gaps": [{"kind": "selector_failed", "blocks_ready": True}],
+    }
+    with patch(
+        "app.services.agent.runtime.workspace_graph.stream_llm_with_deadline"
+    ) as answer_model:
+        result = await answer_node(state, {"configurable": {"runtime_context": ctx}})
+
+    answer_model.assert_not_called()
+    assert result["stopped_reason"] == "selector_failed"
+    assert result["output_validation"]["model"] == "deterministic_selector_failure"
+    assert "отсутств" not in result["answer_text"].casefold()
+
+
+@pytest.mark.asyncio
 async def test_factual_answer_salvages_complete_text_from_truncated_claims() -> None:
     from app.core.config import Settings
     from app.services.agent.runtime.context import RuntimeContext

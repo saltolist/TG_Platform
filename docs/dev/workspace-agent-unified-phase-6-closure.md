@@ -368,3 +368,31 @@ Manual account pilot выполнен с явным включением пят�
 - signed final quality attestation;
 - staging/canary rollback report;
 - обновленный фазовый план и отдельный commit только с closure фазы 6.
+
+## Selector reliability remediation 2026-07-27
+
+После исторического closure выполнена отдельная remediation transport boundary.
+Versioned positional transport v2, typed decoder errors, metadata-driven
+capability negotiation и один bounded retry реализованы без изменения архитектуры
+фаз 1-5. V1 decoder и compatibility path сохранены. Answer Model после final
+Selector failure не вызывается; exact/structural paths по-прежнему обходят
+Selector.
+
+Provider replay подтвердил transport validity для основного 160: 8/8 final и
+first-attempt valid, 0 retries, 0 positional errors. Boundary-256 measurement
+прошёл: `19188` input, `18944` cached input, `794` output, `19982` total,
+`9531.7 ms`, estimator delta `+1735`. Однако critical required-evidence recall
+составил только `7/8 = 0.875`, а irrelevant selection rate ухудшился до `1/7`
+против compatibility `0/7`. Поэтому offline phase не пройдена, live canary не
+запускался (`0 chats`, `0 messages`, `0 Selector decisions`).
+
+Актуальный strict report: `33/42 pass`, 9 blocked; полная gate matrix и замены
+исходных LLM/cost gates приведены в rollout-плане. Attestation:
+`sha256:6a2aac8f05934e7bd71904c3ab325cfa030627668e3f7fdf19f6257230deca25`.
+Phase-0 digest дважды сохранён без изменений:
+`4fe050b7d491861fd0b545471699f4d90c1151063140d7795ea4c16b3119f474`.
+
+Фаза 6 остаётся незавершённой. `AGENT_UNIFIED_DEFAULT_ON=false`; formal canary,
+canary schema/coverage gates и staging rollback остаются unavailable. Измеренный
+semantic false negative зафиксирован как blocker и основание для отдельного
+conditional Recall Verifier plan, но Recall Verifier в этой работе не реализован.

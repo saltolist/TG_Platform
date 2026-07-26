@@ -72,15 +72,29 @@ def test_phase6_quality_report_is_attested_and_keeps_default_off() -> None:
     assert report["quality"]["default_on_allowed"] is False
     assert report["rollout"]["default_on"] is False
     assert set(report["quality"]["blocking_gates"]) == {
-        "relevant_recall",
         "irrelevant_selection_rate",
-        "llm_calls_per_run",
-        "selector_complete_boundary_p95_total_tokens",
         "selector_schema_reliability_within_budget",
-        "selector_monetary_ceiling_configured",
-        "selector_cost_p95_within_ceiling",
+        "selector_first_attempt_valid_rate",
+        "selector_final_valid_rate",
+        "selector_retry_rate",
+        "selector_position_error_count",
+        "complete_classification_required_object_coverage",
+        "required_critical_evidence_recall",
         "staging_canary_rollback_drill_pass_rate",
     }
+    replacements = {
+        item["original"]: item["replacement"]
+        for item in report["quality"]["gate_replacements"]
+    }
+    assert replacements == {
+        "llm_calls_per_run": "semantic_selector_initial_calls_per_selector_run",
+        "selector_monetary_ceiling_configured": "capped_canary_chat_count",
+        "selector_cost_p95_within_ceiling": "capped_canary_max_user_messages_per_chat",
+    }
+    diagnostics = report["gate_replacement_diagnostics"]
+    assert diagnostics["original_llm_calls_per_run"]["value"] == 4.0
+    assert diagnostics["price_snapshot"]["availability"] == "unavailable"
+    assert diagnostics["estimated_cost"]["availability"] == "unavailable"
     assert report["selector_boundary_benchmark"]["registry_size"] == 256
     assert report["selector_boundary_benchmark"]["provider_latency_availability"] == "unavailable"
     benchmark = report["selector_boundary_benchmark"]
@@ -175,6 +189,7 @@ def test_rollback_drill_preserves_durable_user_ledger_refs_and_evidence() -> Non
         "evidence_ids": ["evidence:fixture"],
     }
     names = (
+        "flag_sequence",
         "new_run",
         "resume_old_checkpoint",
         "selector_timeout",
