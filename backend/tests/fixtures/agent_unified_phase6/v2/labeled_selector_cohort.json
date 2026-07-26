@@ -1,6 +1,7 @@
 {
   "schema": "workspace.selector-labeled-cohort/v1",
   "version": "2026-07-26-remediation-v2",
+  "cohort_role": "calibration",
   "synthetic": true,
   "tenant_safe": true,
   "cases": [

@@ -1,0 +1,19 @@
+{
+  "schema":"workspace.phase6-formal-canary-result/v1",
+  "manifest_version":"2026-07-27-primary-semantic-v1",
+  "availability":"unavailable",
+  "status":"blocked_preflight",
+  "reason":"no authorized local platform browser session; login UI exposed zero configured LLM models",
+  "traffic":{"chat_count":0,"user_message_count":0,"maximum_user_messages_per_chat":0,"semantic_selector_decisions":0},
+  "measurements":{
+    "selector_first_attempt_valid_rate":{"availability":"unavailable","value":null,"sample_size":0},
+    "selector_final_valid_rate":{"availability":"unavailable","value":null,"sample_size":0},
+    "selector_retry_rate":{"availability":"unavailable","value":null,"sample_size":0},
+    "selector_position_error_count":{"availability":"unavailable","value":null,"sample_size":0},
+    "complete_classification_required_object_coverage":{"availability":"unavailable","value":null,"sample_size":0},
+    "staging_canary_rollback_drill_pass_rate":{"availability":"unavailable","value":null,"sample_size":0}
+  },
+  "messages_sent":false,
+  "default_on":false,
+  "privacy":{"contains_credentials":false,"contains_raw_user_content":false,"contains_account_identifier":false,"contains_source_content":false}
+}

@@ -396,3 +396,25 @@ Phase-0 digest дважды сохранён без изменений:
 canary schema/coverage gates и staging rollback остаются unavailable. Измеренный
 semantic false negative зафиксирован как blocker и основание для отдельного
 conditional Recall Verifier plan, но Recall Verifier в этой работе не реализован.
+
+## Semantic closure remediation 2026-07-27
+
+Primary-only semantic correction закрыла offline semantic blockers без Recall
+Verifier. Frozen qualification v2 (`21` scenarios, `20` critical refs, `22`
+irrelevant refs) дважды прошла с `21/21` first/final valid, critical recall
+`1.0`, irrelevant selection `0`, final-pack precision `1.0`, zero retries и zero
+position errors. Compatibility non-inferiority проходит. Первый v2 repeat с
+одним provider error сохранен как inconclusive, а не semantic miss или pass.
+
+Provider boundary `256` прошел с `20204 <=22000` total tokens и latency
+`11565.6 ms`. Isolated PostgreSQL regression на отдельном project/port/volume
+дважды дал `129 passed`, а финальный expanded scope - `130 passed`, без recovery
+или crash events. Phase-0 digest не изменился.
+
+Formal canary и staging rollback выполнить не удалось: доступная browser session
+не была авторизована и не имела configured LLM. Result artifact фиксирует
+`0 chats / 0 messages / 0 Selector decisions`; unavailable не преобразован в
+pass. Strict report: `35/42 pass`, семь blockers, attestation
+`e647a8cdad744146da850ae9170e9eaa5beb8f43295efbd3e3d172a18583de64`.
+Следовательно, phase 6 остается незавершенной и
+`AGENT_UNIFIED_DEFAULT_ON=false`.

@@ -254,7 +254,7 @@ async def test_ambient_and_parent_are_assessed_without_automatic_parent_selectio
     output = _wire_output(
         candidates,
         {
-            "note:relevant": ("d", "a", "c", 0.95, "t"),
+            "note:relevant": ("s", "a", "c", 0.95, "e"),
             "note:irrelevant": ("i", "n", "n", 0.96, "x"),
         },
         contract=contract,
@@ -271,7 +271,8 @@ async def test_ambient_and_parent_are_assessed_without_automatic_parent_selectio
         )
 
     assert selector.await_args.kwargs["phase"] == "research.selector.context"
-    assert result["material_plan"]["card_ids"] == ["note:relevant"]
+    assert result["material_plan"]["card_ids"] == []
+    assert result["material_plan"]["optional_full_text_ids"] == ["note:relevant"]
     assert "post:owner" not in result["material_plan"]["card_ids"]
     assessment_by_ref = {
         item["ref"]: item for item in result["material_plan"]["assessments"]
@@ -396,7 +397,7 @@ async def test_complete_semantic_registry_is_assessed_by_one_selector_call() -> 
         visible = snapshot["c"]
         return (
             f"CS2|n={snapshot['n']}|r={snapshot['r']}|"
-            f"a={','.join('dt8' for _item in visible)}|done"
+            f"a={','.join('de8' for _item in visible)}|done"
         )
 
     with patch(

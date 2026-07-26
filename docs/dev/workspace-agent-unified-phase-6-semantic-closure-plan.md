@@ -489,3 +489,54 @@ AND no unresolved security/coverage violation
 Если traffic, provider, authorized session или stable test infrastructure
 недоступны, локальные безопасные артефакты все равно завершаются, но фаза не
 объявляется закрытой и flags остаются default-off.
+
+## 16. Фактический результат реализации 2026-07-27
+
+Gate contract исправлен без ослабления quality floors. Irrelevant selection
+теперь является `MAX 0`, поэтому `0` против zero baseline проходит, а любое
+положительное значение блокирует. Schema reliability composite вычисляется
+только из четырех measured child metrics при общем sample не менее 20 и равен
+`1` только для first-attempt `>=0.95`, final `=1.0`, retry `<=0.05` и zero
+position errors. Дочерние gates сохранены отдельными mandatory строками.
+
+Raw-safe baseline attribution воспроизвела исходные `7/8` и `1/7`. В
+`es-launch-risk` пропущен `note:fixture-es-supporting`, хотя ref присутствовал в
+CandidateEnvelope и summary содержал явный signal; обе позиции получили
+`search_more`. В `budget-specific-near-topic` был ошибочно выбран
+`note:fixture-mixed-multi-source` с reason `topic_only`. Boundary обоих defects -
+primary Selector semantics, до materialization и Answer Model. Артефакты не
+содержат provider output, source/user content, credentials или account IDs.
+
+Primary-only correction состоит из deterministic query-goal fallback,
+определения direct/secondary/near-topic, evidence-bearing reason contract,
+multilingual explicit-absence и interrogative answer-slot rules. Второй primary
+attempt, forced source selection, select-all, ground-truth hints и post-answer
+call не добавлены. Первый qualification v1 честно не прошел precision floor и
+был сохранен как known calibration failure set. Независимый qualification v2
+был заморожен до provider output с digest
+`accb307c40bd2c01018ac565e59cfaba73c5ba2feabd5bd94a15e154c0f4ef1a`.
+
+Qualification v2 содержит 21 semantic scenario, 20 critical refs, 22 irrelevant
+refs, восемь language cohorts, note/post, parent, multi-source, required-source,
+nullable-score и empty-selection cases. Первый repeat inconclusive из-за одного
+внешнего provider error. Два следующих repeats дали по `21/21` first/final
+valid, zero retries/position errors, critical recall `20/20`, irrelevant
+selection `0/22` и final-pack precision `1.0` во всех cohorts. Compatibility
+projection также дала recall/precision `1.0`, поэтому non-inferiority проходит.
+Recall Verifier не реализован: primary-only path выполнил semantic floors.
+
+Boundary-256 после изменений прошел с первой попытки: input `19410`, output
+`794`, total `20204 <=22000`, latency `11565.6 ms`, zero retry/position errors.
+Изолированный compose project `tg_platform_phase6_closure` на порту `55436`
+применил migrations до `027` и дважды прошел scoped regression: `129 passed` +
+`129 passed`; финальный expanded scope дал `130 passed`. Recovery/FATAL/
+server-process crashes в PostgreSQL logs нет.
+Phase-0 digest сохранен.
+
+Formal canary не запускался: единственная доступная local browser session была
+не авторизована и показывала zero configured LLM models. Фактический denominator
+остался `0 chats / 0 messages / 0 Selector decisions`; staging rollback также
+unavailable. Strict report после 50 repeats: `35/42 pass`, семь live blockers,
+attestation
+`e647a8cdad744146da850ae9170e9eaa5beb8f43295efbd3e3d172a18583de64`.
+Фаза 6 не закрыта, `AGENT_UNIFIED_DEFAULT_ON=false`.

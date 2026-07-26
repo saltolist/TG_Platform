@@ -17,6 +17,7 @@ from app.services.agent.runtime.rollout import (
     SELECTOR_SCHEMA_V2,
     build_canary_decision,
     build_quality_report,
+    evaluate_gate,
     planner_policy_active,
     run_rollback_drill,
     runtime_rollout_flags,
@@ -64,6 +65,106 @@ def test_non_measured_availability_never_passes() -> None:
         assert len(report["blocking_gates"]) == len(MANDATORY_GATE_SPECS)
 
 
+def test_irrelevant_zero_baseline_accepts_only_zero() -> None:
+    spec = next(
+        item for item in MANDATORY_GATE_SPECS if item.name == "irrelevant_selection_rate"
+    )
+    passed = evaluate_gate(
+        spec,
+        {"availability": "measured", "value": 0.0, "baseline": 0.0},
+    )
+    failed = evaluate_gate(
+        spec,
+        {"availability": "measured", "value": 0.000001, "baseline": 0.0},
+    )
+    unavailable = evaluate_gate(
+        spec,
+        {"availability": "inconclusive", "value": 0.0, "baseline": 0.0},
+    )
+
+    assert passed["passed"] is True
+    assert passed["rule"] == "max" and passed["threshold"] == 0.0
+    assert failed["passed"] is False
+    assert unavailable["passed"] is False
+
+
+def test_selector_reliability_composite_is_derived_from_measured_children() -> None:
+    children = {
+        "selector_first_attempt_valid_rate": {
+            "availability": "measured", "value": 0.95, "sample_size": 20
+        },
+        "selector_final_valid_rate": {
+            "availability": "measured", "value": 1.0, "sample_size": 20
+        },
+        "selector_retry_rate": {
+            "availability": "measured", "value": 0.05, "sample_size": 20
+        },
+        "selector_position_error_count": {
+            "availability": "measured", "value": 0.0, "sample_size": 20
+        },
+    }
+    report = build_quality_report(
+        children,
+        report_id="fixture",
+        source_commit="fixture",
+        owner="workspace-agent",
+        compatibility_remove_after="2026-10-24",
+    )
+    gates = {item["name"]: item for item in report["gates"]}
+    composite = gates["selector_schema_reliability_within_budget"]
+    assert composite["availability"] == "measured"
+    assert composite["value"] == 1.0 and composite["sample_size"] == 20
+    assert composite["passed"] is True
+
+    children["selector_retry_rate"] = {
+        "availability": "measured", "value": 0.1, "sample_size": 20
+    }
+    failed_report = build_quality_report(
+        children,
+        report_id="fixture",
+        source_commit="fixture",
+        owner="workspace-agent",
+        compatibility_remove_after="2026-10-24",
+    )
+    failed = {
+        item["name"]: item for item in failed_report["gates"]
+    }["selector_schema_reliability_within_budget"]
+    assert failed["availability"] == "measured"
+    assert failed["value"] == 0.0 and failed["passed"] is False
+
+    children["selector_retry_rate"] = {
+        "availability": "measured", "value": 0.05, "sample_size": 19
+    }
+    small_report = build_quality_report(
+        children,
+        report_id="fixture",
+        source_commit="fixture",
+        owner="workspace-agent",
+        compatibility_remove_after="2026-10-24",
+    )
+    small = {
+        item["name"]: item for item in small_report["gates"]
+    }["selector_schema_reliability_within_budget"]
+    assert small["availability"] == "inconclusive"
+    assert small["value"] is None and small["passed"] is False
+
+    children["selector_retry_rate"] = {
+        "availability": "unavailable", "value": None, "sample_size": 0
+    }
+    unavailable_report = build_quality_report(
+        children,
+        report_id="fixture",
+        source_commit="fixture",
+        owner="workspace-agent",
+        compatibility_remove_after="2026-10-24",
+    )
+    unavailable = {
+        item["name"]: item for item in unavailable_report["gates"]
+    }["selector_schema_reliability_within_budget"]
+    assert unavailable["availability"] == "unavailable"
+    assert unavailable["passed"] is False
+
+
 def test_phase6_quality_report_is_attested_and_keeps_default_off() -> None:
     report = build_report(repeats=2)
 
@@ -72,14 +173,12 @@ def test_phase6_quality_report_is_attested_and_keeps_default_off() -> None:
     assert report["quality"]["default_on_allowed"] is False
     assert report["rollout"]["default_on"] is False
     assert set(report["quality"]["blocking_gates"]) == {
-        "irrelevant_selection_rate",
         "selector_schema_reliability_within_budget",
         "selector_first_attempt_valid_rate",
         "selector_final_valid_rate",
         "selector_retry_rate",
         "selector_position_error_count",
         "complete_classification_required_object_coverage",
-        "required_critical_evidence_recall",
         "staging_canary_rollback_drill_pass_rate",
     }
     replacements = {
@@ -114,6 +213,14 @@ def test_phase6_quality_report_is_attested_and_keeps_default_off() -> None:
     assert report["account_pilot"]["post_fix_window"]["canonical_valid_runs"] == 1
     assert report["account_pilot"]["post_fix_window"]["canonical_failed_runs"] == 1
     assert report["summary_backfill_observability"]["deployed_coverage"] == 1.0
+    assert len(report["formal_canary_manifest"]["scenarios"]) == 20
+    assert report["formal_canary_result"]["availability"] == "unavailable"
+    assert report["formal_canary_result"]["traffic"] == {
+        "chat_count": 0,
+        "user_message_count": 0,
+        "maximum_user_messages_per_chat": 0,
+        "semantic_selector_decisions": 0,
+    }
 
 
 def test_feature_sequence_canary_and_planner_boundary_are_deterministic() -> None:

@@ -49,21 +49,36 @@ from scripts.agent_unified_phase6_report import (
 
 
 SUMMARY_VARIANTS = ("compatibility", "120", "160", "240")
+DEFAULT_QUALIFICATION_COHORT = (
+    BACKEND_ROOT
+    / "tests/fixtures/agent_unified_phase6/v3/qualification_selector_cohort.json"
+)
 
 
-def _source_contract(*, complete: bool = False, maximum: int = 256) -> dict[str, Any]:
+def _source_contract(
+    *,
+    complete: bool = False,
+    maximum: int = 256,
+    source_ids: tuple[str, ...] = ("workspace-fixture",),
+    required_source_ids: tuple[str, ...] = (),
+    query_goal: str = "",
+) -> dict[str, Any]:
     return {
         "version": 3,
         "source_requirements": [
             {
-                "source_id": "workspace-fixture",
+                "source_id": source_id,
                 "kind": "notes",
                 "coverage": "complete" if complete else "relevant",
                 "predicate_kind": "semantic",
-                "evidence_obligation": "optional",
+                "evidence_obligation": (
+                    "required" if source_id in required_source_ids else "optional"
+                ),
                 "selection_cardinality": {"min": 0, "max": maximum},
                 "required_fidelity": "full_text",
+                "query_goal": query_goal,
             }
+            for source_id in source_ids
         ],
     }
 
@@ -94,16 +109,19 @@ def _scenario_candidates(
     rows: list[dict[str, Any]] = []
     for index, case_id in enumerate(scenario.get("candidate_ids") or ()):
         case = cases[str(case_id)]
+        kind = str(case.get("kind") or "note")
+        source_ids = [str(item) for item in case.get("source_ids") or ("workspace-fixture",)]
         rows.append(
             {
-                "ref": f"note:fixture-{case_id}",
-                "kind": "note",
+                "ref": f"{kind}:fixture-{case_id}",
+                "kind": kind,
                 "title": str(case.get("title") or ""),
                 "preview": str(case.get("compatibility_summary") or case.get("selector_summary") or ""),
                 "selector_summary": _variant_summary(case, variant),
                 "origin": str(case.get("origin") or "authoritative_catalog"),
                 "semantic_score": case.get("semantic_score"),
-                "source_requirement_id": "workspace-fixture",
+                "source_requirement_id": source_ids[0],
+                "source_requirement_ids": source_ids,
                 "parent_post_id": f"fixture-parent-{index}" if case.get("parent_kind") else None,
                 "index_revision": 2,
                 "source_revision": 2,
@@ -229,6 +247,9 @@ def _quality_counts(
     required = set(str(item) for item in scenario.get("required_refs") or ())
     critical = set(str(item) for item in scenario.get("critical_required_refs") or ())
     irrelevant = set(str(item) for item in scenario.get("irrelevant_refs") or ())
+    relevant = required | set(
+        str(item) for item in scenario.get("allowed_supporting_refs") or ()
+    )
     selected = {
         str(item.ref)
         for item in getattr(decision, "assessments", ())
@@ -241,6 +262,84 @@ def _quality_counts(
         "critical_selected": len(critical & selected),
         "irrelevant_total": len(irrelevant),
         "irrelevant_selected": len(irrelevant & selected),
+        "relevant_total": len(relevant),
+        "relevant_selected": len(relevant & selected),
+        "selected_total": len(selected),
+    }
+
+
+def _scenario_attribution(
+    scenario: Mapping[str, Any],
+    candidates: list[dict[str, Any]],
+    result: Mapping[str, Any],
+) -> dict[str, Any]:
+    """Return fixture IDs and positional outcomes without provider or source content."""
+
+    decision = result.get("decision")
+    refs = [str(item.get("ref") or "") for item in candidates]
+    position_by_ref = {ref: index for index, ref in enumerate(refs)}
+    assessments = list(getattr(decision, "assessments", ()) or ())
+    selected = {
+        str(item.ref)
+        for item in assessments
+        if str(item.relevance.value) != "irrelevant"
+    }
+    reason_by_ref = {
+        str(item.ref): str(item.reason_code)
+        for item in assessments
+    }
+    critical = set(str(item) for item in scenario.get("critical_required_refs") or ())
+    irrelevant = set(str(item) for item in scenario.get("irrelevant_refs") or ())
+    missed_critical = sorted(critical - selected) if decision is not None else []
+    unassessed_critical = sorted(critical) if decision is None else []
+    selected_irrelevant = sorted(irrelevant & selected)
+    attempts = [
+        {
+            "attempt": int(item.get("attempt") or 0),
+            "schema_result": str(item.get("schema_result") or "not_measured"),
+            "validation_error_codes": list(item.get("validation_error_codes") or ()),
+        }
+        for item in result.get("attempts") or ()
+        if isinstance(item, Mapping)
+    ]
+    return {
+        "scenario_id": str(scenario.get("id") or ""),
+        "expected": {
+            "required_positions": sorted(
+                position_by_ref[ref]
+                for ref in scenario.get("required_refs") or ()
+                if ref in position_by_ref
+            ),
+            "critical_positions": sorted(
+                position_by_ref[ref]
+                for ref in critical
+                if ref in position_by_ref
+            ),
+            "irrelevant_positions": sorted(
+                position_by_ref[ref]
+                for ref in irrelevant
+                if ref in position_by_ref
+            ),
+        },
+        "selected_positions": sorted(position_by_ref[ref] for ref in selected if ref in position_by_ref),
+        "reason_codes_by_position": {
+            str(position_by_ref[ref]): reason
+            for ref, reason in sorted(reason_by_ref.items())
+            if ref in position_by_ref
+        },
+        "missed_critical_refs": missed_critical,
+        "unassessed_critical_refs": unassessed_critical,
+        "selected_irrelevant_refs": selected_irrelevant,
+        "attribution_boundary": (
+            "transport_or_provider"
+            if decision is None
+            else "selector"
+            if missed_critical or selected_irrelevant
+            else "none"
+        ),
+        "candidate_count": len(candidates),
+        "attempt_count": len(attempts),
+        "attempts": attempts,
     }
 
 
@@ -271,6 +370,8 @@ async def _resolve_profile(
     user_id: UUID | None,
     *,
     use_backfill_account: bool = False,
+    provider_name: str | None = None,
+    model_name: str | None = None,
 ) -> tuple[ProviderSpec, str, str]:
     settings = get_settings()
     account_email = _docker_backfill_account_email() if use_backfill_account else ""
@@ -289,8 +390,14 @@ async def _resolve_profile(
             if account_email and str(user.email or "").casefold() != account_email.casefold():
                 continue
             resolved = resolve_orchestrator_llm(user, dict(profile.ai or {}), settings)
-            if resolved is not None:
-                eligible.append(resolved)
+            if resolved is None:
+                continue
+            spec, model, _api_key = resolved
+            if provider_name and spec.name.casefold() != provider_name.casefold():
+                continue
+            if model_name and model != model_name:
+                continue
+            eligible.append(resolved)
     if len(eligible) != 1:
         raise RuntimeError(
             f"expected exactly one eligible configured profile, found {len(eligible)}"
@@ -303,20 +410,30 @@ async def build_provider_report(
     user_id: UUID | None = None,
     use_backfill_account: bool = False,
     boundary_only: bool = False,
+    cohort_path: Path = DEFAULT_LABELED_COHORT,
+    provider_name: str | None = None,
+    model_name: str | None = None,
+    include_query_goal: bool = False,
+    summary_variants: tuple[str, ...] = SUMMARY_VARIANTS,
+    include_boundary: bool = True,
+    scenario_ids: tuple[str, ...] = (),
 ) -> dict[str, Any]:
     spec, model, api_key = await _resolve_profile(
         user_id,
         use_backfill_account=use_backfill_account,
+        provider_name=provider_name,
+        model_name=model_name,
     )
-    payload = json.loads(DEFAULT_LABELED_COHORT.read_text(encoding="utf-8"))
+    payload = json.loads(cohort_path.read_text(encoding="utf-8"))
     scenarios = [
         item
         for item in payload.get("scenarios") or ()
         if isinstance(item, Mapping) and item.get("kind") == "semantic"
+        and (not scenario_ids or str(item.get("id") or "") in scenario_ids)
     ]
     variants: dict[str, Any] = {}
     all_calls: list[dict[str, Any]] = []
-    for variant in (() if boundary_only else SUMMARY_VARIANTS):
+    for variant in (() if boundary_only else summary_variants):
         counts = {
             "required_total": 0,
             "required_selected": 0,
@@ -324,10 +441,15 @@ async def build_provider_report(
             "critical_selected": 0,
             "irrelevant_total": 0,
             "irrelevant_selected": 0,
+            "relevant_total": 0,
+            "relevant_selected": 0,
+            "selected_total": 0,
         }
+        language_counts: dict[str, dict[str, int]] = {}
         valid = 0
         first_valid = 0
         retries = 0
+        scenario_rows: list[dict[str, Any]] = []
         for scenario in scenarios:
             candidates = _scenario_candidates(payload, scenario, variant=variant)
             cases = {
@@ -336,13 +458,26 @@ async def build_provider_report(
                 if isinstance(item, Mapping)
             }
             first_case = cases[str(next(iter(scenario.get("candidate_ids") or ()), ""))]
+            source_ids = tuple(
+                dict.fromkeys(
+                    str(source_id)
+                    for candidate in candidates
+                    for source_id in candidate.get("source_requirement_ids") or ()
+                )
+            )
+            question = str(scenario.get("query") or first_case.get("query") or "")
             result = await _provider_decision(
                 spec=spec,
                 model=model,
                 api_key=api_key,
-                question=str(scenario.get("query") or first_case.get("query") or ""),
+                question=question,
                 dialog_context="",
-                contract=_source_contract(maximum=len(candidates)),
+                contract=_source_contract(
+                    maximum=len(candidates),
+                    source_ids=source_ids,
+                    required_source_ids=tuple(scenario.get("required_source_ids") or ()),
+                    query_goal=question if include_query_goal else "",
+                ),
                 candidates=candidates,
                 summary_max_chars=480 if variant == "compatibility" else int(variant),
             )
@@ -351,8 +486,22 @@ async def build_provider_report(
             if result["decision"] is not None:
                 valid += 1
                 first_valid += int(len(attempt_rows) == 1)
-            for key, value in _quality_counts(scenario, result["decision"]).items():
-                counts[key] += value
+            quality_counts = _quality_counts(scenario, result["decision"])
+            if result["decision"] is not None:
+                for key, value in quality_counts.items():
+                    counts[key] += value
+            languages = {
+                str(cases[str(case_id)].get("language") or "unknown")
+                for case_id in scenario.get("candidate_ids") or ()
+            }
+            if result["decision"] is not None:
+                for language in languages:
+                    cohort = language_counts.setdefault(
+                        language, {key: 0 for key in quality_counts}
+                    )
+                    for key, value in quality_counts.items():
+                        cohort[key] += value
+            scenario_rows.append(_scenario_attribution(scenario, candidates, result))
             retries += int(len(attempt_rows) > 1)
         variants[variant] = {
             "scenario_count": len(scenarios),
@@ -366,19 +515,45 @@ async def build_provider_report(
             "irrelevant_selection_rate": _rate(
                 counts["irrelevant_selected"], counts["irrelevant_total"]
             ),
+            "final_pack_precision": _rate(
+                counts["relevant_selected"], counts["selected_total"]
+            ),
+            "language_cohorts": {
+                language: {
+                    "required_recall": _rate(
+                        cohort["required_selected"], cohort["required_total"]
+                    ),
+                    "critical_required_recall": _rate(
+                        cohort["critical_selected"], cohort["critical_total"]
+                    ),
+                    "irrelevant_selection_rate": _rate(
+                        cohort["irrelevant_selected"], cohort["irrelevant_total"]
+                    ),
+                    "final_pack_precision": _rate(
+                        cohort["relevant_selected"], cohort["selected_total"]
+                    ),
+                    **cohort,
+                }
+                for language, cohort in sorted(language_counts.items())
+            },
+            "scenario_rows": scenario_rows,
             **counts,
         }
 
     boundary_candidates = _benchmark_candidates(256)
-    boundary = await _provider_decision(
-        spec=spec,
-        model=model,
-        api_key=api_key,
-        question="Какие материалы относятся к запуску, включая вторичные темы и ограничения?",
-        dialog_context=("Предыдущий контекст: запуск, сроки, риски, owners. " * 80)[:3000],
-        contract=_benchmark_contract(complete=True),
-        candidates=boundary_candidates,
-        summary_max_chars=160,
+    boundary = (
+        await _provider_decision(
+            spec=spec,
+            model=model,
+            api_key=api_key,
+            question="Какие материалы относятся к запуску, включая вторичные темы и ограничения?",
+            dialog_context=("Предыдущий контекст: запуск, сроки, риски, owners. " * 80)[:3000],
+            contract=_benchmark_contract(complete=True),
+            candidates=boundary_candidates,
+            summary_max_chars=160,
+        )
+        if include_boundary
+        else {"attempts": [], "decision": None}
     )
     boundary_calls = boundary["attempts"]
     all_calls.extend(boundary_calls)
@@ -410,6 +585,8 @@ async def build_provider_report(
     return {
         "schema": "workspace.selector-provider-replay/v1",
         "cohort_version": payload.get("version"),
+        "cohort_role": payload.get("cohort_role"),
+        "semantic_variant": "query_goal" if include_query_goal else "baseline",
         "provider": spec.name,
         "model": model,
         "contains_credentials": False,
@@ -431,7 +608,8 @@ async def build_provider_report(
             "candidate_count": 256,
             "maximum_dialog_context_chars": 3000,
             "attempts": boundary_calls,
-            "final_canonical_valid": boundary["decision"] is not None,
+            "availability": "measured" if include_boundary else "not_measured",
+            "final_canonical_valid": boundary["decision"] is not None if include_boundary else None,
             "actual_total_tokens_p95": max(measured_totals) if measured_totals else None,
             "actual_total_tokens_availability": "measured" if measured_totals else "unavailable",
             "latency_p95_ms": max(latencies) if latencies else None,
@@ -459,15 +637,34 @@ def main() -> None:
     parser.add_argument("--user-id", type=UUID)
     parser.add_argument("--use-backfill-account", action="store_true")
     parser.add_argument("--boundary-only", action="store_true")
+    parser.add_argument("--cohort", type=Path, default=DEFAULT_LABELED_COHORT)
+    parser.add_argument("--output", type=Path)
+    parser.add_argument("--provider")
+    parser.add_argument("--model")
+    parser.add_argument("--query-goal", action="store_true")
+    parser.add_argument("--variants", nargs="+", choices=SUMMARY_VARIANTS)
+    parser.add_argument("--skip-boundary", action="store_true")
+    parser.add_argument("--scenario-id", action="append", default=[])
     args = parser.parse_args()
     report = asyncio.run(
         build_provider_report(
             user_id=args.user_id,
             use_backfill_account=args.use_backfill_account,
             boundary_only=args.boundary_only,
+            cohort_path=args.cohort,
+            provider_name=args.provider,
+            model_name=args.model,
+            include_query_goal=args.query_goal,
+            summary_variants=tuple(args.variants or SUMMARY_VARIANTS),
+            include_boundary=not args.skip_boundary,
+            scenario_ids=tuple(args.scenario_id),
         )
     )
-    print(json.dumps(report, ensure_ascii=False, indent=2, sort_keys=True))
+    serialized = json.dumps(report, ensure_ascii=False, indent=2, sort_keys=True) + "\n"
+    if args.output is not None:
+        args.output.write_text(serialized, encoding="utf-8")
+    else:
+        print(serialized, end="")
 
 
 if __name__ == "__main__":

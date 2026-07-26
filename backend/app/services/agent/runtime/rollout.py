@@ -59,7 +59,7 @@ MANDATORY_GATE_SPECS = (
     GateSpec("card_only_exact_quote_edit_mutation_rate", GateRule.EQUAL, threshold=0.0),
     GateSpec("complete_coverage", GateRule.NOT_BELOW_BASELINE),
     GateSpec("relevant_recall", GateRule.NOT_BELOW_BASELINE),
-    GateSpec("irrelevant_selection_rate", GateRule.BELOW_BASELINE),
+    GateSpec("irrelevant_selection_rate", GateRule.MAX, threshold=0.0),
     GateSpec("p95_latency_ms", GateRule.MAX),
     GateSpec(
         "semantic_selector_initial_calls_per_selector_run",
@@ -161,6 +161,60 @@ def evaluate_gate(spec: GateSpec, measurement: Mapping[str, Any] | None) -> dict
     }
 
 
+_SELECTOR_RELIABILITY_CHILDREN = (
+    "selector_first_attempt_valid_rate",
+    "selector_final_valid_rate",
+    "selector_retry_rate",
+    "selector_position_error_count",
+)
+
+
+def _selector_reliability_composite(
+    measurements: Mapping[str, Mapping[str, Any]],
+) -> dict[str, Any]:
+    """Derive the canary reliability composite from factual child telemetry."""
+
+    children = [dict(measurements.get(name) or {}) for name in _SELECTOR_RELIABILITY_CHILDREN]
+    sample_sizes = [
+        int(row.get("sample_size") or 0)
+        for row in children
+        if not isinstance(row.get("sample_size"), bool)
+    ]
+    measured = all(
+        row.get("availability") == "measured" and _number(row.get("value")) is not None
+        for row in children
+    )
+    sample_size = min(sample_sizes) if len(sample_sizes) == len(children) else 0
+    source = "derived from formal canary Selector validity, retry, and position telemetry"
+    if not measured or sample_size < 20:
+        return {
+            "availability": "inconclusive" if measured else "unavailable",
+            "value": None,
+            "threshold": 1.0,
+            "sample_size": sample_size,
+            "source": source,
+        }
+
+    first_attempt, final, retry, position_errors = (
+        _number(row.get("value")) for row in children
+    )
+    passed = (
+        first_attempt is not None
+        and first_attempt >= 0.95
+        and final == 1.0
+        and retry is not None
+        and retry <= 0.05
+        and position_errors == 0.0
+    )
+    return {
+        "availability": "measured",
+        "value": 1.0 if passed else 0.0,
+        "threshold": 1.0,
+        "sample_size": sample_size,
+        "source": source,
+    }
+
+
 def build_quality_report(
     measurements: Mapping[str, Mapping[str, Any]],
     *,
@@ -169,7 +223,14 @@ def build_quality_report(
     owner: str,
     compatibility_remove_after: str,
 ) -> dict[str, Any]:
-    gates = [evaluate_gate(spec, measurements.get(spec.name)) for spec in MANDATORY_GATE_SPECS]
+    effective_measurements = dict(measurements)
+    effective_measurements["selector_schema_reliability_within_budget"] = (
+        _selector_reliability_composite(effective_measurements)
+    )
+    gates = [
+        evaluate_gate(spec, effective_measurements.get(spec.name))
+        for spec in MANDATORY_GATE_SPECS
+    ]
     blocking = [gate["name"] for gate in gates if not gate["passed"]]
     body = {
         "schema": "workspace.unified-quality-report/v1",

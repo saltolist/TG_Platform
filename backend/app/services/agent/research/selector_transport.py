@@ -83,9 +83,9 @@ _LEGACY_DISPOSITION = {
     "a": "ambiguous",
 }
 _ALLOWED_REASON_BY_RELEVANCE = {
-    "d": frozenset({"t", "e", "d", "c", "q", "u", "m", "a", "l"}),
-    "s": frozenset({"t", "e", "d", "c", "m", "a", "l"}),
-    "i": frozenset({"x", "b", "s"}),
+    "d": frozenset({"e", "d", "c", "q", "u", "m", "a", "l"}),
+    "s": frozenset({"e", "d", "c", "m", "a", "l"}),
+    "i": frozenset({"t", "x", "b", "s"}),
 }
 _PLAIN_FRAME_RE = re.compile(
     r"CS(?P<version>\d+)\|n=(?P<count>\d+)\|r=(?P<nonce>[a-f0-9]{12})"
@@ -236,7 +236,7 @@ def encode_selector_transport(
             maximum,
             _FIDELITY_CODE.get(str(source.get("required_fidelity") or "semantic_card"), "s"),
         ]
-        goal = str(source.get("query_goal") or "").strip()
+        goal = str(source.get("query_goal") or question or "").strip()
         if goal:
             row.append(_neutralize_selector_data(goal[:240]))
         source_rows.append(row)
@@ -338,7 +338,7 @@ def selector_transport_json_schema(mapping: SelectorTransportMapping) -> dict[st
                 "maxItems": count,
                 "items": {
                     "type": "string",
-                    "pattern": "^(?:d[tedcqumal]|s[tedcmal]|i[xbs])[0-9]$",
+                    "pattern": "^(?:d[edcqumal]|s[edcmal]|i[txbs])[0-9]$",
                 },
             },
             "done": {"type": "boolean", "const": True},
@@ -359,8 +359,10 @@ def render_selector_transport_output_requirements(
     codes = (
         "Each assessment code has exactly three characters: relevance d|s|i, "
         "reason t|e|d|c|q|u|m|a|l|x|b|s, confidence bucket 0..9. "
-        "Use x/b/s reasons only with irrelevant; use the remaining semantic reasons "
-        "with direct or supporting."
+        "Use t=topic-only, x=unrelated, b=ambiguous, or s=search-more only with "
+        "irrelevant. Every direct or supporting assessment must use an evidence-bearing "
+        "reason e/d/c/q/u/m/a/l. If a card explicitly says the requested answer is absent, "
+        "code it as irrelevant it or ix, regardless of topical overlap."
     )
     if plain_frame:
         return (
@@ -480,7 +482,9 @@ def decode_selector_transport_v2_result(
     errors: list[SelectorValidationErrorCode] = []
     codes: list[str] = []
     for index, value in enumerate(assessments):
-        if not isinstance(value, str) or not re.fullmatch(r"[dsi][tedcqumalxbs][0-9]", value):
+        if not isinstance(value, str) or not re.fullmatch(
+            r"[dsi][tedcqumalxbs][0-9]", value
+        ):
             errors.append(SelectorValidationErrorCode.INVALID_ASSESSMENT_CODE)
             continue
         relevance_code, reason_code, confidence_code = value

@@ -1,0 +1,1196 @@
+{
+  "boundary_256": {
+    "actual_total_tokens_availability": "measured",
+    "actual_total_tokens_p95": 19982,
+    "attempts": [
+      {
+        "attempt": 1,
+        "estimator_input_tokens": 17453,
+        "latency_ms": 13720.3,
+        "provider_error": null,
+        "provider_token_usage": {
+          "availability": "measured",
+          "cached_input_availability": "measured",
+          "cached_input_tokens": 18944,
+          "input_tokens": 19188,
+          "output_tokens": 794,
+          "total_tokens": 19982
+        },
+        "retry": false,
+        "schema_result": "valid",
+        "validation_error_codes": []
+      }
+    ],
+    "availability": "measured",
+    "candidate_count": 256,
+    "final_canonical_valid": true,
+    "gate_total_tokens_lte_22000": true,
+    "latency_p95_ms": 13720.3,
+    "maximum_dialog_context_chars": 3000,
+    "retry_count": 0
+  },
+  "cohort_role": "calibration",
+  "cohort_version": "2026-07-26-remediation-v2",
+  "contains_account_identifier": false,
+  "contains_credentials": false,
+  "estimated_cost": {
+    "availability": "unavailable",
+    "value_usd": null
+  },
+  "model": "gpt-4.1-mini",
+  "position_error_count": 0,
+  "price_snapshot": {
+    "availability": "unavailable",
+    "version": null
+  },
+  "provider": "OpenAI",
+  "provider_call_count": 33,
+  "provider_failure_count": 0,
+  "schema": "workspace.selector-provider-replay/v1",
+  "schema_results": {
+    "valid": 33
+  },
+  "semantic_sample_sufficient": true,
+  "semantic_scenario_count": 8,
+  "semantic_variant": "baseline",
+  "summary_160_non_inferior_recall": true,
+  "transport_tier": "strict_json_schema",
+  "validation_error_counts": {},
+  "variants": {
+    "120": {
+      "critical_required_recall": 0.625,
+      "critical_selected": 5,
+      "critical_total": 8,
+      "final_valid": 8,
+      "first_attempt_valid": 8,
+      "irrelevant_selected": 0,
+      "irrelevant_selection_rate": 0.0,
+      "irrelevant_total": 7,
+      "required_recall": 0.666667,
+      "required_selected": 6,
+      "required_total": 9,
+      "retries": 0,
+      "scenario_count": 8,
+      "scenario_rows": [
+        {
+          "attempt_count": 1,
+          "attempts": [
+            {
+              "attempt": 1,
+              "schema_result": "valid",
+              "validation_error_codes": []
+            }
+          ],
+          "attribution_boundary": "none",
+          "candidate_count": 3,
+          "expected": {
+            "critical_positions": [
+              1
+            ],
+            "irrelevant_positions": [
+              2
+            ],
+            "required_positions": [
+              0,
+              1
+            ]
+          },
+          "missed_critical_refs": [],
+          "reason_codes_by_position": {
+            "0": "topic_only",
+            "1": "topic_only",
+            "2": "unrelated_topic"
+          },
+          "scenario_id": "relevant-ru-en-mixed",
+          "selected_irrelevant_refs": [],
+          "selected_positions": [
+            0,
+            1
+          ]
+        },
+        {
+          "attempt_count": 1,
+          "attempts": [
+            {
+              "attempt": 1,
+              "schema_result": "valid",
+              "validation_error_codes": []
+            }
+          ],
+          "attribution_boundary": "selector",
+          "candidate_count": 2,
+          "expected": {
+            "critical_positions": [
+              0
+            ],
+            "irrelevant_positions": [],
+            "required_positions": [
+              0
+            ]
+          },
+          "missed_critical_refs": [
+            "note:fixture-ru-secondary-late"
+          ],
+          "reason_codes_by_position": {
+            "0": "search_more",
+            "1": "search_more"
+          },
+          "scenario_id": "secondary-topic-late",
+          "selected_irrelevant_refs": [],
+          "selected_positions": []
+        },
+        {
+          "attempt_count": 1,
+          "attempts": [
+            {
+              "attempt": 1,
+              "schema_result": "valid",
+              "validation_error_codes": []
+            }
+          ],
+          "attribution_boundary": "none",
+          "candidate_count": 2,
+          "expected": {
+            "critical_positions": [
+              0
+            ],
+            "irrelevant_positions": [
+              1
+            ],
+            "required_positions": [
+              0
+            ]
+          },
+          "missed_critical_refs": [],
+          "reason_codes_by_position": {
+            "0": "topic_only",
+            "1": "unrelated_topic"
+          },
+          "scenario_id": "ambient-parent-null-score",
+          "selected_irrelevant_refs": [],
+          "selected_positions": [
+            0
+          ]
+        },
+        {
+          "attempt_count": 1,
+          "attempts": [
+            {
+              "attempt": 1,
+              "schema_result": "valid",
+              "validation_error_codes": []
+            }
+          ],
+          "attribution_boundary": "none",
+          "candidate_count": 2,
+          "expected": {
+            "critical_positions": [
+              0
+            ],
+            "irrelevant_positions": [
+              1
+            ],
+            "required_positions": [
+              0
+            ]
+          },
+          "missed_critical_refs": [],
+          "reason_codes_by_position": {
+            "0": "topic_only",
+            "1": "unrelated_topic"
+          },
+          "scenario_id": "de-start-vs-menu",
+          "selected_irrelevant_refs": [],
+          "selected_positions": [
+            0
+          ]
+        },
+        {
+          "attempt_count": 1,
+          "attempts": [
+            {
+              "attempt": 1,
+              "schema_result": "valid",
+              "validation_error_codes": []
+            }
+          ],
+          "attribution_boundary": "selector",
+          "candidate_count": 2,
+          "expected": {
+            "critical_positions": [
+              1
+            ],
+            "irrelevant_positions": [
+              0
+            ],
+            "required_positions": [
+              1
+            ]
+          },
+          "missed_critical_refs": [
+            "note:fixture-es-supporting"
+          ],
+          "reason_codes_by_position": {
+            "0": "search_more",
+            "1": "search_more"
+          },
+          "scenario_id": "es-launch-risk",
+          "selected_irrelevant_refs": [],
+          "selected_positions": []
+        },
+        {
+          "attempt_count": 1,
+          "attempts": [
+            {
+              "attempt": 1,
+              "schema_result": "valid",
+              "validation_error_codes": []
+            }
+          ],
+          "attribution_boundary": "none",
+          "candidate_count": 2,
+          "expected": {
+            "critical_positions": [
+              0
+            ],
+            "irrelevant_positions": [
+              1
+            ],
+            "required_positions": [
+              0
+            ]
+          },
+          "missed_critical_refs": [],
+          "reason_codes_by_position": {
+            "0": "topic_only",
+            "1": "unrelated_topic"
+          },
+          "scenario_id": "rollback-owner-cross-language",
+          "selected_irrelevant_refs": [],
+          "selected_positions": [
+            0
+          ]
+        },
+        {
+          "attempt_count": 1,
+          "attempts": [
+            {
+              "attempt": 1,
+              "schema_result": "valid",
+              "validation_error_codes": []
+            }
+          ],
+          "attribution_boundary": "selector",
+          "candidate_count": 2,
+          "expected": {
+            "critical_positions": [
+              0
+            ],
+            "irrelevant_positions": [
+              1
+            ],
+            "required_positions": [
+              0
+            ]
+          },
+          "missed_critical_refs": [
+            "note:fixture-ru-secondary-late"
+          ],
+          "reason_codes_by_position": {
+            "0": "search_more",
+            "1": "search_more"
+          },
+          "scenario_id": "budget-specific-near-topic",
+          "selected_irrelevant_refs": [],
+          "selected_positions": []
+        },
+        {
+          "attempt_count": 1,
+          "attempts": [
+            {
+              "attempt": 1,
+              "schema_result": "valid",
+              "validation_error_codes": []
+            }
+          ],
+          "attribution_boundary": "none",
+          "candidate_count": 3,
+          "expected": {
+            "critical_positions": [
+              0
+            ],
+            "irrelevant_positions": [
+              1
+            ],
+            "required_positions": [
+              0
+            ]
+          },
+          "missed_critical_refs": [],
+          "reason_codes_by_position": {
+            "0": "topic_only",
+            "1": "search_more",
+            "2": "search_more"
+          },
+          "scenario_id": "mixed-compare-with-support",
+          "selected_irrelevant_refs": [],
+          "selected_positions": [
+            0
+          ]
+        }
+      ]
+    },
+    "160": {
+      "critical_required_recall": 0.875,
+      "critical_selected": 7,
+      "critical_total": 8,
+      "final_valid": 8,
+      "first_attempt_valid": 8,
+      "irrelevant_selected": 1,
+      "irrelevant_selection_rate": 0.142857,
+      "irrelevant_total": 7,
+      "required_recall": 0.888889,
+      "required_selected": 8,
+      "required_total": 9,
+      "retries": 0,
+      "scenario_count": 8,
+      "scenario_rows": [
+        {
+          "attempt_count": 1,
+          "attempts": [
+            {
+              "attempt": 1,
+              "schema_result": "valid",
+              "validation_error_codes": []
+            }
+          ],
+          "attribution_boundary": "none",
+          "candidate_count": 3,
+          "expected": {
+            "critical_positions": [
+              1
+            ],
+            "irrelevant_positions": [
+              2
+            ],
+            "required_positions": [
+              0,
+              1
+            ]
+          },
+          "missed_critical_refs": [],
+          "reason_codes_by_position": {
+            "0": "topic_only",
+            "1": "topic_only",
+            "2": "unrelated_topic"
+          },
+          "scenario_id": "relevant-ru-en-mixed",
+          "selected_irrelevant_refs": [],
+          "selected_positions": [
+            0,
+            1
+          ]
+        },
+        {
+          "attempt_count": 1,
+          "attempts": [
+            {
+              "attempt": 1,
+              "schema_result": "valid",
+              "validation_error_codes": []
+            }
+          ],
+          "attribution_boundary": "none",
+          "candidate_count": 2,
+          "expected": {
+            "critical_positions": [
+              0
+            ],
+            "irrelevant_positions": [],
+            "required_positions": [
+              0
+            ]
+          },
+          "missed_critical_refs": [],
+          "reason_codes_by_position": {
+            "0": "detailed_summary",
+            "1": "ambiguous"
+          },
+          "scenario_id": "secondary-topic-late",
+          "selected_irrelevant_refs": [],
+          "selected_positions": [
+            0
+          ]
+        },
+        {
+          "attempt_count": 1,
+          "attempts": [
+            {
+              "attempt": 1,
+              "schema_result": "valid",
+              "validation_error_codes": []
+            }
+          ],
+          "attribution_boundary": "none",
+          "candidate_count": 2,
+          "expected": {
+            "critical_positions": [
+              0
+            ],
+            "irrelevant_positions": [
+              1
+            ],
+            "required_positions": [
+              0
+            ]
+          },
+          "missed_critical_refs": [],
+          "reason_codes_by_position": {
+            "0": "topic_only",
+            "1": "unrelated_topic"
+          },
+          "scenario_id": "ambient-parent-null-score",
+          "selected_irrelevant_refs": [],
+          "selected_positions": [
+            0
+          ]
+        },
+        {
+          "attempt_count": 1,
+          "attempts": [
+            {
+              "attempt": 1,
+              "schema_result": "valid",
+              "validation_error_codes": []
+            }
+          ],
+          "attribution_boundary": "none",
+          "candidate_count": 2,
+          "expected": {
+            "critical_positions": [
+              0
+            ],
+            "irrelevant_positions": [
+              1
+            ],
+            "required_positions": [
+              0
+            ]
+          },
+          "missed_critical_refs": [],
+          "reason_codes_by_position": {
+            "0": "topic_only",
+            "1": "search_more"
+          },
+          "scenario_id": "de-start-vs-menu",
+          "selected_irrelevant_refs": [],
+          "selected_positions": [
+            0
+          ]
+        },
+        {
+          "attempt_count": 1,
+          "attempts": [
+            {
+              "attempt": 1,
+              "schema_result": "valid",
+              "validation_error_codes": []
+            }
+          ],
+          "attribution_boundary": "selector",
+          "candidate_count": 2,
+          "expected": {
+            "critical_positions": [
+              1
+            ],
+            "irrelevant_positions": [
+              0
+            ],
+            "required_positions": [
+              1
+            ]
+          },
+          "missed_critical_refs": [
+            "note:fixture-es-supporting"
+          ],
+          "reason_codes_by_position": {
+            "0": "search_more",
+            "1": "search_more"
+          },
+          "scenario_id": "es-launch-risk",
+          "selected_irrelevant_refs": [],
+          "selected_positions": []
+        },
+        {
+          "attempt_count": 1,
+          "attempts": [
+            {
+              "attempt": 1,
+              "schema_result": "valid",
+              "validation_error_codes": []
+            }
+          ],
+          "attribution_boundary": "none",
+          "candidate_count": 2,
+          "expected": {
+            "critical_positions": [
+              0
+            ],
+            "irrelevant_positions": [
+              1
+            ],
+            "required_positions": [
+              0
+            ]
+          },
+          "missed_critical_refs": [],
+          "reason_codes_by_position": {
+            "0": "topic_only",
+            "1": "unrelated_topic"
+          },
+          "scenario_id": "rollback-owner-cross-language",
+          "selected_irrelevant_refs": [],
+          "selected_positions": [
+            0
+          ]
+        },
+        {
+          "attempt_count": 1,
+          "attempts": [
+            {
+              "attempt": 1,
+              "schema_result": "valid",
+              "validation_error_codes": []
+            }
+          ],
+          "attribution_boundary": "selector",
+          "candidate_count": 2,
+          "expected": {
+            "critical_positions": [
+              0
+            ],
+            "irrelevant_positions": [
+              1
+            ],
+            "required_positions": [
+              0
+            ]
+          },
+          "missed_critical_refs": [],
+          "reason_codes_by_position": {
+            "0": "topic_only",
+            "1": "topic_only"
+          },
+          "scenario_id": "budget-specific-near-topic",
+          "selected_irrelevant_refs": [
+            "note:fixture-mixed-multi-source"
+          ],
+          "selected_positions": [
+            0,
+            1
+          ]
+        },
+        {
+          "attempt_count": 1,
+          "attempts": [
+            {
+              "attempt": 1,
+              "schema_result": "valid",
+              "validation_error_codes": []
+            }
+          ],
+          "attribution_boundary": "none",
+          "candidate_count": 3,
+          "expected": {
+            "critical_positions": [
+              0
+            ],
+            "irrelevant_positions": [
+              1
+            ],
+            "required_positions": [
+              0
+            ]
+          },
+          "missed_critical_refs": [],
+          "reason_codes_by_position": {
+            "0": "topic_only",
+            "1": "search_more",
+            "2": "search_more"
+          },
+          "scenario_id": "mixed-compare-with-support",
+          "selected_irrelevant_refs": [],
+          "selected_positions": [
+            0
+          ]
+        }
+      ]
+    },
+    "240": {
+      "critical_required_recall": 0.875,
+      "critical_selected": 7,
+      "critical_total": 8,
+      "final_valid": 8,
+      "first_attempt_valid": 8,
+      "irrelevant_selected": 0,
+      "irrelevant_selection_rate": 0.0,
+      "irrelevant_total": 7,
+      "required_recall": 0.888889,
+      "required_selected": 8,
+      "required_total": 9,
+      "retries": 0,
+      "scenario_count": 8,
+      "scenario_rows": [
+        {
+          "attempt_count": 1,
+          "attempts": [
+            {
+              "attempt": 1,
+              "schema_result": "valid",
+              "validation_error_codes": []
+            }
+          ],
+          "attribution_boundary": "none",
+          "candidate_count": 3,
+          "expected": {
+            "critical_positions": [
+              1
+            ],
+            "irrelevant_positions": [
+              2
+            ],
+            "required_positions": [
+              0,
+              1
+            ]
+          },
+          "missed_critical_refs": [],
+          "reason_codes_by_position": {
+            "0": "topic_only",
+            "1": "topic_only",
+            "2": "search_more"
+          },
+          "scenario_id": "relevant-ru-en-mixed",
+          "selected_irrelevant_refs": [],
+          "selected_positions": [
+            0,
+            1
+          ]
+        },
+        {
+          "attempt_count": 1,
+          "attempts": [
+            {
+              "attempt": 1,
+              "schema_result": "valid",
+              "validation_error_codes": []
+            }
+          ],
+          "attribution_boundary": "none",
+          "candidate_count": 2,
+          "expected": {
+            "critical_positions": [
+              0
+            ],
+            "irrelevant_positions": [],
+            "required_positions": [
+              0
+            ]
+          },
+          "missed_critical_refs": [],
+          "reason_codes_by_position": {
+            "0": "topic_only",
+            "1": "search_more"
+          },
+          "scenario_id": "secondary-topic-late",
+          "selected_irrelevant_refs": [],
+          "selected_positions": [
+            0
+          ]
+        },
+        {
+          "attempt_count": 1,
+          "attempts": [
+            {
+              "attempt": 1,
+              "schema_result": "valid",
+              "validation_error_codes": []
+            }
+          ],
+          "attribution_boundary": "none",
+          "candidate_count": 2,
+          "expected": {
+            "critical_positions": [
+              0
+            ],
+            "irrelevant_positions": [
+              1
+            ],
+            "required_positions": [
+              0
+            ]
+          },
+          "missed_critical_refs": [],
+          "reason_codes_by_position": {
+            "0": "topic_only",
+            "1": "unrelated_topic"
+          },
+          "scenario_id": "ambient-parent-null-score",
+          "selected_irrelevant_refs": [],
+          "selected_positions": [
+            0
+          ]
+        },
+        {
+          "attempt_count": 1,
+          "attempts": [
+            {
+              "attempt": 1,
+              "schema_result": "valid",
+              "validation_error_codes": []
+            }
+          ],
+          "attribution_boundary": "none",
+          "candidate_count": 2,
+          "expected": {
+            "critical_positions": [
+              0
+            ],
+            "irrelevant_positions": [
+              1
+            ],
+            "required_positions": [
+              0
+            ]
+          },
+          "missed_critical_refs": [],
+          "reason_codes_by_position": {
+            "0": "topic_only",
+            "1": "unrelated_topic"
+          },
+          "scenario_id": "de-start-vs-menu",
+          "selected_irrelevant_refs": [],
+          "selected_positions": [
+            0
+          ]
+        },
+        {
+          "attempt_count": 1,
+          "attempts": [
+            {
+              "attempt": 1,
+              "schema_result": "valid",
+              "validation_error_codes": []
+            }
+          ],
+          "attribution_boundary": "selector",
+          "candidate_count": 2,
+          "expected": {
+            "critical_positions": [
+              1
+            ],
+            "irrelevant_positions": [
+              0
+            ],
+            "required_positions": [
+              1
+            ]
+          },
+          "missed_critical_refs": [
+            "note:fixture-es-supporting"
+          ],
+          "reason_codes_by_position": {
+            "0": "search_more",
+            "1": "search_more"
+          },
+          "scenario_id": "es-launch-risk",
+          "selected_irrelevant_refs": [],
+          "selected_positions": []
+        },
+        {
+          "attempt_count": 1,
+          "attempts": [
+            {
+              "attempt": 1,
+              "schema_result": "valid",
+              "validation_error_codes": []
+            }
+          ],
+          "attribution_boundary": "none",
+          "candidate_count": 2,
+          "expected": {
+            "critical_positions": [
+              0
+            ],
+            "irrelevant_positions": [
+              1
+            ],
+            "required_positions": [
+              0
+            ]
+          },
+          "missed_critical_refs": [],
+          "reason_codes_by_position": {
+            "0": "topic_only",
+            "1": "unrelated_topic"
+          },
+          "scenario_id": "rollback-owner-cross-language",
+          "selected_irrelevant_refs": [],
+          "selected_positions": [
+            0
+          ]
+        },
+        {
+          "attempt_count": 1,
+          "attempts": [
+            {
+              "attempt": 1,
+              "schema_result": "valid",
+              "validation_error_codes": []
+            }
+          ],
+          "attribution_boundary": "none",
+          "candidate_count": 2,
+          "expected": {
+            "critical_positions": [
+              0
+            ],
+            "irrelevant_positions": [
+              1
+            ],
+            "required_positions": [
+              0
+            ]
+          },
+          "missed_critical_refs": [],
+          "reason_codes_by_position": {
+            "0": "topic_only",
+            "1": "search_more"
+          },
+          "scenario_id": "budget-specific-near-topic",
+          "selected_irrelevant_refs": [],
+          "selected_positions": [
+            0
+          ]
+        },
+        {
+          "attempt_count": 1,
+          "attempts": [
+            {
+              "attempt": 1,
+              "schema_result": "valid",
+              "validation_error_codes": []
+            }
+          ],
+          "attribution_boundary": "none",
+          "candidate_count": 3,
+          "expected": {
+            "critical_positions": [
+              0
+            ],
+            "irrelevant_positions": [
+              1
+            ],
+            "required_positions": [
+              0
+            ]
+          },
+          "missed_critical_refs": [],
+          "reason_codes_by_position": {
+            "0": "topic_only",
+            "1": "search_more",
+            "2": "search_more"
+          },
+          "scenario_id": "mixed-compare-with-support",
+          "selected_irrelevant_refs": [],
+          "selected_positions": [
+            0
+          ]
+        }
+      ]
+    },
+    "compatibility": {
+      "critical_required_recall": 0.875,
+      "critical_selected": 7,
+      "critical_total": 8,
+      "final_valid": 8,
+      "first_attempt_valid": 8,
+      "irrelevant_selected": 0,
+      "irrelevant_selection_rate": 0.0,
+      "irrelevant_total": 7,
+      "required_recall": 0.888889,
+      "required_selected": 8,
+      "required_total": 9,
+      "retries": 0,
+      "scenario_count": 8,
+      "scenario_rows": [
+        {
+          "attempt_count": 1,
+          "attempts": [
+            {
+              "attempt": 1,
+              "schema_result": "valid",
+              "validation_error_codes": []
+            }
+          ],
+          "attribution_boundary": "none",
+          "candidate_count": 3,
+          "expected": {
+            "critical_positions": [
+              1
+            ],
+            "irrelevant_positions": [
+              2
+            ],
+            "required_positions": [
+              0,
+              1
+            ]
+          },
+          "missed_critical_refs": [],
+          "reason_codes_by_position": {
+            "0": "topic_only",
+            "1": "topic_only",
+            "2": "search_more"
+          },
+          "scenario_id": "relevant-ru-en-mixed",
+          "selected_irrelevant_refs": [],
+          "selected_positions": [
+            0,
+            1
+          ]
+        },
+        {
+          "attempt_count": 1,
+          "attempts": [
+            {
+              "attempt": 1,
+              "schema_result": "valid",
+              "validation_error_codes": []
+            }
+          ],
+          "attribution_boundary": "none",
+          "candidate_count": 2,
+          "expected": {
+            "critical_positions": [
+              0
+            ],
+            "irrelevant_positions": [],
+            "required_positions": [
+              0
+            ]
+          },
+          "missed_critical_refs": [],
+          "reason_codes_by_position": {
+            "0": "topic_only",
+            "1": "search_more"
+          },
+          "scenario_id": "secondary-topic-late",
+          "selected_irrelevant_refs": [],
+          "selected_positions": [
+            0
+          ]
+        },
+        {
+          "attempt_count": 1,
+          "attempts": [
+            {
+              "attempt": 1,
+              "schema_result": "valid",
+              "validation_error_codes": []
+            }
+          ],
+          "attribution_boundary": "none",
+          "candidate_count": 2,
+          "expected": {
+            "critical_positions": [
+              0
+            ],
+            "irrelevant_positions": [
+              1
+            ],
+            "required_positions": [
+              0
+            ]
+          },
+          "missed_critical_refs": [],
+          "reason_codes_by_position": {
+            "0": "topic_only",
+            "1": "unrelated_topic"
+          },
+          "scenario_id": "ambient-parent-null-score",
+          "selected_irrelevant_refs": [],
+          "selected_positions": [
+            0
+          ]
+        },
+        {
+          "attempt_count": 1,
+          "attempts": [
+            {
+              "attempt": 1,
+              "schema_result": "valid",
+              "validation_error_codes": []
+            }
+          ],
+          "attribution_boundary": "none",
+          "candidate_count": 2,
+          "expected": {
+            "critical_positions": [
+              0
+            ],
+            "irrelevant_positions": [
+              1
+            ],
+            "required_positions": [
+              0
+            ]
+          },
+          "missed_critical_refs": [],
+          "reason_codes_by_position": {
+            "0": "topic_only",
+            "1": "ambiguous"
+          },
+          "scenario_id": "de-start-vs-menu",
+          "selected_irrelevant_refs": [],
+          "selected_positions": [
+            0
+          ]
+        },
+        {
+          "attempt_count": 1,
+          "attempts": [
+            {
+              "attempt": 1,
+              "schema_result": "valid",
+              "validation_error_codes": []
+            }
+          ],
+          "attribution_boundary": "selector",
+          "candidate_count": 2,
+          "expected": {
+            "critical_positions": [
+              1
+            ],
+            "irrelevant_positions": [
+              0
+            ],
+            "required_positions": [
+              1
+            ]
+          },
+          "missed_critical_refs": [
+            "note:fixture-es-supporting"
+          ],
+          "reason_codes_by_position": {
+            "0": "search_more",
+            "1": "search_more"
+          },
+          "scenario_id": "es-launch-risk",
+          "selected_irrelevant_refs": [],
+          "selected_positions": []
+        },
+        {
+          "attempt_count": 1,
+          "attempts": [
+            {
+              "attempt": 1,
+              "schema_result": "valid",
+              "validation_error_codes": []
+            }
+          ],
+          "attribution_boundary": "none",
+          "candidate_count": 2,
+          "expected": {
+            "critical_positions": [
+              0
+            ],
+            "irrelevant_positions": [
+              1
+            ],
+            "required_positions": [
+              0
+            ]
+          },
+          "missed_critical_refs": [],
+          "reason_codes_by_position": {
+            "0": "topic_only",
+            "1": "unrelated_topic"
+          },
+          "scenario_id": "rollback-owner-cross-language",
+          "selected_irrelevant_refs": [],
+          "selected_positions": [
+            0
+          ]
+        },
+        {
+          "attempt_count": 1,
+          "attempts": [
+            {
+              "attempt": 1,
+              "schema_result": "valid",
+              "validation_error_codes": []
+            }
+          ],
+          "attribution_boundary": "none",
+          "candidate_count": 2,
+          "expected": {
+            "critical_positions": [
+              0
+            ],
+            "irrelevant_positions": [
+              1
+            ],
+            "required_positions": [
+              0
+            ]
+          },
+          "missed_critical_refs": [],
+          "reason_codes_by_position": {
+            "0": "topic_only",
+            "1": "search_more"
+          },
+          "scenario_id": "budget-specific-near-topic",
+          "selected_irrelevant_refs": [],
+          "selected_positions": [
+            0
+          ]
+        },
+        {
+          "attempt_count": 1,
+          "attempts": [
+            {
+              "attempt": 1,
+              "schema_result": "valid",
+              "validation_error_codes": []
+            }
+          ],
+          "attribution_boundary": "none",
+          "candidate_count": 3,
+          "expected": {
+            "critical_positions": [
+              0
+            ],
+            "irrelevant_positions": [
+              1
+            ],
+            "required_positions": [
+              0
+            ]
+          },
+          "missed_critical_refs": [],
+          "reason_codes_by_position": {
+            "0": "topic_only",
+            "1": "search_more",
+            "2": "search_more"
+          },
+          "scenario_id": "mixed-compare-with-support",
+          "selected_irrelevant_refs": [],
+          "selected_positions": [
+            0
+          ]
+        }
+      ]
+    }
+  }
+}

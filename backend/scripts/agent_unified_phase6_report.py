@@ -41,11 +41,20 @@ DEFAULT_REPLAY_FIXTURE = BACKEND_ROOT / "tests/fixtures/agent_unified_phase0/v1/
 DEFAULT_LABELED_COHORT = (
     BACKEND_ROOT / "tests/fixtures/agent_unified_phase6/v2/labeled_selector_cohort.json"
 )
+DEFAULT_QUALIFICATION_COHORT = (
+    BACKEND_ROOT / "tests/fixtures/agent_unified_phase6/v4/qualification_selector_cohort.json"
+)
 DEFAULT_ACCOUNT_PILOT = (
     BACKEND_ROOT / "tests/fixtures/agent_unified_phase6/v2/account_pilot_aggregate.json"
 )
 DEFAULT_PROVIDER_REPLAY = (
-    BACKEND_ROOT / "tests/fixtures/agent_unified_phase6/v2/provider_replay_aggregate.json"
+    BACKEND_ROOT / "tests/fixtures/agent_unified_phase6/v4/provider_replay_aggregate.json"
+)
+DEFAULT_CANARY_MANIFEST = (
+    BACKEND_ROOT / "tests/fixtures/agent_unified_phase6/v4/formal_canary_manifest.json"
+)
+DEFAULT_CANARY_RESULT = (
+    BACKEND_ROOT / "tests/fixtures/agent_unified_phase6/v4/formal_canary_result.json"
 )
 
 
@@ -412,6 +421,8 @@ def build_report(
     ):
         raise ValueError("unsupported phase-6 account pilot aggregate")
     provider_replay = json.loads(provider_replay_path.read_text(encoding="utf-8"))
+    canary_manifest = json.loads(DEFAULT_CANARY_MANIFEST.read_text(encoding="utf-8"))
+    canary_result = json.loads(DEFAULT_CANARY_RESULT.read_text(encoding="utf-8"))
     flags = {
         "unified_catalog": True,
         "typed_requirements": True,
@@ -424,6 +435,7 @@ def build_report(
     measurements = dict(fixture["measurements"])
     measurements.update(dict(account_pilot.get("quality_measurements") or {}))
     measurements.update(_provider_replay_measurements(provider_replay))
+    measurements.update(dict(canary_result.get("measurements") or {}))
     measurements["selector_p95_prompt_tokens"] = {
         **dict(measurements["selector_p95_prompt_tokens"]),
         "value": benchmark["estimated_prompt_tokens_chars_div_4"],
@@ -436,7 +448,7 @@ def build_report(
         compatibility_remove_after=str(fixture["compatibility_remove_after"]),
     )
     replay_fixture = load_unified_phase0_fixture(DEFAULT_REPLAY_FIXTURE)
-    labeled_payload = json.loads(DEFAULT_LABELED_COHORT.read_text(encoding="utf-8"))
+    labeled_payload = json.loads(DEFAULT_QUALIFICATION_COHORT.read_text(encoding="utf-8"))
     if labeled_payload.get("schema") != "workspace.selector-labeled-cohort/v1":
         raise ValueError("unsupported selector labeled cohort")
     labeled_cases = [
@@ -457,6 +469,10 @@ def build_report(
         "offline_replay": replay,
         "labeled_selector_cohort": {
             "version": labeled_payload.get("version"),
+            "cohort_role": labeled_payload.get("cohort_role"),
+            "labels_frozen_before_provider_output": labeled_payload.get(
+                "labels_frozen_before_provider_output"
+            ),
             "case_count": len(labeled_cases),
             "languages": sorted({str(item.get("language") or "") for item in labeled_cases}),
             "labels": sorted({str(item.get("label") or "") for item in labeled_cases}),
@@ -492,6 +508,8 @@ def build_report(
         "shadow_comparison": _shadow_fixture_comparison(),
         "selector_boundary_benchmark": benchmark,
         "selector_provider_replay": provider_replay,
+        "formal_canary_manifest": canary_manifest,
+        "formal_canary_result": canary_result,
         "account_pilot": account_pilot,
         "gate_replacement_diagnostics": {
             "original_llm_calls_per_run": dict(
@@ -593,9 +611,14 @@ def main() -> None:
     parser.add_argument("--repeat", type=int, default=50)
     parser.add_argument("--check", action="store_true")
     parser.add_argument("--require-default-on", action="store_true")
+    parser.add_argument("--output", type=Path)
     args = parser.parse_args()
     report = build_report(args.fixture, repeats=args.repeat)
-    print(json.dumps(report, ensure_ascii=False, indent=2, sort_keys=True))
+    serialized = json.dumps(report, ensure_ascii=False, indent=2, sort_keys=True) + "\n"
+    if args.output is not None:
+        args.output.write_text(serialized, encoding="utf-8")
+    else:
+        print(serialized, end="")
     issues = check_report(report, require_default_on=args.require_default_on)
     if args.check and issues:
         raise SystemExit("; ".join(issues))

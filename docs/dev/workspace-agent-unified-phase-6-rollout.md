@@ -400,3 +400,36 @@ capability/decoder/report checks: `8 passed`; compile-check пройден. Бо
   решения; эта remediation не добавляет скрытый semantic call;
 - phase 6 не завершена, compatibility path сохраняется, flags остаются
   default-off.
+
+## Semantic closure remediation: фактический результат 2026-07-27
+
+После transport remediation исправлены два gate contracts: irrelevant selection
+использует `MAX 0`, а schema reliability composite выводится из measured canary
+children при sample `>=20`. Scenario-level baseline attribution локализовала
+critical miss `note:fixture-es-supporting` и false positive
+`note:fixture-mixed-multi-source` в primary Selector, сохранив только fixture IDs,
+позиции, reason codes и attempt metadata.
+
+Один primary Selector получил query-goal fallback и непротиворечивые semantic
+reason definitions. Qualification v1 не был переписан после неудачи: первые
+прогоны показали `7/22` и `8/22` irrelevant selections. После calibration на
+этом known failure set создан и до provider output заморожен независимый v2
+cohort. Два valid v2 repeats дали `21/21` first/final valid, critical `20/20`,
+irrelevant `0/22`, precision `1.0`, zero retries и position errors. Один более
+ранний repeat остался inconclusive из-за отдельного provider error. Recall
+Verifier не реализован, потому что primary-only path прошел semantic floors.
+
+Новый boundary-256: `19410` input, `794` output, `20204` total provider tokens,
+`11565.6 ms`, first-attempt valid. Изолированный regression дважды дал
+`129 passed`; финальный expanded scope дал `130 passed`. PostgreSQL
+recovery/crash events равны нулю. Phase-0 digest остался
+`4fe050b7d491861fd0b545471699f4d90c1151063140d7795ea4c16b3119f474`.
+
+Formal canary preflight через доступную local browser session заблокирован
+отсутствием авторизации и configured LLM: `0 chats`, `0 messages`, `0 Selector
+decisions`. Никакие credentials не читались и сообщения не отправлялись.
+Canary reliability, complete/classification coverage и staging rollback остаются
+unavailable. Strict report после 50 repeats содержит `35/42 pass`, семь blockers,
+attestation
+`e647a8cdad744146da850ae9170e9eaa5beb8f43295efbd3e3d172a18583de64`.
+Default-on запрещен.

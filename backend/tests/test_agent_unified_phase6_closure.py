@@ -10,6 +10,7 @@ from unittest.mock import AsyncMock, patch
 import pytest
 
 from app.services.agent.research.graph import (
+    CONTEXT_SELECTOR_SYSTEM,
     _selector_preflight_gaps,
     _unified_selector_decision_is_valid,
 )
@@ -219,7 +220,7 @@ def test_decoder_returns_typed_semantic_and_source_boundary_errors() -> None:
                 "v": 2,
                 "n": 2,
                 "r": limited.mapping.registry_nonce,
-                "a": ["dt9", "dt9"],
+                "a": ["de9", "de9"],
                 "done": True,
             }
         ),
@@ -486,6 +487,7 @@ def test_labeled_cohort_and_provider_replay_are_frozen_and_measured() -> None:
     path = Path(__file__).parent / "fixtures/agent_unified_phase6/v2/labeled_selector_cohort.json"
     payload = json.loads(path.read_text(encoding="utf-8"))
     assert payload["synthetic"] is True and payload["tenant_safe"] is True
+    assert payload["cohort_role"] == "calibration"
     assert {item["label"] for item in payload["cases"]} >= {"direct", "supporting", "irrelevant"}
     assert len({item["language"] for item in payload["cases"]}) >= 4
     scenario_kinds = {item["kind"] for item in payload["scenarios"]}
@@ -508,16 +510,123 @@ def test_labeled_cohort_and_provider_replay_are_frozen_and_measured() -> None:
     assert report["quality"]["default_on_allowed"] is False
     assert report["labeled_selector_cohort"]["model_replay_availability"] == "measured"
     provider_replay = report["selector_provider_replay"]
-    assert provider_replay["semantic_scenario_count"] == 8
-    assert provider_replay["variants"]["160"]["final_valid"] == 8
-    assert provider_replay["variants"]["160"]["critical_required_recall"] == 0.875
-    assert provider_replay["schema_results"] == {"provider_error": 1, "valid": 32}
-    assert provider_replay["validation_error_counts"] == {}
+    assert provider_replay["semantic_scenario_count"] == 21
+    assert provider_replay["variants"]["160"]["final_valid"] == 21
+    assert provider_replay["variants"]["160"]["critical_required_recall"] == 1.0
+    assert provider_replay["variants"]["160"]["irrelevant_selection_rate"] == 0.0
+    assert provider_replay["variants"]["160"]["final_pack_precision"] == 1.0
+    assert provider_replay["qualification"]["valid_repeat_count"] == 2
+    assert provider_replay["qualification"]["inconclusive_repeat_count"] == 1
+    assert provider_replay["schema_results"] == {"provider_error": 1, "valid": 138}
+    assert provider_replay["validation_error_counts"] == {"provider_error": 1}
     assert provider_replay["position_error_count"] == 0
-    assert provider_replay["boundary_256"]["actual_total_tokens_p95"] == 19982
+    assert provider_replay["boundary_256"]["actual_total_tokens_p95"] == 20204
     gates = {item["name"]: item for item in report["quality"]["gates"]}
     assert gates["relevant_recall"]["passed"] is True
-    assert gates["irrelevant_selection_rate"]["passed"] is False
-    assert gates["required_critical_evidence_recall"]["passed"] is False
+    assert gates["irrelevant_selection_rate"]["passed"] is True
+    assert gates["required_critical_evidence_recall"]["passed"] is True
     assert gates["selector_summary_160_non_inferior_recall"]["passed"] is True
     assert gates["selector_complete_boundary_p95_total_tokens"]["passed"] is True
+
+    labeled = report["labeled_selector_cohort"]
+    assert labeled["cohort_role"] == "qualification"
+    assert labeled["labels_frozen_before_provider_output"] is True
+    assert labeled["scenario_count"] >= 20
+    assert labeled["required_ref_count"] >= 20
+
+
+def test_semantic_attribution_is_raw_safe_and_proves_selector_boundary() -> None:
+    path = (
+        Path(__file__).parent
+        / "fixtures/agent_unified_phase6/v4/semantic_attribution.json"
+    )
+    payload = json.loads(path.read_text(encoding="utf-8"))
+    assert {item["kind"] for item in payload["issues"]} == {
+        "missed_critical",
+        "selected_irrelevant",
+    }
+    assert all(item["candidate_envelope_present"] for item in payload["issues"])
+    assert all(item["primary_canonical_valid"] for item in payload["issues"])
+    assert all(item["boundary"] == "selector" for item in payload["issues"])
+    assert all(item["materialization_started"] is False for item in payload["issues"])
+    assert all(item["answer_model_called"] is False for item in payload["issues"])
+    assert not any(payload["privacy"].values())
+
+    baseline_path = (
+        Path(__file__).parent
+        / "fixtures/agent_unified_phase6/v3/calibration_baseline_provider_replay.json"
+    )
+    baseline_text = baseline_path.read_text(encoding="utf-8")
+    assert "Office menu" not in baseline_text
+    assert "Lunch menu" not in baseline_text
+    assert '"query"' not in baseline_text
+    assert '"selector_summary"' not in baseline_text
+
+
+def test_untouched_qualification_cohort_meets_semantic_closure_inventory() -> None:
+    path = (
+        Path(__file__).parent
+        / "fixtures/agent_unified_phase6/v3/qualification_selector_cohort.json"
+    )
+    payload = json.loads(path.read_text(encoding="utf-8"))
+    semantic = [item for item in payload["scenarios"] if item["kind"] == "semantic"]
+    critical = {
+        ref for item in semantic for ref in item.get("critical_required_refs") or ()
+    }
+    irrelevant = {ref for item in semantic for ref in item.get("irrelevant_refs") or ()}
+    cases = payload["cases"]
+
+    assert payload["cohort_role"] == "qualification"
+    assert payload["qualification_status"] == "untouched"
+    assert payload["labels_frozen_before_provider_output"] is True
+    assert payload["synthetic"] is True and payload["tenant_safe"] is True
+    assert len(semantic) >= 20 and len(critical) >= 20 and len(irrelevant) >= 20
+    assert len({item["language"] for item in cases}) >= 5
+    assert {item["kind"] for item in cases} >= {"note", "post"}
+    assert any(item.get("parent_kind") for item in cases)
+    assert any(item.get("semantic_score") is None for item in cases)
+    assert any(len(item.get("source_ids") or ()) > 1 for item in cases)
+    assert any(item.get("required_source_ids") for item in semantic)
+    assert any(item.get("expected_empty_selection") for item in semantic)
+
+
+def test_selector_transport_uses_question_as_missing_source_query_goal() -> None:
+    candidates = normalize_candidates(
+        [
+            {
+                "ref": "note:fixture",
+                "kind": "note",
+                "title": "Fixture",
+                "selector_summary": "A direct synthetic fact.",
+                "source_requirement_id": "workspace-notes",
+                "origin": "authoritative_catalog",
+            }
+        ]
+    )
+    transport = encode_selector_transport(
+        question="Which fact answers the request?",
+        dialog_context="",
+        contract={
+            "source_requirements": [
+                {
+                    "source_id": "workspace-notes",
+                    "kind": "notes",
+                    "coverage": "relevant",
+                    "evidence_obligation": "optional",
+                    "selection_cardinality": {"min": 0, "max": 1},
+                    "required_fidelity": "full_text",
+                }
+            ]
+        },
+        candidates=candidates,
+    )
+
+    assert transport.payload["s"][0][-1] == "Which fact answers the request?"
+
+
+def test_selector_prompt_distinguishes_direct_secondary_and_near_topic() -> None:
+    assert "near-topic card" in CONTEXT_SELECTOR_SYSTEM
+    assert "omits the requested fact" in CONTEXT_SELECTOR_SYSTEM
+    assert "secondary topic is direct evidence" in CONTEXT_SELECTOR_SYSTEM
+    assert "never forces selection" in CONTEXT_SELECTOR_SYSTEM
+    assert "requested information is absent as irrelevant" in CONTEXT_SELECTOR_SYSTEM
