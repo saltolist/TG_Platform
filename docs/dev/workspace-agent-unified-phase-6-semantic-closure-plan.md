@@ -529,8 +529,8 @@ Boundary-256 после изменений прошел с первой попы
 `794`, total `20204 <=22000`, latency `11565.6 ms`, zero retry/position errors.
 Изолированный compose project `tg_platform_phase6_closure` на порту `55436`
 применил migrations до `027` и дважды прошел scoped regression: `129 passed` +
-`129 passed`; финальный expanded scope дал `130 passed`. Recovery/FATAL/
-server-process crashes в PostgreSQL logs нет.
+`129 passed`; expanded runs дали `130` и `131 passed`. Recovery/FATAL/server-
+process crashes в PostgreSQL logs нет.
 Phase-0 digest сохранен.
 
 Formal canary не запускался: единственная доступная local browser session была
@@ -540,3 +540,66 @@ unavailable. Strict report после 50 repeats: `35/42 pass`, семь live bl
 attestation
 `e647a8cdad744146da850ae9170e9eaa5beb8f43295efbd3e3d172a18583de64`.
 Фаза 6 не закрыта, `AGENT_UNIFIED_DEFAULT_ON=false`.
+
+## 17. Formal live canary 2026-07-27
+
+После предоставления авторизованного account доступа backend и Celery workers
+были пересобраны из `c65b1ea`, пять staged flags включены, а
+`AGENT_UNIFIED_DEFAULT_ON=0` сохранен. Один доформальный probe был исключен:
+его обработал старый worker image, что доказано несовместимым reason contract.
+
+Live labels для 20 planned scenarios заморожены до formal provider output без
+account identifier, query text или source content. Первый current-code scenario
+дал canonical-valid primary Selector с первой попытки, zero retry и zero
+position errors, но выбрал все восемь кандидатов. Frozen irrelevant ref был
+выбран и попал в final pack; frozen critical ref был выбран Selector, но затем
+исключен material budget и в final pack не попал. Три неожиданных post refs не
+были размечены до output и сохранены как unlabelled, поэтому precision не
+объявлена measured.
+
+Сработали заранее заданные stop conditions
+`irrelevant_selection_above_zero` и `evidence_or_checkpoint_loss`. Formal
+traffic остановлен на `1 chat / 1 user message / 1 Selector decision`; остальные
+19 сообщений не отправлялись, staging rollback не запускался. Strict report:
+`33/42 pass`, девять blockers, attestation
+`91a6aeee9c4cd6c5a3e544d2481b5577621672df38dcf2c1a8b431a74bf636f1`.
+Фаза 6 остается незакрытой и default-off.
+
+## 18. Post-stop mixed-complexity diagnostic 2026-07-27
+
+Для локализации semantic defects после formal stop выполнена отдельная frozen
+diagnostic выборка: 19 chats и 19 one-message read-only runs. Она намеренно
+смешанная: 13 сложных сценариев проверяют анафоры, implied source need,
+cross-object reasoning, complete classification, parent/media и near-topic
+границы; последовательности `4`, `6`, `10`, `13`, `14`, `17` оставлены простыми
+controls. Diagnostic traffic не является продолжением formal canary и не может
+использоваться для closure pass.
+
+Context Selector был вызван в 16 runs. Provider observability измерена для 15:
+`14/15` first-attempt valid, `15/15` final valid, `1/15` retries, zero position
+errors. Один retry вызван `invalid_transport`; один decision имеет assessments,
+но provider row unavailable. Sample `15 <20`, first-attempt `0.9333 <0.95` и
+retry `0.0667 >0.05`, поэтому composite не проходит и не объявляется measured
+pass.
+
+Scenario-level attribution фиксирует 58 frozen critical occurrences. Для
+inventory control пять refs отделены от individual denominator, потому что fast
+path дал `catalog:notes`, а не ref-level evidence. Из оставшихся 53 критических
+occurrences 21 потерян на discovery, 19 на Selector и 6 на materialization; 7
+дошли до final pack. Frozen irrelevant selection равен `0/8` на двух controls.
+Из простых controls exact-fact прошёл, catalog inventory доказал только root
+coverage, absence остался inconclusive, ещё три выявили реальные
+discovery/Selector failures. Таким образом, простые controls сохранены, а
+сложные вопросы не сведены к обычному RAG retrieval.
+
+Raw-safe artifacts:
+
+- `backend/tests/fixtures/agent_unified_phase6/v4/agentic_diagnostic_manifest.json`;
+- `backend/tests/fixtures/agent_unified_phase6/v4/agentic_diagnostic_result.json`.
+
+Они не содержат raw queries, source content, raw provider output, credentials
+или account IDs. Action proposals и audit events равны нулю. Formal denominator
+остаётся `1`, rollback unavailable, strict report `33/42`,
+`AGENT_UNIFIED_DEFAULT_ON=false`. Финальный isolated focused regression после
+добавления artifact-contract test дал `131 passed`; phase-0 digest и strict
+attestation остались неизменны.

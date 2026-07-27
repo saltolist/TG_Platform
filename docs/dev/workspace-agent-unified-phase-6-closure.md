@@ -408,7 +408,7 @@ position errors. Compatibility non-inferiority проходит. Первый v2
 
 Provider boundary `256` прошел с `20204 <=22000` total tokens и latency
 `11565.6 ms`. Isolated PostgreSQL regression на отдельном project/port/volume
-дважды дал `129 passed`, а финальный expanded scope - `130 passed`, без recovery
+дважды дал `129 passed`, а expanded runs - `130` и `131 passed`, без recovery
 или crash events. Phase-0 digest не изменился.
 
 Formal canary и staging rollback выполнить не удалось: доступная browser session
@@ -418,3 +418,51 @@ pass. Strict report: `35/42 pass`, семь blockers, attestation
 `e647a8cdad744146da850ae9170e9eaa5beb8f43295efbd3e3d172a18583de64`.
 Следовательно, phase 6 остается незавершенной и
 `AGENT_UNIFIED_DEFAULT_ON=false`.
+
+## Formal live canary attempt 2026-07-27
+
+Предыдущий unavailable preflight superseded авторизованным запуском. Текущий
+backend и Celery workers подтверждены на `c65b1ea`, staged flags включены,
+default-on выключен. Первый formal Selector decision прошел transport contract
+с первой попытки, но нарушил semantic stop conditions: frozen irrelevant ref
+выбран и включен в pack, а frozen critical ref после выбора отсутствует в final
+pack из-за material budget.
+
+Canary остановлен на фактическом denominator `1 chat / 1 user message / 1
+Selector decision`; unavailable не выдан за pass, оставшиеся 19 messages не
+отправлены. Rollback drill после semantic stop не запускался. Strict result:
+`33/42 pass`, девять blockers, attestation
+`91a6aeee9c4cd6c5a3e544d2481b5577621672df38dcf2c1a8b431a74bf636f1`.
+Фаза 6 не закрыта, `AGENT_UNIFIED_DEFAULT_ON=false`.
+
+## Agentic live diagnostic 2026-07-27
+
+После обязательного formal stop отдельно выполнены 19 read-only diagnostic
+scenarios: 13 сложных agentic cases с анафорами, implied evidence, несколькими
+объектами и complete/parent/near-topic boundaries и шесть простых controls.
+Diagnostic traffic не добавлен к formal denominator и не может превратить
+failed canary в pass.
+
+Из 16 Context Selector decisions только 15 имеют durable provider rows:
+first-attempt validity `14/15`, final validity `15/15`, retries `1/15`, position
+errors `0`. Sample ниже 20, first-attempt ниже `0.95`, retry выше `0.05`; schema
+reliability composite остаётся inconclusive. Один decision имеет assessments,
+но не имеет provider observability, поэтому ему не приписан transport pass.
+
+Frozen critical labels дали 58 occurrences. Пять labels inventory-control
+сценария исключены из individual recall: ответ содержит `catalog:notes`, а не
+пять independently evidenced refs. Для остальных 53 occurrences boundary
+разделён фактически: 21 miss на discovery, 19 на Selector, 6 на materialization,
+7 refs в final pack. Frozen irrelevant refs выбраны `0/8`, но только в
+diagnostic cohort. Из шести простых controls один exact-fact case прошёл, один
+остался inconclusive, один доказал лишь catalog-root coverage, три не прошли
+discovery/Selector boundary. Это сохраняет контрольные простые запросы, не
+ослабляя сложную часть выборки.
+
+Raw-safe manifest/result находятся в
+`backend/tests/fixtures/agent_unified_phase6/v4/agentic_diagnostic_manifest.json`
+и `agentic_diagnostic_result.json`. Query/source/provider raw data, credentials
+и account identifiers не сохранены. Security/tenant/mutation stops отсутствуют,
+action proposals и audit events равны нулю. Rollback всё ещё unavailable,
+strict report остаётся `33/42`, default-on выключен. Финальный isolated focused
+regression с artifact-contract test: `131 passed`.

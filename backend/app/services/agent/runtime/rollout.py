@@ -180,15 +180,21 @@ def _selector_reliability_composite(
         for row in children
         if not isinstance(row.get("sample_size"), bool)
     ]
-    measured = all(
-        row.get("availability") == "measured" and _number(row.get("value")) is not None
-        for row in children
-    )
+    values_present = all(_number(row.get("value")) is not None for row in children)
+    measured = all(row.get("availability") == "measured" for row in children)
     sample_size = min(sample_sizes) if len(sample_sizes) == len(children) else 0
     source = "derived from formal canary Selector validity, retry, and position telemetry"
+    if not values_present:
+        return {
+            "availability": "unavailable",
+            "value": None,
+            "threshold": 1.0,
+            "sample_size": sample_size,
+            "source": source,
+        }
     if not measured or sample_size < 20:
         return {
-            "availability": "inconclusive" if measured else "unavailable",
+            "availability": "inconclusive",
             "value": None,
             "threshold": 1.0,
             "sample_size": sample_size,

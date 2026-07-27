@@ -523,8 +523,10 @@ def test_labeled_cohort_and_provider_replay_are_frozen_and_measured() -> None:
     assert provider_replay["boundary_256"]["actual_total_tokens_p95"] == 20204
     gates = {item["name"]: item for item in report["quality"]["gates"]}
     assert gates["relevant_recall"]["passed"] is True
-    assert gates["irrelevant_selection_rate"]["passed"] is True
-    assert gates["required_critical_evidence_recall"]["passed"] is True
+    assert gates["irrelevant_selection_rate"]["passed"] is False
+    assert gates["irrelevant_selection_rate"]["value"] == 1.0
+    assert gates["required_critical_evidence_recall"]["passed"] is False
+    assert gates["required_critical_evidence_recall"]["value"] == 0.0
     assert gates["selector_summary_160_non_inferior_recall"]["passed"] is True
     assert gates["selector_complete_boundary_p95_total_tokens"]["passed"] is True
 
@@ -561,6 +563,112 @@ def test_semantic_attribution_is_raw_safe_and_proves_selector_boundary() -> None
     assert "Lunch menu" not in baseline_text
     assert '"query"' not in baseline_text
     assert '"selector_summary"' not in baseline_text
+
+
+def test_agentic_live_diagnostic_is_mixed_raw_safe_and_not_formal_canary() -> None:
+    root = Path(__file__).parent / "fixtures/agent_unified_phase6/v4"
+    manifest = json.loads(
+        (root / "agentic_diagnostic_manifest.json").read_text(encoding="utf-8")
+    )
+    result = json.loads(
+        (root / "agentic_diagnostic_result.json").read_text(encoding="utf-8")
+    )
+    scenarios = result["scenarios"]
+    by_sequence = {item["sequence"]: item for item in scenarios}
+
+    assert result["manifest_version"] == manifest["version"]
+    assert result["source_head"] == manifest["source_head"]
+    assert result["status"] == "diagnostic_complete_not_qualification"
+    assert result["formal_canary_relationship"] == {
+        "formal_status": "failed_stop_condition",
+        "formal_selector_decisions": 1,
+        "diagnostic_runs_excluded_from_formal_denominator": 19,
+        "can_convert_formal_failure_to_pass": False,
+    }
+    assert len(scenarios) == 19
+    assert [item["sequence"] for item in scenarios] == list(range(1, 20))
+    assert [item["scenario_id"] for item in scenarios] == [
+        item["scenario_id"] for item in manifest["scenarios"]
+    ]
+    assert {
+        item["sequence"] for item in scenarios if item["cohort"] == "simple_control"
+    } == {4, 6, 10, 13, 14, 17}
+    assert sum(item["selector"]["attempts"] > 0 for item in scenarios) == 16
+    assert sum(
+        item["selector"]["provider_observability"] == "measured"
+        for item in scenarios
+    ) == 15
+    assert by_sequence[14]["selector"]["schema_results"] == [
+        "invalid_transport",
+        "valid",
+    ]
+    assert by_sequence[16]["selector"]["provider_observability"] == "unavailable"
+
+    critical_count = sum(
+        len(item["attribution"]["critical_refs"]) for item in scenarios
+    )
+    discovery_misses = sum(
+        len(item["attribution"].get("discovery_misses") or ()) for item in scenarios
+    )
+    selector_misses = sum(
+        len(item["attribution"].get("selector_misses") or ()) for item in scenarios
+    )
+    materialization_misses = sum(
+        len(item["attribution"].get("materialization_misses") or ())
+        for item in scenarios
+    )
+    critical_final = sum(
+        int(item["attribution"].get("critical_in_final_pack") or 0)
+        for item in scenarios
+    )
+    aggregate = result["aggregate"]["critical_ref_attribution"]
+    assert critical_count == 58
+    assert aggregate["catalog_root_occurrences_excluded"] == 5
+    assert by_sequence[13]["final_pack"]["refs"] == ["catalog:notes"]
+    assert by_sequence[13]["attribution"]["individual_ref_recall_availability"] == (
+        "unavailable"
+    )
+    assert (discovery_misses, selector_misses, materialization_misses) == (21, 19, 6)
+    assert critical_final == 7
+    assert aggregate["individually_evaluable_occurrences"] == 53
+    assert result["aggregate"]["frozen_irrelevant_ref_attribution"] == {
+        "occurrences": 8,
+        "selected": 0,
+        "in_final_pack": 0,
+        "selection_rate": 0.0,
+        "formal_gate_eligible": False,
+    }
+
+    forbidden_keys = {
+        "query",
+        "user_content",
+        "source_content",
+        "raw_provider_output",
+        "credentials",
+        "account_id",
+        "account_identifier",
+    }
+
+    def visit(value: object) -> None:
+        if isinstance(value, dict):
+            assert forbidden_keys.isdisjoint(value)
+            for child in value.values():
+                visit(child)
+        elif isinstance(value, list):
+            for child in value:
+                visit(child)
+
+    visit(manifest)
+    visit(result)
+    assert result["privacy"] == {
+        "contains_credentials": False,
+        "contains_account_identifier": False,
+        "contains_raw_user_content": False,
+        "contains_source_content": False,
+        "contains_raw_provider_output": False,
+        "contains_thread_ids": False,
+        "contains_run_ids": True,
+    }
 
 
 def test_untouched_qualification_cohort_meets_semantic_closure_inventory() -> None:

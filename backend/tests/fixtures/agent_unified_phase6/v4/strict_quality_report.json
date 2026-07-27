@@ -260,8 +260,16 @@
     "status": "blocked_until_all_mandatory_gates_pass"
   },
   "formal_canary_manifest": {
-    "cohort_digest": "accb307c40bd2c01018ac565e59cfaba73c5ba2feabd5bd94a15e154c0f4ef1a",
-    "cohort_version": "2026-07-27-semantic-qualification-v2",
+    "cohort_version": "2026-07-27-account-live-v1",
+    "excluded_preflight": {
+      "chat_count": 1,
+      "reason": "worker image did not match source_head; excluded before formal window and never counted as pass",
+      "selector_decision_count": 1,
+      "user_message_count": 1
+    },
+    "formal_started_at": "2026-07-27T05:19:05Z",
+    "labels_frozen_at": "2026-07-27T05:14:50Z",
+    "labels_frozen_before_provider_output": true,
     "model": "gpt-4.1-mini",
     "primary_variant": "query_goal+directness+evidence_reason+explicit_absence+answer_slot",
     "privacy": {
@@ -272,6 +280,7 @@
     },
     "provider": "OpenAI",
     "replacement_policy": "external provider or DNS failure is reported separately; no replacement may exceed the chat or message ceiling",
+    "report_id": "unified-phase6-live-canary-2026-07-27",
     "rollback_sequence": [
       "disable_default_on",
       "disable_planner_policy",
@@ -281,229 +290,385 @@
     ],
     "scenarios": [
       {
+        "allowed_supporting_refs": [
+          "note:402ac3a4-9f28-4d35-bcf0-ffdd7aceab30",
+          "note:27a2f06d-3c03-4b6e-bd65-e2ef5f55470e",
+          "note:f351d19b-4d54-426a-b653-2c6b771efc15"
+        ],
         "critical_refs": [
-          "note:fixture-v2-01-d"
+          "note:9fd458be-d060-4a4b-b055-02d39ff2948e"
         ],
         "expected_refs": [
-          "note:fixture-v2-01-d"
+          "note:9fd458be-d060-4a4b-b055-02d39ff2948e"
         ],
-        "query_case_id": "v2-01-d",
-        "scenario_id": "v2-q01",
+        "irrelevant_refs": [
+          "note:41a63404-cc97-4fb8-a37e-612bcb15fd98"
+        ],
+        "query_digest": "5bd450f40180fd06fd023c82cfc31e3f2d64c6bd062bb73ea9c240fe9fd95a3d",
+        "scenario_id": "live-q01",
         "sequence": 1
       },
       {
+        "allowed_supporting_refs": [
+          "note:402ac3a4-9f28-4d35-bcf0-ffdd7aceab30",
+          "note:27a2f06d-3c03-4b6e-bd65-e2ef5f55470e",
+          "note:f351d19b-4d54-426a-b653-2c6b771efc15"
+        ],
         "critical_refs": [
-          "post:fixture-v2-02-d"
+          "note:9fd458be-d060-4a4b-b055-02d39ff2948e"
         ],
         "expected_refs": [
-          "post:fixture-v2-02-d"
+          "note:9fd458be-d060-4a4b-b055-02d39ff2948e"
         ],
-        "query_case_id": "v2-02-d",
-        "scenario_id": "v2-q02",
+        "irrelevant_refs": [
+          "note:41a63404-cc97-4fb8-a37e-612bcb15fd98"
+        ],
+        "query_digest": "3551b8668f6ce07727fd7d59eab31c42d79a907b1a36b4db169eb03b72c49689",
+        "scenario_id": "live-q02",
         "sequence": 2
       },
       {
+        "allowed_supporting_refs": [
+          "note:402ac3a4-9f28-4d35-bcf0-ffdd7aceab30",
+          "note:27a2f06d-3c03-4b6e-bd65-e2ef5f55470e",
+          "note:f351d19b-4d54-426a-b653-2c6b771efc15"
+        ],
         "critical_refs": [
-          "note:fixture-v2-03-d"
+          "note:9fd458be-d060-4a4b-b055-02d39ff2948e"
         ],
         "expected_refs": [
-          "note:fixture-v2-03-d"
+          "note:9fd458be-d060-4a4b-b055-02d39ff2948e"
         ],
-        "query_case_id": "v2-03-d",
-        "scenario_id": "v2-q03",
+        "irrelevant_refs": [
+          "note:41a63404-cc97-4fb8-a37e-612bcb15fd98"
+        ],
+        "query_digest": "624ef72d9e384677bf9534fb525e282698b78e4d84f2adbd23c1f70ba19ac2a4",
+        "scenario_id": "live-q03",
         "sequence": 3
       },
       {
+        "allowed_supporting_refs": [
+          "note:402ac3a4-9f28-4d35-bcf0-ffdd7aceab30",
+          "note:27a2f06d-3c03-4b6e-bd65-e2ef5f55470e",
+          "note:f351d19b-4d54-426a-b653-2c6b771efc15"
+        ],
         "critical_refs": [
-          "post:fixture-v2-04-d"
+          "note:9fd458be-d060-4a4b-b055-02d39ff2948e"
         ],
         "expected_refs": [
-          "post:fixture-v2-04-d"
+          "note:9fd458be-d060-4a4b-b055-02d39ff2948e"
         ],
-        "query_case_id": "v2-04-d",
-        "scenario_id": "v2-q04",
+        "irrelevant_refs": [
+          "note:41a63404-cc97-4fb8-a37e-612bcb15fd98"
+        ],
+        "query_digest": "02f0dcfd7ea75777029b1f114bb6bb78aa365d914f50b864ac74e027af6ae5ab",
+        "scenario_id": "live-q04",
         "sequence": 4
       },
       {
+        "allowed_supporting_refs": [
+          "note:9fd458be-d060-4a4b-b055-02d39ff2948e",
+          "note:27a2f06d-3c03-4b6e-bd65-e2ef5f55470e",
+          "note:f351d19b-4d54-426a-b653-2c6b771efc15"
+        ],
         "critical_refs": [
-          "note:fixture-v2-05-d"
+          "note:402ac3a4-9f28-4d35-bcf0-ffdd7aceab30"
         ],
         "expected_refs": [
-          "note:fixture-v2-05-d"
+          "note:402ac3a4-9f28-4d35-bcf0-ffdd7aceab30"
         ],
-        "query_case_id": "v2-05-d",
-        "scenario_id": "v2-q05",
+        "irrelevant_refs": [
+          "note:41a63404-cc97-4fb8-a37e-612bcb15fd98"
+        ],
+        "query_digest": "9c20cc36ac0b1f3af11ee495d4ed0eda9a83f940ff5f46a00f44147c6983bb3e",
+        "scenario_id": "live-q05",
         "sequence": 5
       },
       {
+        "allowed_supporting_refs": [
+          "note:9fd458be-d060-4a4b-b055-02d39ff2948e",
+          "note:27a2f06d-3c03-4b6e-bd65-e2ef5f55470e",
+          "note:f351d19b-4d54-426a-b653-2c6b771efc15"
+        ],
         "critical_refs": [
-          "post:fixture-v2-06-d"
+          "note:402ac3a4-9f28-4d35-bcf0-ffdd7aceab30"
         ],
         "expected_refs": [
-          "post:fixture-v2-06-d"
+          "note:402ac3a4-9f28-4d35-bcf0-ffdd7aceab30"
         ],
-        "query_case_id": "v2-06-d",
-        "scenario_id": "v2-q06",
+        "irrelevant_refs": [
+          "note:41a63404-cc97-4fb8-a37e-612bcb15fd98"
+        ],
+        "query_digest": "40b03b30814f0c5c1569cea1a6500cd4d809d52524736b6d3e325651eb442be8",
+        "scenario_id": "live-q06",
         "sequence": 6
       },
       {
+        "allowed_supporting_refs": [
+          "note:9fd458be-d060-4a4b-b055-02d39ff2948e",
+          "note:27a2f06d-3c03-4b6e-bd65-e2ef5f55470e",
+          "note:f351d19b-4d54-426a-b653-2c6b771efc15"
+        ],
         "critical_refs": [
-          "note:fixture-v2-07-d"
+          "note:402ac3a4-9f28-4d35-bcf0-ffdd7aceab30"
         ],
         "expected_refs": [
-          "note:fixture-v2-07-d"
+          "note:402ac3a4-9f28-4d35-bcf0-ffdd7aceab30"
         ],
-        "query_case_id": "v2-07-d",
-        "scenario_id": "v2-q07",
+        "irrelevant_refs": [
+          "note:41a63404-cc97-4fb8-a37e-612bcb15fd98"
+        ],
+        "query_digest": "59ce955798e9df66769fc0334694e4557e754029babe74ece01040655bb36f1e",
+        "scenario_id": "live-q07",
         "sequence": 7
       },
       {
+        "allowed_supporting_refs": [
+          "note:9fd458be-d060-4a4b-b055-02d39ff2948e",
+          "note:27a2f06d-3c03-4b6e-bd65-e2ef5f55470e",
+          "note:f351d19b-4d54-426a-b653-2c6b771efc15"
+        ],
         "critical_refs": [
-          "note:fixture-v2-08-d"
+          "note:402ac3a4-9f28-4d35-bcf0-ffdd7aceab30"
         ],
         "expected_refs": [
-          "note:fixture-v2-08-d"
+          "note:402ac3a4-9f28-4d35-bcf0-ffdd7aceab30"
         ],
-        "query_case_id": "v2-08-d",
-        "scenario_id": "v2-q08",
+        "irrelevant_refs": [
+          "note:41a63404-cc97-4fb8-a37e-612bcb15fd98"
+        ],
+        "query_digest": "7c466ec4848bb3f47b175573a641ab95ccdc9d21a2f27368b2b2c9cf51b28420",
+        "scenario_id": "live-q08",
         "sequence": 8
       },
       {
+        "allowed_supporting_refs": [],
         "critical_refs": [
-          "note:fixture-v2-09-d"
+          "note:41a63404-cc97-4fb8-a37e-612bcb15fd98"
         ],
         "expected_refs": [
-          "note:fixture-v2-09-d"
+          "note:41a63404-cc97-4fb8-a37e-612bcb15fd98"
         ],
-        "query_case_id": "v2-09-d",
-        "scenario_id": "v2-q09",
+        "irrelevant_refs": [
+          "note:9fd458be-d060-4a4b-b055-02d39ff2948e",
+          "note:402ac3a4-9f28-4d35-bcf0-ffdd7aceab30",
+          "note:27a2f06d-3c03-4b6e-bd65-e2ef5f55470e",
+          "note:f351d19b-4d54-426a-b653-2c6b771efc15"
+        ],
+        "query_digest": "1e6754e1310c68e021811c7d61d0989916b3ca1896d0964992521f913d064eb4",
+        "scenario_id": "live-q09",
         "sequence": 9
       },
       {
+        "allowed_supporting_refs": [],
         "critical_refs": [
-          "post:fixture-v2-10-d"
+          "note:41a63404-cc97-4fb8-a37e-612bcb15fd98"
         ],
         "expected_refs": [
-          "post:fixture-v2-10-d"
+          "note:41a63404-cc97-4fb8-a37e-612bcb15fd98"
         ],
-        "query_case_id": "v2-10-d",
-        "scenario_id": "v2-q10",
+        "irrelevant_refs": [
+          "note:9fd458be-d060-4a4b-b055-02d39ff2948e",
+          "note:402ac3a4-9f28-4d35-bcf0-ffdd7aceab30",
+          "note:27a2f06d-3c03-4b6e-bd65-e2ef5f55470e",
+          "note:f351d19b-4d54-426a-b653-2c6b771efc15"
+        ],
+        "query_digest": "58be6f6d86bbbe08bd2d8cfcebc69a4e3065fff17afa6862901238de79aa0da6",
+        "scenario_id": "live-q10",
         "sequence": 10
       },
       {
+        "allowed_supporting_refs": [],
         "critical_refs": [
-          "note:fixture-v2-11-d"
+          "note:41a63404-cc97-4fb8-a37e-612bcb15fd98"
         ],
         "expected_refs": [
-          "note:fixture-v2-11-d"
+          "note:41a63404-cc97-4fb8-a37e-612bcb15fd98"
         ],
-        "query_case_id": "v2-11-d",
-        "scenario_id": "v2-q11",
+        "irrelevant_refs": [
+          "note:9fd458be-d060-4a4b-b055-02d39ff2948e",
+          "note:402ac3a4-9f28-4d35-bcf0-ffdd7aceab30",
+          "note:27a2f06d-3c03-4b6e-bd65-e2ef5f55470e",
+          "note:f351d19b-4d54-426a-b653-2c6b771efc15"
+        ],
+        "query_digest": "48e6b81478ca7da3ebefa882b8799f73a75c6b3f8f6ef59a902bab7fd3ddb0e0",
+        "scenario_id": "live-q11",
         "sequence": 11
       },
       {
+        "allowed_supporting_refs": [],
         "critical_refs": [
-          "post:fixture-v2-12-d"
+          "note:41a63404-cc97-4fb8-a37e-612bcb15fd98"
         ],
         "expected_refs": [
-          "post:fixture-v2-12-d"
+          "note:41a63404-cc97-4fb8-a37e-612bcb15fd98"
         ],
-        "query_case_id": "v2-12-d",
-        "scenario_id": "v2-q12",
+        "irrelevant_refs": [
+          "note:9fd458be-d060-4a4b-b055-02d39ff2948e",
+          "note:402ac3a4-9f28-4d35-bcf0-ffdd7aceab30",
+          "note:27a2f06d-3c03-4b6e-bd65-e2ef5f55470e",
+          "note:f351d19b-4d54-426a-b653-2c6b771efc15"
+        ],
+        "query_digest": "0ac0c53b3cc346d8dc0d05e74ac214012e61cacc5859bf8b8e52c0dd2f209dac",
+        "scenario_id": "live-q12",
         "sequence": 12
       },
       {
+        "allowed_supporting_refs": [
+          "note:9fd458be-d060-4a4b-b055-02d39ff2948e",
+          "note:402ac3a4-9f28-4d35-bcf0-ffdd7aceab30",
+          "note:f351d19b-4d54-426a-b653-2c6b771efc15"
+        ],
         "critical_refs": [
-          "note:fixture-v2-13-d"
+          "note:27a2f06d-3c03-4b6e-bd65-e2ef5f55470e"
         ],
         "expected_refs": [
-          "note:fixture-v2-13-d"
+          "note:27a2f06d-3c03-4b6e-bd65-e2ef5f55470e"
         ],
-        "query_case_id": "v2-13-d",
-        "scenario_id": "v2-q13",
+        "irrelevant_refs": [
+          "note:41a63404-cc97-4fb8-a37e-612bcb15fd98"
+        ],
+        "query_digest": "003fa21b1933a8e37f117722e5bcc97ba40cf51236fec8f82e7960ae191a75e0",
+        "scenario_id": "live-q13",
         "sequence": 13
       },
       {
+        "allowed_supporting_refs": [
+          "note:9fd458be-d060-4a4b-b055-02d39ff2948e",
+          "note:402ac3a4-9f28-4d35-bcf0-ffdd7aceab30",
+          "note:f351d19b-4d54-426a-b653-2c6b771efc15"
+        ],
         "critical_refs": [
-          "post:fixture-v2-14-d"
+          "note:27a2f06d-3c03-4b6e-bd65-e2ef5f55470e"
         ],
         "expected_refs": [
-          "post:fixture-v2-14-d"
+          "note:27a2f06d-3c03-4b6e-bd65-e2ef5f55470e"
         ],
-        "query_case_id": "v2-14-d",
-        "scenario_id": "v2-q14",
+        "irrelevant_refs": [
+          "note:41a63404-cc97-4fb8-a37e-612bcb15fd98"
+        ],
+        "query_digest": "bde3dcd8b69944596b96fd3e46e1cc04d81956122bc41f9c1d2e54acdac6ae0f",
+        "scenario_id": "live-q14",
         "sequence": 14
       },
       {
+        "allowed_supporting_refs": [
+          "note:9fd458be-d060-4a4b-b055-02d39ff2948e",
+          "note:402ac3a4-9f28-4d35-bcf0-ffdd7aceab30",
+          "note:f351d19b-4d54-426a-b653-2c6b771efc15"
+        ],
         "critical_refs": [
-          "note:fixture-v2-15-d"
+          "note:27a2f06d-3c03-4b6e-bd65-e2ef5f55470e"
         ],
         "expected_refs": [
-          "note:fixture-v2-15-d"
+          "note:27a2f06d-3c03-4b6e-bd65-e2ef5f55470e"
         ],
-        "query_case_id": "v2-15-d",
-        "scenario_id": "v2-q15",
+        "irrelevant_refs": [
+          "note:41a63404-cc97-4fb8-a37e-612bcb15fd98"
+        ],
+        "query_digest": "159005176636e5790c74e17c36d6cf307de1bdb1de7fd80c28445219d6a7210a",
+        "scenario_id": "live-q15",
         "sequence": 15
       },
       {
+        "allowed_supporting_refs": [
+          "note:9fd458be-d060-4a4b-b055-02d39ff2948e",
+          "note:402ac3a4-9f28-4d35-bcf0-ffdd7aceab30",
+          "note:f351d19b-4d54-426a-b653-2c6b771efc15"
+        ],
         "critical_refs": [
-          "note:fixture-v2-16-d"
+          "note:27a2f06d-3c03-4b6e-bd65-e2ef5f55470e"
         ],
         "expected_refs": [
-          "note:fixture-v2-16-d"
+          "note:27a2f06d-3c03-4b6e-bd65-e2ef5f55470e"
         ],
-        "query_case_id": "v2-16-d",
-        "scenario_id": "v2-q16",
+        "irrelevant_refs": [
+          "note:41a63404-cc97-4fb8-a37e-612bcb15fd98"
+        ],
+        "query_digest": "c5507a0317bd7fb1f68161a90c30aaa66fe18343967272f0533880da8236a4ba",
+        "scenario_id": "live-q16",
         "sequence": 16
       },
       {
+        "allowed_supporting_refs": [
+          "note:9fd458be-d060-4a4b-b055-02d39ff2948e",
+          "note:402ac3a4-9f28-4d35-bcf0-ffdd7aceab30",
+          "note:f351d19b-4d54-426a-b653-2c6b771efc15"
+        ],
         "critical_refs": [
-          "post:fixture-v2-17-d"
+          "note:27a2f06d-3c03-4b6e-bd65-e2ef5f55470e"
         ],
         "expected_refs": [
-          "post:fixture-v2-17-d"
+          "note:27a2f06d-3c03-4b6e-bd65-e2ef5f55470e"
         ],
-        "query_case_id": "v2-17-d",
-        "scenario_id": "v2-q17",
+        "irrelevant_refs": [
+          "note:41a63404-cc97-4fb8-a37e-612bcb15fd98"
+        ],
+        "query_digest": "61fbf849aa685ae313221ae1712443a36f56cbe95390b3dd0209843abb6092ac",
+        "scenario_id": "live-q17",
         "sequence": 17
       },
       {
+        "allowed_supporting_refs": [
+          "note:9fd458be-d060-4a4b-b055-02d39ff2948e",
+          "note:402ac3a4-9f28-4d35-bcf0-ffdd7aceab30",
+          "note:27a2f06d-3c03-4b6e-bd65-e2ef5f55470e"
+        ],
         "critical_refs": [
-          "note:fixture-v2-18-d"
+          "note:f351d19b-4d54-426a-b653-2c6b771efc15"
         ],
         "expected_refs": [
-          "note:fixture-v2-18-d"
+          "note:f351d19b-4d54-426a-b653-2c6b771efc15"
         ],
-        "query_case_id": "v2-18-d",
-        "scenario_id": "v2-q18",
+        "irrelevant_refs": [
+          "note:41a63404-cc97-4fb8-a37e-612bcb15fd98"
+        ],
+        "query_digest": "d7354f5cd82cb697d04ffea25c18fe68905d18d1dfff00abc6c56b97c00d05be",
+        "scenario_id": "live-q18",
         "sequence": 18
       },
       {
+        "allowed_supporting_refs": [
+          "note:9fd458be-d060-4a4b-b055-02d39ff2948e",
+          "note:402ac3a4-9f28-4d35-bcf0-ffdd7aceab30",
+          "note:27a2f06d-3c03-4b6e-bd65-e2ef5f55470e"
+        ],
         "critical_refs": [
-          "post:fixture-v2-19-d"
+          "note:f351d19b-4d54-426a-b653-2c6b771efc15"
         ],
         "expected_refs": [
-          "post:fixture-v2-19-d"
+          "note:f351d19b-4d54-426a-b653-2c6b771efc15"
         ],
-        "query_case_id": "v2-19-d",
-        "scenario_id": "v2-q19",
+        "irrelevant_refs": [
+          "note:41a63404-cc97-4fb8-a37e-612bcb15fd98"
+        ],
+        "query_digest": "a499c9d1fba45bd2579504b58df9ca8ea6df495b2a4463e71fed97009cb50a9f",
+        "scenario_id": "live-q19",
         "sequence": 19
       },
       {
+        "allowed_supporting_refs": [
+          "note:9fd458be-d060-4a4b-b055-02d39ff2948e",
+          "note:402ac3a4-9f28-4d35-bcf0-ffdd7aceab30",
+          "note:27a2f06d-3c03-4b6e-bd65-e2ef5f55470e"
+        ],
         "critical_refs": [
-          "note:fixture-v2-20-d"
+          "note:f351d19b-4d54-426a-b653-2c6b771efc15"
         ],
         "expected_refs": [
-          "note:fixture-v2-20-d"
+          "note:f351d19b-4d54-426a-b653-2c6b771efc15"
         ],
-        "query_case_id": "v2-20-d",
-        "scenario_id": "v2-q20",
+        "irrelevant_refs": [
+          "note:41a63404-cc97-4fb8-a37e-612bcb15fd98"
+        ],
+        "query_digest": "25829405fd905e64915d9c2a910e0b4d04f687fd780587781d568cf22802f0f7",
+        "scenario_id": "live-q20",
         "sequence": 20
       }
     ],
     "schema": "workspace.phase6-formal-canary-manifest/v1",
-    "source_head": "156bb9e18d6c758b0c18df0d48d1d9a574401a45",
-    "status": "blocked_preflight",
+    "source_head": "c65b1ea8eb01a99d848ab1d8601c545a124ea39d",
+    "status": "ready_after_worker_preflight",
     "stop_conditions": [
       "security_or_tenant_violation",
       "critical_recall_below_one",
@@ -519,37 +684,86 @@
       "planned_semantic_selector_decisions": 20
     },
     "transport_tier": "strict_json_schema",
-    "version": "2026-07-27-primary-semantic-v1"
+    "version": "2026-07-27-account-live-v1"
   },
   "formal_canary_result": {
-    "availability": "unavailable",
+    "availability": "measured",
     "default_on": false,
-    "manifest_version": "2026-07-27-primary-semantic-v1",
+    "excluded_preflight": {
+      "chat_count": 1,
+      "reason": "worker image did not match source_head; excluded before formal window and never counted as pass",
+      "selector_decision_count": 1,
+      "user_message_count": 1
+    },
+    "final_pack": {
+      "coverage": "partial",
+      "critical_required_evidence_recall": 0.0,
+      "frozen_irrelevant_inclusion_rate": 1.0,
+      "item_count": 3,
+      "precision_availability": "inconclusive",
+      "schema": "workspace.evidence-pack/v2"
+    },
+    "manifest_version": "2026-07-27-account-live-v1",
     "measurements": {
+      "capped_canary_chat_count": {
+        "availability": "measured",
+        "sample_size": 1,
+        "threshold": 20.0,
+        "value": 1.0
+      },
+      "capped_canary_max_user_messages_per_chat": {
+        "availability": "measured",
+        "sample_size": 1,
+        "threshold": 4.0,
+        "value": 2.0
+      },
       "complete_classification_required_object_coverage": {
         "availability": "unavailable",
         "sample_size": 0,
         "value": null
       },
+      "irrelevant_selection_rate": {
+        "availability": "measured",
+        "baseline": 0.0,
+        "sample_size": 1,
+        "threshold": 0.0,
+        "value": 1.0
+      },
+      "required_critical_evidence_recall": {
+        "availability": "measured",
+        "sample_size": 1,
+        "threshold": 1.0,
+        "value": 0.0
+      },
       "selector_final_valid_rate": {
-        "availability": "unavailable",
-        "sample_size": 0,
-        "value": null
+        "availability": "inconclusive",
+        "sample_size": 1,
+        "threshold": 1.0,
+        "value": 1.0
       },
       "selector_first_attempt_valid_rate": {
-        "availability": "unavailable",
-        "sample_size": 0,
-        "value": null
+        "availability": "inconclusive",
+        "sample_size": 1,
+        "threshold": 0.95,
+        "value": 1.0
       },
       "selector_position_error_count": {
-        "availability": "unavailable",
-        "sample_size": 0,
-        "value": null
+        "availability": "inconclusive",
+        "sample_size": 1,
+        "threshold": 0.0,
+        "value": 0.0
       },
       "selector_retry_rate": {
-        "availability": "unavailable",
-        "sample_size": 0,
-        "value": null
+        "availability": "inconclusive",
+        "sample_size": 1,
+        "threshold": 0.05,
+        "value": 0.0
+      },
+      "semantic_selector_initial_calls_per_selector_run": {
+        "availability": "measured",
+        "sample_size": 1,
+        "threshold": 1.0,
+        "value": 1.0
       },
       "staging_canary_rollback_drill_pass_rate": {
         "availability": "unavailable",
@@ -557,21 +771,71 @@
         "value": null
       }
     },
-    "messages_sent": false,
+    "messages_sent": true,
+    "observed_at": "2026-07-27T05:22:00Z",
     "privacy": {
       "contains_account_identifier": false,
       "contains_credentials": false,
+      "contains_raw_provider_output": false,
       "contains_raw_user_content": false,
+      "contains_run_or_thread_ids": false,
       "contains_source_content": false
     },
-    "reason": "no authorized local platform browser session; login UI exposed zero configured LLM models",
+    "provider_observability": {
+      "candidate_count": 8,
+      "input_tokens": 1597,
+      "latency_ms": 1198.7,
+      "model": "gpt-4.1-mini",
+      "output_tokens": 50,
+      "provider": "OpenAI",
+      "total_tokens": 1647,
+      "transport_tier": "strict_json_schema"
+    },
+    "rollback": {
+      "availability": "unavailable",
+      "reason": "semantic stop condition terminated formal traffic before staging rollback",
+      "status": "not_run_after_stop_condition"
+    },
+    "scenario_attribution": {
+      "attribution_boundary": [
+        "selector_false_positive",
+        "materialization_budget_omitted_critical"
+      ],
+      "candidate_count": 8,
+      "critical_ref_count": 1,
+      "critical_ref_in_final_pack_count": 0,
+      "critical_ref_selected_count": 1,
+      "frozen_irrelevant_in_final_pack_count": 1,
+      "frozen_irrelevant_ref_count": 1,
+      "frozen_irrelevant_selected_count": 1,
+      "primary_attempt_count": 1,
+      "primary_final_valid": true,
+      "primary_first_attempt_valid": true,
+      "primary_position_error_count": 0,
+      "primary_retry_count": 0,
+      "primary_schema_result": "valid",
+      "scenario_id": "live-q01",
+      "selected_count": 8,
+      "unlabelled_candidate_count": 3
+    },
     "schema": "workspace.phase6-formal-canary-result/v1",
-    "status": "blocked_preflight",
+    "session_traffic_including_excluded_preflight": {
+      "chat_count": 1,
+      "maximum_user_messages_per_chat": 2,
+      "semantic_selector_decisions": 2,
+      "user_message_count": 2
+    },
+    "source_head": "c65b1ea8eb01a99d848ab1d8601c545a124ea39d",
+    "status": "failed_stop_condition",
+    "stop_conditions_triggered": [
+      "irrelevant_selection_above_zero",
+      "evidence_or_checkpoint_loss"
+    ],
     "traffic": {
-      "chat_count": 0,
-      "maximum_user_messages_per_chat": 0,
-      "semantic_selector_decisions": 0,
-      "user_message_count": 0
+      "chat_count": 1,
+      "maximum_user_messages_per_chat": 1,
+      "semantic_selector_decisions": 1,
+      "user_message_count": 1
     }
   },
   "gate_replacement_diagnostics": {
@@ -628,17 +892,19 @@
   "quality": {
     "all_mandatory_gates_passed": false,
     "attestation": {
-      "digest": "e647a8cdad744146da850ae9170e9eaa5beb8f43295efbd3e3d172a18583de64",
+      "digest": "91a6aeee9c4cd6c5a3e544d2481b5577621672df38dcf2c1a8b431a74bf636f1",
       "kind": "sha256",
       "signed_by": "workspace-agent"
     },
     "blocking_gates": [
+      "irrelevant_selection_rate",
       "selector_schema_reliability_within_budget",
       "selector_first_attempt_valid_rate",
       "selector_final_valid_rate",
       "selector_retry_rate",
       "selector_position_error_count",
       "complete_classification_required_object_coverage",
+      "required_critical_evidence_recall",
       "staging_canary_rollback_drill_pass_rate"
     ],
     "compatibility_path": {
@@ -753,13 +1019,13 @@
         "availability": "measured",
         "baseline": 0.0,
         "name": "irrelevant_selection_rate",
-        "passed": true,
-        "reason": "threshold_passed",
+        "passed": false,
+        "reason": "threshold_failed_or_missing",
         "rule": "max",
-        "sample_size": 21,
-        "source": "frozen provider replay on the anonymized phase-6 semantic cohort",
+        "sample_size": 1,
+        "source": null,
         "threshold": 0.0,
-        "value": 0.0
+        "value": 1.0
       },
       {
         "availability": "measured",
@@ -780,8 +1046,8 @@
         "passed": true,
         "reason": "threshold_passed",
         "rule": "max",
-        "sample_size": 16,
-        "source": "one initial semantic Selector call in each historical selector run; retry is measured separately",
+        "sample_size": 1,
+        "source": null,
         "threshold": 1.0,
         "value": 1.0
       },
@@ -882,64 +1148,64 @@
         "value": 1.0
       },
       {
-        "availability": "unavailable",
+        "availability": "inconclusive",
         "baseline": null,
         "name": "selector_schema_reliability_within_budget",
         "passed": false,
         "reason": "measurement_not_available",
         "rule": "equal",
-        "sample_size": 0,
+        "sample_size": 1,
         "source": "derived from formal canary Selector validity, retry, and position telemetry",
         "threshold": 1.0,
         "value": null
       },
       {
-        "availability": "unavailable",
+        "availability": "inconclusive",
         "baseline": null,
         "name": "selector_first_attempt_valid_rate",
         "passed": false,
         "reason": "measurement_not_available",
         "rule": "min",
-        "sample_size": 0,
+        "sample_size": 1,
         "source": null,
         "threshold": 0.95,
-        "value": null
+        "value": 1.0
       },
       {
-        "availability": "unavailable",
+        "availability": "inconclusive",
         "baseline": null,
         "name": "selector_final_valid_rate",
         "passed": false,
         "reason": "measurement_not_available",
         "rule": "equal",
-        "sample_size": 0,
+        "sample_size": 1,
         "source": null,
         "threshold": 1.0,
-        "value": null
+        "value": 1.0
       },
       {
-        "availability": "unavailable",
+        "availability": "inconclusive",
         "baseline": null,
         "name": "selector_retry_rate",
         "passed": false,
         "reason": "measurement_not_available",
         "rule": "max",
-        "sample_size": 0,
+        "sample_size": 1,
         "source": null,
         "threshold": 0.05,
-        "value": null
+        "value": 0.0
       },
       {
-        "availability": "unavailable",
+        "availability": "inconclusive",
         "baseline": null,
         "name": "selector_position_error_count",
         "passed": false,
         "reason": "measurement_not_available",
         "rule": "equal",
-        "sample_size": 0,
+        "sample_size": 1,
         "source": null,
         "threshold": 0.0,
-        "value": null
+        "value": 0.0
       },
       {
         "availability": "measured",
@@ -969,13 +1235,13 @@
         "availability": "measured",
         "baseline": null,
         "name": "required_critical_evidence_recall",
-        "passed": true,
-        "reason": "threshold_passed",
+        "passed": false,
+        "reason": "threshold_failed_or_missing",
         "rule": "equal",
-        "sample_size": 20,
-        "source": "frozen provider replay on the anonymized phase-6 semantic cohort",
+        "sample_size": 1,
+        "source": null,
         "threshold": 1.0,
-        "value": 1.0
+        "value": 0.0
       },
       {
         "availability": "measured",
@@ -996,10 +1262,10 @@
         "passed": true,
         "reason": "threshold_passed",
         "rule": "max",
-        "sample_size": 20,
-        "source": "rollout-owner replacement risk-control gate for the capped account pilot",
+        "sample_size": 1,
+        "source": null,
         "threshold": 20.0,
-        "value": 20.0
+        "value": 1.0
       },
       {
         "availability": "measured",
@@ -1008,10 +1274,10 @@
         "passed": true,
         "reason": "threshold_passed",
         "rule": "max",
-        "sample_size": 20,
-        "source": "rollout-owner replacement risk-control gate for the capped account pilot",
+        "sample_size": 1,
+        "source": null,
         "threshold": 4.0,
-        "value": 4.0
+        "value": 2.0
       },
       {
         "availability": "measured",
@@ -1171,9 +1437,9 @@
       }
     ],
     "owner": "workspace-agent",
-    "report_id": "unified-phase6-2026-07-26",
+    "report_id": "unified-phase6-live-canary-2026-07-27",
     "schema": "workspace.unified-quality-report/v1",
-    "source_commit": "e6bb80c8c984534710e08d2c30514dbd5f7519e7"
+    "source_commit": "c65b1ea8eb01a99d848ab1d8601c545a124ea39d"
   },
   "rollback_drill": {
     "passed": true,
@@ -1482,12 +1748,14 @@
   },
   "rollout": {
     "blocking_gates": [
+      "irrelevant_selection_rate",
       "selector_schema_reliability_within_budget",
       "selector_first_attempt_valid_rate",
       "selector_final_valid_rate",
       "selector_retry_rate",
       "selector_position_error_count",
       "complete_classification_required_object_coverage",
+      "required_critical_evidence_recall",
       "staging_canary_rollback_drill_pass_rate"
     ],
     "default_on": false,
@@ -1527,8 +1795,8 @@
         "encoded_candidate_count": 100,
         "input_chars": 31134,
         "input_tokens_chars_div_4_estimator": 7783,
-        "local_serialization_p50_ms": 0.546,
-        "local_serialization_p95_ms": 0.559,
+        "local_serialization_p50_ms": 0.556,
+        "local_serialization_p95_ms": 0.587,
         "maximum_valid_output_chars": 652,
         "maximum_valid_output_tokens_chars_div_4_estimator": 163,
         "repeats": 50,
@@ -1541,8 +1809,8 @@
         "encoded_candidate_count": 128,
         "input_chars": 38263,
         "input_tokens_chars_div_4_estimator": 9565,
-        "local_serialization_p50_ms": 0.685,
-        "local_serialization_p95_ms": 0.698,
+        "local_serialization_p50_ms": 0.696,
+        "local_serialization_p95_ms": 0.725,
         "maximum_valid_output_chars": 820,
         "maximum_valid_output_tokens_chars_div_4_estimator": 205,
         "repeats": 50,
@@ -1555,8 +1823,8 @@
         "encoded_candidate_count": 16,
         "input_chars": 9849,
         "input_tokens_chars_div_4_estimator": 2462,
-        "local_serialization_p50_ms": 0.116,
-        "local_serialization_p95_ms": 0.121,
+        "local_serialization_p50_ms": 0.118,
+        "local_serialization_p95_ms": 0.129,
         "maximum_valid_output_chars": 147,
         "maximum_valid_output_tokens_chars_div_4_estimator": 36,
         "repeats": 50,
@@ -1569,8 +1837,8 @@
         "encoded_candidate_count": 256,
         "input_chars": 70860,
         "input_tokens_chars_div_4_estimator": 17714,
-        "local_serialization_p50_ms": 1.338,
-        "local_serialization_p95_ms": 1.354,
+        "local_serialization_p50_ms": 1.4,
+        "local_serialization_p95_ms": 1.535,
         "maximum_valid_output_chars": 1588,
         "maximum_valid_output_tokens_chars_div_4_estimator": 397,
         "repeats": 50,
@@ -1583,8 +1851,8 @@
         "encoded_candidate_count": 64,
         "input_chars": 21998,
         "input_tokens_chars_div_4_estimator": 5499,
-        "local_serialization_p50_ms": 0.359,
-        "local_serialization_p95_ms": 0.373,
+        "local_serialization_p50_ms": 0.369,
+        "local_serialization_p95_ms": 0.388,
         "maximum_valid_output_chars": 435,
         "maximum_valid_output_tokens_chars_div_4_estimator": 108,
         "repeats": 50,
@@ -1601,8 +1869,8 @@
         "encoded_candidate_count": 100,
         "input_chars": 27134,
         "input_tokens_chars_div_4_estimator": 6783,
-        "local_serialization_p50_ms": 0.487,
-        "local_serialization_p95_ms": 0.491,
+        "local_serialization_p50_ms": 0.541,
+        "local_serialization_p95_ms": 0.592,
         "maximum_valid_output_chars": 652,
         "maximum_valid_output_tokens_chars_div_4_estimator": 163,
         "repeats": 5,
@@ -1615,8 +1883,8 @@
         "encoded_candidate_count": 100,
         "input_chars": 31134,
         "input_tokens_chars_div_4_estimator": 7783,
-        "local_serialization_p50_ms": 0.551,
-        "local_serialization_p95_ms": 0.551,
+        "local_serialization_p50_ms": 0.571,
+        "local_serialization_p95_ms": 0.572,
         "maximum_valid_output_chars": 652,
         "maximum_valid_output_tokens_chars_div_4_estimator": 163,
         "repeats": 5,
@@ -1629,8 +1897,8 @@
         "encoded_candidate_count": 100,
         "input_chars": 37034,
         "input_tokens_chars_div_4_estimator": 9258,
-        "local_serialization_p50_ms": 0.572,
-        "local_serialization_p95_ms": 0.572,
+        "local_serialization_p50_ms": 0.586,
+        "local_serialization_p95_ms": 0.587,
         "maximum_valid_output_chars": 652,
         "maximum_valid_output_tokens_chars_div_4_estimator": 163,
         "repeats": 5,
@@ -1643,8 +1911,8 @@
         "encoded_candidate_count": 100,
         "input_chars": 23134,
         "input_tokens_chars_div_4_estimator": 5783,
-        "local_serialization_p50_ms": 0.453,
-        "local_serialization_p95_ms": 0.455,
+        "local_serialization_p50_ms": 0.519,
+        "local_serialization_p95_ms": 0.526,
         "maximum_valid_output_chars": 652,
         "maximum_valid_output_tokens_chars_div_4_estimator": 163,
         "repeats": 5,

@@ -442,8 +442,8 @@ def build_report(
     }
     quality = build_quality_report(
         measurements,
-        report_id="unified-phase6-2026-07-26",
-        source_commit=str(fixture["source_commit"]),
+        report_id=str(canary_manifest.get("report_id") or "unified-phase6-2026-07-26"),
+        source_commit=str(canary_manifest.get("source_head") or fixture["source_commit"]),
         owner=str(fixture["owner"]),
         compatibility_remove_after=str(fixture["compatibility_remove_after"]),
     )

@@ -11,11 +11,13 @@
   "runs":[
     {"sequence":1,"status":"pass","passed":129,"failed":0,"errors":0,"duration_seconds":7.62},
     {"sequence":2,"status":"pass","passed":129,"failed":0,"errors":0,"duration_seconds":7.60},
-    {"sequence":3,"status":"pass","passed":130,"failed":0,"errors":0,"duration_seconds":7.46}
+    {"sequence":3,"status":"pass","passed":130,"failed":0,"errors":0,"duration_seconds":7.46},
+    {"sequence":4,"status":"pass","passed":130,"failed":0,"errors":0,"duration_seconds":7.39},
+    {"sequence":5,"status":"pass","passed":131,"failed":0,"errors":0,"duration_seconds":7.84}
   ],
   "scope":["unified_phase0","unified_phase1_catalog","unified_phase2_contract","unified_phase3_selector","unified_phase4_materialization","unified_phase5_planner_search","unified_phase6_closure","unified_phase6_rollout","semantic_summary","rag_worker"],
   "postgres_log_check":{"recovery_events":0,"fatal_events":0,"server_process_crashes":0,"ready_events_observed":2},
   "phase0":{"runs":2,"stable":true,"digest":"4fe050b7d491861fd0b545471699f4d90c1151063140d7795ea4c16b3119f474"},
-  "strict_report":{"repeats":50,"passed_gates":35,"mandatory_gates":42,"blocking_gates":7,"attestation":"e647a8cdad744146da850ae9170e9eaa5beb8f43295efbd3e3d172a18583de64"},
+  "strict_report":{"repeats":50,"passed_gates":33,"mandatory_gates":42,"blocking_gates":9,"attestation":"91a6aeee9c4cd6c5a3e544d2481b5577621672df38dcf2c1a8b431a74bf636f1"},
   "status":"pass"
 }

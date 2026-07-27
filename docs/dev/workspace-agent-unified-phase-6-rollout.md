@@ -421,7 +421,7 @@ Verifier не реализован, потому что primary-only path про
 
 Новый boundary-256: `19410` input, `794` output, `20204` total provider tokens,
 `11565.6 ms`, first-attempt valid. Изолированный regression дважды дал
-`129 passed`; финальный expanded scope дал `130 passed`. PostgreSQL
+`129 passed`; последующие expanded runs дали `130` и `131 passed`. PostgreSQL
 recovery/crash events равны нулю. Phase-0 digest остался
 `4fe050b7d491861fd0b545471699f4d90c1151063140d7795ea4c16b3119f474`.
 
@@ -433,3 +433,65 @@ unavailable. Strict report после 50 repeats содержит `35/42 pass`, 
 attestation
 `e647a8cdad744146da850ae9170e9eaa5beb8f43295efbd3e3d172a18583de64`.
 Default-on запрещен.
+
+## Formal live canary: factual stop 2026-07-27
+
+Авторизованный preflight подтвердил `OpenAI / gpt-4.1-mini`. Backend и workers
+запущены из `c65b1ea` с пятью staged flags и default-off. После отдельного
+исключенного stale-worker probe первый formal current-code decision был
+canonical-valid с первой попытки, без retry и position errors.
+
+Semantic outcome не прошел frozen labels: Selector выбрал `1/1` размеченный
+irrelevant ref, а final pack потерял `1/1` critical ref на material-budget
+boundary. Три post refs, которых не было в frozen labels, не были размечены
+задним числом. Canary остановлен на `1 chat / 1 message / 1 decision`; formal
+sample остался insufficient, complete/classification и rollback не измерены.
+
+Strict report теперь `33/42 pass`. Blocked также live
+`irrelevant_selection_rate` и `required_critical_evidence_recall`; reliability
+children и composite остаются inconclusive при sample `1 < 20`. Attestation:
+`91a6aeee9c4cd6c5a3e544d2481b5577621672df38dcf2c1a8b431a74bf636f1`.
+`AGENT_UNIFIED_DEFAULT_ON=false`.
+
+## Mixed-complexity live diagnostic 2026-07-27
+
+После formal stop выполнен отдельный diagnostic cohort, который не входит в
+formal denominator и не может изменить failed canary на pass. Labels 19
+read-only scenarios были frozen до provider output: 13 сценариев проверяли
+анафоры, implied source needs, cross-object synthesis, complete classification,
+parent/media и near-topic boundaries; шесть простых controls сохранены для
+сравнения (`4`, `6`, `10`, `13`, `14`, `17`). Каждый сценарий получил отдельный
+chat и ровно одно user message. Security, tenant isolation и mutation stop не
+сработали; action proposals и audit events равны нулю.
+
+Из 19 runs Context Selector был вызван 16 раз, но durable provider
+observability присутствует только для 15 decisions. Получено `14/15 = 0.9333`
+first-attempt valid, `15/15` final valid и `1/15 = 0.0667` retried decisions;
+один first attempt завершился `invalid_transport`, а для одного decision
+provider result unavailable. Следовательно, mandatory sample `>=20`,
+first-attempt `>=0.95` и retry `<=0.05` не выполнены, а composite остаётся
+inconclusive. Maximum run total tokens равен `17101`, maximum duration
+`54257.8 ms`; это diagnostic observation, не замена formal ceilings.
+
+Raw-safe attribution разделила 53 individually evaluable critical-ref
+occurrences на `21` discovery misses, `19` Selector misses и `6`
+materialization misses; в final pack дошли `7/53`. Ещё пять labels сценария 13
+не включены в этот denominator: fast path вернул только `catalog:notes`, что
+доказывает catalog-root coverage, но не пять отдельных refs. Frozen irrelevant
+selection на двух control scenarios равен `0/8`, однако этот результат также не
+подменяет formal gate. Из простых controls один exact-fact case прошёл, inventory
+case измерен только на catalog root, absence case остался inconclusive, а три
+остальных выявили discovery/Selector failures. Final pack был partial в трёх
+runs; sufficiency status `ready` получен только в двух из 19.
+
+Артефакты:
+
+- `backend/tests/fixtures/agent_unified_phase6/v4/agentic_diagnostic_manifest.json`;
+- `backend/tests/fixtures/agent_unified_phase6/v4/agentic_diagnostic_result.json`.
+
+Они не содержат query text, source content, raw provider output, credentials
+или account identifiers. Phase 6 остаётся незавершённой: formal canary всё ещё
+имеет только один current-code Selector decision, rollback drill unavailable,
+strict report остаётся `33/42 pass`, default-on запрещён. После добавления
+diagnostic artifact contract isolated focused regression дал `131 passed`;
+phase-0 digest и strict attestation не изменились.

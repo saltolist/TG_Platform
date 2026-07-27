@@ -148,6 +148,21 @@ def test_selector_reliability_composite_is_derived_from_measured_children() -> N
     assert small["availability"] == "inconclusive"
     assert small["value"] is None and small["passed"] is False
 
+    for name in children:
+        children[name] = {**children[name], "availability": "inconclusive"}
+    partial_report = build_quality_report(
+        children,
+        report_id="fixture",
+        source_commit="fixture",
+        owner="workspace-agent",
+        compatibility_remove_after="2026-10-24",
+    )
+    partial = {
+        item["name"]: item for item in partial_report["gates"]
+    }["selector_schema_reliability_within_budget"]
+    assert partial["availability"] == "inconclusive"
+    assert partial["sample_size"] == 19 and partial["passed"] is False
+
     children["selector_retry_rate"] = {
         "availability": "unavailable", "value": None, "sample_size": 0
     }
@@ -170,15 +185,19 @@ def test_phase6_quality_report_is_attested_and_keeps_default_off() -> None:
 
     assert check_report(report) == []
     assert report["quality"]["attestation"]["kind"] == "sha256"
+    assert report["quality"]["source_commit"] == report["formal_canary_manifest"]["source_head"]
+    assert report["quality"]["report_id"] == report["formal_canary_manifest"]["report_id"]
     assert report["quality"]["default_on_allowed"] is False
     assert report["rollout"]["default_on"] is False
     assert set(report["quality"]["blocking_gates"]) == {
+        "irrelevant_selection_rate",
         "selector_schema_reliability_within_budget",
         "selector_first_attempt_valid_rate",
         "selector_final_valid_rate",
         "selector_retry_rate",
         "selector_position_error_count",
         "complete_classification_required_object_coverage",
+        "required_critical_evidence_recall",
         "staging_canary_rollback_drill_pass_rate",
     }
     replacements = {
@@ -214,13 +233,18 @@ def test_phase6_quality_report_is_attested_and_keeps_default_off() -> None:
     assert report["account_pilot"]["post_fix_window"]["canonical_failed_runs"] == 1
     assert report["summary_backfill_observability"]["deployed_coverage"] == 1.0
     assert len(report["formal_canary_manifest"]["scenarios"]) == 20
-    assert report["formal_canary_result"]["availability"] == "unavailable"
+    assert report["formal_canary_result"]["availability"] == "measured"
+    assert report["formal_canary_result"]["status"] == "failed_stop_condition"
     assert report["formal_canary_result"]["traffic"] == {
-        "chat_count": 0,
-        "user_message_count": 0,
-        "maximum_user_messages_per_chat": 0,
-        "semantic_selector_decisions": 0,
+        "chat_count": 1,
+        "user_message_count": 1,
+        "maximum_user_messages_per_chat": 1,
+        "semantic_selector_decisions": 1,
     }
+    assert report["formal_canary_result"]["stop_conditions_triggered"] == [
+        "irrelevant_selection_above_zero",
+        "evidence_or_checkpoint_loss",
+    ]
 
 
 def test_feature_sequence_canary_and_planner_boundary_are_deterministic() -> None:
