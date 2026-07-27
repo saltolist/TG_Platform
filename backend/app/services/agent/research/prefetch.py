@@ -189,6 +189,11 @@ async def load_discovery_cards_for_objects(
                 ) or None,
                 "has_more": False,
                 "source_requirement_id": source_requirement_id,
+                **(
+                    {"estimated_full_text_chars": int(item["estimated_full_text_chars"])}
+                    if item.get("estimated_full_text_chars") is not None
+                    else {}
+                ),
                 **{
                     key: item.get(key)
                     for key in (

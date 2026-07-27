@@ -20,6 +20,7 @@ DEFAULT_MAX_PACK_OBJECTS = 8
 DEFAULT_MAX_FULL_TEXT_CHARS = 12_000
 DEFAULT_MAX_CARD_CHARS = 6_000
 DEFAULT_FULL_TEXT_RESERVATION_CHARS = 4_000
+MIN_FULL_TEXT_RESERVATION_CHARS = 400
 
 _FIDELITY_RANK = {
     "metadata": 0,
@@ -78,6 +79,7 @@ class CandidateEnvelope(TypedDict):
     node_type: str
     citation_path: str
     has_more: bool
+    estimated_full_text_chars: NotRequired[int]
     file_count: NotRequired[int | None]
     image_count: NotRequired[int | None]
     has_files: NotRequired[bool | None]
@@ -268,6 +270,13 @@ def normalize_candidate(
         "has_more": bool(candidate.get("has_more")),
         "available_fidelity": [],
     }
+    if candidate.get("estimated_full_text_chars") is not None:
+        try:
+            envelope["estimated_full_text_chars"] = max(
+                0, int(candidate["estimated_full_text_chars"])
+            )
+        except (TypeError, ValueError):
+            pass
     for structural_field in (
         "file_count",
         "image_count",
@@ -621,11 +630,31 @@ def compile_material_plan(
     for source_id in sorted(dispositions):
         status = dispositions[source_id]
         if status == "no_relevant_candidate":
+            requirement = requirements.get(source_id, {})
+            required_source = (
+                str(requirement.get("evidence_obligation") or "") == "required"
+                or bool(requirement.get("required"))
+            )
+            source_candidates = [
+                candidate
+                for candidate in candidate_map.values()
+                if source_id in _candidate_source_ids(candidate)
+            ]
+            exhaustive_absence = (
+                str(requirement.get("coverage") or "") == "complete"
+                and bool(source_candidates)
+                and all(
+                    canonical_candidate_ref(str(candidate.get("ref") or ""))
+                    in assessment_map
+                    for candidate in source_candidates
+                )
+            )
             gaps.append(
                 {
                     "kind": "no_relevant_candidate",
                     "source_id": source_id,
-                    "blocks_ready": False,
+                    "blocks_ready": required_source and not exhaustive_absence,
+                    "exhaustive_absence": exhaustive_absence,
                 }
             )
         elif status == "search_more":
@@ -704,14 +733,12 @@ def compile_material_plan(
         estimated_chars = (
             len(str(candidate.get("card_text") or ""))
             if effective_fidelity == "semantic_card"
-            else max(
-                1,
-                int(
-                    candidate.get("estimated_full_text_chars")
-                    or candidate.get("estimated_chars")
-                    or DEFAULT_FULL_TEXT_RESERVATION_CHARS
-                ),
-            )
+            else None
+        )
+        full_text_estimate = (
+            candidate.get("estimated_full_text_chars") or candidate.get("estimated_chars")
+            if effective_fidelity != "semantic_card"
+            else None
         )
         required_source = any(
             str(requirements.get(source_id, {}).get("evidence_obligation") or "") == "required"
@@ -727,6 +754,7 @@ def compile_material_plan(
             "required_fidelity": required_fidelity,
             "effective_fidelity": effective_fidelity,
             "estimated_chars": estimated_chars,
+            "full_text_chars_estimate": full_text_estimate,
             "source_requirement_ids": source_ids,
             "source_requirement_id": source_ids[0] if source_ids else "",
             "parent": dict(candidate.get("parent")) if isinstance(candidate.get("parent"), Mapping) else None,
@@ -749,13 +777,43 @@ def compile_material_plan(
         selected.append((priority, queue_item))
 
     selected.sort(key=lambda item: item[0])
+    full_text_count = sum(
+        item["effective_fidelity"] != "semantic_card" for _priority, item in selected
+    )
+    fair_full_text_reservation = (
+        max(
+            1,
+            min(
+                DEFAULT_FULL_TEXT_RESERVATION_CHARS,
+                max(0, int(max_full_text_chars)) // full_text_count,
+            ),
+        )
+        if full_text_count
+        else 0
+    )
+    if max(0, int(max_full_text_chars)) >= full_text_count * MIN_FULL_TEXT_RESERVATION_CHARS:
+        fair_full_text_reservation = max(
+            MIN_FULL_TEXT_RESERVATION_CHARS, fair_full_text_reservation
+        )
     queue: list[dict[str, Any]] = []
     omitted = list(plan.get("omitted_ids") or ())
     used_full = 0
     used_cards = 0
     for _priority, item in selected:
         fidelity = str(item["effective_fidelity"])
-        estimate = int(item["estimated_chars"])
+        if fidelity == "semantic_card":
+            estimate = int(item["estimated_chars"] or 0)
+        else:
+            raw_estimate = item.get("full_text_chars_estimate")
+            try:
+                actual_estimate = int(raw_estimate) if raw_estimate is not None else 0
+            except (TypeError, ValueError):
+                actual_estimate = 0
+            estimate = min(
+                actual_estimate or fair_full_text_reservation,
+                fair_full_text_reservation,
+            )
+            item["estimated_chars"] = estimate
         reason = ""
         if len(queue) >= max(0, int(max_objects)):
             reason = "object_budget"

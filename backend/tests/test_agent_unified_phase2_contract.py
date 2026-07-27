@@ -113,6 +113,24 @@ def test_classifier_adapter_maps_image_evidence_to_vision_fidelity() -> None:
     assert not {"required", "min_evidence", "evidence_granularity"}.intersection(images)
 
 
+def test_classifier_propagates_resolved_query_goal_to_semantic_sources() -> None:
+    resolved = "Compare the launch constraint with the budget decision."
+    contract = _apply_classifier_source_policy(
+        _typed_contract("А как это соотносится с тем решением?"),
+        required_sources=["notes", "posts"],
+        classifier_requires_evidence=True,
+        query_goal=resolved,
+    )
+
+    semantic_sources = [
+        source
+        for source in contract["source_requirements"]
+        if source.get("predicate_kind") in {"semantic", "mixed"}
+    ]
+    assert semantic_sources
+    assert all(source["query_goal"] == resolved for source in semantic_sources)
+
+
 def test_required_discovery_with_zero_min_allows_no_relevant_candidate() -> None:
     contract = _typed_contract("Какие заметки про запуск?")
     contract = _apply_classifier_source_policy(

@@ -31,6 +31,7 @@ class CatalogMember(TypedDict, total=False):
     parent: CatalogParent | None
     parent_post_id: str | None
     preview: str
+    estimated_full_text_chars: int
     file_count: int | None
     image_count: int | None
     has_files: bool | None
@@ -248,6 +249,7 @@ def build_note_catalog_item(
         "parent": parent,
         "parent_post_id": parent_post_id,
         "preview": body[:80] + ("…" if len(body) > 80 else ""),
+        "estimated_full_text_chars": len(body),
         **facts,
     }
 
@@ -326,6 +328,7 @@ def build_post_catalog_item(post: Mapping[str, Any]) -> CatalogMember | None:
         "revision": catalog_item_revision(post, kind="post"),
         "parent": None,
         "preview": text_value[:80] + ("…" if len(text_value) > 80 else ""),
+        "estimated_full_text_chars": len(text_value),
         "notes_count": len(note_items) if notes_known else None,
         "file_count": file_count,
         "image_count": image_count,

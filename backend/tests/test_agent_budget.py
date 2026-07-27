@@ -101,7 +101,10 @@ async def test_call_records_phase_timing_and_token_estimates(monkeypatch) -> Non
             "candidate_count": None,
             "cohort": None,
             "retry": False,
+            "semantic_attempt": "initial",
+            "transport_tier": "plain",
             "schema_result": "not_measured",
+            "validation_error_codes": [],
             "timeout": False,
             "provider_latency": {
                 "availability": "measured",
@@ -111,6 +114,7 @@ async def test_call_records_phase_timing_and_token_estimates(monkeypatch) -> Non
                 "availability": "unavailable",
                 "input_tokens": None,
                 "cached_input_tokens": None,
+                "cached_input_availability": "unavailable",
                 "output_tokens": None,
                 "total_tokens": None,
             },

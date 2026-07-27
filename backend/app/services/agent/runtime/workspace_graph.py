@@ -110,6 +110,7 @@ def _apply_classifier_source_policy(
     required_sources: list[str],
     classifier_requires_evidence: bool,
     classified_source_requirements: list[dict[str, Any]] | None = None,
+    query_goal: str = "",
 ) -> dict[str, Any]:
     """Make semantic classifier output authoritative for factual grounding.
 
@@ -142,6 +143,7 @@ def _apply_classifier_source_policy(
             str(item.get("kind") or "") for item in sources if source_evidence_required(item)
         )
     existing = {str(item.get("kind") or "") for item in sources}
+    resolved_query_goal = str(query_goal or "").strip()
 
     def typed_fidelity(kind: str, legacy_fidelity: str) -> str:
         if not typed:
@@ -157,6 +159,11 @@ def _apply_classifier_source_policy(
     for source in sources:
         kind = str(source.get("kind") or "")
         scope_mode = str((source.get("scope") or {}).get("mode") or "")
+        if (
+            resolved_query_goal
+            and str(source.get("predicate_kind") or "semantic") in {"semantic", "mixed"}
+        ):
+            source["query_goal"] = resolved_query_goal
         if typed:
             source["evidence_obligation"] = "required" if kind in required else "optional"
             if kind in required:
@@ -234,7 +241,7 @@ def _apply_classifier_source_policy(
             "source_id": f"workspace-{kind}",
             "kind": kind,
             "role": "source",
-            "query_goal": f"retrieve {kind} required by the current goal",
+            "query_goal": resolved_query_goal or f"retrieve {kind} required by the current goal",
             "coverage": classified_coverage,
             "scope": {
                 "mode": "corpus",
@@ -510,6 +517,7 @@ async def workspace_agent_node(
             for item in (call.get("source_requirements") or ())
             if isinstance(item, dict)
         ],
+        query_goal=str(call.get("search_query") or ""),
     )
     if any(
         source_evidence_required(item) and item.get("coverage") == "complete"

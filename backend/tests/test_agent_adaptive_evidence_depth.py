@@ -668,6 +668,42 @@ async def test_complete_catalog_loads_cards_by_id_without_similarity_ranking() -
 
 
 @pytest.mark.asyncio
+async def test_complete_catalog_preserves_raw_safe_full_text_size_estimate() -> None:
+    row = {
+        "note_id": "n1",
+        "post_id": "",
+        "chunk_text": "Selector card",
+        "object_title": "Note 1",
+        "object_status": "active",
+        "index_revision": 3,
+        "summary_version": DISCOVERY_SUMMARY_VERSION,
+        "summary_model": f"llm:provider:model:v{DISCOVERY_SUMMARY_VERSION}",
+    }
+    db_result = MagicMock()
+    db_result.mappings.return_value.all.return_value = [row]
+    session = AsyncMock()
+    session.execute.return_value = db_result
+
+    cards = await load_discovery_cards_for_objects(
+        session,
+        user_id=uuid4(),
+        object_kind="notes",
+        objects=[
+            {
+                "id": "n1",
+                "revision": 3,
+                "title": "Note 1",
+                "estimated_full_text_chars": 917,
+            }
+        ],
+        source_requirement_id="workspace-notes",
+    )
+
+    assert cards[0]["estimated_full_text_chars"] == 917
+    assert "body" not in cards[0] and "text" not in cards[0]
+
+
+@pytest.mark.asyncio
 async def test_complete_catalog_uses_content_revision_not_structural_catalog_revision() -> None:
     rows = [
         {

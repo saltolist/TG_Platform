@@ -39,6 +39,7 @@ from app.services.ai.semantic_summary import (
     SELECTOR_SUMMARY_VERSION,
 )
 from scripts.agent_unified_phase6_report import build_report
+from scripts.agent_unified_semantic_qualification import build_aggregate
 
 
 def _contract(*, complete: bool = True) -> dict:
@@ -520,7 +521,7 @@ def test_labeled_cohort_and_provider_replay_are_frozen_and_measured() -> None:
     assert provider_replay["schema_results"] == {"provider_error": 1, "valid": 138}
     assert provider_replay["validation_error_counts"] == {"provider_error": 1}
     assert provider_replay["position_error_count"] == 0
-    assert provider_replay["boundary_256"]["actual_total_tokens_p95"] == 20204
+    assert provider_replay["boundary_256"]["actual_total_tokens_p95"] == 20194
     gates = {item["name"]: item for item in report["quality"]["gates"]}
     assert gates["relevant_recall"]["passed"] is True
     assert gates["irrelevant_selection_rate"]["passed"] is False
@@ -535,6 +536,68 @@ def test_labeled_cohort_and_provider_replay_are_frozen_and_measured() -> None:
     assert labeled["labels_frozen_before_provider_output"] is True
     assert labeled["scenario_count"] >= 20
     assert labeled["required_ref_count"] >= 20
+
+
+def test_v5_primary_semantic_qualification_is_repeatable_and_raw_safe() -> None:
+    root = Path(__file__).parent / "fixtures/agent_unified_phase6"
+    v5 = root / "v5"
+    report = build_aggregate(
+        cohort_path=root / "v4/qualification_selector_cohort.json",
+        baseline_path=root / "v3/calibration_baseline_provider_replay.json",
+        calibration_path=root / "v3/calibration_final_primary_run1.json",
+        qualification_paths=tuple(
+            v5 / f"qualification_primary_run{index}.json" for index in range(1, 4)
+        ),
+        compatibility_path=root / "v4/qualification_compatibility_baseline.json",
+        boundary_path=v5 / "boundary_256_primary.json",
+    )
+
+    assert report["semantic_scenario_count"] == 21
+    assert report["qualification"]["valid_repeat_count"] == 2
+    assert report["qualification"]["inconclusive_repeat_count"] == 1
+    repeats = report["qualification"]["repeats"]
+    assert [item["status"] for item in repeats] == ["inconclusive", "pass", "pass"]
+    assert repeats[0]["provider_failure_count"] == 1
+    for repeat in repeats[1:]:
+        assert repeat["final_valid"] == 21
+        assert repeat["first_attempt_valid"] == 21
+        assert repeat["retries"] == 0
+        assert repeat["critical_required_recall"] == 1.0
+        assert repeat["irrelevant_selection_rate"] == 0.0
+        assert repeat["final_pack_precision"] == 1.0
+
+    primary = report["variants"]["160"]
+    assert primary["critical_required_recall"] == 1.0
+    assert primary["irrelevant_selection_rate"] == 0.0
+    assert primary["final_pack_precision"] == 1.0
+    assert report["position_error_count"] == 0
+    assert report["boundary_256"]["actual_total_tokens_p95"] == 20194
+    assert report["boundary_256"]["gate_total_tokens_lte_22000"] is True
+
+    forbidden_keys = {
+        "query",
+        "user_content",
+        "source_content",
+        "raw_provider_output",
+        "credentials",
+        "account_id",
+        "account_identifier",
+    }
+
+    def visit(value: object) -> None:
+        if isinstance(value, dict):
+            assert forbidden_keys.isdisjoint(value)
+            for child in value.values():
+                visit(child)
+        elif isinstance(value, list):
+            for child in value:
+                visit(child)
+
+    visit(report)
+    assert report["contains_credentials"] is False
+    assert report["contains_account_identifier"] is False
+    assert report["contains_raw_provider_output"] is False
+    assert report["contains_source_or_user_content"] is False
 
 
 def test_semantic_attribution_is_raw_safe_and_proves_selector_boundary() -> None:
@@ -738,3 +801,6 @@ def test_selector_prompt_distinguishes_direct_secondary_and_near_topic() -> None
     assert "secondary topic is direct evidence" in CONTEXT_SELECTOR_SYSTEM
     assert "never forces selection" in CONTEXT_SELECTOR_SYSTEM
     assert "requested information is absent as irrelevant" in CONTEXT_SELECTOR_SYSTEM
+    assert "Atomic evidence must state the answer" in CONTEXT_SELECTOR_SYSTEM
+    assert "concrete necessary premises" in CONTEXT_SELECTOR_SYSTEM
+    assert "generic background is not" in CONTEXT_SELECTOR_SYSTEM

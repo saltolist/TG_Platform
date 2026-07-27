@@ -177,9 +177,28 @@ def build_aggregate(
 
 def main() -> None:
     parser = argparse.ArgumentParser()
+    parser.add_argument("--cohort", type=Path, default=DEFAULT_COHORT)
+    parser.add_argument("--baseline", type=Path, default=DEFAULT_BASELINE)
+    parser.add_argument("--calibration", type=Path, default=DEFAULT_CALIBRATION)
+    parser.add_argument(
+        "--qualification-run",
+        dest="qualification_runs",
+        action="append",
+        type=Path,
+        default=None,
+    )
+    parser.add_argument("--compatibility", type=Path, default=DEFAULT_COMPATIBILITY)
+    parser.add_argument("--boundary", type=Path, default=DEFAULT_BOUNDARY)
     parser.add_argument("--output", type=Path, default=DEFAULT_OUTPUT)
     args = parser.parse_args()
-    report = build_aggregate()
+    report = build_aggregate(
+        cohort_path=args.cohort,
+        baseline_path=args.baseline,
+        calibration_path=args.calibration,
+        qualification_paths=tuple(args.qualification_runs or DEFAULT_QUALIFICATION_RUNS),
+        compatibility_path=args.compatibility,
+        boundary_path=args.boundary,
+    )
     args.output.write_text(
         json.dumps(report, ensure_ascii=False, indent=2, sort_keys=True) + "\n",
         encoding="utf-8",

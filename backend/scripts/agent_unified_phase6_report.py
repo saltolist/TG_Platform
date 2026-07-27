@@ -48,7 +48,7 @@ DEFAULT_ACCOUNT_PILOT = (
     BACKEND_ROOT / "tests/fixtures/agent_unified_phase6/v2/account_pilot_aggregate.json"
 )
 DEFAULT_PROVIDER_REPLAY = (
-    BACKEND_ROOT / "tests/fixtures/agent_unified_phase6/v4/provider_replay_aggregate.json"
+    BACKEND_ROOT / "tests/fixtures/agent_unified_phase6/v5/provider_replay_aggregate.json"
 )
 DEFAULT_CANARY_MANIFEST = (
     BACKEND_ROOT / "tests/fixtures/agent_unified_phase6/v4/formal_canary_manifest.json"

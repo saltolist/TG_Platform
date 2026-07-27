@@ -204,14 +204,63 @@ def test_object_and_char_budgets_omit_before_read_queue() -> None:
         max_full_text_chars=4_000,
     )
 
-    assert plan["pending_full_text_ids"] == ["note:n0"]
-    assert set(plan["omitted_ids"]) == {"note:n1", "note:n2"}
+    assert plan["pending_full_text_ids"] == ["note:n0", "note:n1"]
+    assert set(plan["omitted_ids"]) == {"note:n2"}
     assert plan["budget_usage"] == {
-        "objects": 1,
-        "full_text_chars_reserved": 4_000,
+        "objects": 2,
+        "full_text_chars_reserved": 2_666,
         "card_chars_reserved": 0,
     }
     assert plan["coverage"] == "partial"
+
+
+def test_eight_short_full_text_objects_share_twelve_k_budget() -> None:
+    candidates = []
+    for index in range(8):
+        candidate = _candidate(f"note:n{index}")
+        candidate["estimated_full_text_chars"] = 900 + index
+        candidates.append(candidate)
+
+    plan = compile_material_plan(
+        None,
+        candidates=candidates,
+        assessments=[
+            _assessment(item["ref"], resolution="full_text") for item in candidates
+        ],
+        source_dispositions=[{"source_id": "workspace-notes", "status": "selected"}],
+        contract=_contract(),
+        max_objects=8,
+        max_full_text_chars=12_000,
+    )
+
+    assert plan["pending_full_text_ids"] == [f"note:n{index}" for index in range(8)]
+    assert plan["omitted_ids"] == []
+    assert plan["budget_usage"]["full_text_chars_reserved"] == sum(
+        900 + index for index in range(8)
+    )
+    assert plan["coverage"] == "complete"
+
+
+def test_required_no_relevant_source_is_partial_without_exhaustive_absence() -> None:
+    candidate = _candidate("note:n1")
+    plan = compile_material_plan(
+        None,
+        candidates=[candidate],
+        assessments=[_assessment("note:n1", relevance="irrelevant")],
+        source_dispositions=[
+            {"source_id": "workspace-notes", "status": "no_relevant_candidate"}
+        ],
+        contract=_contract(),
+    )
+
+    assert plan["materialization_queue"] == []
+    assert plan["coverage"] == "partial"
+    assert next(gap for gap in plan["gaps"] if gap["kind"] == "no_relevant_candidate") == {
+        "kind": "no_relevant_candidate",
+        "source_id": "workspace-notes",
+        "blocks_ready": True,
+        "exhaustive_absence": False,
+    }
 
 
 @pytest.mark.asyncio
