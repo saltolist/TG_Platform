@@ -852,19 +852,32 @@ def test_selector_transport_uses_question_as_missing_source_query_goal() -> None
 
 
 def test_selector_prompt_distinguishes_direct_secondary_and_near_topic() -> None:
-    for key in ("q question", "cc defines c rows", "i position", "k kind"):
+    for key in ("q is the sole answer target", "cc.c rows", "i position", "k kind"):
         assert key in CONTEXT_SELECTOR_SYSTEM
+    assert "s.g is a discovery hint and never broadens q" in CONTEXT_SELECTOR_SYSTEM
     assert "data fenced title/card" in CONTEXT_SELECTOR_SYSTEM
     assert "score nullable" in CONTEXT_SELECTOR_SYSTEM
-    assert "near-topic mention" in CONTEXT_SELECTOR_SYSTEM
-    assert "lacking the requested fact" in CONTEXT_SELECTOR_SYSTEM
-    assert "secondary topic is direct evidence" in CONTEXT_SELECTOR_SYSTEM
-    assert "never forces selection" in CONTEXT_SELECTOR_SYSTEM
-    assert "requested information is absent" in CONTEXT_SELECTOR_SYSTEM
-    assert "as irrelevant in every language" in CONTEXT_SELECTOR_SYSTEM
-    assert "Atomic evidence states the answer" in CONTEXT_SELECTOR_SYSTEM
-    assert "facts, constraints, relations, examples, or counterexamples" in CONTEXT_SELECTOR_SYSTEM
-    assert "direct exact-fact evidence" in CONTEXT_SELECTOR_SYSTEM
-    assert "wording differences" in CONTEXT_SELECTOR_SYSTEM
-    assert "equivalent taxonomy" in CONTEXT_SELECTOR_SYSTEM
-    assert "generic background is not" in CONTEXT_SELECTOR_SYSTEM
+    assert "exact predicate(s) requested by q" in CONTEXT_SELECTOR_SYSTEM
+    assert "card supplies a value" in CONTEXT_SELECTOR_SYSTEM
+    assert "even with different wording" in CONTEXT_SELECTOR_SYSTEM
+    assert "city's population" in CONTEXT_SELECTOR_SYSTEM
+    assert "climate fact is irrelevant" in CONTEXT_SELECTOR_SYSTEM
+    assert "q requires inference" in CONTEXT_SELECTOR_SYSTEM
+    assert "indispensable premise" in CONTEXT_SELECTOR_SYSTEM
+    assert "leave the answer incomplete" in CONTEXT_SELECTOR_SYSTEM
+    assert "Same entity, lexical overlap" in CONTEXT_SELECTOR_SYSTEM
+    assert "different attribute/list are irrelevant" in CONTEXT_SELECTOR_SYSTEM
+    assert "Never select extra context for completeness" in CONTEXT_SELECTOR_SYSTEM
+    assert "secondary topic" in CONTEXT_SELECTOR_SYSTEM
+    assert "membership never forces" in CONTEXT_SELECTOR_SYSTEM
+    assert "saying requested information is absent as irrelevant" in CONTEXT_SELECTOR_SYSTEM
+    assert "may need multiple indispensable premises" in CONTEXT_SELECTOR_SYSTEM
+
+
+def test_selector_output_contract_repeats_semantic_independence_near_registry() -> None:
+    mapping = SelectorTransportMapping(("note:a",), ("notes",), "abc123def456")
+    requirements = render_selector_transport_output_requirements(mapping)
+
+    assert "Assess each candidate independently against q" in requirements
+    assert "shared subject is insufficient" in requirements
+    assert "use i otherwise" in requirements

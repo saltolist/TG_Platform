@@ -359,6 +359,8 @@ def render_selector_transport_output_requirements(
     codes = (
         "Each assessment code has exactly three characters: relevance d|s|i, "
         "reason t|e|d|c|q|u|m|a|l|x|b|s, confidence bucket 0..9. "
+        "Assess each candidate independently against q. Use d/s only when its card contributes "
+        "answer evidence; a shared subject is insufficient, so use i otherwise. "
         "Use t=topic-only, x=unrelated, b=ambiguous, or s=search-more only with "
         "irrelevant. Every direct or supporting assessment must use an evidence-bearing "
         "reason e/d/c/q/u/m/a/l. If a card explicitly says the requested answer is absent, "
