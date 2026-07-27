@@ -600,6 +600,55 @@ def test_v5_primary_semantic_qualification_is_repeatable_and_raw_safe() -> None:
     assert report["contains_source_or_user_content"] is False
 
 
+def test_v5_formal_canary_manifest_freezes_mixed_twenty_decision_denominator() -> None:
+    path = (
+        Path(__file__).parent
+        / "fixtures/agent_unified_phase6/v5/formal_canary_manifest.json"
+    )
+    manifest = json.loads(path.read_text(encoding="utf-8"))
+    scenarios = manifest["scenarios"]
+
+    assert manifest["source_head"] == "affbe772b2ed7ea54fd7630a07e6b6fed94bcf87"
+    assert manifest["labels_frozen_before_provider_output"] is True
+    assert manifest["traffic_limits"] == {
+        "maximum_chats": 20,
+        "maximum_user_messages_per_chat": 1,
+        "planned_semantic_selector_decisions": 20,
+    }
+    assert len(scenarios) == 20
+    assert [item["sequence"] for item in scenarios] == list(range(1, 21))
+    assert len({item["scenario_id"] for item in scenarios}) == 20
+    assert sum(item["cohort"] == "simple_control" for item in scenarios) == 6
+    assert sum(item["cohort"] == "agentic_complex" for item in scenarios) == 14
+    complete = [item for item in scenarios if item["coverage"] == "complete"]
+    assert len(complete) == 1 and len(complete[0]["critical_refs"]) == 5
+    assert all(len(item["query_digest"]) == 64 for item in scenarios)
+    assert all(item["expected_refs"] and item["critical_refs"] for item in scenarios)
+    assert manifest["prior_formal_traffic_excluded"]["can_convert_new_canary_to_pass"] is False
+
+    forbidden_keys = {
+        "query",
+        "user_content",
+        "source_content",
+        "raw_provider_output",
+        "credentials",
+        "account_id",
+        "account_identifier",
+    }
+
+    def visit(value: object) -> None:
+        if isinstance(value, dict):
+            assert forbidden_keys.isdisjoint(value)
+            for child in value.values():
+                visit(child)
+        elif isinstance(value, list):
+            for child in value:
+                visit(child)
+
+    visit(manifest)
+    assert not any(manifest["privacy"].values())
+
+
 def test_semantic_attribution_is_raw_safe_and_proves_selector_boundary() -> None:
     path = (
         Path(__file__).parent

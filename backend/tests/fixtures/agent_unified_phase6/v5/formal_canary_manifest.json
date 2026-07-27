@@ -1,0 +1,480 @@
+{
+  "schema": "workspace.phase6-formal-canary-manifest/v1",
+  "version": "2026-07-27-account-live-v2",
+  "report_id": "unified-phase6-live-canary-v2-2026-07-27",
+  "status": "ready_after_worker_preflight",
+  "source_head": "affbe772b2ed7ea54fd7630a07e6b6fed94bcf87",
+  "provider": "OpenAI",
+  "model": "gpt-4.1-mini",
+  "transport_tier": "strict_json_schema",
+  "cohort_version": "2026-07-27-account-live-v2",
+  "labels_frozen_at": "2026-07-27T15:17:42Z",
+  "labels_frozen_before_provider_output": true,
+  "prior_formal_traffic_excluded": {
+    "manifest_version": "2026-07-27-account-live-v1",
+    "chat_count": 1,
+    "user_message_count": 1,
+    "semantic_selector_decision_count": 1,
+    "can_convert_new_canary_to_pass": false
+  },
+  "primary_variant": "query_goal+directness+explicit_absence+atomic_answer+necessary_premises",
+  "summary_chars": 160,
+  "traffic_limits": {
+    "maximum_chats": 20,
+    "maximum_user_messages_per_chat": 1,
+    "planned_semantic_selector_decisions": 20
+  },
+  "scenario_mix": {
+    "simple_controls": 6,
+    "agentic_complex": 14,
+    "complete_classification": 1
+  },
+  "replacement_policy": "external provider or DNS failure is reported separately; no replacement may exceed the chat or message ceiling",
+  "stop_conditions": [
+    "security_or_tenant_violation",
+    "critical_recall_below_one",
+    "irrelevant_selection_above_zero",
+    "final_primary_failure",
+    "position_error",
+    "evidence_or_checkpoint_loss"
+  ],
+  "rollback_sequence": [
+    "disable_default_on",
+    "disable_planner_policy",
+    "disable_verified_pack_boundary",
+    "disable_unified_selector",
+    "resume_compatibility_path"
+  ],
+  "scenarios": [
+    {
+      "sequence": 1,
+      "scenario_id": "live-v2-q01",
+      "cohort": "simple_control",
+      "kind": "exact_fact_semantic",
+      "coverage": "relevant",
+      "expected_refs": [
+        "note:41a63404-cc97-4fb8-a37e-612bcb15fd98"
+      ],
+      "critical_refs": [
+        "note:41a63404-cc97-4fb8-a37e-612bcb15fd98"
+      ],
+      "allowed_supporting_refs": [],
+      "irrelevant_refs": [
+        "note:27a2f06d-3c03-4b6e-bd65-e2ef5f55470e"
+      ],
+      "query_digest": "188ed89bf1426e21aa8585dc9c8c4fd43649d1e0243194d74fff1fac4711be53"
+    },
+    {
+      "sequence": 2,
+      "scenario_id": "live-v2-q02",
+      "cohort": "simple_control",
+      "kind": "architecture_fact",
+      "coverage": "relevant",
+      "expected_refs": [
+        "note:9fd458be-d060-4a4b-b055-02d39ff2948e"
+      ],
+      "critical_refs": [
+        "note:9fd458be-d060-4a4b-b055-02d39ff2948e"
+      ],
+      "allowed_supporting_refs": [],
+      "irrelevant_refs": [
+        "note:41a63404-cc97-4fb8-a37e-612bcb15fd98"
+      ],
+      "query_digest": "c1f0593434f79717e39ac925e482afea52741700bbdbc72bde5734678e539094"
+    },
+    {
+      "sequence": 3,
+      "scenario_id": "live-v2-q03",
+      "cohort": "simple_control",
+      "kind": "capability_fact",
+      "coverage": "relevant",
+      "expected_refs": [
+        "note:402ac3a4-9f28-4d35-bcf0-ffdd7aceab30"
+      ],
+      "critical_refs": [
+        "note:402ac3a4-9f28-4d35-bcf0-ffdd7aceab30"
+      ],
+      "allowed_supporting_refs": [
+        "note:f351d19b-4d54-426a-b653-2c6b771efc15",
+        "post:77c8aef2-d9d9-4578-8d3a-59eb5dbfbda7"
+      ],
+      "irrelevant_refs": [
+        "note:41a63404-cc97-4fb8-a37e-612bcb15fd98"
+      ],
+      "query_digest": "b5c6b4ebcdf64b13577fdde76be0411449a219c6dcebb1adf68cef4c15b400d2"
+    },
+    {
+      "sequence": 4,
+      "scenario_id": "live-v2-q04",
+      "cohort": "simple_control",
+      "kind": "series_inventory",
+      "coverage": "relevant",
+      "expected_refs": [
+        "note:27a2f06d-3c03-4b6e-bd65-e2ef5f55470e"
+      ],
+      "critical_refs": [
+        "note:27a2f06d-3c03-4b6e-bd65-e2ef5f55470e"
+      ],
+      "allowed_supporting_refs": [],
+      "irrelevant_refs": [
+        "note:41a63404-cc97-4fb8-a37e-612bcb15fd98"
+      ],
+      "query_digest": "5593fa0c423089622e6a193c25ea658884512f57f1fd11afe59a222268825a9b"
+    },
+    {
+      "sequence": 5,
+      "scenario_id": "live-v2-q05",
+      "cohort": "simple_control",
+      "kind": "retrieval_fact",
+      "coverage": "relevant",
+      "expected_refs": [
+        "post:84c753d5-060c-43b3-bb48-1a0e2463dbfb"
+      ],
+      "critical_refs": [
+        "post:84c753d5-060c-43b3-bb48-1a0e2463dbfb"
+      ],
+      "allowed_supporting_refs": [
+        "note:9fd458be-d060-4a4b-b055-02d39ff2948e",
+        "note:27a2f06d-3c03-4b6e-bd65-e2ef5f55470e"
+      ],
+      "irrelevant_refs": [
+        "note:41a63404-cc97-4fb8-a37e-612bcb15fd98"
+      ],
+      "query_digest": "424f2596d8a8013c06d5787b717398e998d4b38e2c358c0766b7e7deb9131333"
+    },
+    {
+      "sequence": 6,
+      "scenario_id": "live-v2-q06",
+      "cohort": "agentic_complex",
+      "kind": "cross_model_comparison",
+      "coverage": "relevant",
+      "expected_refs": [
+        "note:9fd458be-d060-4a4b-b055-02d39ff2948e",
+        "note:402ac3a4-9f28-4d35-bcf0-ffdd7aceab30"
+      ],
+      "critical_refs": [
+        "note:9fd458be-d060-4a4b-b055-02d39ff2948e",
+        "note:402ac3a4-9f28-4d35-bcf0-ffdd7aceab30"
+      ],
+      "allowed_supporting_refs": [
+        "note:f351d19b-4d54-426a-b653-2c6b771efc15"
+      ],
+      "irrelevant_refs": [
+        "note:41a63404-cc97-4fb8-a37e-612bcb15fd98"
+      ],
+      "query_digest": "74e2158dcf5effd13781fbcf98801bee97402df65fac7795b6da9adfd95a1e53"
+    },
+    {
+      "sequence": 7,
+      "scenario_id": "live-v2-q07",
+      "cohort": "agentic_complex",
+      "kind": "implied_source_synthesis",
+      "coverage": "relevant",
+      "expected_refs": [
+        "post:1c96b290-1405-417f-a171-995dede3da35",
+        "note:402ac3a4-9f28-4d35-bcf0-ffdd7aceab30"
+      ],
+      "critical_refs": [
+        "post:1c96b290-1405-417f-a171-995dede3da35",
+        "note:402ac3a4-9f28-4d35-bcf0-ffdd7aceab30"
+      ],
+      "allowed_supporting_refs": [
+        "note:f351d19b-4d54-426a-b653-2c6b771efc15"
+      ],
+      "irrelevant_refs": [
+        "note:41a63404-cc97-4fb8-a37e-612bcb15fd98"
+      ],
+      "query_digest": "a41f9b5446bd1a2241ef4eb8488a2b75aad8360abc91ebdeeedbb6fd83677acb"
+    },
+    {
+      "sequence": 8,
+      "scenario_id": "live-v2-q08",
+      "cohort": "agentic_complex",
+      "kind": "claim_refutation",
+      "coverage": "relevant",
+      "expected_refs": [
+        "note:402ac3a4-9f28-4d35-bcf0-ffdd7aceab30",
+        "note:f351d19b-4d54-426a-b653-2c6b771efc15"
+      ],
+      "critical_refs": [
+        "note:402ac3a4-9f28-4d35-bcf0-ffdd7aceab30",
+        "note:f351d19b-4d54-426a-b653-2c6b771efc15"
+      ],
+      "allowed_supporting_refs": [
+        "post:77c8aef2-d9d9-4578-8d3a-59eb5dbfbda7"
+      ],
+      "irrelevant_refs": [
+        "note:41a63404-cc97-4fb8-a37e-612bcb15fd98"
+      ],
+      "query_digest": "a46d1df10b7ce3e412ee47c7600989d0d19de7d8a7804194d45c3029cbeda121"
+    },
+    {
+      "sequence": 9,
+      "scenario_id": "live-v2-q09",
+      "cohort": "agentic_complex",
+      "kind": "anaphoric_contour_comparison",
+      "coverage": "relevant",
+      "expected_refs": [
+        "note:41a63404-cc97-4fb8-a37e-612bcb15fd98"
+      ],
+      "critical_refs": [
+        "note:41a63404-cc97-4fb8-a37e-612bcb15fd98"
+      ],
+      "allowed_supporting_refs": [],
+      "irrelevant_refs": [
+        "note:27a2f06d-3c03-4b6e-bd65-e2ef5f55470e"
+      ],
+      "query_digest": "396d3ce0215fb360277a21085de244a82544467204df8802211bbaaf0b1c84ce"
+    },
+    {
+      "sequence": 10,
+      "scenario_id": "live-v2-q10",
+      "cohort": "agentic_complex",
+      "kind": "ordinary_rag_differentiation",
+      "coverage": "relevant",
+      "expected_refs": [
+        "note:9fd458be-d060-4a4b-b055-02d39ff2948e",
+        "post:84c753d5-060c-43b3-bb48-1a0e2463dbfb",
+        "note:402ac3a4-9f28-4d35-bcf0-ffdd7aceab30"
+      ],
+      "critical_refs": [
+        "note:9fd458be-d060-4a4b-b055-02d39ff2948e",
+        "post:84c753d5-060c-43b3-bb48-1a0e2463dbfb"
+      ],
+      "allowed_supporting_refs": [
+        "note:402ac3a4-9f28-4d35-bcf0-ffdd7aceab30",
+        "note:f351d19b-4d54-426a-b653-2c6b771efc15"
+      ],
+      "irrelevant_refs": [
+        "note:41a63404-cc97-4fb8-a37e-612bcb15fd98"
+      ],
+      "query_digest": "088acc247e307b5b8dcc30ba5b5a5e58217bcdebd72a1eb701b5fad367c94d5a"
+    },
+    {
+      "sequence": 11,
+      "scenario_id": "live-v2-q11",
+      "cohort": "agentic_complex",
+      "kind": "counterfactual_event_flow",
+      "coverage": "relevant",
+      "expected_refs": [
+        "note:402ac3a4-9f28-4d35-bcf0-ffdd7aceab30"
+      ],
+      "critical_refs": [
+        "note:402ac3a4-9f28-4d35-bcf0-ffdd7aceab30"
+      ],
+      "allowed_supporting_refs": [
+        "post:77c8aef2-d9d9-4578-8d3a-59eb5dbfbda7",
+        "note:f351d19b-4d54-426a-b653-2c6b771efc15"
+      ],
+      "irrelevant_refs": [
+        "note:41a63404-cc97-4fb8-a37e-612bcb15fd98"
+      ],
+      "query_digest": "aac2a4ea4bedcedf04d9ebd2100a01d31ed2ef5c7aefdf1aa74f063a43323c61"
+    },
+    {
+      "sequence": 12,
+      "scenario_id": "live-v2-q12",
+      "cohort": "agentic_complex",
+      "kind": "complete_note_classification",
+      "coverage": "complete",
+      "expected_refs": [
+        "note:9fd458be-d060-4a4b-b055-02d39ff2948e",
+        "note:402ac3a4-9f28-4d35-bcf0-ffdd7aceab30",
+        "note:41a63404-cc97-4fb8-a37e-612bcb15fd98",
+        "note:27a2f06d-3c03-4b6e-bd65-e2ef5f55470e",
+        "note:f351d19b-4d54-426a-b653-2c6b771efc15"
+      ],
+      "critical_refs": [
+        "note:9fd458be-d060-4a4b-b055-02d39ff2948e",
+        "note:402ac3a4-9f28-4d35-bcf0-ffdd7aceab30",
+        "note:41a63404-cc97-4fb8-a37e-612bcb15fd98",
+        "note:27a2f06d-3c03-4b6e-bd65-e2ef5f55470e",
+        "note:f351d19b-4d54-426a-b653-2c6b771efc15"
+      ],
+      "allowed_supporting_refs": [],
+      "irrelevant_refs": [],
+      "query_digest": "ed1041947164af7fdec7a9d1846ac0d65f07cda83ef0f0541f86a5e6df97c400"
+    },
+    {
+      "sequence": 13,
+      "scenario_id": "live-v2-q13",
+      "cohort": "agentic_complex",
+      "kind": "plan_vs_published_audit",
+      "coverage": "relevant",
+      "expected_refs": [
+        "note:27a2f06d-3c03-4b6e-bd65-e2ef5f55470e",
+        "post:1c96b290-1405-417f-a171-995dede3da35",
+        "post:84c753d5-060c-43b3-bb48-1a0e2463dbfb"
+      ],
+      "critical_refs": [
+        "note:27a2f06d-3c03-4b6e-bd65-e2ef5f55470e",
+        "post:1c96b290-1405-417f-a171-995dede3da35",
+        "post:84c753d5-060c-43b3-bb48-1a0e2463dbfb"
+      ],
+      "allowed_supporting_refs": [
+        "post:77c8aef2-d9d9-4578-8d3a-59eb5dbfbda7"
+      ],
+      "irrelevant_refs": [
+        "note:41a63404-cc97-4fb8-a37e-612bcb15fd98"
+      ],
+      "query_digest": "2bd773eec88496c37bcf9080a097fe33efd3bdab3bcd53a72f426fb57c867a6b"
+    },
+    {
+      "sequence": 14,
+      "scenario_id": "live-v2-q14",
+      "cohort": "agentic_complex",
+      "kind": "paired_pain_anaphora",
+      "coverage": "relevant",
+      "expected_refs": [
+        "post:84c753d5-060c-43b3-bb48-1a0e2463dbfb",
+        "post:1c96b290-1405-417f-a171-995dede3da35"
+      ],
+      "critical_refs": [
+        "post:84c753d5-060c-43b3-bb48-1a0e2463dbfb",
+        "post:1c96b290-1405-417f-a171-995dede3da35"
+      ],
+      "allowed_supporting_refs": [
+        "note:402ac3a4-9f28-4d35-bcf0-ffdd7aceab30"
+      ],
+      "irrelevant_refs": [
+        "note:41a63404-cc97-4fb8-a37e-612bcb15fd98"
+      ],
+      "query_digest": "5b107728d4485cec01c9a1b78e59d59ddd048c711f0ffdeec1bbec9cf742f934"
+    },
+    {
+      "sequence": 15,
+      "scenario_id": "live-v2-q15",
+      "cohort": "agentic_complex",
+      "kind": "technical_due_diligence",
+      "coverage": "relevant",
+      "expected_refs": [
+        "note:9fd458be-d060-4a4b-b055-02d39ff2948e",
+        "note:402ac3a4-9f28-4d35-bcf0-ffdd7aceab30",
+        "note:41a63404-cc97-4fb8-a37e-612bcb15fd98"
+      ],
+      "critical_refs": [
+        "note:9fd458be-d060-4a4b-b055-02d39ff2948e",
+        "note:402ac3a4-9f28-4d35-bcf0-ffdd7aceab30",
+        "note:41a63404-cc97-4fb8-a37e-612bcb15fd98"
+      ],
+      "allowed_supporting_refs": [
+        "note:f351d19b-4d54-426a-b653-2c6b771efc15"
+      ],
+      "irrelevant_refs": [
+        "note:27a2f06d-3c03-4b6e-bd65-e2ef5f55470e"
+      ],
+      "query_digest": "ff18f591614110f6c43855e01ca267afd175375de580dbe9e10f00b6d5d6304f"
+    },
+    {
+      "sequence": 16,
+      "scenario_id": "live-v2-q16",
+      "cohort": "agentic_complex",
+      "kind": "apparent_contradiction_resolution",
+      "coverage": "relevant",
+      "expected_refs": [
+        "post:84c753d5-060c-43b3-bb48-1a0e2463dbfb",
+        "note:9fd458be-d060-4a4b-b055-02d39ff2948e"
+      ],
+      "critical_refs": [
+        "post:84c753d5-060c-43b3-bb48-1a0e2463dbfb",
+        "note:9fd458be-d060-4a4b-b055-02d39ff2948e"
+      ],
+      "allowed_supporting_refs": [
+        "note:27a2f06d-3c03-4b6e-bd65-e2ef5f55470e"
+      ],
+      "irrelevant_refs": [
+        "note:41a63404-cc97-4fb8-a37e-612bcb15fd98"
+      ],
+      "query_digest": "31c0c0eb0088517d50fb93a6d7bbd0de089334c0e71575b4e52d593cf3dd354f"
+    },
+    {
+      "sequence": 17,
+      "scenario_id": "live-v2-q17",
+      "cohort": "agentic_complex",
+      "kind": "evidence_grounded_onboarding_plan",
+      "coverage": "relevant",
+      "expected_refs": [
+        "note:41a63404-cc97-4fb8-a37e-612bcb15fd98",
+        "note:402ac3a4-9f28-4d35-bcf0-ffdd7aceab30"
+      ],
+      "critical_refs": [
+        "note:41a63404-cc97-4fb8-a37e-612bcb15fd98",
+        "note:402ac3a4-9f28-4d35-bcf0-ffdd7aceab30"
+      ],
+      "allowed_supporting_refs": [
+        "note:27a2f06d-3c03-4b6e-bd65-e2ef5f55470e",
+        "note:f351d19b-4d54-426a-b653-2c6b771efc15"
+      ],
+      "irrelevant_refs": [],
+      "query_digest": "b0e355837f7ad8011c87c5029910a68649634c80550942142514dd708ac4718c"
+    },
+    {
+      "sequence": 18,
+      "scenario_id": "live-v2-q18",
+      "cohort": "simple_control",
+      "kind": "safety_fact",
+      "coverage": "relevant",
+      "expected_refs": [
+        "note:41a63404-cc97-4fb8-a37e-612bcb15fd98"
+      ],
+      "critical_refs": [
+        "note:41a63404-cc97-4fb8-a37e-612bcb15fd98"
+      ],
+      "allowed_supporting_refs": [],
+      "irrelevant_refs": [
+        "note:402ac3a4-9f28-4d35-bcf0-ffdd7aceab30"
+      ],
+      "query_digest": "7c5b82a752f2e3640d4b31dd8f67aa98f9a8d84af68737e7f09d8f75c921effa"
+    },
+    {
+      "sequence": 19,
+      "scenario_id": "live-v2-q19",
+      "cohort": "agentic_complex",
+      "kind": "multilingual_problem_mapping",
+      "coverage": "relevant",
+      "expected_refs": [
+        "post:1c96b290-1405-417f-a171-995dede3da35",
+        "post:84c753d5-060c-43b3-bb48-1a0e2463dbfb",
+        "note:402ac3a4-9f28-4d35-bcf0-ffdd7aceab30"
+      ],
+      "critical_refs": [
+        "post:1c96b290-1405-417f-a171-995dede3da35",
+        "post:84c753d5-060c-43b3-bb48-1a0e2463dbfb",
+        "note:402ac3a4-9f28-4d35-bcf0-ffdd7aceab30"
+      ],
+      "allowed_supporting_refs": [
+        "note:f351d19b-4d54-426a-b653-2c6b771efc15"
+      ],
+      "irrelevant_refs": [
+        "note:41a63404-cc97-4fb8-a37e-612bcb15fd98"
+      ],
+      "query_digest": "85a00e9841c8c2b932d995775d5276c24cdc664ddccc994270314e270829c99b"
+    },
+    {
+      "sequence": 20,
+      "scenario_id": "live-v2-q20",
+      "cohort": "agentic_complex",
+      "kind": "multilingual_implicit_contour_choice",
+      "coverage": "relevant",
+      "expected_refs": [
+        "note:41a63404-cc97-4fb8-a37e-612bcb15fd98"
+      ],
+      "critical_refs": [
+        "note:41a63404-cc97-4fb8-a37e-612bcb15fd98"
+      ],
+      "allowed_supporting_refs": [],
+      "irrelevant_refs": [
+        "note:402ac3a4-9f28-4d35-bcf0-ffdd7aceab30"
+      ],
+      "query_digest": "f5c6c8c6ab07c9f842e43fcd264b87a8a3eb9a0f8a5a690f88702b8deabf79ad"
+    }
+  ],
+  "privacy": {
+    "contains_credentials": false,
+    "contains_raw_user_content": false,
+    "contains_account_identifier": false,
+    "contains_source_content": false,
+    "contains_raw_provider_output": false
+  }
+}
+
