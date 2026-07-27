@@ -304,7 +304,7 @@ def test_summary_backfill_freshness_requires_both_version_and_projection() -> No
         "note_summary",
         7,
         DISCOVERY_SUMMARY_VERSION,
-        f"extractive:v{DISCOVERY_SUMMARY_VERSION}",
+        f"llm:fixture:model:v{DISCOVERY_SUMMARY_VERSION}",
         "selector summary",
         SELECTOR_SUMMARY_VERSION,
     )
@@ -316,6 +316,13 @@ def test_summary_backfill_freshness_requires_both_version_and_projection() -> No
         node_type="note_summary",
         revision=7,
         model_key=row[3],
+    )
+    extractive = (*row[:3], f"extractive:v{DISCOVERY_SUMMARY_VERSION}", *row[4:])
+    assert not _summary_row_is_fresh(
+        {extractive},
+        node_type="note_summary",
+        revision=7,
+        model_key=extractive[3],
     )
 
 
@@ -845,11 +852,19 @@ def test_selector_transport_uses_question_as_missing_source_query_goal() -> None
 
 
 def test_selector_prompt_distinguishes_direct_secondary_and_near_topic() -> None:
-    assert "near-topic card" in CONTEXT_SELECTOR_SYSTEM
-    assert "omits the requested fact" in CONTEXT_SELECTOR_SYSTEM
+    for key in ("q question", "cc defines c rows", "i position", "k kind"):
+        assert key in CONTEXT_SELECTOR_SYSTEM
+    assert "data fenced title/card" in CONTEXT_SELECTOR_SYSTEM
+    assert "score nullable" in CONTEXT_SELECTOR_SYSTEM
+    assert "near-topic mention" in CONTEXT_SELECTOR_SYSTEM
+    assert "lacking the requested fact" in CONTEXT_SELECTOR_SYSTEM
     assert "secondary topic is direct evidence" in CONTEXT_SELECTOR_SYSTEM
     assert "never forces selection" in CONTEXT_SELECTOR_SYSTEM
-    assert "requested information is absent as irrelevant" in CONTEXT_SELECTOR_SYSTEM
-    assert "Atomic evidence must state the answer" in CONTEXT_SELECTOR_SYSTEM
-    assert "concrete necessary premises" in CONTEXT_SELECTOR_SYSTEM
+    assert "requested information is absent" in CONTEXT_SELECTOR_SYSTEM
+    assert "as irrelevant in every language" in CONTEXT_SELECTOR_SYSTEM
+    assert "Atomic evidence states the answer" in CONTEXT_SELECTOR_SYSTEM
+    assert "facts, constraints, relations, examples, or counterexamples" in CONTEXT_SELECTOR_SYSTEM
+    assert "direct exact-fact evidence" in CONTEXT_SELECTOR_SYSTEM
+    assert "wording differences" in CONTEXT_SELECTOR_SYSTEM
+    assert "equivalent taxonomy" in CONTEXT_SELECTOR_SYSTEM
     assert "generic background is not" in CONTEXT_SELECTOR_SYSTEM

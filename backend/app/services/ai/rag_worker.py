@@ -96,11 +96,14 @@ def _summary_row_is_fresh(
     revision: int,
     model_key: str,
 ) -> bool:
+    if not model_key.startswith("llm:"):
+        return False
     return any(
         item[0] == node_type
         and item[1] == revision
         and item[2] == DISCOVERY_SUMMARY_VERSION
         and item[3] == model_key
+        and item[3].startswith("llm:")
         and bool(item[4])
         and item[5] == SELECTOR_SUMMARY_VERSION
         for item in indexed
@@ -492,7 +495,7 @@ async def _process_job(
     node_type: str,
     file_id: str,
     session: AsyncSession,
-) -> None:
+) -> str | None:
     from app.services.ai.embeddings import resolve_embedding_backend
     from app.services.overlay.tenant_notes import get_tenant_note
 
@@ -512,18 +515,18 @@ async def _process_job(
             await remove_file_nodes_for_parent(
                 session, user_id, scope, note_id, keep_file_ids=set(), tenant_key=tenant_key
             )
-        return
+        return None
 
     user_result = await session.execute(
         text("SELECT id FROM users WHERE id = :uid"),
         {"uid": str(user_id)},
     )
     if user_result.fetchone() is None:
-        return
+        return None
 
     user = await session.get(User, user_id)
     if user is None:
-        return
+        return None
 
     backend = resolve_embedding_backend(user, {}, settings)
     max_chars = settings.rag_max_note_chars
@@ -552,6 +555,7 @@ async def _process_job(
             post_title = text_value.splitlines()[0].strip()[:160]
         post_status = str(post_data.get("status") or "draft").strip().lower()
         post_revision = object_index_revision(post_data)
+        semantic_retry_reason: str | None = None
         if text_value:
             summaries = await _semantic_card(
                 user=user,
@@ -595,8 +599,10 @@ async def _process_job(
                 summary_version=DISCOVERY_SUMMARY_VERSION,
                 summary_model=summaries.model_key,
                 selector_summary=summaries.selector_summary,
-                selector_summary_version=SELECTOR_SUMMARY_VERSION,
+                selector_summary_version=summaries.selector_summary_version,
             )
+            if summaries.selector_summary_version != SELECTOR_SUMMARY_VERSION:
+                semantic_retry_reason = summaries.generation_status
         else:
             await remove_text_node(
                 session, user_id, "global", NODE_POST_TEXT, canonical_id, tenant_key=""
@@ -607,12 +613,12 @@ async def _process_job(
         await _index_post_media_nodes(
             session, user_id, canonical_id, post_data, backend, max_chars=max_chars
         )
-        return
+        return semantic_retry_reason
 
     if tenant_key:
         note_data = await get_tenant_note(session, user_id, tenant_key, scope, note_id)
         if note_data is None:
-            return
+            return None
         title = _clean_object_title(note_data.get("title", ""))
         body = note_data.get("body", "")
         summaries = await _semantic_card(
@@ -640,7 +646,7 @@ async def _process_job(
             discovery_summary_version=DISCOVERY_SUMMARY_VERSION,
             discovery_summary_model=summaries.model_key,
             selector_summary=summaries.selector_summary,
-            selector_summary_version=SELECTOR_SUMMARY_VERSION,
+            selector_summary_version=summaries.selector_summary_version,
         )
         await _index_note_file_nodes(
             session,
@@ -653,7 +659,11 @@ async def _process_job(
             tenant_key=tenant_key,
             max_chars=max_chars,
         )
-        return
+        return (
+            None
+            if summaries.selector_summary_version == SELECTOR_SUMMARY_VERSION
+            else summaries.generation_status
+        )
 
     if scope == "global":
         result = await session.execute(
@@ -664,7 +674,7 @@ async def _process_job(
         )
         note_row = result.scalar_one_or_none()
         if note_row is None:
-            return
+            return None
         note_data = dict(note_row.data)
         summaries = await _semantic_card(
             user=user,
@@ -689,7 +699,7 @@ async def _process_job(
             discovery_summary_version=DISCOVERY_SUMMARY_VERSION,
             discovery_summary_model=summaries.model_key,
             selector_summary=summaries.selector_summary,
-            selector_summary_version=SELECTOR_SUMMARY_VERSION,
+            selector_summary_version=summaries.selector_summary_version,
         )
         await _index_note_file_nodes(
             session,
@@ -702,6 +712,11 @@ async def _process_job(
             tenant_key="",
             max_chars=max_chars,
         )
+        return (
+            None
+            if summaries.selector_summary_version == SELECTOR_SUMMARY_VERSION
+            else summaries.generation_status
+        )
 
     elif scope == "post" and post_id:
         result2 = await session.execute(
@@ -712,7 +727,7 @@ async def _process_job(
         )
         post_row = result2.scalar_one_or_none()
         if post_row is None:
-            return
+            return None
         if is_post_deleted(dict(post_row.data)):
             await remove_note(session, user_id, scope, note_id, tenant_key=tenant_key)
             await remove_file_nodes_for_parent(
@@ -746,7 +761,7 @@ async def _process_job(
                     discovery_summary_version=DISCOVERY_SUMMARY_VERSION,
                     discovery_summary_model=summaries.model_key,
                     selector_summary=summaries.selector_summary,
-                    selector_summary_version=SELECTOR_SUMMARY_VERSION,
+                    selector_summary_version=summaries.selector_summary_version,
                 )
                 await _index_note_file_nodes(
                     session,
@@ -759,7 +774,12 @@ async def _process_job(
                     tenant_key="",
                     max_chars=max_chars,
                 )
-                break
+                return (
+                    None
+                    if summaries.selector_summary_version == SELECTOR_SUMMARY_VERSION
+                    else summaries.generation_status
+                )
+    return None
 
 
 async def startup_backfill_all(session_factory: async_sessionmaker[AsyncSession]) -> None:
@@ -1078,7 +1098,7 @@ async def _process_batch(session_factory: async_sessionmaker[AsyncSession]) -> N
             try:
                 async with session_factory() as s:
                     async with s.begin():
-                        await _process_job(
+                        semantic_retry_reason = await _process_job(
                             jid,
                             uuid.UUID(str(row.user_id)),
                             row.op,
@@ -1092,10 +1112,27 @@ async def _process_batch(session_factory: async_sessionmaker[AsyncSession]) -> N
                         )
                 async with session_factory() as s:
                     async with s.begin():
-                        await s.execute(
-                            text("UPDATE embedding_jobs SET status = 'done' WHERE id = :id"),
-                            {"id": jid},
-                        )
+                        if semantic_retry_reason:
+                            await s.execute(
+                                text(
+                                    "UPDATE embedding_jobs SET status = "
+                                    "CASE WHEN attempts >= :max_att THEN 'failed' ELSE 'pending' END, "
+                                    "error = :err WHERE id = :id"
+                                ),
+                                {
+                                    "id": jid,
+                                    "max_att": MAX_ATTEMPTS,
+                                    "err": f"selector_summary:{semantic_retry_reason}"[:500],
+                                },
+                            )
+                        else:
+                            await s.execute(
+                                text(
+                                    "UPDATE embedding_jobs SET status = 'done', error = NULL "
+                                    "WHERE id = :id"
+                                ),
+                                {"id": jid},
+                            )
             except Exception as exc:
                 logger.warning("Embedding job %s failed: %s", jid, exc)
                 async with session_factory() as s:

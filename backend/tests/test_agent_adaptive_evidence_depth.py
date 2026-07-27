@@ -41,7 +41,10 @@ from app.services.agent.research.sufficiency import evaluate_sufficiency
 from app.services.agent.runtime.context import RuntimeContext
 from app.services.agent.runtime.output_contract import validate_answer_output
 from app.services.ai.note_citations import NoteCite
-from app.services.ai.semantic_summary import DISCOVERY_SUMMARY_VERSION
+from app.services.ai.semantic_summary import (
+    DISCOVERY_SUMMARY_VERSION,
+    SELECTOR_SUMMARY_VERSION,
+)
 from app.services.ai.rag_tools import AgentState
 
 
@@ -716,7 +719,7 @@ async def test_complete_catalog_uses_content_revision_not_structural_catalog_rev
             "summary_version": DISCOVERY_SUMMARY_VERSION,
             "summary_model": f"llm:provider:model:v{DISCOVERY_SUMMARY_VERSION}",
             "selector_summary": "Fresh selector summary",
-            "selector_summary_version": 2,
+            "selector_summary_version": SELECTOR_SUMMARY_VERSION,
         }
     ]
     db_result = MagicMock()
@@ -752,7 +755,7 @@ async def test_complete_catalog_missing_content_revision_fails_closed() -> None:
             "summary_version": DISCOVERY_SUMMARY_VERSION,
             "summary_model": f"llm:provider:model:v{DISCOVERY_SUMMARY_VERSION}",
             "selector_summary": "Selector summary",
-            "selector_summary_version": 2,
+            "selector_summary_version": SELECTOR_SUMMARY_VERSION,
         }
     ]
     db_result = MagicMock()

@@ -30,7 +30,11 @@ from app.services.ai.rag_worker import (
     is_post_deleted,
     startup_backfill_all,
 )
-from app.services.ai.semantic_summary import DISCOVERY_SUMMARY_VERSION, SELECTOR_SUMMARY_VERSION
+from app.services.ai.semantic_summary import (
+    DISCOVERY_SUMMARY_VERSION,
+    SELECTOR_SUMMARY_VERSION,
+    SemanticSummaryProjections,
+)
 from tests.conftest import TestSessionLocal, sample_global_note
 
 
@@ -102,7 +106,7 @@ async def test_startup_backfill_is_model_fingerprint_aware(
             note_data["body"],
             stored_backend,
             discovery_summary_version=DISCOVERY_SUMMARY_VERSION,
-            discovery_summary_model=f"extractive:v{DISCOVERY_SUMMARY_VERSION}",
+            discovery_summary_model=f"llm:test:summary:v{DISCOVERY_SUMMARY_VERSION}",
             selector_summary="Fresh selector summary",
             selector_summary_version=SELECTOR_SUMMARY_VERSION,
         )
@@ -117,6 +121,10 @@ async def test_startup_backfill_is_model_fingerprint_aware(
             "app.services.ai.embeddings.resolve_embedding_backend",
             return_value=current_backend,
         ),
+        patch(
+            "app.services.ai.rag_worker.semantic_summary_model_key",
+            return_value=f"llm:test:summary:v{DISCOVERY_SUMMARY_VERSION}",
+        ),
     ):
         await startup_backfill_all(TestSessionLocal)
 
@@ -129,6 +137,65 @@ async def test_startup_backfill_is_model_fingerprint_aware(
             {"uid": str(writer_user.id), "nid": note_id, "nt": "note_chunk"},
         )
     assert jobs == expected_jobs
+
+
+@pytest.mark.asyncio
+async def test_startup_backfill_requeues_extractively_generated_selector(
+    writer_user: User,
+) -> None:
+    note_id = "extractive-selector-note"
+    note_data = sample_global_note(note_id)
+    backend = MagicMock()
+    backend.model_key = local_embedding_model_key(DEFAULT_LOCAL_EMBEDDING_MODEL)
+    backend.dim = 4
+    backend.embed_passages = AsyncMock(return_value=[[0.1, 0.2, 0.3, 0.4]])
+
+    async with TestSessionLocal() as session:
+        session.add(
+            GlobalNote(
+                id=uuid.uuid4(),
+                user_id=writer_user.id,
+                data=note_data,
+            )
+        )
+        await session.flush()
+        await index_note(
+            session,
+            writer_user.id,
+            "global",
+            note_id,
+            note_data["title"],
+            note_data["body"],
+            backend,
+            discovery_summary_version=DISCOVERY_SUMMARY_VERSION,
+            discovery_summary_model=f"extractive:v{DISCOVERY_SUMMARY_VERSION}",
+            selector_summary="Legacy prefix presented as a Selector card",
+            selector_summary_version=SELECTOR_SUMMARY_VERSION,
+        )
+        await session.commit()
+
+    settings = get_settings().model_copy(update={"rag_enabled": True})
+    with (
+        patch("app.services.ai.rag_worker.get_settings", return_value=settings),
+        patch(
+            "app.services.ai.embeddings.resolve_embedding_backend", return_value=backend
+        ),
+        patch(
+            "app.services.ai.rag_worker.semantic_summary_model_key",
+            return_value=f"extractive:v{DISCOVERY_SUMMARY_VERSION}",
+        ),
+    ):
+        await startup_backfill_all(TestSessionLocal)
+
+    async with TestSessionLocal() as session:
+        jobs = await session.scalar(
+            text(
+                "SELECT count(*) FROM embedding_jobs "
+                "WHERE user_id = :uid AND note_id = :nid AND node_type = :nt"
+            ),
+            {"uid": str(writer_user.id), "nid": note_id, "nt": "note_chunk"},
+        )
+    assert jobs == 1
 
 
 async def _create_backfill_note(email: str, note_id: str) -> User:
@@ -488,6 +555,75 @@ async def test_process_post_text_upsert_indexes_canonical_id_from_stale_job_key(
         mock_index.assert_awaited_once()
         assert mock_index.await_args.args[4] == "3"
         assert mock_index.await_args.kwargs["post_id"] == "3"
+
+
+@pytest.mark.asyncio
+async def test_process_post_never_marks_extractive_selector_as_current(
+    writer_user: User,
+) -> None:
+    row_id = uuid.uuid4()
+    async with TestSessionLocal() as session:
+        session.add(
+            Post(
+                id=row_id,
+                user_id=writer_user.id,
+                position=0,
+                data={"id": "selector-v0-post", "status": "published", "text": "Body"},
+            )
+        )
+        await session.commit()
+
+    summaries = SemanticSummaryProjections(
+        discovery_summary="Discovery fallback",
+        selector_summary="",
+        model_key=f"extractive:v{DISCOVERY_SUMMARY_VERSION}",
+    )
+    backend = MagicMock()
+    backend.model_key = "local:test"
+    backend.dim = 4
+    backend.embed_passages = AsyncMock(return_value=[[0.1, 0.2, 0.3, 0.4]])
+
+    async with TestSessionLocal() as session:
+        with (
+            patch("app.services.ai.rag_worker.get_settings") as mock_settings,
+            patch(
+                "app.services.ai.embeddings.resolve_embedding_backend",
+                return_value=backend,
+            ),
+            patch(
+                "app.services.ai.rag_worker._semantic_card",
+                new_callable=AsyncMock,
+                return_value=summaries,
+            ),
+            patch(
+                "app.services.ai.rag_worker.index_text_node", new_callable=AsyncMock
+            ),
+            patch(
+                "app.services.ai.rag_worker.index_discovery_summary",
+                new_callable=AsyncMock,
+            ) as mock_summary_index,
+            patch(
+                "app.services.ai.rag_worker._index_post_media_nodes",
+                new_callable=AsyncMock,
+            ),
+        ):
+            mock_settings.return_value.rag_max_note_chars = 4000
+            retry_reason = await _process_job(
+                "job-selector-v0",
+                writer_user.id,
+                "upsert",
+                "global",
+                str(row_id),
+                str(row_id),
+                "",
+                NODE_POST_TEXT,
+                "",
+                session,
+            )
+
+    assert mock_summary_index.await_args.kwargs["selector_summary"] == ""
+    assert mock_summary_index.await_args.kwargs["selector_summary_version"] == 0
+    assert retry_reason == "unknown"
 
 
 @pytest.mark.asyncio
