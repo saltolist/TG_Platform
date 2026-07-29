@@ -267,6 +267,85 @@ async def test_semantic_summary_regenerates_overlong_llm_card_without_slicing() 
 
 
 @pytest.mark.asyncio
+async def test_semantic_summary_repair_prompts_progress_across_deterministic_failures() -> None:
+    resolved = (SimpleNamespace(name="OpenAI"), "small", "secret")
+    overlong = (
+        '{"discovery_summary":"Полная discovery карточка.",'
+        f'"selector_summary":"{"x" * (SELECTOR_SUMMARY_MAX_CHARS + 1)}"}}'
+    )
+    complete = AsyncMock(return_value=overlong)
+    with (
+        patch("app.services.ai.semantic_summary.resolve_orchestrator_llm", return_value=resolved),
+        patch("app.services.ai.llm.complete_chat_completion", complete),
+    ):
+        projections = await build_semantic_summary_projections(
+            user=SimpleNamespace(),
+            ai_profile={},
+            settings=Settings(rag_semantic_summaries_enabled=True),
+            object_kind="note",
+            title="Функции",
+            text_value="Подробное перечисление пяти функций.",
+        )
+
+    assert projections.selector_summary == ""
+    assert projections.generation_status == "selector_too_long"
+    assert complete.await_count == 5
+    repair_prompts = [
+        call.kwargs["messages"][-1]["content"]
+        for call in complete.await_args_list[1:]
+    ]
+    assert len(set(repair_prompts)) == 4
+    assert "Repair attempt 2/5" in repair_prompts[0]
+    assert "не длиннее 205 Unicode-символов" in repair_prompts[0]
+    assert "не более 3 предложений" in repair_prompts[0]
+    assert "не более 28 слов всего" in repair_prompts[0]
+    assert "Repair attempt 5/5" in repair_prompts[-1]
+    assert "не длиннее 175 Unicode-символов" in repair_prompts[-1]
+    assert "не более 2 предложений" in repair_prompts[-1]
+    assert "не более 16 слов всего" in repair_prompts[-1]
+
+
+@pytest.mark.asyncio
+async def test_semantic_summary_does_not_force_incidental_negation_into_long_card() -> None:
+    resolved = (SimpleNamespace(name="OpenAI"), "small", "secret")
+    valid = (
+        '{"discovery_summary":"The workspace joins channel operations and knowledge.",'
+        '"selector_summary":"The workspace has six functional zones for channel work."}'
+    )
+    source = (
+        "The workspace has six functional zones for channel work. "
+        + "Detailed operational guidance and examples. " * 80
+        + "It is not a standalone search engine. A draft can be edited before publishing."
+    )
+    with (
+        patch("app.services.ai.semantic_summary.resolve_orchestrator_llm", return_value=resolved),
+        patch(
+            "app.services.ai.llm.complete_chat_completion",
+            new_callable=AsyncMock,
+            return_value=valid,
+        ) as complete,
+    ):
+        projections = await build_semantic_summary_projections(
+            user=SimpleNamespace(),
+            ai_profile={},
+            settings=Settings(rag_semantic_summaries_enabled=True),
+            object_kind="note",
+            title="Workspace",
+            text_value=source,
+        )
+
+    complete.assert_awaited_once()
+    assert projections.generation_status == "llm_valid"
+    assert projections.selector_summary_version == SELECTOR_SUMMARY_VERSION
+    assert projections.selector_semantic_flags == {
+        "v": 1,
+        "explicit_absence": False,
+        "observational_value": False,
+        "record_roles": ["draft_or_proposed"],
+    }
+
+
+@pytest.mark.asyncio
 async def test_semantic_summary_regenerates_when_explicit_negation_is_lost() -> None:
     resolved = (SimpleNamespace(name="OpenAI"), "small", "secret")
     lost = (

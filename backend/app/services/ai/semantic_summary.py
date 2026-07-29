@@ -28,6 +28,7 @@ DISCOVERY_SUMMARY_MAX_CHARS = 480
 SELECTOR_SUMMARY_MAX_CHARS = 240
 SELECTOR_SUMMARY_TARGET_MAX_CHARS = 225
 SEMANTIC_SUMMARY_GENERATION_ATTEMPTS = 5
+COMPACT_SOURCE_PRESERVATION_MAX_CHARS = 1200
 
 _EXPLICIT_NEGATION_RE = re.compile(
     r"(?:\b(?:does|did|is|are|was|were)\s+not\b|\bdoesn't\b|\bwithout\b|"
@@ -327,6 +328,63 @@ def _parse_projection_response(raw: str) -> _ProjectionParseResult:
     )
 
 
+def _projection_repair_instruction(
+    parsed: _ProjectionParseResult,
+    *,
+    next_attempt: int,
+) -> str:
+    failure = str(parsed.failure or "invalid_projection")
+    target_chars = SELECTOR_SUMMARY_TARGET_MAX_CHARS
+    word_limit_instruction = ""
+    if failure == "selector_too_long":
+        # A deterministic provider needs a materially different constraint on
+        # every retry; replaying the same prompt at temperature zero cannot heal.
+        target_chars = max(175, SELECTOR_SUMMARY_TARGET_MAX_CHARS - 20 * (next_attempt - 1))
+        target_words = max(16, 36 - 4 * next_attempt)
+        sentence_count = 3 if next_attempt <= 3 else 2
+        words_per_sentence = 10 if next_attempt in {2, 4} else 8
+        word_limit_instruction = (
+            f" Используй не более {sentence_count} предложений, не более "
+            f"{words_per_sentence} слов в каждом и не более {target_words} слов всего."
+        )
+
+    failure_instruction = {
+        "selector_too_long": (
+            "Переформулируй карточку короче целиком. Убирай вводные слова и повторы, "
+            "но сохрани разные существенные predicates, точные значения, роли и отрицания."
+        ),
+        "selector_negation_lost": (
+            "Повторно прочитай исходный текст и явно сохрани каждое смысловое отрицание "
+            "прямой отрицательной конструкцией на языке документа. Хотя бы одно "
+            "предложение selector_summary должно содержать такую отрицательную пропозицию."
+        ),
+        "selector_record_marker_lost": (
+            "Явно сохрани каждую lifecycle-роль записи из источника: draft/proposed и "
+            "final/signed/approved нельзя обобщать или опускать."
+        ),
+        "selector_incomplete": (
+            "Перепиши selector_summary законченными короткими предложениями без скобок и "
+            "заверши ее ровно одной точкой или восклицательным знаком."
+        ),
+    }.get(
+        failure,
+        "Пересоздай обе проекции как валидный JSON строго по системному контракту.",
+    )
+    return (
+        f"Repair attempt {next_attempt}/{SEMANTIC_SUMMARY_GENERATION_ATTEMPTS}. "
+        f"Невалидная проекция: code={failure}, "
+        f"discovery_chars={parsed.discovery_chars}, selector_chars={parsed.selector_chars}. "
+        f"{failure_instruction} Создай новый JSON заново и не обрезай готовую фразу по "
+        "границе. selector_summary должна быть целиком заново созданной законченной "
+        "карточкой из одного-трех коротких утверждений и быть не длиннее "
+        f"{target_chars} Unicode-символов.{word_limit_instruction} Сохрани предмет, "
+        "predicate, явные значения, "
+        "роли, условия и связи. Если документ явно не задает факт, сформулируй это прямой "
+        "конструкцией отсутствия на языке документа, например not stated, no indica, "
+        "sans donner, nicht angegeben, non specifica, nao informa или не указано."
+    )
+
+
 async def build_semantic_summary_projections(
     *,
     user: User,
@@ -400,6 +458,7 @@ async def build_semantic_summary_projections(
         parsed = _parse_projection_response(raw)
         if (
             not parsed.failure
+            and len(source) <= COMPACT_SOURCE_PRESERVATION_MAX_CHARS
             and not selector_card_has_explicit_absence(source)
             and not _selector_card_preserves_explicit_negation(
                 source, parsed.selector_summary
@@ -410,8 +469,10 @@ async def build_semantic_summary_projections(
                 discovery_chars=parsed.discovery_chars,
                 selector_chars=parsed.selector_chars,
             )
-        if not parsed.failure and not _selector_card_preserves_record_markers(
-            source, parsed.selector_summary
+        if (
+            not parsed.failure
+            and len(source) <= COMPACT_SOURCE_PRESERVATION_MAX_CHARS
+            and not _selector_card_preserves_record_markers(source, parsed.selector_summary)
         ):
             parsed = _ProjectionParseResult(
                 failure="selector_record_marker_lost",
@@ -432,20 +493,9 @@ async def build_semantic_summary_projections(
             *base_messages,
             {
                 "role": "user",
-                "content": (
-                    "Невалидная проекция: "
-                    f"code={parsed.failure}, discovery_chars={parsed.discovery_chars}, "
-                    f"selector_chars={parsed.selector_chars}. Создай новый JSON заново, "
-                    "не обрезай готовую фразу по границе. selector_summary должна быть "
-                    "целиком заново созданной законченной карточкой из одного-трех коротких "
-                    "утверждений и не длиннее "
-                    f"{SELECTOR_SUMMARY_TARGET_MAX_CHARS} Unicode-символов. Сохрани в разных "
-                    "утверждениях предмет, predicate, явные значения, роли, условия и связи; "
-                    "сократи формулировки, а не количество существенных аспектов. Сохрани "
-                    "все lifecycle-роли draft/proposed и final/signed/approved из документа."
-                    " Если документ явно не задает факт, сформулируй это прямой конструкцией "
-                    "отсутствия на языке документа, например not stated, no indica, sans donner, "
-                    "nicht angegeben, non specifica, nao informa или не указано."
+                "content": _projection_repair_instruction(
+                    parsed,
+                    next_attempt=attempt + 2,
                 ),
             },
         ]

@@ -18,6 +18,7 @@ if str(BACKEND_ROOT) not in sys.path:
 
 from app.db.models import AgentEvent, AgentRun
 from app.db.session import async_session_factory
+from app.services.ai.semantic_summary import SELECTOR_SUMMARY_VERSION
 
 
 DEFAULT_MANIFEST = (
@@ -126,9 +127,10 @@ async def inspect(sequence: int, manifest_path: Path) -> dict[str, Any]:
         ),
         "no_validation_errors": not validation_errors,
         "no_position_errors": not (set(validation_errors) & POSITION_ERRORS),
-        "cards_llm_v9_fresh": all(
+        "cards_llm_current_fresh": all(
             item.get("card_origin") == "llm"
-            and item.get("selector_summary_version") == 9
+            and item.get("selector_summary_version") == SELECTOR_SUMMARY_VERSION
+            and (item.get("selector_semantic_flags") or {}).get("v") == 1
             and item.get("selector_summary_fresh") is True
             for item in candidates
         ),
