@@ -1,0 +1,2008 @@
+{
+  "boundary_256": {
+    "actual_total_tokens_availability": "unavailable",
+    "actual_total_tokens_p95": null,
+    "attempts": [],
+    "availability": "not_measured",
+    "candidate_count": 256,
+    "final_canonical_valid": null,
+    "gate_total_tokens_lte_22000": null,
+    "latency_p95_ms": null,
+    "maximum_dialog_context_chars": 3000,
+    "retry_count": 0
+  },
+  "cohort_role": "qualification",
+  "cohort_sha256": "05d1fa8bf24f94716d70d91da7697739918ce19ece2652f04b83f41acf7ee74b",
+  "cohort_version": "2026-07-29-semantic-qualification-v3",
+  "contains_account_identifier": false,
+  "contains_credentials": false,
+  "contains_raw_provider_output": false,
+  "contains_source_or_user_content": false,
+  "end_to_end_qualification": {
+    "availability": "measured",
+    "critical_required_recall": 0.952381,
+    "effective_path": "primary_only",
+    "final_pack_precision": 1.0,
+    "irrelevant_selection_rate": 0.0,
+    "passed": false,
+    "planner_all_passed": true,
+    "position_error_count": 0,
+    "selector_final_valid": 20,
+    "selector_first_attempt_valid": 20,
+    "selector_retries": 0
+  },
+  "estimated_cost": {
+    "availability": "unavailable",
+    "value_usd": null
+  },
+  "evaluation_role": "calibration",
+  "excluded_scenario_ids": [],
+  "input_qualification_status": "untouched",
+  "labels_frozen_before_provider_output": true,
+  "model": "gpt-4.1",
+  "planner_model": "gpt-4.1-mini",
+  "planner_resolution": {
+    "actual_total_tokens_availability": "measured",
+    "actual_total_tokens_max_per_call": 1429,
+    "all_passed": true,
+    "contains_raw_provider_output": false,
+    "contains_source_or_user_content": false,
+    "dialog_resolution_passed_count": 3,
+    "dialog_resolution_scenario_count": 3,
+    "enabled": true,
+    "measured_count": 20,
+    "passed_count": 20,
+    "provider_call_count": 20,
+    "scenario_count": 20,
+    "selector_question_source": "planner.search_query"
+  },
+  "position_error_count": 0,
+  "price_snapshot": {
+    "availability": "unavailable",
+    "version": null
+  },
+  "primary_summary_variant": "240",
+  "provider": "OpenAI",
+  "provider_call_count": 20,
+  "provider_failure_count": 0,
+  "recall_verifier": {
+    "actual_total_tokens_availability": "unavailable",
+    "actual_total_tokens_max_per_call": null,
+    "actual_total_tokens_sum": null,
+    "complete_boundary_call_count": 0,
+    "contains_raw_provider_output": false,
+    "contains_source_or_user_content": false,
+    "gate_latency_p95_lte_10000": null,
+    "gate_max_tokens_per_call_lte_2500": null,
+    "latency_p95_ms": null,
+    "mode": "disabled",
+    "provider_call_count": 0,
+    "retry_count": 0,
+    "schema_results": {},
+    "validation_error_counts": {}
+  },
+  "scenario_filter_applied": false,
+  "schema": "workspace.selector-provider-replay/v1",
+  "schema_results": {
+    "valid": 20
+  },
+  "selector_card_generation": {
+    "all_cards_within_limit": true,
+    "all_llm_v12": true,
+    "contains_raw_provider_output": false,
+    "contains_source_or_user_content": false,
+    "enabled": true,
+    "fixture_retry_count": 0,
+    "generation_status_counts": {
+      "llm_valid": 40,
+      "llm_valid_retry": 1
+    },
+    "llm_v12_count": 41,
+    "maximum_allowed_card_chars": 240,
+    "maximum_card_chars": 171,
+    "required_count": 41,
+    "source": "frozen_fixture_document_body"
+  },
+  "semantic_sample_sufficient": true,
+  "semantic_scenario_count": 20,
+  "semantic_source_scenario_count": 20,
+  "semantic_variant": "baseline",
+  "summary_160_non_inferior_recall": null,
+  "transport_tier": "strict_json_schema",
+  "validation_error_counts": {},
+  "variants": {
+    "240": {
+      "critical_required_recall": 0.952381,
+      "critical_selected": 20,
+      "critical_total": 21,
+      "final_pack_precision": 1.0,
+      "final_valid": 20,
+      "first_attempt_valid": 20,
+      "irrelevant_selected": 0,
+      "irrelevant_selection_rate": 0.0,
+      "irrelevant_total": 20,
+      "language_cohorts": {
+        "de": {
+          "critical_required_recall": 0.0,
+          "critical_selected": 0,
+          "critical_total": 1,
+          "final_pack_precision": null,
+          "irrelevant_selected": 0,
+          "irrelevant_selection_rate": 0.0,
+          "irrelevant_total": 1,
+          "relevant_selected": 0,
+          "relevant_total": 1,
+          "required_recall": 0.0,
+          "required_selected": 0,
+          "required_total": 1,
+          "selected_total": 0
+        },
+        "en": {
+          "critical_required_recall": 1.0,
+          "critical_selected": 6,
+          "critical_total": 6,
+          "final_pack_precision": 1.0,
+          "irrelevant_selected": 0,
+          "irrelevant_selection_rate": 0.0,
+          "irrelevant_total": 5,
+          "relevant_selected": 6,
+          "relevant_total": 6,
+          "required_recall": 1.0,
+          "required_selected": 6,
+          "required_total": 6,
+          "selected_total": 6
+        },
+        "es": {
+          "critical_required_recall": 1.0,
+          "critical_selected": 1,
+          "critical_total": 1,
+          "final_pack_precision": 1.0,
+          "irrelevant_selected": 0,
+          "irrelevant_selection_rate": 0.0,
+          "irrelevant_total": 1,
+          "relevant_selected": 1,
+          "relevant_total": 1,
+          "required_recall": 1.0,
+          "required_selected": 1,
+          "required_total": 1,
+          "selected_total": 1
+        },
+        "fr": {
+          "critical_required_recall": 1.0,
+          "critical_selected": 2,
+          "critical_total": 2,
+          "final_pack_precision": 1.0,
+          "irrelevant_selected": 0,
+          "irrelevant_selection_rate": 0.0,
+          "irrelevant_total": 2,
+          "relevant_selected": 2,
+          "relevant_total": 2,
+          "required_recall": 1.0,
+          "required_selected": 2,
+          "required_total": 2,
+          "selected_total": 2
+        },
+        "it": {
+          "critical_required_recall": 1.0,
+          "critical_selected": 1,
+          "critical_total": 1,
+          "final_pack_precision": 1.0,
+          "irrelevant_selected": 0,
+          "irrelevant_selection_rate": 0.0,
+          "irrelevant_total": 1,
+          "relevant_selected": 1,
+          "relevant_total": 1,
+          "required_recall": 1.0,
+          "required_selected": 1,
+          "required_total": 1,
+          "selected_total": 1
+        },
+        "mixed": {
+          "critical_required_recall": 1.0,
+          "critical_selected": 2,
+          "critical_total": 2,
+          "final_pack_precision": 1.0,
+          "irrelevant_selected": 0,
+          "irrelevant_selection_rate": 0.0,
+          "irrelevant_total": 2,
+          "relevant_selected": 2,
+          "relevant_total": 2,
+          "required_recall": 1.0,
+          "required_selected": 2,
+          "required_total": 2,
+          "selected_total": 2
+        },
+        "pt": {
+          "critical_required_recall": 1.0,
+          "critical_selected": 1,
+          "critical_total": 1,
+          "final_pack_precision": 1.0,
+          "irrelevant_selected": 0,
+          "irrelevant_selection_rate": 0.0,
+          "irrelevant_total": 1,
+          "relevant_selected": 1,
+          "relevant_total": 1,
+          "required_recall": 1.0,
+          "required_selected": 1,
+          "required_total": 1,
+          "selected_total": 1
+        },
+        "ru": {
+          "critical_required_recall": 1.0,
+          "critical_selected": 7,
+          "critical_total": 7,
+          "final_pack_precision": 1.0,
+          "irrelevant_selected": 0,
+          "irrelevant_selection_rate": 0.0,
+          "irrelevant_total": 7,
+          "relevant_selected": 7,
+          "relevant_total": 7,
+          "required_recall": 1.0,
+          "required_selected": 7,
+          "required_total": 7,
+          "selected_total": 7
+        }
+      },
+      "recall_verifier": {
+        "called_scenarios": 0,
+        "confusion_matrix": {
+          "correct_noop": 0,
+          "false_promotion": 0,
+          "recovered_true_positive": 0,
+          "remaining_false_negative": 0
+        },
+        "eligible_scenarios": 0,
+        "failure_result_change_count": 0,
+        "mode": "disabled",
+        "post_admission": {
+          "critical_required_recall": 0.952381,
+          "critical_selected": 20,
+          "critical_total": 21,
+          "final_pack_precision": 1.0,
+          "irrelevant_selected": 0,
+          "irrelevant_selection_rate": 0.0,
+          "irrelevant_total": 20,
+          "language_cohorts": {
+            "de": {
+              "critical_required_recall": 0.0,
+              "critical_selected": 0,
+              "critical_total": 1,
+              "final_pack_precision": null,
+              "irrelevant_selected": 0,
+              "irrelevant_selection_rate": 0.0,
+              "irrelevant_total": 1,
+              "relevant_selected": 0,
+              "relevant_total": 1,
+              "required_recall": 0.0,
+              "required_selected": 0,
+              "required_total": 1,
+              "selected_total": 0
+            },
+            "en": {
+              "critical_required_recall": 1.0,
+              "critical_selected": 6,
+              "critical_total": 6,
+              "final_pack_precision": 1.0,
+              "irrelevant_selected": 0,
+              "irrelevant_selection_rate": 0.0,
+              "irrelevant_total": 5,
+              "relevant_selected": 6,
+              "relevant_total": 6,
+              "required_recall": 1.0,
+              "required_selected": 6,
+              "required_total": 6,
+              "selected_total": 6
+            },
+            "es": {
+              "critical_required_recall": 1.0,
+              "critical_selected": 1,
+              "critical_total": 1,
+              "final_pack_precision": 1.0,
+              "irrelevant_selected": 0,
+              "irrelevant_selection_rate": 0.0,
+              "irrelevant_total": 1,
+              "relevant_selected": 1,
+              "relevant_total": 1,
+              "required_recall": 1.0,
+              "required_selected": 1,
+              "required_total": 1,
+              "selected_total": 1
+            },
+            "fr": {
+              "critical_required_recall": 1.0,
+              "critical_selected": 2,
+              "critical_total": 2,
+              "final_pack_precision": 1.0,
+              "irrelevant_selected": 0,
+              "irrelevant_selection_rate": 0.0,
+              "irrelevant_total": 2,
+              "relevant_selected": 2,
+              "relevant_total": 2,
+              "required_recall": 1.0,
+              "required_selected": 2,
+              "required_total": 2,
+              "selected_total": 2
+            },
+            "it": {
+              "critical_required_recall": 1.0,
+              "critical_selected": 1,
+              "critical_total": 1,
+              "final_pack_precision": 1.0,
+              "irrelevant_selected": 0,
+              "irrelevant_selection_rate": 0.0,
+              "irrelevant_total": 1,
+              "relevant_selected": 1,
+              "relevant_total": 1,
+              "required_recall": 1.0,
+              "required_selected": 1,
+              "required_total": 1,
+              "selected_total": 1
+            },
+            "mixed": {
+              "critical_required_recall": 1.0,
+              "critical_selected": 2,
+              "critical_total": 2,
+              "final_pack_precision": 1.0,
+              "irrelevant_selected": 0,
+              "irrelevant_selection_rate": 0.0,
+              "irrelevant_total": 2,
+              "relevant_selected": 2,
+              "relevant_total": 2,
+              "required_recall": 1.0,
+              "required_selected": 2,
+              "required_total": 2,
+              "selected_total": 2
+            },
+            "pt": {
+              "critical_required_recall": 1.0,
+              "critical_selected": 1,
+              "critical_total": 1,
+              "final_pack_precision": 1.0,
+              "irrelevant_selected": 0,
+              "irrelevant_selection_rate": 0.0,
+              "irrelevant_total": 1,
+              "relevant_selected": 1,
+              "relevant_total": 1,
+              "required_recall": 1.0,
+              "required_selected": 1,
+              "required_total": 1,
+              "selected_total": 1
+            },
+            "ru": {
+              "critical_required_recall": 1.0,
+              "critical_selected": 7,
+              "critical_total": 7,
+              "final_pack_precision": 1.0,
+              "irrelevant_selected": 0,
+              "irrelevant_selection_rate": 0.0,
+              "irrelevant_total": 7,
+              "relevant_selected": 7,
+              "relevant_total": 7,
+              "required_recall": 1.0,
+              "required_selected": 7,
+              "required_total": 7,
+              "selected_total": 7
+            }
+          },
+          "relevant_selected": 20,
+          "relevant_total": 21,
+          "required_recall": 0.952381,
+          "required_selected": 20,
+          "required_total": 21,
+          "selected_total": 20
+        },
+        "primary_selected_removal_count": 0,
+        "retry_count": 0,
+        "valid_calls": 0
+      },
+      "relevant_selected": 20,
+      "relevant_total": 21,
+      "required_recall": 0.952381,
+      "required_selected": 20,
+      "required_total": 21,
+      "retries": 0,
+      "scenario_count": 20,
+      "scenario_rows": [
+        {
+          "attempt_count": 1,
+          "attempts": [
+            {
+              "attempt": 1,
+              "schema_result": "valid",
+              "validation_error_codes": []
+            }
+          ],
+          "attribution_boundary": "none",
+          "candidate_count": 2,
+          "card_signal_by_position": [
+            {
+              "card_chars": 92,
+              "card_origin": "llm",
+              "constraint_marker_preserved": true,
+              "numeric_markers_preserved": true,
+              "position": 0,
+              "selector_summary_fresh": true,
+              "source_constraint_marker_present": false,
+              "source_numeric_marker_count": 1,
+              "title_anchor_present": true
+            },
+            {
+              "card_chars": 136,
+              "card_origin": "llm",
+              "constraint_marker_preserved": true,
+              "numeric_markers_preserved": true,
+              "position": 1,
+              "selector_summary_fresh": true,
+              "source_constraint_marker_present": true,
+              "source_numeric_marker_count": 2,
+              "title_anchor_present": true
+            }
+          ],
+          "dialog_context_chars": 0,
+          "dialog_context_present": false,
+          "expected": {
+            "critical_positions": [
+              1
+            ],
+            "irrelevant_positions": [
+              0
+            ],
+            "required_positions": [
+              1
+            ]
+          },
+          "explicit_answer_slot_absence_positions": [],
+          "missed_critical_refs": [],
+          "planner_resolution": {
+            "actual_call_type": "read",
+            "availability": "measured",
+            "contains_raw_provider_output": false,
+            "contains_source_or_user_content": false,
+            "contract_version": 3,
+            "dialog_resolution_required": false,
+            "expected_call_type": "read",
+            "forbidden_term_count": 0,
+            "forbidden_term_matches": [],
+            "passed": true,
+            "required_term_group_count": 0,
+            "required_term_group_matches": [],
+            "resolved_query_chars": 39,
+            "resolved_query_sha256": "d0085d0c1bce058eb87b8d789e6fbde8e1819c047df710d3fda0b1d954c74dd3",
+            "source_requirement_count": 6
+          },
+          "reason_codes_by_position": {
+            "0": "ambiguous",
+            "1": "exact_fact"
+          },
+          "scenario_id": "s1-simple-ru",
+          "selected_irrelevant_refs": [],
+          "selected_positions": [
+            1
+          ],
+          "unassessed_critical_refs": []
+        },
+        {
+          "attempt_count": 1,
+          "attempts": [
+            {
+              "attempt": 1,
+              "schema_result": "valid",
+              "validation_error_codes": []
+            }
+          ],
+          "attribution_boundary": "none",
+          "candidate_count": 2,
+          "card_signal_by_position": [
+            {
+              "card_chars": 82,
+              "card_origin": "llm",
+              "constraint_marker_preserved": true,
+              "numeric_markers_preserved": true,
+              "position": 0,
+              "selector_summary_fresh": true,
+              "source_constraint_marker_present": false,
+              "source_numeric_marker_count": 0,
+              "title_anchor_present": true
+            },
+            {
+              "card_chars": 101,
+              "card_origin": "llm",
+              "constraint_marker_preserved": true,
+              "numeric_markers_preserved": true,
+              "position": 1,
+              "selector_summary_fresh": true,
+              "source_constraint_marker_present": false,
+              "source_numeric_marker_count": 0,
+              "title_anchor_present": true
+            }
+          ],
+          "dialog_context_chars": 0,
+          "dialog_context_present": false,
+          "expected": {
+            "critical_positions": [
+              0
+            ],
+            "irrelevant_positions": [
+              1
+            ],
+            "required_positions": [
+              0
+            ]
+          },
+          "explicit_answer_slot_absence_positions": [
+            1
+          ],
+          "missed_critical_refs": [],
+          "planner_resolution": {
+            "actual_call_type": "read",
+            "availability": "measured",
+            "contains_raw_provider_output": false,
+            "contains_source_or_user_content": false,
+            "contract_version": 3,
+            "dialog_resolution_required": false,
+            "expected_call_type": "read",
+            "forbidden_term_count": 0,
+            "forbidden_term_matches": [],
+            "passed": true,
+            "required_term_group_count": 0,
+            "required_term_group_matches": [],
+            "resolved_query_chars": 41,
+            "resolved_query_sha256": "adcd9454061fb81b833dd2e96b78006e9fcb5e8e65c4c947330b2c5814c7af9e",
+            "source_requirement_count": 6
+          },
+          "reason_codes_by_position": {
+            "0": "exact_fact",
+            "1": "topic_only"
+          },
+          "scenario_id": "s2-simple-en",
+          "selected_irrelevant_refs": [],
+          "selected_positions": [
+            0
+          ],
+          "unassessed_critical_refs": []
+        },
+        {
+          "attempt_count": 1,
+          "attempts": [
+            {
+              "attempt": 1,
+              "schema_result": "valid",
+              "validation_error_codes": []
+            }
+          ],
+          "attribution_boundary": "none",
+          "candidate_count": 2,
+          "card_signal_by_position": [
+            {
+              "card_chars": 84,
+              "card_origin": "llm",
+              "constraint_marker_preserved": true,
+              "numeric_markers_preserved": true,
+              "position": 0,
+              "selector_summary_fresh": true,
+              "source_constraint_marker_present": true,
+              "source_numeric_marker_count": 0,
+              "title_anchor_present": true
+            },
+            {
+              "card_chars": 91,
+              "card_origin": "llm",
+              "constraint_marker_preserved": true,
+              "numeric_markers_preserved": true,
+              "position": 1,
+              "selector_summary_fresh": true,
+              "source_constraint_marker_present": true,
+              "source_numeric_marker_count": 0,
+              "title_anchor_present": true
+            }
+          ],
+          "dialog_context_chars": 0,
+          "dialog_context_present": false,
+          "expected": {
+            "critical_positions": [
+              1
+            ],
+            "irrelevant_positions": [
+              0
+            ],
+            "required_positions": [
+              1
+            ]
+          },
+          "explicit_answer_slot_absence_positions": [],
+          "missed_critical_refs": [],
+          "planner_resolution": {
+            "actual_call_type": "read",
+            "availability": "measured",
+            "contains_raw_provider_output": false,
+            "contains_source_or_user_content": false,
+            "contract_version": 3,
+            "dialog_resolution_required": true,
+            "expected_call_type": "read",
+            "forbidden_term_count": 1,
+            "forbidden_term_matches": [
+              false
+            ],
+            "passed": true,
+            "required_term_group_count": 2,
+            "required_term_group_matches": [
+              true,
+              true
+            ],
+            "resolved_query_chars": 40,
+            "resolved_query_sha256": "e68b41664a3366efa91689d2d4702e8a1cb06b16414d66a2ef279f1d6ef9ea05",
+            "source_requirement_count": 6
+          },
+          "reason_codes_by_position": {
+            "0": "topic_only",
+            "1": "exact_fact"
+          },
+          "scenario_id": "s3-anaphora-ru",
+          "selected_irrelevant_refs": [],
+          "selected_positions": [
+            1
+          ],
+          "unassessed_critical_refs": []
+        },
+        {
+          "attempt_count": 1,
+          "attempts": [
+            {
+              "attempt": 1,
+              "schema_result": "valid",
+              "validation_error_codes": []
+            }
+          ],
+          "attribution_boundary": "none",
+          "candidate_count": 2,
+          "card_signal_by_position": [
+            {
+              "card_chars": 93,
+              "card_origin": "llm",
+              "constraint_marker_preserved": true,
+              "numeric_markers_preserved": true,
+              "position": 0,
+              "selector_summary_fresh": true,
+              "source_constraint_marker_present": false,
+              "source_numeric_marker_count": 1,
+              "title_anchor_present": true
+            },
+            {
+              "card_chars": 82,
+              "card_origin": "llm",
+              "constraint_marker_preserved": true,
+              "numeric_markers_preserved": true,
+              "position": 1,
+              "selector_summary_fresh": true,
+              "source_constraint_marker_present": true,
+              "source_numeric_marker_count": 1,
+              "title_anchor_present": true
+            }
+          ],
+          "dialog_context_chars": 0,
+          "dialog_context_present": false,
+          "expected": {
+            "critical_positions": [
+              1
+            ],
+            "irrelevant_positions": [
+              0
+            ],
+            "required_positions": [
+              1
+            ]
+          },
+          "explicit_answer_slot_absence_positions": [],
+          "missed_critical_refs": [],
+          "planner_resolution": {
+            "actual_call_type": "read",
+            "availability": "measured",
+            "contains_raw_provider_output": false,
+            "contains_source_or_user_content": false,
+            "contract_version": 3,
+            "dialog_resolution_required": true,
+            "expected_call_type": "read",
+            "forbidden_term_count": 1,
+            "forbidden_term_matches": [
+              false
+            ],
+            "passed": true,
+            "required_term_group_count": 3,
+            "required_term_group_matches": [
+              true,
+              true,
+              true
+            ],
+            "resolved_query_chars": 53,
+            "resolved_query_sha256": "7f80f61eb2aa1e24261b68c6ed2caaeecd2c9b11946af87fc69995c0041fc347",
+            "source_requirement_count": 6
+          },
+          "reason_codes_by_position": {
+            "0": "unrelated_topic",
+            "1": "exact_fact"
+          },
+          "scenario_id": "s4-anaphora-en",
+          "selected_irrelevant_refs": [],
+          "selected_positions": [
+            1
+          ],
+          "unassessed_critical_refs": []
+        },
+        {
+          "attempt_count": 1,
+          "attempts": [
+            {
+              "attempt": 1,
+              "schema_result": "valid",
+              "validation_error_codes": []
+            }
+          ],
+          "attribution_boundary": "none",
+          "candidate_count": 2,
+          "card_signal_by_position": [
+            {
+              "card_chars": 75,
+              "card_origin": "llm",
+              "constraint_marker_preserved": true,
+              "numeric_markers_preserved": true,
+              "position": 0,
+              "selector_summary_fresh": true,
+              "source_constraint_marker_present": false,
+              "source_numeric_marker_count": 1,
+              "title_anchor_present": true
+            },
+            {
+              "card_chars": 124,
+              "card_origin": "llm",
+              "constraint_marker_preserved": true,
+              "numeric_markers_preserved": true,
+              "position": 1,
+              "selector_summary_fresh": true,
+              "source_constraint_marker_present": true,
+              "source_numeric_marker_count": 1,
+              "title_anchor_present": true
+            }
+          ],
+          "dialog_context_chars": 0,
+          "dialog_context_present": false,
+          "expected": {
+            "critical_positions": [
+              1
+            ],
+            "irrelevant_positions": [
+              0
+            ],
+            "required_positions": [
+              1
+            ]
+          },
+          "explicit_answer_slot_absence_positions": [],
+          "missed_critical_refs": [],
+          "planner_resolution": {
+            "actual_call_type": "read",
+            "availability": "measured",
+            "contains_raw_provider_output": false,
+            "contains_source_or_user_content": false,
+            "contract_version": 3,
+            "dialog_resolution_required": false,
+            "expected_call_type": "read",
+            "forbidden_term_count": 0,
+            "forbidden_term_matches": [],
+            "passed": true,
+            "required_term_group_count": 0,
+            "required_term_group_matches": [],
+            "resolved_query_chars": 36,
+            "resolved_query_sha256": "719bb5eaa23bc9bb8cf02dbf308e3544bd536f30f42f012dfb7096b7842636f9",
+            "source_requirement_count": 2
+          },
+          "reason_codes_by_position": {
+            "0": "unrelated_topic",
+            "1": "quote"
+          },
+          "scenario_id": "s5-implied-ru",
+          "selected_irrelevant_refs": [],
+          "selected_positions": [
+            1
+          ],
+          "unassessed_critical_refs": []
+        },
+        {
+          "attempt_count": 1,
+          "attempts": [
+            {
+              "attempt": 1,
+              "schema_result": "valid",
+              "validation_error_codes": []
+            }
+          ],
+          "attribution_boundary": "none",
+          "candidate_count": 2,
+          "card_signal_by_position": [
+            {
+              "card_chars": 88,
+              "card_origin": "llm",
+              "constraint_marker_preserved": true,
+              "numeric_markers_preserved": true,
+              "position": 0,
+              "selector_summary_fresh": true,
+              "source_constraint_marker_present": false,
+              "source_numeric_marker_count": 0,
+              "title_anchor_present": true
+            },
+            {
+              "card_chars": 107,
+              "card_origin": "llm",
+              "constraint_marker_preserved": true,
+              "numeric_markers_preserved": true,
+              "position": 1,
+              "selector_summary_fresh": true,
+              "source_constraint_marker_present": false,
+              "source_numeric_marker_count": 1,
+              "title_anchor_present": true
+            }
+          ],
+          "dialog_context_chars": 0,
+          "dialog_context_present": false,
+          "expected": {
+            "critical_positions": [
+              0
+            ],
+            "irrelevant_positions": [
+              1
+            ],
+            "required_positions": [
+              0
+            ]
+          },
+          "explicit_answer_slot_absence_positions": [],
+          "missed_critical_refs": [],
+          "planner_resolution": {
+            "actual_call_type": "read",
+            "availability": "measured",
+            "contains_raw_provider_output": false,
+            "contains_source_or_user_content": false,
+            "contract_version": 3,
+            "dialog_resolution_required": false,
+            "expected_call_type": "read",
+            "forbidden_term_count": 0,
+            "forbidden_term_matches": [],
+            "passed": true,
+            "required_term_group_count": 0,
+            "required_term_group_matches": [],
+            "resolved_query_chars": 47,
+            "resolved_query_sha256": "ec1a5455eef77b0ab8c77c246402ce003ae4cda7dea52078e0c46ef1c68e5544",
+            "source_requirement_count": 3
+          },
+          "reason_codes_by_position": {
+            "0": "exact_fact",
+            "1": "unrelated_topic"
+          },
+          "scenario_id": "s6-implied-en",
+          "selected_irrelevant_refs": [],
+          "selected_positions": [
+            0
+          ],
+          "unassessed_critical_refs": []
+        },
+        {
+          "attempt_count": 1,
+          "attempts": [
+            {
+              "attempt": 1,
+              "schema_result": "valid",
+              "validation_error_codes": []
+            }
+          ],
+          "attribution_boundary": "none",
+          "candidate_count": 2,
+          "card_signal_by_position": [
+            {
+              "card_chars": 124,
+              "card_origin": "llm",
+              "constraint_marker_preserved": true,
+              "numeric_markers_preserved": true,
+              "position": 0,
+              "selector_summary_fresh": true,
+              "source_constraint_marker_present": false,
+              "source_numeric_marker_count": 0,
+              "title_anchor_present": true
+            },
+            {
+              "card_chars": 114,
+              "card_origin": "llm",
+              "constraint_marker_preserved": true,
+              "numeric_markers_preserved": true,
+              "position": 1,
+              "selector_summary_fresh": true,
+              "source_constraint_marker_present": false,
+              "source_numeric_marker_count": 0,
+              "title_anchor_present": true
+            }
+          ],
+          "dialog_context_chars": 0,
+          "dialog_context_present": false,
+          "expected": {
+            "critical_positions": [
+              1
+            ],
+            "irrelevant_positions": [
+              0
+            ],
+            "required_positions": [
+              1
+            ]
+          },
+          "explicit_answer_slot_absence_positions": [],
+          "missed_critical_refs": [],
+          "planner_resolution": {
+            "actual_call_type": "read",
+            "availability": "measured",
+            "contains_raw_provider_output": false,
+            "contains_source_or_user_content": false,
+            "contract_version": 3,
+            "dialog_resolution_required": false,
+            "expected_call_type": "read",
+            "forbidden_term_count": 0,
+            "forbidden_term_matches": [],
+            "passed": true,
+            "required_term_group_count": 0,
+            "required_term_group_matches": [],
+            "resolved_query_chars": 49,
+            "resolved_query_sha256": "a3ffd2195b8375cda25cd84ae1455d42d9c84b2413c4d29f305a620738bf29e1",
+            "source_requirement_count": 6
+          },
+          "reason_codes_by_position": {
+            "0": "unrelated_topic",
+            "1": "exact_fact"
+          },
+          "scenario_id": "s7-secondary-ru",
+          "selected_irrelevant_refs": [],
+          "selected_positions": [
+            1
+          ],
+          "unassessed_critical_refs": []
+        },
+        {
+          "attempt_count": 1,
+          "attempts": [
+            {
+              "attempt": 1,
+              "schema_result": "valid",
+              "validation_error_codes": []
+            }
+          ],
+          "attribution_boundary": "none",
+          "candidate_count": 2,
+          "card_signal_by_position": [
+            {
+              "card_chars": 120,
+              "card_origin": "llm",
+              "constraint_marker_preserved": true,
+              "numeric_markers_preserved": true,
+              "position": 0,
+              "selector_summary_fresh": true,
+              "source_constraint_marker_present": false,
+              "source_numeric_marker_count": 0,
+              "title_anchor_present": true
+            },
+            {
+              "card_chars": 79,
+              "card_origin": "llm",
+              "constraint_marker_preserved": true,
+              "numeric_markers_preserved": true,
+              "position": 1,
+              "selector_summary_fresh": true,
+              "source_constraint_marker_present": false,
+              "source_numeric_marker_count": 0,
+              "title_anchor_present": true
+            }
+          ],
+          "dialog_context_chars": 0,
+          "dialog_context_present": false,
+          "expected": {
+            "critical_positions": [
+              0
+            ],
+            "irrelevant_positions": [
+              1
+            ],
+            "required_positions": [
+              0
+            ]
+          },
+          "explicit_answer_slot_absence_positions": [
+            1
+          ],
+          "missed_critical_refs": [],
+          "planner_resolution": {
+            "actual_call_type": "read",
+            "availability": "measured",
+            "contains_raw_provider_output": false,
+            "contains_source_or_user_content": false,
+            "contract_version": 3,
+            "dialog_resolution_required": false,
+            "expected_call_type": "read",
+            "forbidden_term_count": 0,
+            "forbidden_term_matches": [],
+            "passed": true,
+            "required_term_group_count": 0,
+            "required_term_group_matches": [],
+            "resolved_query_chars": 47,
+            "resolved_query_sha256": "5acdffd28ea42f36c8b8bafe5511788162de22732f0e85b1b96321b60b37dd38",
+            "source_requirement_count": 6
+          },
+          "reason_codes_by_position": {
+            "0": "exact_fact",
+            "1": "unrelated_topic"
+          },
+          "scenario_id": "s8-secondary-en",
+          "selected_irrelevant_refs": [],
+          "selected_positions": [
+            0
+          ],
+          "unassessed_critical_refs": []
+        },
+        {
+          "attempt_count": 1,
+          "attempts": [
+            {
+              "attempt": 1,
+              "schema_result": "valid",
+              "validation_error_codes": []
+            }
+          ],
+          "attribution_boundary": "none",
+          "candidate_count": 2,
+          "card_signal_by_position": [
+            {
+              "card_chars": 97,
+              "card_origin": "llm",
+              "constraint_marker_preserved": true,
+              "numeric_markers_preserved": true,
+              "position": 0,
+              "selector_summary_fresh": true,
+              "source_constraint_marker_present": false,
+              "source_numeric_marker_count": 2,
+              "title_anchor_present": true
+            },
+            {
+              "card_chars": 121,
+              "card_origin": "llm",
+              "constraint_marker_preserved": true,
+              "numeric_markers_preserved": true,
+              "position": 1,
+              "selector_summary_fresh": true,
+              "source_constraint_marker_present": false,
+              "source_numeric_marker_count": 2,
+              "title_anchor_present": true
+            }
+          ],
+          "dialog_context_chars": 0,
+          "dialog_context_present": false,
+          "expected": {
+            "critical_positions": [
+              1
+            ],
+            "irrelevant_positions": [
+              0
+            ],
+            "required_positions": [
+              1
+            ]
+          },
+          "explicit_answer_slot_absence_positions": [],
+          "missed_critical_refs": [],
+          "planner_resolution": {
+            "actual_call_type": "read",
+            "availability": "measured",
+            "contains_raw_provider_output": false,
+            "contains_source_or_user_content": false,
+            "contract_version": 3,
+            "dialog_resolution_required": false,
+            "expected_call_type": "read",
+            "forbidden_term_count": 0,
+            "forbidden_term_matches": [],
+            "passed": true,
+            "required_term_group_count": 0,
+            "required_term_group_matches": [],
+            "resolved_query_chars": 45,
+            "resolved_query_sha256": "607c90dec38b0892f116fa69a6d3350b8236da2e8b0dcea04d48f882d902813f",
+            "source_requirement_count": 6
+          },
+          "reason_codes_by_position": {
+            "0": "unrelated_topic",
+            "1": "exact_fact"
+          },
+          "scenario_id": "s9-near-topic-es",
+          "selected_irrelevant_refs": [],
+          "selected_positions": [
+            1
+          ],
+          "unassessed_critical_refs": []
+        },
+        {
+          "attempt_count": 1,
+          "attempts": [
+            {
+              "attempt": 1,
+              "schema_result": "valid",
+              "validation_error_codes": []
+            }
+          ],
+          "attribution_boundary": "selector",
+          "candidate_count": 2,
+          "card_signal_by_position": [
+            {
+              "card_chars": 151,
+              "card_origin": "llm",
+              "constraint_marker_preserved": true,
+              "numeric_markers_preserved": true,
+              "position": 0,
+              "selector_summary_fresh": true,
+              "source_constraint_marker_present": false,
+              "source_numeric_marker_count": 0,
+              "title_anchor_present": true
+            },
+            {
+              "card_chars": 128,
+              "card_origin": "llm",
+              "constraint_marker_preserved": true,
+              "numeric_markers_preserved": true,
+              "position": 1,
+              "selector_summary_fresh": true,
+              "source_constraint_marker_present": false,
+              "source_numeric_marker_count": 0,
+              "title_anchor_present": true
+            }
+          ],
+          "dialog_context_chars": 0,
+          "dialog_context_present": false,
+          "expected": {
+            "critical_positions": [
+              0
+            ],
+            "irrelevant_positions": [
+              1
+            ],
+            "required_positions": [
+              0
+            ]
+          },
+          "explicit_answer_slot_absence_positions": [
+            0
+          ],
+          "missed_critical_refs": [
+            "post:fixture-s10-d"
+          ],
+          "planner_resolution": {
+            "actual_call_type": "read",
+            "availability": "measured",
+            "contains_raw_provider_output": false,
+            "contains_source_or_user_content": false,
+            "contract_version": 3,
+            "dialog_resolution_required": false,
+            "expected_call_type": "read",
+            "forbidden_term_count": 0,
+            "forbidden_term_matches": [],
+            "passed": true,
+            "required_term_group_count": 0,
+            "required_term_group_matches": [],
+            "resolved_query_chars": 34,
+            "resolved_query_sha256": "ec3fa887831856507f5db9e5e0480c1e37e3ebfa90aed7161a481cfa8a61cacb",
+            "source_requirement_count": 6
+          },
+          "reason_codes_by_position": {
+            "0": "topic_only",
+            "1": "unrelated_topic"
+          },
+          "scenario_id": "s10-near-topic-de",
+          "selected_irrelevant_refs": [],
+          "selected_positions": [],
+          "unassessed_critical_refs": []
+        },
+        {
+          "attempt_count": 1,
+          "attempts": [
+            {
+              "attempt": 1,
+              "schema_result": "valid",
+              "validation_error_codes": []
+            }
+          ],
+          "attribution_boundary": "none",
+          "candidate_count": 2,
+          "card_signal_by_position": [
+            {
+              "card_chars": 76,
+              "card_origin": "llm",
+              "constraint_marker_preserved": true,
+              "numeric_markers_preserved": true,
+              "position": 0,
+              "selector_summary_fresh": true,
+              "source_constraint_marker_present": true,
+              "source_numeric_marker_count": 0,
+              "title_anchor_present": true
+            },
+            {
+              "card_chars": 77,
+              "card_origin": "llm",
+              "constraint_marker_preserved": true,
+              "numeric_markers_preserved": true,
+              "position": 1,
+              "selector_summary_fresh": true,
+              "source_constraint_marker_present": true,
+              "source_numeric_marker_count": 1,
+              "title_anchor_present": true
+            }
+          ],
+          "dialog_context_chars": 0,
+          "dialog_context_present": false,
+          "expected": {
+            "critical_positions": [
+              1
+            ],
+            "irrelevant_positions": [
+              0
+            ],
+            "required_positions": [
+              1
+            ]
+          },
+          "explicit_answer_slot_absence_positions": [],
+          "missed_critical_refs": [],
+          "planner_resolution": {
+            "actual_call_type": "read",
+            "availability": "measured",
+            "contains_raw_provider_output": false,
+            "contains_source_or_user_content": false,
+            "contract_version": 3,
+            "dialog_resolution_required": true,
+            "expected_call_type": "read",
+            "forbidden_term_count": 1,
+            "forbidden_term_matches": [
+              false
+            ],
+            "passed": true,
+            "required_term_group_count": 3,
+            "required_term_group_matches": [
+              true,
+              true,
+              true
+            ],
+            "resolved_query_chars": 61,
+            "resolved_query_sha256": "501925ad2ab02068d4a38498d99b05bebe33d8353cc9cec099925e576a7440cd",
+            "source_requirement_count": 2
+          },
+          "reason_codes_by_position": {
+            "0": "unrelated_topic",
+            "1": "exact_fact"
+          },
+          "scenario_id": "s11-parent-ru",
+          "selected_irrelevant_refs": [],
+          "selected_positions": [
+            1
+          ],
+          "unassessed_critical_refs": []
+        },
+        {
+          "attempt_count": 1,
+          "attempts": [
+            {
+              "attempt": 1,
+              "schema_result": "valid",
+              "validation_error_codes": []
+            }
+          ],
+          "attribution_boundary": "none",
+          "candidate_count": 2,
+          "card_signal_by_position": [
+            {
+              "card_chars": 71,
+              "card_origin": "llm",
+              "constraint_marker_preserved": true,
+              "numeric_markers_preserved": true,
+              "position": 0,
+              "selector_summary_fresh": true,
+              "source_constraint_marker_present": false,
+              "source_numeric_marker_count": 1,
+              "title_anchor_present": true
+            },
+            {
+              "card_chars": 122,
+              "card_origin": "llm",
+              "constraint_marker_preserved": true,
+              "numeric_markers_preserved": true,
+              "position": 1,
+              "selector_summary_fresh": true,
+              "source_constraint_marker_present": true,
+              "source_numeric_marker_count": 0,
+              "title_anchor_present": true
+            }
+          ],
+          "dialog_context_chars": 0,
+          "dialog_context_present": false,
+          "expected": {
+            "critical_positions": [
+              0
+            ],
+            "irrelevant_positions": [
+              1
+            ],
+            "required_positions": [
+              0
+            ]
+          },
+          "explicit_answer_slot_absence_positions": [],
+          "missed_critical_refs": [],
+          "planner_resolution": {
+            "actual_call_type": "read",
+            "availability": "measured",
+            "contains_raw_provider_output": false,
+            "contains_source_or_user_content": false,
+            "contract_version": 3,
+            "dialog_resolution_required": false,
+            "expected_call_type": "read",
+            "forbidden_term_count": 0,
+            "forbidden_term_matches": [],
+            "passed": true,
+            "required_term_group_count": 0,
+            "required_term_group_matches": [],
+            "resolved_query_chars": 53,
+            "resolved_query_sha256": "299f1ed89823f82c36a6f40783ca7a1e774a4adaa2d6b9c7ae25c7c5c830ca6d",
+            "source_requirement_count": 3
+          },
+          "reason_codes_by_position": {
+            "0": "exact_fact",
+            "1": "unrelated_topic"
+          },
+          "scenario_id": "s12-required-source-ru",
+          "selected_irrelevant_refs": [],
+          "selected_positions": [
+            0
+          ],
+          "unassessed_critical_refs": []
+        },
+        {
+          "attempt_count": 1,
+          "attempts": [
+            {
+              "attempt": 1,
+              "schema_result": "valid",
+              "validation_error_codes": []
+            }
+          ],
+          "attribution_boundary": "none",
+          "candidate_count": 2,
+          "card_signal_by_position": [
+            {
+              "card_chars": 114,
+              "card_origin": "llm",
+              "constraint_marker_preserved": true,
+              "numeric_markers_preserved": true,
+              "position": 0,
+              "selector_summary_fresh": true,
+              "source_constraint_marker_present": false,
+              "source_numeric_marker_count": 1,
+              "title_anchor_present": true
+            },
+            {
+              "card_chars": 171,
+              "card_origin": "llm",
+              "constraint_marker_preserved": true,
+              "numeric_markers_preserved": true,
+              "position": 1,
+              "selector_summary_fresh": true,
+              "source_constraint_marker_present": false,
+              "source_numeric_marker_count": 2,
+              "title_anchor_present": true
+            }
+          ],
+          "dialog_context_chars": 0,
+          "dialog_context_present": false,
+          "expected": {
+            "critical_positions": [
+              1
+            ],
+            "irrelevant_positions": [
+              0
+            ],
+            "required_positions": [
+              1
+            ]
+          },
+          "explicit_answer_slot_absence_positions": [],
+          "missed_critical_refs": [],
+          "planner_resolution": {
+            "actual_call_type": "read",
+            "availability": "measured",
+            "contains_raw_provider_output": false,
+            "contains_source_or_user_content": false,
+            "contract_version": 3,
+            "dialog_resolution_required": false,
+            "expected_call_type": "read",
+            "forbidden_term_count": 0,
+            "forbidden_term_matches": [],
+            "passed": true,
+            "required_term_group_count": 0,
+            "required_term_group_matches": [],
+            "resolved_query_chars": 65,
+            "resolved_query_sha256": "0ab92953e5ba49ac4e0dbe0abd35a76d2261f4f685371504c7b671e4f0464874",
+            "source_requirement_count": 2
+          },
+          "reason_codes_by_position": {
+            "0": "unrelated_topic",
+            "1": "exact_fact"
+          },
+          "scenario_id": "s13-multi-source",
+          "selected_irrelevant_refs": [],
+          "selected_positions": [
+            1
+          ],
+          "unassessed_critical_refs": []
+        },
+        {
+          "attempt_count": 1,
+          "attempts": [
+            {
+              "attempt": 1,
+              "schema_result": "valid",
+              "validation_error_codes": []
+            }
+          ],
+          "attribution_boundary": "none",
+          "candidate_count": 2,
+          "card_signal_by_position": [
+            {
+              "card_chars": 114,
+              "card_origin": "llm",
+              "constraint_marker_preserved": true,
+              "numeric_markers_preserved": true,
+              "position": 0,
+              "selector_summary_fresh": true,
+              "source_constraint_marker_present": false,
+              "source_numeric_marker_count": 1,
+              "title_anchor_present": true
+            },
+            {
+              "card_chars": 52,
+              "card_origin": "llm",
+              "constraint_marker_preserved": true,
+              "numeric_markers_preserved": true,
+              "position": 1,
+              "selector_summary_fresh": true,
+              "source_constraint_marker_present": false,
+              "source_numeric_marker_count": 1,
+              "title_anchor_present": true
+            }
+          ],
+          "dialog_context_chars": 0,
+          "dialog_context_present": false,
+          "expected": {
+            "critical_positions": [
+              1
+            ],
+            "irrelevant_positions": [
+              0
+            ],
+            "required_positions": [
+              1
+            ]
+          },
+          "explicit_answer_slot_absence_positions": [],
+          "missed_critical_refs": [],
+          "planner_resolution": {
+            "actual_call_type": "read",
+            "availability": "measured",
+            "contains_raw_provider_output": false,
+            "contains_source_or_user_content": false,
+            "contract_version": 3,
+            "dialog_resolution_required": false,
+            "expected_call_type": "read",
+            "forbidden_term_count": 0,
+            "forbidden_term_matches": [],
+            "passed": true,
+            "required_term_group_count": 0,
+            "required_term_group_matches": [],
+            "resolved_query_chars": 32,
+            "resolved_query_sha256": "f377478dacdb4e2cd5127125f9476034fe4caa8137145f22024f93fa95132a88",
+            "source_requirement_count": 6
+          },
+          "reason_codes_by_position": {
+            "0": "ambiguous",
+            "1": "exact_fact"
+          },
+          "scenario_id": "s14-nullable-fr",
+          "selected_irrelevant_refs": [],
+          "selected_positions": [
+            1
+          ],
+          "unassessed_critical_refs": []
+        },
+        {
+          "attempt_count": 1,
+          "attempts": [
+            {
+              "attempt": 1,
+              "schema_result": "valid",
+              "validation_error_codes": []
+            }
+          ],
+          "attribution_boundary": "none",
+          "candidate_count": 3,
+          "card_signal_by_position": [
+            {
+              "card_chars": 126,
+              "card_origin": "llm",
+              "constraint_marker_preserved": true,
+              "numeric_markers_preserved": true,
+              "position": 0,
+              "selector_summary_fresh": true,
+              "source_constraint_marker_present": false,
+              "source_numeric_marker_count": 0,
+              "title_anchor_present": true
+            },
+            {
+              "card_chars": 69,
+              "card_origin": "llm",
+              "constraint_marker_preserved": true,
+              "numeric_markers_preserved": true,
+              "position": 1,
+              "selector_summary_fresh": true,
+              "source_constraint_marker_present": false,
+              "source_numeric_marker_count": 0,
+              "title_anchor_present": true
+            },
+            {
+              "card_chars": 61,
+              "card_origin": "llm",
+              "constraint_marker_preserved": true,
+              "numeric_markers_preserved": true,
+              "position": 2,
+              "selector_summary_fresh": true,
+              "source_constraint_marker_present": false,
+              "source_numeric_marker_count": 0,
+              "title_anchor_present": true
+            }
+          ],
+          "dialog_context_chars": 0,
+          "dialog_context_present": false,
+          "expected": {
+            "critical_positions": [
+              1,
+              2
+            ],
+            "irrelevant_positions": [
+              0
+            ],
+            "required_positions": [
+              1,
+              2
+            ]
+          },
+          "explicit_answer_slot_absence_positions": [],
+          "missed_critical_refs": [],
+          "planner_resolution": {
+            "actual_call_type": "read",
+            "availability": "measured",
+            "contains_raw_provider_output": false,
+            "contains_source_or_user_content": false,
+            "contract_version": 3,
+            "dialog_resolution_required": false,
+            "expected_call_type": "read",
+            "forbidden_term_count": 0,
+            "forbidden_term_matches": [],
+            "passed": true,
+            "required_term_group_count": 0,
+            "required_term_group_matches": [],
+            "resolved_query_chars": 62,
+            "resolved_query_sha256": "02f0e6f84e66e1c726a3a33c9d6ba015656cb0380b982b19b226401e4992c118",
+            "source_requirement_count": 2
+          },
+          "reason_codes_by_position": {
+            "0": "topic_only",
+            "1": "comparison",
+            "2": "comparison"
+          },
+          "scenario_id": "s15-cross-record-en",
+          "selected_irrelevant_refs": [],
+          "selected_positions": [
+            1,
+            2
+          ],
+          "unassessed_critical_refs": []
+        },
+        {
+          "attempt_count": 1,
+          "attempts": [
+            {
+              "attempt": 1,
+              "schema_result": "valid",
+              "validation_error_codes": []
+            }
+          ],
+          "attribution_boundary": "none",
+          "candidate_count": 2,
+          "card_signal_by_position": [
+            {
+              "card_chars": 113,
+              "card_origin": "llm",
+              "constraint_marker_preserved": true,
+              "numeric_markers_preserved": true,
+              "position": 0,
+              "selector_summary_fresh": true,
+              "source_constraint_marker_present": false,
+              "source_numeric_marker_count": 0,
+              "title_anchor_present": true
+            },
+            {
+              "card_chars": 90,
+              "card_origin": "llm",
+              "constraint_marker_preserved": true,
+              "numeric_markers_preserved": true,
+              "position": 1,
+              "selector_summary_fresh": true,
+              "source_constraint_marker_present": true,
+              "source_numeric_marker_count": 0,
+              "title_anchor_present": true
+            }
+          ],
+          "dialog_context_chars": 0,
+          "dialog_context_present": false,
+          "expected": {
+            "critical_positions": [
+              1
+            ],
+            "irrelevant_positions": [
+              0
+            ],
+            "required_positions": [
+              1
+            ]
+          },
+          "explicit_answer_slot_absence_positions": [],
+          "missed_critical_refs": [],
+          "planner_resolution": {
+            "actual_call_type": "read",
+            "availability": "measured",
+            "contains_raw_provider_output": false,
+            "contains_source_or_user_content": false,
+            "contract_version": 3,
+            "dialog_resolution_required": false,
+            "expected_call_type": "read",
+            "forbidden_term_count": 0,
+            "forbidden_term_matches": [],
+            "passed": true,
+            "required_term_group_count": 0,
+            "required_term_group_matches": [],
+            "resolved_query_chars": 46,
+            "resolved_query_sha256": "37d5c7e6b5d17b031aa9557002e29f081682329df5da3fd6272f7ff48ded073d",
+            "source_requirement_count": 5
+          },
+          "reason_codes_by_position": {
+            "0": "unrelated_topic",
+            "1": "exact_fact"
+          },
+          "scenario_id": "s16-implied-unmentioned-note-ru",
+          "selected_irrelevant_refs": [],
+          "selected_positions": [
+            1
+          ],
+          "unassessed_critical_refs": []
+        },
+        {
+          "attempt_count": 1,
+          "attempts": [
+            {
+              "attempt": 1,
+              "schema_result": "valid",
+              "validation_error_codes": []
+            }
+          ],
+          "attribution_boundary": "none",
+          "candidate_count": 2,
+          "card_signal_by_position": [
+            {
+              "card_chars": 111,
+              "card_origin": "llm",
+              "constraint_marker_preserved": true,
+              "numeric_markers_preserved": true,
+              "position": 0,
+              "selector_summary_fresh": true,
+              "source_constraint_marker_present": false,
+              "source_numeric_marker_count": 0,
+              "title_anchor_present": true
+            },
+            {
+              "card_chars": 162,
+              "card_origin": "llm",
+              "constraint_marker_preserved": true,
+              "numeric_markers_preserved": true,
+              "position": 1,
+              "selector_summary_fresh": true,
+              "source_constraint_marker_present": false,
+              "source_numeric_marker_count": 0,
+              "title_anchor_present": true
+            }
+          ],
+          "dialog_context_chars": 0,
+          "dialog_context_present": false,
+          "expected": {
+            "critical_positions": [
+              0
+            ],
+            "irrelevant_positions": [
+              1
+            ],
+            "required_positions": [
+              0
+            ]
+          },
+          "explicit_answer_slot_absence_positions": [],
+          "missed_critical_refs": [],
+          "planner_resolution": {
+            "actual_call_type": "read",
+            "availability": "measured",
+            "contains_raw_provider_output": false,
+            "contains_source_or_user_content": false,
+            "contract_version": 3,
+            "dialog_resolution_required": false,
+            "expected_call_type": "read",
+            "forbidden_term_count": 0,
+            "forbidden_term_matches": [],
+            "passed": true,
+            "required_term_group_count": 0,
+            "required_term_group_matches": [],
+            "resolved_query_chars": 59,
+            "resolved_query_sha256": "4e48a8644f4f3d80c415a0971b43689fee6dbf274f62e47336148af7ffed1ecb",
+            "source_requirement_count": 6
+          },
+          "reason_codes_by_position": {
+            "0": "exact_fact",
+            "1": "unrelated_topic"
+          },
+          "scenario_id": "s17-simple-fr",
+          "selected_irrelevant_refs": [],
+          "selected_positions": [
+            0
+          ],
+          "unassessed_critical_refs": []
+        },
+        {
+          "attempt_count": 1,
+          "attempts": [
+            {
+              "attempt": 1,
+              "schema_result": "valid",
+              "validation_error_codes": []
+            }
+          ],
+          "attribution_boundary": "none",
+          "candidate_count": 2,
+          "card_signal_by_position": [
+            {
+              "card_chars": 94,
+              "card_origin": "llm",
+              "constraint_marker_preserved": true,
+              "numeric_markers_preserved": true,
+              "position": 0,
+              "selector_summary_fresh": true,
+              "source_constraint_marker_present": false,
+              "source_numeric_marker_count": 0,
+              "title_anchor_present": true
+            },
+            {
+              "card_chars": 98,
+              "card_origin": "llm",
+              "constraint_marker_preserved": true,
+              "numeric_markers_preserved": true,
+              "position": 1,
+              "selector_summary_fresh": true,
+              "source_constraint_marker_present": false,
+              "source_numeric_marker_count": 0,
+              "title_anchor_present": true
+            }
+          ],
+          "dialog_context_chars": 0,
+          "dialog_context_present": false,
+          "expected": {
+            "critical_positions": [
+              1
+            ],
+            "irrelevant_positions": [
+              0
+            ],
+            "required_positions": [
+              1
+            ]
+          },
+          "explicit_answer_slot_absence_positions": [],
+          "missed_critical_refs": [],
+          "planner_resolution": {
+            "actual_call_type": "read",
+            "availability": "measured",
+            "contains_raw_provider_output": false,
+            "contains_source_or_user_content": false,
+            "contract_version": 3,
+            "dialog_resolution_required": false,
+            "expected_call_type": "read",
+            "forbidden_term_count": 0,
+            "forbidden_term_matches": [],
+            "passed": true,
+            "required_term_group_count": 0,
+            "required_term_group_matches": [],
+            "resolved_query_chars": 42,
+            "resolved_query_sha256": "02292419863c05d7922a5744a820f67f03281554177a8a8c45cf7badcd460dee",
+            "source_requirement_count": 6
+          },
+          "reason_codes_by_position": {
+            "0": "unrelated_topic",
+            "1": "exact_fact"
+          },
+          "scenario_id": "s18-simple-it",
+          "selected_irrelevant_refs": [],
+          "selected_positions": [
+            1
+          ],
+          "unassessed_critical_refs": []
+        },
+        {
+          "attempt_count": 1,
+          "attempts": [
+            {
+              "attempt": 1,
+              "schema_result": "valid",
+              "validation_error_codes": []
+            }
+          ],
+          "attribution_boundary": "none",
+          "candidate_count": 2,
+          "card_signal_by_position": [
+            {
+              "card_chars": 105,
+              "card_origin": "llm",
+              "constraint_marker_preserved": true,
+              "numeric_markers_preserved": true,
+              "position": 0,
+              "selector_summary_fresh": true,
+              "source_constraint_marker_present": false,
+              "source_numeric_marker_count": 0,
+              "title_anchor_present": true
+            },
+            {
+              "card_chars": 90,
+              "card_origin": "llm",
+              "constraint_marker_preserved": true,
+              "numeric_markers_preserved": true,
+              "position": 1,
+              "selector_summary_fresh": true,
+              "source_constraint_marker_present": false,
+              "source_numeric_marker_count": 0,
+              "title_anchor_present": true
+            }
+          ],
+          "dialog_context_chars": 0,
+          "dialog_context_present": false,
+          "expected": {
+            "critical_positions": [
+              0
+            ],
+            "irrelevant_positions": [
+              1
+            ],
+            "required_positions": [
+              0
+            ]
+          },
+          "explicit_answer_slot_absence_positions": [],
+          "missed_critical_refs": [],
+          "planner_resolution": {
+            "actual_call_type": "read",
+            "availability": "measured",
+            "contains_raw_provider_output": false,
+            "contains_source_or_user_content": false,
+            "contract_version": 3,
+            "dialog_resolution_required": false,
+            "expected_call_type": "read",
+            "forbidden_term_count": 0,
+            "forbidden_term_matches": [],
+            "passed": true,
+            "required_term_group_count": 0,
+            "required_term_group_matches": [],
+            "resolved_query_chars": 39,
+            "resolved_query_sha256": "a703e32f84e5b84fcc389d4f11468578981c76088c0d394b0c18f54cf26a1ca2",
+            "source_requirement_count": 3
+          },
+          "reason_codes_by_position": {
+            "0": "exact_fact",
+            "1": "unrelated_topic"
+          },
+          "scenario_id": "s19-cause-pt",
+          "selected_irrelevant_refs": [],
+          "selected_positions": [
+            0
+          ],
+          "unassessed_critical_refs": []
+        },
+        {
+          "attempt_count": 1,
+          "attempts": [
+            {
+              "attempt": 1,
+              "schema_result": "valid",
+              "validation_error_codes": []
+            }
+          ],
+          "attribution_boundary": "none",
+          "candidate_count": 2,
+          "card_signal_by_position": [
+            {
+              "card_chars": 92,
+              "card_origin": "llm",
+              "constraint_marker_preserved": true,
+              "numeric_markers_preserved": true,
+              "position": 0,
+              "selector_summary_fresh": true,
+              "source_constraint_marker_present": false,
+              "source_numeric_marker_count": 1,
+              "title_anchor_present": true
+            },
+            {
+              "card_chars": 39,
+              "card_origin": "llm",
+              "constraint_marker_preserved": true,
+              "numeric_markers_preserved": true,
+              "position": 1,
+              "selector_summary_fresh": true,
+              "source_constraint_marker_present": false,
+              "source_numeric_marker_count": 1,
+              "title_anchor_present": true
+            }
+          ],
+          "dialog_context_chars": 0,
+          "dialog_context_present": false,
+          "expected": {
+            "critical_positions": [
+              1
+            ],
+            "irrelevant_positions": [
+              0
+            ],
+            "required_positions": [
+              1
+            ]
+          },
+          "explicit_answer_slot_absence_positions": [],
+          "missed_critical_refs": [],
+          "planner_resolution": {
+            "actual_call_type": "read",
+            "availability": "measured",
+            "contains_raw_provider_output": false,
+            "contains_source_or_user_content": false,
+            "contract_version": 3,
+            "dialog_resolution_required": false,
+            "expected_call_type": "read",
+            "forbidden_term_count": 0,
+            "forbidden_term_matches": [],
+            "passed": true,
+            "required_term_group_count": 0,
+            "required_term_group_matches": [],
+            "resolved_query_chars": 60,
+            "resolved_query_sha256": "835a2acb4683ca6e7062507c7754a672ef0eb4f8e0d71c52877a88d66c10ddb8",
+            "source_requirement_count": 6
+          },
+          "reason_codes_by_position": {
+            "0": "ambiguous",
+            "1": "exact_fact"
+          },
+          "scenario_id": "s20-simple-mixed",
+          "selected_irrelevant_refs": [],
+          "selected_positions": [
+            1
+          ],
+          "unassessed_critical_refs": []
+        }
+      ],
+      "selected_total": 20
+    }
+  }
+}

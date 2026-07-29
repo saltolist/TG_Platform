@@ -69,18 +69,16 @@ WORKSPACE_SYSTEM = """Ты единственный WorkspaceAgent платфо�
 Не предлагай функций, которых нет в перечисленных tools. В частности, в платформе
 нет действия «связать заметку с постами или файлами»; заметки и файлы уже являются
 частью workspace и доступны AI после сохранения.
-Ходы, на которые можно полноценно ответить без новых фактов workspace, завершаются без поиска. Для factual "read" required_sources — это источники, без которых grounded-ответ будет неполным; включи туда КАЖДЫЙ такой источник. Выбирай "read", когда пользователь просит найти, перечислить, посчитать, проверить или описать свои объекты/метрики; совет, оценка, продолжение или правка предыдущего ответа без новых фактов — "finish".
+Ходы, на которые можно полноценно ответить без новых фактов workspace, завершаются без поиска. Для factual "read" required_sources — это источники, без которых grounded-ответ будет неполным; включи туда КАЖДЫЙ такой источник. Выбирай "read", когда пользователь просит найти, перечислить, посчитать, проверить или описать свои объекты/метрики. Косвенная, условная или подразумеваемая формулировка все равно является factual "read", если истинность ответа зависит от значения, причины, роли, ограничения или состояния объекта workspace. Совет, оценка, продолжение или правка предыдущего ответа без новых фактов — "finish".
 Для каждого обязательного источника заполни source_requirements. coverage="relevant" означает, что достаточно относящегося к вопросу подмножества; coverage="complete" означает, что ответ должен охватить каждый объект указанного корпуса. Выбирай complete для полного перечня, подсчёта по всей категории, описания каждого объекта и других задач, где пропуск хотя бы одного объекта делает ответ неверным. evidence_granularity="catalog" достаточно для количества, названий, статусов и наличия; "semantic_card" — для общей темы или назначения каждого объекта; "full_text" — для точных деталей, сравнений, цитат и редактирования. Не подменяй complete семантическим top-k.
 Если передан блок "Диалог" — используй его, чтобы понять контекст запроса. Короткая правка твоего предыдущего ответа без новых фактических вопросов (перефразируй, покороче, на другом языке, другим тоном) — это "finish", даже если предыдущий ответ был по фактам workspace: факты уже собраны и лежат в диалоге, повторный поиск не нужен.
 Если передан блок "Текущий пост" и пользователь просит изменить его текст (убрать/добавить/переформулировать что-то в посте) — верни ровно {"type":"post_proposal","command":"edit_post","payload":{}}. Полный текст поста и его id проставляются отдельным детерминированным шагом — тебе НЕ нужно возвращать ни текст, ни id здесь, только классифицировать запрос как edit_post. Если блока "Текущий пост" нет, НЕ выбирай post_proposal: запрос на изменение серии или постов означает, что сначала нужно найти соответствующие материалы workspace, поэтому выбирай read.
 
-Для "read" добавь поле "search_query" — самодостаточную формулировку для поиска по workspace. Для "finish" поле не требуется и может быть пустым. Не пытайся превратить материалы прошлого ответа в один целевой DB-объект."""
+Для "read" добавь поле "search_query" — самодостаточный resolved goal для поиска и последующего Context Selector. Это должен быть один грамматический вопрос, который сохраняет точный предмет, запрошенный predicate, отрицание, условность и причинность исходного запроса; разреши в нем анафоры из диалога, но не превращай вопрос в список ключевых слов и не расширяй его соседними темами. В search_query назови только активный референт: имена объектов, явно исключенных или противопоставленных в диалоге, не упоминай даже с отрицанием. Не отвечай на вопрос внутри search_query, не добавляй гипотезы, предполагаемые факты или альтернативные predicates. Для cross-record сравнения вырази обе уже запрошенные стороны как явные retrieval predicates и затем само сравнение: что указал draft/proposed record, что указал final/signed record и совпадают ли значения; не добавляй сами значения. Если анафор нет и это не сравнение, сохрани исходный вопрос, ограничившись грамматической нормализацией и явным названием уже указанного предмета. Для "finish" поле не требуется и может быть пустым. Не пытайся превратить материалы прошлого ответа в один целевой DB-объект."""
 
 _CLASSIFIER_SOURCE_KINDS = frozenset(
     {"notes", "posts", "analytics", "comments", "attachments", "images"}
 )
-
-
 def _fast_path_needs_fidelity_classification(contract: dict[str, Any]) -> bool:
     """Return whether an implicit resolver selection still needs depth routing."""
 
@@ -366,6 +364,7 @@ async def workspace_agent_node(
         or ctx.turn_contract
         or {}
     )
+    dialog_context = str((config["configurable"] or {}).get("dialog_context") or "")
     runtime_settings = getattr(ctx, "settings", None)
     legacy_resolver = bool(
         getattr(runtime_settings, "agent_referent_resolution_legacy", False)
@@ -390,7 +389,6 @@ async def workspace_agent_node(
         # ("покороче", "на английском?") to "finish" instead of a doomed
         # research pass with nothing new to retrieve (agent-runtime-sprints
         # §2.1 — canon requires both planner and answer to see history).
-        dialog_context = str((config["configurable"] or {}).get("dialog_context") or "")
         turn_contract = dict(
             state.get("turn_contract")
             or (config["configurable"] or {}).get("turn_contract")
@@ -485,6 +483,16 @@ async def workspace_agent_node(
             "requested_command": requested_command,
         }
         classified_type = "read"
+    user_text = str(state.get("user_text") or "").strip()
+    if (
+        classified_type == "read"
+        and not dialog_context.strip()
+        and user_text.endswith("?")
+    ):
+        # With no dialog there is no external referent to resolve. Preserve an
+        # already grammatical question so the model cannot add hypotheses or
+        # alternate predicates while still letting it choose route/sources.
+        call = {**call, "search_query": user_text}
     raw_required_sources = call.get("required_sources")
     required_sources = (
         [str(item) for item in raw_required_sources]
@@ -1897,6 +1905,19 @@ async def run_workspace_graph(
             rollout_flags["planner_policy"]
             and runtime_context.settings.agent_planner_phase5_enabled
             and int(runtime_context.turn_contract.get("version") or 0) >= 3
+        ),
+        "recall_verifier_enabled": bool(
+            rollout_flags["unified_selector"]
+            and runtime_context.settings.agent_planner_phase5_enabled
+            and int(runtime_context.turn_contract.get("version") or 0) >= 3
+            and getattr(
+                runtime_context.settings,
+                "agent_recall_verifier_v1_enabled",
+                False,
+            )
+        ),
+        "recall_verifier_shadow": bool(
+            getattr(runtime_context.settings, "agent_recall_verifier_v1_shadow", True)
         ),
         "plan_decisions": [],
         "planner_input_signatures": [],

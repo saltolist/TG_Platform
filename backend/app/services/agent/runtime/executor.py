@@ -422,6 +422,18 @@ def _runtime_rollout_state(runtime_context: RuntimeContext) -> dict[str, bool]:
         "planner_policy_enabled": bool(
             phase5_enabled and rollout_flags["planner_policy"]
         ),
+        "recall_verifier_enabled": bool(
+            phase5_enabled
+            and rollout_flags["unified_selector"]
+            and getattr(
+                runtime_context.settings,
+                "agent_recall_verifier_v1_enabled",
+                False,
+            )
+        ),
+        "recall_verifier_shadow": bool(
+            getattr(runtime_context.settings, "agent_recall_verifier_v1_shadow", True)
+        ),
     }
 
 

@@ -109,6 +109,8 @@ class AgentGraphState(TypedDict, total=False):
     unified_selector_enabled: bool
     verified_pack_boundary_enabled: bool
     planner_policy_enabled: bool
+    recall_verifier_enabled: bool
+    recall_verifier_shadow: bool
     plan_decisions: list[dict[str, Any]]
     planner_input_signatures: list[str]
     planner_last_state_signature: str

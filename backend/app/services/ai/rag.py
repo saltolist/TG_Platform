@@ -285,6 +285,7 @@ async def index_text_node(
     summary_model: str = "",
     selector_summary: str | None = None,
     selector_summary_version: int = 0,
+    selector_semantic_flags: Mapping[str, Any] | None = None,
 ) -> int:
     """Embed and store a text node. Returns number of chunks written."""
     if node_type not in TEXT_NODE_TYPES:
@@ -341,10 +342,12 @@ async def index_text_node(
                 "(user_id, tenant_key, scope, node_type, note_id, file_id, post_id, chunk_index, "
                 "model_key, dim, content_hash, chunk_text, search_text, referenced_ids, "
                 "object_title, object_status, index_revision, keywords, summary_version, "
-                "summary_model, selector_summary, selector_summary_version, embedding) "
+                "summary_model, selector_summary, selector_summary_version, "
+                "selector_semantic_flags, embedding) "
                 "VALUES (:uid, :tk, :scope, :nt, :nid, :fid, :pid, :ci, :mk, :dim, :ch, "
                 ":ctxt, :stxt, :rids, :otitle, :ostatus, :irev, :keywords, :sversion, "
-                ":smodel, :selector_summary, :selector_summary_version, :emb) "
+                ":smodel, :selector_summary, :selector_summary_version, "
+                "CAST(:selector_semantic_flags AS jsonb), :emb) "
                 "ON CONFLICT (user_id, tenant_key, scope, node_type, note_id, file_id, "
                 "chunk_index, model_key) DO UPDATE "
                 "SET dim = EXCLUDED.dim, content_hash = EXCLUDED.content_hash, "
@@ -355,6 +358,7 @@ async def index_text_node(
                 "summary_model = EXCLUDED.summary_model, "
                 "selector_summary = EXCLUDED.selector_summary, "
                 "selector_summary_version = EXCLUDED.selector_summary_version, "
+                "selector_semantic_flags = EXCLUDED.selector_semantic_flags, "
                 "post_id = EXCLUDED.post_id, "
                 "embedding = EXCLUDED.embedding, updated_at = now()"
             ),
@@ -383,6 +387,12 @@ async def index_text_node(
                     _single_line(selector_summary) if selector_summary is not None else None
                 ),
                 "selector_summary_version": max(0, int(selector_summary_version or 0)),
+                "selector_semantic_flags": json.dumps(
+                    dict(selector_semantic_flags or {}),
+                    ensure_ascii=True,
+                    sort_keys=True,
+                    separators=(",", ":"),
+                ),
                 "emb": _vec_to_pg(vec),
             },
         )
@@ -409,6 +419,7 @@ async def index_note(
     discovery_summary_model: str = "",
     selector_summary: str | None = None,
     selector_summary_version: int = 0,
+    selector_semantic_flags: Mapping[str, Any] | None = None,
 ) -> int:
     """Embed a note and its discovery summary in the async index."""
     plain = markdown_to_index_text(title, body)
@@ -460,6 +471,7 @@ async def index_note(
                 summary_model=discovery_summary_model,
                 selector_summary=selector_summary,
                 selector_summary_version=selector_summary_version,
+                selector_semantic_flags=selector_semantic_flags,
             )
     return count
 
@@ -485,6 +497,7 @@ async def index_discovery_summary(
     summary_model: str = "",
     selector_summary: str | None = None,
     selector_summary_version: int = 0,
+    selector_semantic_flags: Mapping[str, Any] | None = None,
 ) -> int:
     """Write one object-level discovery node with a deterministic fallback."""
     if node_type not in DISCOVERY_NODE_TYPES:
@@ -515,6 +528,7 @@ async def index_discovery_summary(
         summary_model=summary_model,
         selector_summary=selector_summary,
         selector_summary_version=selector_summary_version,
+        selector_semantic_flags=selector_semantic_flags,
     )
 
 
@@ -776,7 +790,7 @@ async def retrieve_top_k(
         f"SELECT note_id, post_id, chunk_index, tenant_key, node_type, file_id, "
         f"chunk_text, search_text, referenced_ids, scope, object_title, object_status, "
         f"index_revision, keywords, summary_version, summary_model, selector_summary, "
-        f"selector_summary_version, "
+        f"selector_summary_version, selector_semantic_flags, "
         f"1 - (embedding::vector <=> CAST(:qvec AS vector)) AS similarity "
         f"FROM note_embeddings "
         f"WHERE user_id = :uid AND scope = :scope AND model_key = :mk "
@@ -837,6 +851,9 @@ async def retrieve_top_k(
             "selector_summary_version": int(
                 getattr(row, "selector_summary_version", 0) or 0
             ),
+            "selector_semantic_flags": _parse_json_object(
+                getattr(row, "selector_semantic_flags", None)
+            ),
             "keywords": _parse_referenced_ids(getattr(row, "keywords", None)),
             "is_discovery_node": (row.node_type or NODE_NOTE_CHUNK) in DISCOVERY_NODE_TYPES,
             "similarity": float(row.similarity),
@@ -871,6 +888,19 @@ def _parse_referenced_ids(raw: Any) -> list[str]:
         if isinstance(parsed, list):
             return [str(item).strip() for item in parsed if str(item).strip()]
     return []
+
+
+def _parse_json_object(raw: Any) -> dict[str, Any]:
+    if isinstance(raw, Mapping):
+        return dict(raw)
+    if isinstance(raw, str):
+        try:
+            parsed = json.loads(raw)
+        except (json.JSONDecodeError, TypeError):
+            return {}
+        if isinstance(parsed, Mapping):
+            return dict(parsed)
+    return {}
 
 
 def _post_title_from_text(text_value: str) -> str:

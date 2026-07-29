@@ -109,6 +109,11 @@ async def test_startup_backfill_is_model_fingerprint_aware(
             discovery_summary_model=f"llm:test:summary:v{DISCOVERY_SUMMARY_VERSION}",
             selector_summary="Fresh selector summary",
             selector_summary_version=SELECTOR_SUMMARY_VERSION,
+            selector_semantic_flags={
+                "v": 1,
+                "explicit_absence": False,
+                "record_roles": [],
+            },
         )
         await session.commit()
 

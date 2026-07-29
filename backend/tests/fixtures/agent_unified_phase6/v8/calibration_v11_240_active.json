@@ -1,0 +1,1928 @@
+{
+  "boundary_256": {
+    "actual_total_tokens_availability": "unavailable",
+    "actual_total_tokens_p95": null,
+    "attempts": [],
+    "availability": "not_measured",
+    "candidate_count": 256,
+    "final_canonical_valid": null,
+    "gate_total_tokens_lte_22000": null,
+    "latency_p95_ms": null,
+    "maximum_dialog_context_chars": 3000,
+    "retry_count": 0
+  },
+  "cohort_role": "qualification",
+  "cohort_sha256": "68bd638923899ab18f7333c8408942ffcbe6693b7fccbe7fa55f4e143c382e1f",
+  "cohort_version": "2026-07-28-semantic-qualification-v3",
+  "contains_account_identifier": false,
+  "contains_credentials": false,
+  "contains_raw_provider_output": false,
+  "contains_source_or_user_content": false,
+  "end_to_end_qualification": {
+    "availability": "measured",
+    "critical_required_recall": null,
+    "effective_path": "primary_plus_active_recall_verifier",
+    "final_pack_precision": null,
+    "irrelevant_selection_rate": null,
+    "passed": false,
+    "planner_all_passed": true,
+    "position_error_count": 0,
+    "selector_final_valid": 0,
+    "selector_first_attempt_valid": 0,
+    "selector_retries": 0
+  },
+  "estimated_cost": {
+    "availability": "unavailable",
+    "value_usd": null
+  },
+  "input_qualification_status": "untouched",
+  "labels_frozen_before_provider_output": true,
+  "model": "gpt-4.1-mini",
+  "planner_resolution": {
+    "actual_total_tokens_availability": "measured",
+    "actual_total_tokens_max_per_call": 1178,
+    "all_passed": true,
+    "contains_raw_provider_output": false,
+    "contains_source_or_user_content": false,
+    "dialog_resolution_passed_count": 3,
+    "dialog_resolution_scenario_count": 3,
+    "enabled": true,
+    "measured_count": 21,
+    "passed_count": 21,
+    "provider_call_count": 21,
+    "scenario_count": 21,
+    "selector_question_source": "planner.search_query"
+  },
+  "position_error_count": 0,
+  "price_snapshot": {
+    "availability": "unavailable",
+    "version": null
+  },
+  "provider": "OpenAI",
+  "provider_call_count": 21,
+  "provider_failure_count": 0,
+  "recall_verifier": {
+    "actual_total_tokens_availability": "measured",
+    "actual_total_tokens_max_per_call": 768,
+    "actual_total_tokens_sum": 5282,
+    "complete_boundary_call_count": 0,
+    "contains_raw_provider_output": false,
+    "contains_source_or_user_content": false,
+    "gate_latency_p95_lte_10000": true,
+    "gate_max_tokens_per_call_lte_2500": true,
+    "latency_p95_ms": 1523.0,
+    "mode": "active",
+    "provider_call_count": 8,
+    "retry_count": 0,
+    "schema_results": {
+      "valid": 8
+    },
+    "validation_error_counts": {}
+  },
+  "schema": "workspace.selector-provider-replay/v1",
+  "schema_results": {
+    "valid": 21
+  },
+  "selector_card_generation": {
+    "all_cards_within_limit": true,
+    "all_llm_v11": true,
+    "contains_raw_provider_output": false,
+    "contains_source_or_user_content": false,
+    "enabled": true,
+    "fixture_retry_count": 0,
+    "generation_status_counts": {
+      "llm_valid": 43
+    },
+    "llm_v11_count": 43,
+    "maximum_allowed_card_chars": 240,
+    "maximum_card_chars": 224,
+    "required_count": 43,
+    "source": "frozen_fixture_document_body"
+  },
+  "semantic_sample_sufficient": true,
+  "semantic_scenario_count": 21,
+  "semantic_variant": "baseline",
+  "summary_160_non_inferior_recall": null,
+  "transport_tier": "strict_json_schema",
+  "validation_error_counts": {},
+  "variants": {
+    "240": {
+      "critical_required_recall": 0.904762,
+      "critical_selected": 19,
+      "critical_total": 21,
+      "final_pack_precision": 0.730769,
+      "final_valid": 21,
+      "first_attempt_valid": 21,
+      "irrelevant_selected": 7,
+      "irrelevant_selection_rate": 0.318182,
+      "irrelevant_total": 22,
+      "language_cohorts": {
+        "de": {
+          "critical_required_recall": 1.0,
+          "critical_selected": 1,
+          "critical_total": 1,
+          "final_pack_precision": 1.0,
+          "irrelevant_selected": 0,
+          "irrelevant_selection_rate": 0.0,
+          "irrelevant_total": 1,
+          "relevant_selected": 1,
+          "relevant_total": 1,
+          "required_recall": 1.0,
+          "required_selected": 1,
+          "required_total": 1,
+          "selected_total": 1
+        },
+        "en": {
+          "critical_required_recall": 1.0,
+          "critical_selected": 6,
+          "critical_total": 6,
+          "final_pack_precision": 0.75,
+          "irrelevant_selected": 2,
+          "irrelevant_selection_rate": 0.285714,
+          "irrelevant_total": 7,
+          "relevant_selected": 6,
+          "relevant_total": 6,
+          "required_recall": 1.0,
+          "required_selected": 6,
+          "required_total": 6,
+          "selected_total": 8
+        },
+        "es": {
+          "critical_required_recall": 1.0,
+          "critical_selected": 1,
+          "critical_total": 1,
+          "final_pack_precision": 1.0,
+          "irrelevant_selected": 0,
+          "irrelevant_selection_rate": 0.0,
+          "irrelevant_total": 1,
+          "relevant_selected": 1,
+          "relevant_total": 1,
+          "required_recall": 1.0,
+          "required_selected": 1,
+          "required_total": 1,
+          "selected_total": 1
+        },
+        "fr": {
+          "critical_required_recall": 1.0,
+          "critical_selected": 2,
+          "critical_total": 2,
+          "final_pack_precision": 1.0,
+          "irrelevant_selected": 0,
+          "irrelevant_selection_rate": 0.0,
+          "irrelevant_total": 2,
+          "relevant_selected": 2,
+          "relevant_total": 2,
+          "required_recall": 1.0,
+          "required_selected": 2,
+          "required_total": 2,
+          "selected_total": 2
+        },
+        "it": {
+          "critical_required_recall": 1.0,
+          "critical_selected": 1,
+          "critical_total": 1,
+          "final_pack_precision": 1.0,
+          "irrelevant_selected": 0,
+          "irrelevant_selection_rate": 0.0,
+          "irrelevant_total": 1,
+          "relevant_selected": 1,
+          "relevant_total": 1,
+          "required_recall": 1.0,
+          "required_selected": 1,
+          "required_total": 1,
+          "selected_total": 1
+        },
+        "mixed": {
+          "critical_required_recall": 1.0,
+          "critical_selected": 2,
+          "critical_total": 2,
+          "final_pack_precision": 0.5,
+          "irrelevant_selected": 2,
+          "irrelevant_selection_rate": 1.0,
+          "irrelevant_total": 2,
+          "relevant_selected": 2,
+          "relevant_total": 2,
+          "required_recall": 1.0,
+          "required_selected": 2,
+          "required_total": 2,
+          "selected_total": 4
+        },
+        "pt": {
+          "critical_required_recall": 1.0,
+          "critical_selected": 1,
+          "critical_total": 1,
+          "final_pack_precision": 1.0,
+          "irrelevant_selected": 0,
+          "irrelevant_selection_rate": 0.0,
+          "irrelevant_total": 1,
+          "relevant_selected": 1,
+          "relevant_total": 1,
+          "required_recall": 1.0,
+          "required_selected": 1,
+          "required_total": 1,
+          "selected_total": 1
+        },
+        "ru": {
+          "critical_required_recall": 0.714286,
+          "critical_selected": 5,
+          "critical_total": 7,
+          "final_pack_precision": 0.555556,
+          "irrelevant_selected": 4,
+          "irrelevant_selection_rate": 0.444444,
+          "irrelevant_total": 9,
+          "relevant_selected": 5,
+          "relevant_total": 7,
+          "required_recall": 0.714286,
+          "required_selected": 5,
+          "required_total": 7,
+          "selected_total": 9
+        }
+      },
+      "recall_verifier": {
+        "called_scenarios": 8,
+        "confusion_matrix": {
+          "correct_noop": 15,
+          "false_promotion": 0,
+          "recovered_true_positive": 1,
+          "remaining_false_negative": 1
+        },
+        "eligible_scenarios": 8,
+        "failure_result_change_count": 0,
+        "mode": "active",
+        "post_admission": {
+          "critical_required_recall": 0.952381,
+          "critical_selected": 20,
+          "critical_total": 21,
+          "final_pack_precision": 0.740741,
+          "irrelevant_selected": 7,
+          "irrelevant_selection_rate": 0.318182,
+          "irrelevant_total": 22,
+          "language_cohorts": {
+            "de": {
+              "critical_required_recall": 1.0,
+              "critical_selected": 1,
+              "critical_total": 1,
+              "final_pack_precision": 1.0,
+              "irrelevant_selected": 0,
+              "irrelevant_selection_rate": 0.0,
+              "irrelevant_total": 1,
+              "relevant_selected": 1,
+              "relevant_total": 1,
+              "required_recall": 1.0,
+              "required_selected": 1,
+              "required_total": 1,
+              "selected_total": 1
+            },
+            "en": {
+              "critical_required_recall": 1.0,
+              "critical_selected": 6,
+              "critical_total": 6,
+              "final_pack_precision": 0.75,
+              "irrelevant_selected": 2,
+              "irrelevant_selection_rate": 0.285714,
+              "irrelevant_total": 7,
+              "relevant_selected": 6,
+              "relevant_total": 6,
+              "required_recall": 1.0,
+              "required_selected": 6,
+              "required_total": 6,
+              "selected_total": 8
+            },
+            "es": {
+              "critical_required_recall": 1.0,
+              "critical_selected": 1,
+              "critical_total": 1,
+              "final_pack_precision": 1.0,
+              "irrelevant_selected": 0,
+              "irrelevant_selection_rate": 0.0,
+              "irrelevant_total": 1,
+              "relevant_selected": 1,
+              "relevant_total": 1,
+              "required_recall": 1.0,
+              "required_selected": 1,
+              "required_total": 1,
+              "selected_total": 1
+            },
+            "fr": {
+              "critical_required_recall": 1.0,
+              "critical_selected": 2,
+              "critical_total": 2,
+              "final_pack_precision": 1.0,
+              "irrelevant_selected": 0,
+              "irrelevant_selection_rate": 0.0,
+              "irrelevant_total": 2,
+              "relevant_selected": 2,
+              "relevant_total": 2,
+              "required_recall": 1.0,
+              "required_selected": 2,
+              "required_total": 2,
+              "selected_total": 2
+            },
+            "it": {
+              "critical_required_recall": 1.0,
+              "critical_selected": 1,
+              "critical_total": 1,
+              "final_pack_precision": 1.0,
+              "irrelevant_selected": 0,
+              "irrelevant_selection_rate": 0.0,
+              "irrelevant_total": 1,
+              "relevant_selected": 1,
+              "relevant_total": 1,
+              "required_recall": 1.0,
+              "required_selected": 1,
+              "required_total": 1,
+              "selected_total": 1
+            },
+            "mixed": {
+              "critical_required_recall": 1.0,
+              "critical_selected": 2,
+              "critical_total": 2,
+              "final_pack_precision": 0.5,
+              "irrelevant_selected": 2,
+              "irrelevant_selection_rate": 1.0,
+              "irrelevant_total": 2,
+              "relevant_selected": 2,
+              "relevant_total": 2,
+              "required_recall": 1.0,
+              "required_selected": 2,
+              "required_total": 2,
+              "selected_total": 4
+            },
+            "pt": {
+              "critical_required_recall": 1.0,
+              "critical_selected": 1,
+              "critical_total": 1,
+              "final_pack_precision": 1.0,
+              "irrelevant_selected": 0,
+              "irrelevant_selection_rate": 0.0,
+              "irrelevant_total": 1,
+              "relevant_selected": 1,
+              "relevant_total": 1,
+              "required_recall": 1.0,
+              "required_selected": 1,
+              "required_total": 1,
+              "selected_total": 1
+            },
+            "ru": {
+              "critical_required_recall": 0.857143,
+              "critical_selected": 6,
+              "critical_total": 7,
+              "final_pack_precision": 0.6,
+              "irrelevant_selected": 4,
+              "irrelevant_selection_rate": 0.444444,
+              "irrelevant_total": 9,
+              "relevant_selected": 6,
+              "relevant_total": 7,
+              "required_recall": 0.857143,
+              "required_selected": 6,
+              "required_total": 7,
+              "selected_total": 10
+            }
+          },
+          "relevant_selected": 20,
+          "relevant_total": 21,
+          "required_recall": 0.952381,
+          "required_selected": 20,
+          "required_total": 21,
+          "selected_total": 27
+        },
+        "primary_selected_removal_count": 0,
+        "retry_count": 0,
+        "valid_calls": 8
+      },
+      "relevant_selected": 19,
+      "relevant_total": 21,
+      "required_recall": 0.904762,
+      "required_selected": 19,
+      "required_total": 21,
+      "retries": 0,
+      "scenario_count": 21,
+      "scenario_rows": [
+        {
+          "attempt_count": 1,
+          "attempts": [
+            {
+              "attempt": 1,
+              "schema_result": "valid",
+              "validation_error_codes": []
+            }
+          ],
+          "attribution_boundary": "none",
+          "candidate_count": 2,
+          "dialog_context_chars": 0,
+          "dialog_context_present": false,
+          "expected": {
+            "critical_positions": [
+              0
+            ],
+            "irrelevant_positions": [
+              1
+            ],
+            "required_positions": [
+              0
+            ]
+          },
+          "explicit_answer_slot_absence_positions": [],
+          "missed_critical_refs": [],
+          "planner_resolution": {
+            "actual_call_type": "read",
+            "availability": "measured",
+            "contains_raw_provider_output": false,
+            "contains_source_or_user_content": false,
+            "contract_version": 3,
+            "dialog_resolution_required": false,
+            "expected_call_type": "read",
+            "forbidden_term_count": 0,
+            "forbidden_term_matches": [],
+            "passed": true,
+            "required_term_group_count": 0,
+            "required_term_group_matches": [],
+            "resolved_query_chars": 25,
+            "resolved_query_sha256": "d3a51c1ae128c5809372321c11949cf39c6f18771642aab833a58e06cbd57a3a",
+            "source_requirement_count": 5
+          },
+          "reason_codes_by_position": {
+            "0": "exact_fact",
+            "1": "search_more"
+          },
+          "recall_verifier": {
+            "admitted_positions": [],
+            "attempts": 0,
+            "called": false,
+            "eligible": false,
+            "hypothetical_admitted_positions": [],
+            "primary_selected_removal_count": 0,
+            "proposed_positions": [],
+            "reason_codes": [
+              "coverage_forbidden"
+            ],
+            "rejected_positions": [],
+            "retry_count": 0,
+            "schema_result": "not_called"
+          },
+          "scenario_id": "v3-u01-simple-ru",
+          "selected_irrelevant_refs": [],
+          "selected_positions": [
+            0
+          ],
+          "unassessed_critical_refs": []
+        },
+        {
+          "attempt_count": 1,
+          "attempts": [
+            {
+              "attempt": 1,
+              "schema_result": "valid",
+              "validation_error_codes": []
+            }
+          ],
+          "attribution_boundary": "none",
+          "candidate_count": 2,
+          "dialog_context_chars": 0,
+          "dialog_context_present": false,
+          "expected": {
+            "critical_positions": [
+              1
+            ],
+            "irrelevant_positions": [
+              0
+            ],
+            "required_positions": [
+              1
+            ]
+          },
+          "explicit_answer_slot_absence_positions": [
+            0
+          ],
+          "missed_critical_refs": [],
+          "planner_resolution": {
+            "actual_call_type": "read",
+            "availability": "measured",
+            "contains_raw_provider_output": false,
+            "contains_source_or_user_content": false,
+            "contract_version": 3,
+            "dialog_resolution_required": false,
+            "expected_call_type": "read",
+            "forbidden_term_count": 0,
+            "forbidden_term_matches": [],
+            "passed": true,
+            "required_term_group_count": 0,
+            "required_term_group_matches": [],
+            "resolved_query_chars": 20,
+            "resolved_query_sha256": "fd16c00d6df35ed3cecc4b93fa5df517fde06e58bd5ed06d0eaf0f2e4839be45",
+            "source_requirement_count": 4
+          },
+          "reason_codes_by_position": {
+            "0": "search_more",
+            "1": "exact_fact"
+          },
+          "recall_verifier": {
+            "admitted_positions": [],
+            "attempts": 0,
+            "called": false,
+            "eligible": false,
+            "hypothetical_admitted_positions": [],
+            "primary_selected_removal_count": 0,
+            "proposed_positions": [],
+            "reason_codes": [
+              "no_deterministic_risk_signal"
+            ],
+            "rejected_positions": [],
+            "retry_count": 0,
+            "schema_result": "not_called"
+          },
+          "scenario_id": "v3-u02-simple-en",
+          "selected_irrelevant_refs": [],
+          "selected_positions": [
+            1
+          ],
+          "unassessed_critical_refs": []
+        },
+        {
+          "attempt_count": 1,
+          "attempts": [
+            {
+              "attempt": 1,
+              "schema_result": "valid",
+              "validation_error_codes": []
+            }
+          ],
+          "attribution_boundary": "selector",
+          "candidate_count": 2,
+          "dialog_context_chars": 78,
+          "dialog_context_present": true,
+          "expected": {
+            "critical_positions": [
+              1
+            ],
+            "irrelevant_positions": [
+              0
+            ],
+            "required_positions": [
+              1
+            ]
+          },
+          "explicit_answer_slot_absence_positions": [],
+          "missed_critical_refs": [],
+          "planner_resolution": {
+            "actual_call_type": "read",
+            "availability": "measured",
+            "contains_raw_provider_output": false,
+            "contains_source_or_user_content": false,
+            "contract_version": 3,
+            "dialog_resolution_required": true,
+            "expected_call_type": "read",
+            "forbidden_term_count": 1,
+            "forbidden_term_matches": [
+              false
+            ],
+            "passed": true,
+            "required_term_group_count": 2,
+            "required_term_group_matches": [
+              true,
+              true
+            ],
+            "resolved_query_chars": 32,
+            "resolved_query_sha256": "ba597a554f306136c6409e50478da4fa0eaf030137c47cba9f2780c688ac9625",
+            "source_requirement_count": 6
+          },
+          "reason_codes_by_position": {
+            "0": "quote",
+            "1": "exact_fact"
+          },
+          "recall_verifier": {
+            "admitted_positions": [],
+            "attempts": 0,
+            "called": false,
+            "eligible": false,
+            "hypothetical_admitted_positions": [],
+            "primary_selected_removal_count": 0,
+            "proposed_positions": [],
+            "reason_codes": [
+              "coverage_forbidden"
+            ],
+            "rejected_positions": [],
+            "retry_count": 0,
+            "schema_result": "not_called"
+          },
+          "scenario_id": "v3-u03-anaphora-ru",
+          "selected_irrelevant_refs": [
+            "note:fixture-u03-i"
+          ],
+          "selected_positions": [
+            0,
+            1
+          ],
+          "unassessed_critical_refs": []
+        },
+        {
+          "attempt_count": 1,
+          "attempts": [
+            {
+              "attempt": 1,
+              "schema_result": "valid",
+              "validation_error_codes": []
+            }
+          ],
+          "attribution_boundary": "none",
+          "candidate_count": 2,
+          "dialog_context_chars": 85,
+          "dialog_context_present": true,
+          "expected": {
+            "critical_positions": [
+              0
+            ],
+            "irrelevant_positions": [
+              1
+            ],
+            "required_positions": [
+              0
+            ]
+          },
+          "explicit_answer_slot_absence_positions": [],
+          "missed_critical_refs": [],
+          "planner_resolution": {
+            "actual_call_type": "read",
+            "availability": "measured",
+            "contains_raw_provider_output": false,
+            "contains_source_or_user_content": false,
+            "contract_version": 3,
+            "dialog_resolution_required": true,
+            "expected_call_type": "read",
+            "forbidden_term_count": 1,
+            "forbidden_term_matches": [
+              false
+            ],
+            "passed": true,
+            "required_term_group_count": 2,
+            "required_term_group_matches": [
+              true,
+              true
+            ],
+            "resolved_query_chars": 32,
+            "resolved_query_sha256": "677c643d750f53f54f435287f39248a6736bd36e0ae393f89e2e033633fbfb66",
+            "source_requirement_count": 2
+          },
+          "reason_codes_by_position": {
+            "0": "quote",
+            "1": "unrelated_topic"
+          },
+          "recall_verifier": {
+            "admitted_positions": [],
+            "attempts": 0,
+            "called": false,
+            "eligible": false,
+            "hypothetical_admitted_positions": [],
+            "primary_selected_removal_count": 0,
+            "proposed_positions": [],
+            "reason_codes": [
+              "no_deterministic_risk_signal"
+            ],
+            "rejected_positions": [],
+            "retry_count": 0,
+            "schema_result": "not_called"
+          },
+          "scenario_id": "v3-u04-anaphora-en",
+          "selected_irrelevant_refs": [],
+          "selected_positions": [
+            0
+          ],
+          "unassessed_critical_refs": []
+        },
+        {
+          "attempt_count": 1,
+          "attempts": [
+            {
+              "attempt": 1,
+              "schema_result": "valid",
+              "validation_error_codes": []
+            }
+          ],
+          "attribution_boundary": "selector",
+          "candidate_count": 2,
+          "dialog_context_chars": 0,
+          "dialog_context_present": false,
+          "expected": {
+            "critical_positions": [
+              1
+            ],
+            "irrelevant_positions": [
+              0
+            ],
+            "required_positions": [
+              1
+            ]
+          },
+          "explicit_answer_slot_absence_positions": [],
+          "missed_critical_refs": [
+            "note:fixture-u05-d"
+          ],
+          "planner_resolution": {
+            "actual_call_type": "read",
+            "availability": "measured",
+            "contains_raw_provider_output": false,
+            "contains_source_or_user_content": false,
+            "contract_version": 3,
+            "dialog_resolution_required": false,
+            "expected_call_type": "read",
+            "forbidden_term_count": 0,
+            "forbidden_term_matches": [],
+            "passed": true,
+            "required_term_group_count": 0,
+            "required_term_group_matches": [],
+            "resolved_query_chars": 36,
+            "resolved_query_sha256": "3deabcdf38400709e56fdb983a93a152e308f7895388aee845a30bd2666aaabd",
+            "source_requirement_count": 6
+          },
+          "reason_codes_by_position": {
+            "0": "unrelated_topic",
+            "1": "unrelated_topic"
+          },
+          "recall_verifier": {
+            "admitted_positions": [],
+            "attempts": 0,
+            "called": false,
+            "eligible": false,
+            "hypothetical_admitted_positions": [],
+            "primary_selected_removal_count": 0,
+            "proposed_positions": [],
+            "reason_codes": [
+              "no_deterministic_risk_signal"
+            ],
+            "rejected_positions": [],
+            "retry_count": 0,
+            "schema_result": "not_called"
+          },
+          "scenario_id": "v3-u05-implied-ru",
+          "selected_irrelevant_refs": [],
+          "selected_positions": [],
+          "unassessed_critical_refs": []
+        },
+        {
+          "attempt_count": 1,
+          "attempts": [
+            {
+              "attempt": 1,
+              "schema_result": "valid",
+              "validation_error_codes": []
+            }
+          ],
+          "attribution_boundary": "none",
+          "candidate_count": 2,
+          "dialog_context_chars": 0,
+          "dialog_context_present": false,
+          "expected": {
+            "critical_positions": [
+              0
+            ],
+            "irrelevant_positions": [
+              1
+            ],
+            "required_positions": [
+              0
+            ]
+          },
+          "explicit_answer_slot_absence_positions": [],
+          "missed_critical_refs": [],
+          "planner_resolution": {
+            "actual_call_type": "read",
+            "availability": "measured",
+            "contains_raw_provider_output": false,
+            "contains_source_or_user_content": false,
+            "contract_version": 3,
+            "dialog_resolution_required": false,
+            "expected_call_type": "read",
+            "forbidden_term_count": 0,
+            "forbidden_term_matches": [],
+            "passed": true,
+            "required_term_group_count": 0,
+            "required_term_group_matches": [],
+            "resolved_query_chars": 43,
+            "resolved_query_sha256": "8f9ea1dfbf88eb3ec96f8e40cb5b806ec4b76a2feb6787a5f321bb5b6f685334",
+            "source_requirement_count": 3
+          },
+          "reason_codes_by_position": {
+            "0": "exact_fact",
+            "1": "search_more"
+          },
+          "recall_verifier": {
+            "admitted_positions": [],
+            "attempts": 1,
+            "called": true,
+            "eligible": true,
+            "hypothetical_admitted_positions": [],
+            "omitted_candidate_count": 1,
+            "primary_selected_removal_count": 0,
+            "proposed_positions": [],
+            "reason_codes": [
+              "required_source_gap",
+              "unresolved_source_disposition"
+            ],
+            "rejected_positions": [],
+            "retry_count": 0,
+            "schema_result": "valid",
+            "transport_tier": "strict_json_schema",
+            "validation_error_codes": []
+          },
+          "scenario_id": "v3-u06-implied-en",
+          "selected_irrelevant_refs": [],
+          "selected_positions": [
+            0
+          ],
+          "unassessed_critical_refs": []
+        },
+        {
+          "attempt_count": 1,
+          "attempts": [
+            {
+              "attempt": 1,
+              "schema_result": "valid",
+              "validation_error_codes": []
+            }
+          ],
+          "attribution_boundary": "selector",
+          "candidate_count": 2,
+          "dialog_context_chars": 0,
+          "dialog_context_present": false,
+          "expected": {
+            "critical_positions": [
+              1
+            ],
+            "irrelevant_positions": [
+              0
+            ],
+            "required_positions": [
+              1
+            ]
+          },
+          "explicit_answer_slot_absence_positions": [],
+          "missed_critical_refs": [],
+          "planner_resolution": {
+            "actual_call_type": "read",
+            "availability": "measured",
+            "contains_raw_provider_output": false,
+            "contains_source_or_user_content": false,
+            "contract_version": 3,
+            "dialog_resolution_required": false,
+            "expected_call_type": "read",
+            "forbidden_term_count": 0,
+            "forbidden_term_matches": [],
+            "passed": true,
+            "required_term_group_count": 0,
+            "required_term_group_matches": [],
+            "resolved_query_chars": 20,
+            "resolved_query_sha256": "53760bdc1aa4318a2aaed4dd005d09c0307aa5856917a220084c98664a349e0d",
+            "source_requirement_count": 6
+          },
+          "reason_codes_by_position": {
+            "0": "quote",
+            "1": "exact_fact"
+          },
+          "recall_verifier": {
+            "admitted_positions": [],
+            "attempts": 0,
+            "called": false,
+            "eligible": false,
+            "hypothetical_admitted_positions": [],
+            "primary_selected_removal_count": 0,
+            "proposed_positions": [],
+            "reason_codes": [
+              "coverage_forbidden"
+            ],
+            "rejected_positions": [],
+            "retry_count": 0,
+            "schema_result": "not_called"
+          },
+          "scenario_id": "v3-u07-secondary-ru",
+          "selected_irrelevant_refs": [
+            "post:fixture-u07-i"
+          ],
+          "selected_positions": [
+            0,
+            1
+          ],
+          "unassessed_critical_refs": []
+        },
+        {
+          "attempt_count": 1,
+          "attempts": [
+            {
+              "attempt": 1,
+              "schema_result": "valid",
+              "validation_error_codes": []
+            }
+          ],
+          "attribution_boundary": "none",
+          "candidate_count": 2,
+          "dialog_context_chars": 0,
+          "dialog_context_present": false,
+          "expected": {
+            "critical_positions": [
+              0
+            ],
+            "irrelevant_positions": [
+              1
+            ],
+            "required_positions": [
+              0
+            ]
+          },
+          "explicit_answer_slot_absence_positions": [],
+          "missed_critical_refs": [],
+          "planner_resolution": {
+            "actual_call_type": "read",
+            "availability": "measured",
+            "contains_raw_provider_output": false,
+            "contains_source_or_user_content": false,
+            "contract_version": 3,
+            "dialog_resolution_required": false,
+            "expected_call_type": "read",
+            "forbidden_term_count": 0,
+            "forbidden_term_matches": [],
+            "passed": true,
+            "required_term_group_count": 0,
+            "required_term_group_matches": [],
+            "resolved_query_chars": 44,
+            "resolved_query_sha256": "840b44c07289779e41bccb5bc1c5c4f3b07b13f7ea96273563a92e74247d83f4",
+            "source_requirement_count": 6
+          },
+          "reason_codes_by_position": {
+            "0": "exact_fact",
+            "1": "search_more"
+          },
+          "recall_verifier": {
+            "admitted_positions": [],
+            "attempts": 1,
+            "called": true,
+            "eligible": true,
+            "hypothetical_admitted_positions": [],
+            "omitted_candidate_count": 1,
+            "primary_selected_removal_count": 0,
+            "proposed_positions": [],
+            "reason_codes": [
+              "required_source_gap",
+              "unresolved_source_disposition"
+            ],
+            "rejected_positions": [],
+            "retry_count": 0,
+            "schema_result": "valid",
+            "transport_tier": "strict_json_schema",
+            "validation_error_codes": []
+          },
+          "scenario_id": "v3-u08-secondary-en",
+          "selected_irrelevant_refs": [],
+          "selected_positions": [
+            0
+          ],
+          "unassessed_critical_refs": []
+        },
+        {
+          "attempt_count": 1,
+          "attempts": [
+            {
+              "attempt": 1,
+              "schema_result": "valid",
+              "validation_error_codes": []
+            }
+          ],
+          "attribution_boundary": "none",
+          "candidate_count": 2,
+          "dialog_context_chars": 0,
+          "dialog_context_present": false,
+          "expected": {
+            "critical_positions": [
+              1
+            ],
+            "irrelevant_positions": [
+              0
+            ],
+            "required_positions": [
+              1
+            ]
+          },
+          "explicit_answer_slot_absence_positions": [],
+          "missed_critical_refs": [],
+          "planner_resolution": {
+            "actual_call_type": "read",
+            "availability": "measured",
+            "contains_raw_provider_output": false,
+            "contains_source_or_user_content": false,
+            "contract_version": 3,
+            "dialog_resolution_required": false,
+            "expected_call_type": "read",
+            "forbidden_term_count": 0,
+            "forbidden_term_matches": [],
+            "passed": true,
+            "required_term_group_count": 0,
+            "required_term_group_matches": [],
+            "resolved_query_chars": 40,
+            "resolved_query_sha256": "0e9288436969c44b186e123c59195898c56480b8e1304312383b754b893f79c3",
+            "source_requirement_count": 6
+          },
+          "reason_codes_by_position": {
+            "0": "topic_only",
+            "1": "exact_fact"
+          },
+          "recall_verifier": {
+            "admitted_positions": [],
+            "attempts": 0,
+            "called": false,
+            "eligible": false,
+            "hypothetical_admitted_positions": [],
+            "primary_selected_removal_count": 0,
+            "proposed_positions": [],
+            "reason_codes": [
+              "coverage_forbidden"
+            ],
+            "rejected_positions": [],
+            "retry_count": 0,
+            "schema_result": "not_called"
+          },
+          "scenario_id": "v3-u09-near-topic-es",
+          "selected_irrelevant_refs": [],
+          "selected_positions": [
+            1
+          ],
+          "unassessed_critical_refs": []
+        },
+        {
+          "attempt_count": 1,
+          "attempts": [
+            {
+              "attempt": 1,
+              "schema_result": "valid",
+              "validation_error_codes": []
+            }
+          ],
+          "attribution_boundary": "none",
+          "candidate_count": 2,
+          "dialog_context_chars": 0,
+          "dialog_context_present": false,
+          "expected": {
+            "critical_positions": [
+              0
+            ],
+            "irrelevant_positions": [
+              1
+            ],
+            "required_positions": [
+              0
+            ]
+          },
+          "explicit_answer_slot_absence_positions": [],
+          "missed_critical_refs": [],
+          "planner_resolution": {
+            "actual_call_type": "read",
+            "availability": "measured",
+            "contains_raw_provider_output": false,
+            "contains_source_or_user_content": false,
+            "contract_version": 3,
+            "dialog_resolution_required": false,
+            "expected_call_type": "read",
+            "forbidden_term_count": 0,
+            "forbidden_term_matches": [],
+            "passed": true,
+            "required_term_group_count": 0,
+            "required_term_group_matches": [],
+            "resolved_query_chars": 28,
+            "resolved_query_sha256": "e01a0e088580bedd4c4224b1fd3ffdd8f1ae16d9e54b690ca2a710e62808efee",
+            "source_requirement_count": 6
+          },
+          "reason_codes_by_position": {
+            "0": "quote",
+            "1": "search_more"
+          },
+          "recall_verifier": {
+            "admitted_positions": [],
+            "attempts": 0,
+            "called": false,
+            "eligible": false,
+            "hypothetical_admitted_positions": [],
+            "primary_selected_removal_count": 0,
+            "proposed_positions": [],
+            "reason_codes": [
+              "coverage_forbidden"
+            ],
+            "rejected_positions": [],
+            "retry_count": 0,
+            "schema_result": "not_called"
+          },
+          "scenario_id": "v3-u10-near-topic-de",
+          "selected_irrelevant_refs": [],
+          "selected_positions": [
+            0
+          ],
+          "unassessed_critical_refs": []
+        },
+        {
+          "attempt_count": 1,
+          "attempts": [
+            {
+              "attempt": 1,
+              "schema_result": "valid",
+              "validation_error_codes": []
+            }
+          ],
+          "attribution_boundary": "selector",
+          "candidate_count": 2,
+          "dialog_context_chars": 90,
+          "dialog_context_present": true,
+          "expected": {
+            "critical_positions": [
+              1
+            ],
+            "irrelevant_positions": [
+              0
+            ],
+            "required_positions": [
+              1
+            ]
+          },
+          "explicit_answer_slot_absence_positions": [],
+          "missed_critical_refs": [
+            "note:fixture-u11-d"
+          ],
+          "planner_resolution": {
+            "actual_call_type": "read",
+            "availability": "measured",
+            "contains_raw_provider_output": false,
+            "contains_source_or_user_content": false,
+            "contract_version": 3,
+            "dialog_resolution_required": true,
+            "expected_call_type": "read",
+            "forbidden_term_count": 0,
+            "forbidden_term_matches": [],
+            "passed": true,
+            "required_term_group_count": 3,
+            "required_term_group_matches": [
+              true,
+              true,
+              true
+            ],
+            "resolved_query_chars": 53,
+            "resolved_query_sha256": "b5b6522d7e05f7dfb07dc6cf74cfcdcc7f7a27dc3725597a8e7c0f854bd53b32",
+            "source_requirement_count": 2
+          },
+          "reason_codes_by_position": {
+            "0": "topic_only",
+            "1": "topic_only"
+          },
+          "recall_verifier": {
+            "admitted_positions": [
+              1
+            ],
+            "attempts": 1,
+            "called": true,
+            "eligible": true,
+            "hypothetical_admitted_positions": [
+              1
+            ],
+            "omitted_candidate_count": 2,
+            "primary_selected_removal_count": 0,
+            "proposed_positions": [
+              1
+            ],
+            "reason_codes": [
+              "empty_primary_selection",
+              "required_source_gap"
+            ],
+            "rejected_positions": [],
+            "retry_count": 0,
+            "schema_result": "valid",
+            "transport_tier": "strict_json_schema",
+            "validation_error_codes": []
+          },
+          "scenario_id": "v3-u11-parent-ru",
+          "selected_irrelevant_refs": [],
+          "selected_positions": [],
+          "unassessed_critical_refs": []
+        },
+        {
+          "attempt_count": 1,
+          "attempts": [
+            {
+              "attempt": 1,
+              "schema_result": "valid",
+              "validation_error_codes": []
+            }
+          ],
+          "attribution_boundary": "none",
+          "candidate_count": 2,
+          "dialog_context_chars": 0,
+          "dialog_context_present": false,
+          "expected": {
+            "critical_positions": [
+              0
+            ],
+            "irrelevant_positions": [
+              1
+            ],
+            "required_positions": [
+              0
+            ]
+          },
+          "explicit_answer_slot_absence_positions": [],
+          "missed_critical_refs": [],
+          "planner_resolution": {
+            "actual_call_type": "read",
+            "availability": "measured",
+            "contains_raw_provider_output": false,
+            "contains_source_or_user_content": false,
+            "contract_version": 3,
+            "dialog_resolution_required": false,
+            "expected_call_type": "read",
+            "forbidden_term_count": 0,
+            "forbidden_term_matches": [],
+            "passed": true,
+            "required_term_group_count": 0,
+            "required_term_group_matches": [],
+            "resolved_query_chars": 41,
+            "resolved_query_sha256": "177e1c4bc8d33b4f5543a8d5b78416968ccf818708cff8f08b395037c0c92c53",
+            "source_requirement_count": 2
+          },
+          "reason_codes_by_position": {
+            "0": "exact_fact",
+            "1": "search_more"
+          },
+          "recall_verifier": {
+            "admitted_positions": [],
+            "attempts": 1,
+            "called": true,
+            "eligible": true,
+            "hypothetical_admitted_positions": [],
+            "omitted_candidate_count": 1,
+            "primary_selected_removal_count": 0,
+            "proposed_positions": [],
+            "reason_codes": [
+              "required_source_gap",
+              "unresolved_source_disposition"
+            ],
+            "rejected_positions": [],
+            "retry_count": 0,
+            "schema_result": "valid",
+            "transport_tier": "strict_json_schema",
+            "validation_error_codes": []
+          },
+          "scenario_id": "v3-u12-required-source-ru",
+          "selected_irrelevant_refs": [],
+          "selected_positions": [
+            0
+          ],
+          "unassessed_critical_refs": []
+        },
+        {
+          "attempt_count": 1,
+          "attempts": [
+            {
+              "attempt": 1,
+              "schema_result": "valid",
+              "validation_error_codes": []
+            }
+          ],
+          "attribution_boundary": "selector",
+          "candidate_count": 2,
+          "dialog_context_chars": 0,
+          "dialog_context_present": false,
+          "expected": {
+            "critical_positions": [
+              1
+            ],
+            "irrelevant_positions": [
+              0
+            ],
+            "required_positions": [
+              1
+            ]
+          },
+          "explicit_answer_slot_absence_positions": [],
+          "missed_critical_refs": [],
+          "planner_resolution": {
+            "actual_call_type": "read",
+            "availability": "measured",
+            "contains_raw_provider_output": false,
+            "contains_source_or_user_content": false,
+            "contract_version": 3,
+            "dialog_resolution_required": false,
+            "expected_call_type": "read",
+            "forbidden_term_count": 0,
+            "forbidden_term_matches": [],
+            "passed": true,
+            "required_term_group_count": 0,
+            "required_term_group_matches": [],
+            "resolved_query_chars": 14,
+            "resolved_query_sha256": "e2e64335ec699ba7cf12847d357af7c2616580eaea8dce9ae18659b082e7c70d",
+            "source_requirement_count": 2
+          },
+          "reason_codes_by_position": {
+            "0": "quote",
+            "1": "exact_fact"
+          },
+          "recall_verifier": {
+            "admitted_positions": [],
+            "attempts": 0,
+            "called": false,
+            "eligible": false,
+            "hypothetical_admitted_positions": [],
+            "primary_selected_removal_count": 0,
+            "proposed_positions": [],
+            "reason_codes": [
+              "coverage_forbidden"
+            ],
+            "rejected_positions": [],
+            "retry_count": 0,
+            "schema_result": "not_called"
+          },
+          "scenario_id": "v3-u13-multi-source",
+          "selected_irrelevant_refs": [
+            "post:fixture-u13-i"
+          ],
+          "selected_positions": [
+            0,
+            1
+          ],
+          "unassessed_critical_refs": []
+        },
+        {
+          "attempt_count": 1,
+          "attempts": [
+            {
+              "attempt": 1,
+              "schema_result": "valid",
+              "validation_error_codes": []
+            }
+          ],
+          "attribution_boundary": "none",
+          "candidate_count": 2,
+          "dialog_context_chars": 0,
+          "dialog_context_present": false,
+          "expected": {
+            "critical_positions": [
+              1
+            ],
+            "irrelevant_positions": [
+              0
+            ],
+            "required_positions": [
+              1
+            ]
+          },
+          "explicit_answer_slot_absence_positions": [],
+          "missed_critical_refs": [],
+          "planner_resolution": {
+            "actual_call_type": "read",
+            "availability": "measured",
+            "contains_raw_provider_output": false,
+            "contains_source_or_user_content": false,
+            "contract_version": 3,
+            "dialog_resolution_required": false,
+            "expected_call_type": "read",
+            "forbidden_term_count": 0,
+            "forbidden_term_matches": [],
+            "passed": true,
+            "required_term_group_count": 0,
+            "required_term_group_matches": [],
+            "resolved_query_chars": 21,
+            "resolved_query_sha256": "c85a342adaf2c10091ce5bb298801fee6db47908e53df9dc87864803ba5aadd9",
+            "source_requirement_count": 6
+          },
+          "reason_codes_by_position": {
+            "0": "search_more",
+            "1": "exact_fact"
+          },
+          "recall_verifier": {
+            "admitted_positions": [],
+            "attempts": 1,
+            "called": true,
+            "eligible": true,
+            "hypothetical_admitted_positions": [],
+            "omitted_candidate_count": 1,
+            "primary_selected_removal_count": 0,
+            "proposed_positions": [],
+            "reason_codes": [
+              "required_source_gap",
+              "unresolved_source_disposition"
+            ],
+            "rejected_positions": [],
+            "retry_count": 0,
+            "schema_result": "valid",
+            "transport_tier": "strict_json_schema",
+            "validation_error_codes": []
+          },
+          "scenario_id": "v3-u14-nullable-fr",
+          "selected_irrelevant_refs": [],
+          "selected_positions": [
+            1
+          ],
+          "unassessed_critical_refs": []
+        },
+        {
+          "attempt_count": 1,
+          "attempts": [
+            {
+              "attempt": 1,
+              "schema_result": "valid",
+              "validation_error_codes": []
+            }
+          ],
+          "attribution_boundary": "selector",
+          "candidate_count": 3,
+          "dialog_context_chars": 0,
+          "dialog_context_present": false,
+          "expected": {
+            "critical_positions": [
+              1,
+              2
+            ],
+            "irrelevant_positions": [
+              0
+            ],
+            "required_positions": [
+              1,
+              2
+            ]
+          },
+          "explicit_answer_slot_absence_positions": [],
+          "missed_critical_refs": [],
+          "planner_resolution": {
+            "actual_call_type": "read",
+            "availability": "measured",
+            "contains_raw_provider_output": false,
+            "contains_source_or_user_content": false,
+            "contract_version": 3,
+            "dialog_resolution_required": false,
+            "expected_call_type": "read",
+            "forbidden_term_count": 0,
+            "forbidden_term_matches": [],
+            "passed": true,
+            "required_term_group_count": 0,
+            "required_term_group_matches": [],
+            "resolved_query_chars": 102,
+            "resolved_query_sha256": "1d908e5129c129da5ad163cf85701c1f55dd939e585dbc11eda3073371a56eb5",
+            "source_requirement_count": 5
+          },
+          "reason_codes_by_position": {
+            "0": "quote",
+            "1": "exact_fact",
+            "2": "exact_fact"
+          },
+          "recall_verifier": {
+            "admitted_positions": [],
+            "attempts": 0,
+            "called": false,
+            "eligible": false,
+            "hypothetical_admitted_positions": [],
+            "primary_selected_removal_count": 0,
+            "proposed_positions": [],
+            "reason_codes": [
+              "coverage_forbidden"
+            ],
+            "rejected_positions": [],
+            "retry_count": 0,
+            "schema_result": "not_called"
+          },
+          "scenario_id": "v3-u15-cross-object-en",
+          "selected_irrelevant_refs": [
+            "note:fixture-u15-i"
+          ],
+          "selected_positions": [
+            0,
+            1,
+            2
+          ],
+          "unassessed_critical_refs": []
+        },
+        {
+          "attempt_count": 1,
+          "attempts": [
+            {
+              "attempt": 1,
+              "schema_result": "valid",
+              "validation_error_codes": []
+            }
+          ],
+          "attribution_boundary": "selector",
+          "candidate_count": 2,
+          "dialog_context_chars": 0,
+          "dialog_context_present": false,
+          "expected": {
+            "critical_positions": [
+              1
+            ],
+            "irrelevant_positions": [
+              0
+            ],
+            "required_positions": [
+              1
+            ]
+          },
+          "explicit_answer_slot_absence_positions": [],
+          "missed_critical_refs": [],
+          "planner_resolution": {
+            "actual_call_type": "read",
+            "availability": "measured",
+            "contains_raw_provider_output": false,
+            "contains_source_or_user_content": false,
+            "contract_version": 3,
+            "dialog_resolution_required": false,
+            "expected_call_type": "read",
+            "forbidden_term_count": 0,
+            "forbidden_term_matches": [],
+            "passed": true,
+            "required_term_group_count": 0,
+            "required_term_group_matches": [],
+            "resolved_query_chars": 33,
+            "resolved_query_sha256": "d3ce4fa83de806a2405dd26246b52519cd54c61e1e902ab0fbb86481bf906bea",
+            "source_requirement_count": 6
+          },
+          "reason_codes_by_position": {
+            "0": "exact_fact",
+            "1": "exact_fact"
+          },
+          "recall_verifier": {
+            "admitted_positions": [],
+            "attempts": 0,
+            "called": false,
+            "eligible": false,
+            "hypothetical_admitted_positions": [],
+            "primary_selected_removal_count": 0,
+            "proposed_positions": [],
+            "reason_codes": [
+              "no_deterministic_risk_signal"
+            ],
+            "rejected_positions": [],
+            "retry_count": 0,
+            "schema_result": "not_called"
+          },
+          "scenario_id": "v3-u16-implied-ru",
+          "selected_irrelevant_refs": [
+            "post:fixture-u16-i"
+          ],
+          "selected_positions": [
+            0,
+            1
+          ],
+          "unassessed_critical_refs": []
+        },
+        {
+          "attempt_count": 1,
+          "attempts": [
+            {
+              "attempt": 1,
+              "schema_result": "valid",
+              "validation_error_codes": []
+            }
+          ],
+          "attribution_boundary": "none",
+          "candidate_count": 2,
+          "dialog_context_chars": 0,
+          "dialog_context_present": false,
+          "expected": {
+            "critical_positions": [
+              0
+            ],
+            "irrelevant_positions": [
+              1
+            ],
+            "required_positions": [
+              0
+            ]
+          },
+          "explicit_answer_slot_absence_positions": [],
+          "missed_critical_refs": [],
+          "planner_resolution": {
+            "actual_call_type": "read",
+            "availability": "measured",
+            "contains_raw_provider_output": false,
+            "contains_source_or_user_content": false,
+            "contract_version": 3,
+            "dialog_resolution_required": false,
+            "expected_call_type": "read",
+            "forbidden_term_count": 0,
+            "forbidden_term_matches": [],
+            "passed": true,
+            "required_term_group_count": 0,
+            "required_term_group_matches": [],
+            "resolved_query_chars": 40,
+            "resolved_query_sha256": "69ad740b7027b35fd5ba27d639a11dc9d0269838421db5c147c6f168f7aec5f4",
+            "source_requirement_count": 6
+          },
+          "reason_codes_by_position": {
+            "0": "exact_fact",
+            "1": "search_more"
+          },
+          "recall_verifier": {
+            "admitted_positions": [],
+            "attempts": 1,
+            "called": true,
+            "eligible": true,
+            "hypothetical_admitted_positions": [],
+            "omitted_candidate_count": 1,
+            "primary_selected_removal_count": 0,
+            "proposed_positions": [],
+            "reason_codes": [
+              "required_source_gap",
+              "unresolved_source_disposition"
+            ],
+            "rejected_positions": [],
+            "retry_count": 0,
+            "schema_result": "valid",
+            "transport_tier": "strict_json_schema",
+            "validation_error_codes": []
+          },
+          "scenario_id": "v3-u17-simple-fr",
+          "selected_irrelevant_refs": [],
+          "selected_positions": [
+            0
+          ],
+          "unassessed_critical_refs": []
+        },
+        {
+          "attempt_count": 1,
+          "attempts": [
+            {
+              "attempt": 1,
+              "schema_result": "valid",
+              "validation_error_codes": []
+            }
+          ],
+          "attribution_boundary": "none",
+          "candidate_count": 2,
+          "dialog_context_chars": 0,
+          "dialog_context_present": false,
+          "expected": {
+            "critical_positions": [
+              1
+            ],
+            "irrelevant_positions": [
+              0
+            ],
+            "required_positions": [
+              1
+            ]
+          },
+          "explicit_answer_slot_absence_positions": [],
+          "missed_critical_refs": [],
+          "planner_resolution": {
+            "actual_call_type": "read",
+            "availability": "measured",
+            "contains_raw_provider_output": false,
+            "contains_source_or_user_content": false,
+            "contract_version": 3,
+            "dialog_resolution_required": false,
+            "expected_call_type": "read",
+            "forbidden_term_count": 0,
+            "forbidden_term_matches": [],
+            "passed": true,
+            "required_term_group_count": 0,
+            "required_term_group_matches": [],
+            "resolved_query_chars": 37,
+            "resolved_query_sha256": "e4c378bb1f11169713472b6253f6c07ff1854b0454aa55172cfcbff77945d9da",
+            "source_requirement_count": 6
+          },
+          "reason_codes_by_position": {
+            "0": "topic_only",
+            "1": "exact_fact"
+          },
+          "recall_verifier": {
+            "admitted_positions": [],
+            "attempts": 0,
+            "called": false,
+            "eligible": false,
+            "hypothetical_admitted_positions": [],
+            "primary_selected_removal_count": 0,
+            "proposed_positions": [],
+            "reason_codes": [
+              "coverage_forbidden"
+            ],
+            "rejected_positions": [],
+            "retry_count": 0,
+            "schema_result": "not_called"
+          },
+          "scenario_id": "v3-u18-simple-it",
+          "selected_irrelevant_refs": [],
+          "selected_positions": [
+            1
+          ],
+          "unassessed_critical_refs": []
+        },
+        {
+          "attempt_count": 1,
+          "attempts": [
+            {
+              "attempt": 1,
+              "schema_result": "valid",
+              "validation_error_codes": []
+            }
+          ],
+          "attribution_boundary": "none",
+          "candidate_count": 2,
+          "dialog_context_chars": 0,
+          "dialog_context_present": false,
+          "expected": {
+            "critical_positions": [
+              0
+            ],
+            "irrelevant_positions": [
+              1
+            ],
+            "required_positions": [
+              0
+            ]
+          },
+          "explicit_answer_slot_absence_positions": [],
+          "missed_critical_refs": [],
+          "planner_resolution": {
+            "actual_call_type": "read",
+            "availability": "measured",
+            "contains_raw_provider_output": false,
+            "contains_source_or_user_content": false,
+            "contract_version": 3,
+            "dialog_resolution_required": false,
+            "expected_call_type": "read",
+            "forbidden_term_count": 0,
+            "forbidden_term_matches": [],
+            "passed": true,
+            "required_term_group_count": 0,
+            "required_term_group_matches": [],
+            "resolved_query_chars": 43,
+            "resolved_query_sha256": "86fb1173a0f678d88eea35ef548f55be63893990e2974f6dcab9de4946985f0c",
+            "source_requirement_count": 2
+          },
+          "reason_codes_by_position": {
+            "0": "exact_fact",
+            "1": "search_more"
+          },
+          "recall_verifier": {
+            "admitted_positions": [],
+            "attempts": 1,
+            "called": true,
+            "eligible": true,
+            "hypothetical_admitted_positions": [],
+            "omitted_candidate_count": 1,
+            "primary_selected_removal_count": 0,
+            "proposed_positions": [],
+            "reason_codes": [
+              "required_source_gap",
+              "unresolved_source_disposition"
+            ],
+            "rejected_positions": [],
+            "retry_count": 0,
+            "schema_result": "valid",
+            "transport_tier": "strict_json_schema",
+            "validation_error_codes": []
+          },
+          "scenario_id": "v3-u19-simple-pt",
+          "selected_irrelevant_refs": [],
+          "selected_positions": [
+            0
+          ],
+          "unassessed_critical_refs": []
+        },
+        {
+          "attempt_count": 1,
+          "attempts": [
+            {
+              "attempt": 1,
+              "schema_result": "valid",
+              "validation_error_codes": []
+            }
+          ],
+          "attribution_boundary": "selector",
+          "candidate_count": 2,
+          "dialog_context_chars": 0,
+          "dialog_context_present": false,
+          "expected": {
+            "critical_positions": [
+              1
+            ],
+            "irrelevant_positions": [
+              0
+            ],
+            "required_positions": [
+              1
+            ]
+          },
+          "explicit_answer_slot_absence_positions": [],
+          "missed_critical_refs": [],
+          "planner_resolution": {
+            "actual_call_type": "read",
+            "availability": "measured",
+            "contains_raw_provider_output": false,
+            "contains_source_or_user_content": false,
+            "contract_version": 3,
+            "dialog_resolution_required": false,
+            "expected_call_type": "read",
+            "forbidden_term_count": 0,
+            "forbidden_term_matches": [],
+            "passed": true,
+            "required_term_group_count": 0,
+            "required_term_group_matches": [],
+            "resolved_query_chars": 14,
+            "resolved_query_sha256": "945b99ab15a71c70eb8a7286a7bfc564002fa180ce52f4158d24af9730bddb17",
+            "source_requirement_count": 6
+          },
+          "reason_codes_by_position": {
+            "0": "quote",
+            "1": "exact_fact"
+          },
+          "recall_verifier": {
+            "admitted_positions": [],
+            "attempts": 0,
+            "called": false,
+            "eligible": false,
+            "hypothetical_admitted_positions": [],
+            "primary_selected_removal_count": 0,
+            "proposed_positions": [],
+            "reason_codes": [
+              "coverage_forbidden"
+            ],
+            "rejected_positions": [],
+            "retry_count": 0,
+            "schema_result": "not_called"
+          },
+          "scenario_id": "v3-u20-simple-mixed",
+          "selected_irrelevant_refs": [
+            "post:fixture-u20-i"
+          ],
+          "selected_positions": [
+            0,
+            1
+          ],
+          "unassessed_critical_refs": []
+        },
+        {
+          "attempt_count": 1,
+          "attempts": [
+            {
+              "attempt": 1,
+              "schema_result": "valid",
+              "validation_error_codes": []
+            }
+          ],
+          "attribution_boundary": "selector",
+          "candidate_count": 2,
+          "dialog_context_chars": 0,
+          "dialog_context_present": false,
+          "expected": {
+            "critical_positions": [],
+            "irrelevant_positions": [
+              0,
+              1
+            ],
+            "required_positions": []
+          },
+          "explicit_answer_slot_absence_positions": [],
+          "missed_critical_refs": [],
+          "planner_resolution": {
+            "actual_call_type": "read",
+            "availability": "measured",
+            "contains_raw_provider_output": false,
+            "contains_source_or_user_content": false,
+            "contract_version": 3,
+            "dialog_resolution_required": false,
+            "expected_call_type": "read",
+            "forbidden_term_count": 0,
+            "forbidden_term_matches": [],
+            "passed": true,
+            "required_term_group_count": 0,
+            "required_term_group_matches": [],
+            "resolved_query_chars": 37,
+            "resolved_query_sha256": "c7dc5b71aa352f421c774b70bc275a87913b8037948136b1fdf4aa2c956a4061",
+            "source_requirement_count": 6
+          },
+          "reason_codes_by_position": {
+            "0": "unrelated_topic",
+            "1": "exact_fact"
+          },
+          "recall_verifier": {
+            "admitted_positions": [],
+            "attempts": 1,
+            "called": true,
+            "eligible": true,
+            "hypothetical_admitted_positions": [],
+            "omitted_candidate_count": 1,
+            "primary_selected_removal_count": 0,
+            "proposed_positions": [],
+            "reason_codes": [
+              "required_source_gap"
+            ],
+            "rejected_positions": [],
+            "retry_count": 0,
+            "schema_result": "valid",
+            "transport_tier": "strict_json_schema",
+            "validation_error_codes": []
+          },
+          "scenario_id": "v3-u21-empty-control",
+          "selected_irrelevant_refs": [
+            "post:fixture-u21-i2"
+          ],
+          "selected_positions": [
+            1
+          ],
+          "unassessed_critical_refs": []
+        }
+      ],
+      "selected_total": 26
+    }
+  }
+}

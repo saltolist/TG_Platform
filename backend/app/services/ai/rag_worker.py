@@ -90,7 +90,7 @@ def _clean_object_title(value: Any) -> str:
 
 
 def _summary_row_is_fresh(
-    indexed: set[tuple[str, int, int, str, str, int]],
+    indexed: set[tuple[str, int, int, str, str, int, int]],
     *,
     node_type: str,
     revision: int,
@@ -106,6 +106,7 @@ def _summary_row_is_fresh(
         and item[3].startswith("llm:")
         and bool(item[4])
         and item[5] == SELECTOR_SUMMARY_VERSION
+        and item[6] == 1
         for item in indexed
     )
 
@@ -600,6 +601,7 @@ async def _process_job(
                 summary_model=summaries.model_key,
                 selector_summary=summaries.selector_summary,
                 selector_summary_version=summaries.selector_summary_version,
+                selector_semantic_flags=summaries.selector_semantic_flags,
             )
             if summaries.selector_summary_version != SELECTOR_SUMMARY_VERSION:
                 semantic_retry_reason = summaries.generation_status
@@ -647,6 +649,7 @@ async def _process_job(
             discovery_summary_model=summaries.model_key,
             selector_summary=summaries.selector_summary,
             selector_summary_version=summaries.selector_summary_version,
+            selector_semantic_flags=summaries.selector_semantic_flags,
         )
         await _index_note_file_nodes(
             session,
@@ -700,6 +703,7 @@ async def _process_job(
             discovery_summary_model=summaries.model_key,
             selector_summary=summaries.selector_summary,
             selector_summary_version=summaries.selector_summary_version,
+            selector_semantic_flags=summaries.selector_semantic_flags,
         )
         await _index_note_file_nodes(
             session,
@@ -762,6 +766,7 @@ async def _process_job(
                     discovery_summary_model=summaries.model_key,
                     selector_summary=summaries.selector_summary,
                     selector_summary_version=summaries.selector_summary_version,
+                    selector_semantic_flags=summaries.selector_semantic_flags,
                 )
                 await _index_note_file_nodes(
                     session,
@@ -827,7 +832,7 @@ async def startup_backfill_all(session_factory: async_sessionmaker[AsyncSession]
                     exists = await session.execute(
                         text(
                             "SELECT node_type, index_revision, summary_version, summary_model, "
-                            "selector_summary, selector_summary_version "
+                            "selector_summary, selector_summary_version, selector_semantic_flags "
                             "FROM note_embeddings "
                             "WHERE user_id = :uid AND scope = 'global' AND note_id = :nid "
                             "AND node_type IN (:chunk_nt, :summary_nt) AND model_key = :mk"
@@ -848,6 +853,7 @@ async def startup_backfill_all(session_factory: async_sessionmaker[AsyncSession]
                             str(row.summary_model or ""),
                             str(row.selector_summary or ""),
                             int(row.selector_summary_version or 0),
+                            int((row.selector_semantic_flags or {}).get("v") or 0),
                         )
                         for row in exists.fetchall()
                     }
@@ -885,7 +891,7 @@ async def startup_backfill_all(session_factory: async_sessionmaker[AsyncSession]
                         exists = await session.execute(
                             text(
                                 "SELECT node_type, index_revision, summary_version, summary_model, "
-                                "selector_summary, selector_summary_version "
+                                "selector_summary, selector_summary_version, selector_semantic_flags "
                                 "FROM note_embeddings "
                                 "WHERE user_id = :uid AND scope = 'post' AND note_id = :nid "
                                 "AND node_type IN (:chunk_nt, :summary_nt) AND model_key = :mk"
@@ -906,6 +912,7 @@ async def startup_backfill_all(session_factory: async_sessionmaker[AsyncSession]
                                 str(row.summary_model or ""),
                                 str(row.selector_summary or ""),
                                 int(row.selector_summary_version or 0),
+                                int((row.selector_semantic_flags or {}).get("v") or 0),
                             )
                             for row in exists.fetchall()
                         }
@@ -930,7 +937,7 @@ async def startup_backfill_all(session_factory: async_sessionmaker[AsyncSession]
                     exists_canonical = await session.execute(
                         text(
                             "SELECT node_type, index_revision, summary_version, summary_model, "
-                            "selector_summary, selector_summary_version "
+                            "selector_summary, selector_summary_version, selector_semantic_flags "
                             "FROM note_embeddings "
                             "WHERE user_id = :uid AND scope = 'global' AND note_id = :pid "
                             "AND node_type IN (:text_nt, :summary_nt) AND model_key = :mk"
@@ -951,6 +958,7 @@ async def startup_backfill_all(session_factory: async_sessionmaker[AsyncSession]
                             str(row.summary_model or ""),
                             str(row.selector_summary or ""),
                             int(row.selector_summary_version or 0),
+                            int((row.selector_semantic_flags or {}).get("v") or 0),
                         )
                         for row in exists_canonical.fetchall()
                     }

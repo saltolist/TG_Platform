@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import hashlib
 from pathlib import Path
 from types import SimpleNamespace
 from unittest.mock import AsyncMock, patch
@@ -10,7 +11,10 @@ from unittest.mock import AsyncMock, patch
 import pytest
 
 from app.services.agent.research.graph import (
+    ADAPTIVE_AGENT_SYSTEM,
     CONTEXT_SELECTOR_SYSTEM,
+    RECALL_VERIFIER_SYSTEM,
+    _selector_llm_binding,
     _selector_preflight_gaps,
     _unified_selector_decision_is_valid,
 )
@@ -20,10 +24,12 @@ from app.services.agent.research.selector_transport import (
     SelectorSourceMapping,
     SelectorTransportMapping,
     SelectorValidationErrorCode,
+    apply_selector_question_scope_guard,
     decode_selector_transport_result,
     decode_selector_transport_v1_result,
     encode_selector_transport,
     render_selector_transport_output_requirements,
+    selector_card_has_explicit_answer_slot_absence,
     selector_transport_json_schema,
 )
 from app.services.agent.runtime.budget import call_llm_with_deadline
@@ -37,8 +43,17 @@ from app.services.ai.rag_worker import _summary_row_is_fresh
 from app.services.ai.semantic_summary import (
     DISCOVERY_SUMMARY_VERSION,
     SELECTOR_SUMMARY_VERSION,
+    _SYSTEM as SEMANTIC_SUMMARY_SYSTEM,
 )
 from scripts.agent_unified_phase6_report import build_report
+from scripts.agent_unified_selector_provider_replay import (
+    _bind_candidates_to_planner_contract,
+    _planner_resolution_trace,
+    _provider_planner_resolution,
+    _scenario_candidates,
+    build_provider_report,
+    build_provider_reports_with_frozen_cards,
+)
 from scripts.agent_unified_semantic_qualification import build_aggregate
 
 
@@ -140,10 +155,81 @@ def test_compact_transport_renders_dynamic_every_index_cardinality() -> None:
     assert "n=7" in requirements
     assert "exactly 7 assessment strings" in requirements
     assert transport.mapping.registry_nonce in requirements
-    assert "Do not return indexes" in requirements
+    assert "No indexes" in requirements
     schema = selector_transport_json_schema(transport.mapping)
     assert schema["properties"]["a"]["minItems"] == 7
     assert schema["properties"]["r"]["const"] == transport.mapping.registry_nonce
+
+
+def test_compact_transport_adds_raw_safe_cross_record_obligations() -> None:
+    transport = encode_selector_transport(
+        question="Did the signed policy retain the region proposed in the draft?",
+        dialog_context="",
+        contract=_contract(),
+        candidates=_candidates(2),
+    )
+
+    assert transport.payload["ob"] == {
+        "p": "cross_record_comparison/v2",
+        "evidence_slots": [
+            {
+                "record_role": "draft_or_proposed",
+                "requires": "requested_relation_value",
+            },
+            {
+                "record_role": "final_or_signed",
+                "requires": "requested_relation_value",
+            },
+        ],
+        "operation": "compare_slot_values",
+    }
+    assert not any(ref in json.dumps(transport.payload["ob"]) for ref in transport.mapping.candidate_refs)
+    requirements = render_selector_transport_output_requirements(transport.mapping)
+    assert "operation needs no card" in requirements
+    assert "with both slots filled, s is invalid" in requirements
+
+
+def test_compact_transport_and_scope_guard_enforce_named_subject_anchor() -> None:
+    candidates = _candidates(2)
+    candidates[0]["title"] = "Northstar attachment"
+    candidates[0]["selector_summary"] = "Northstar requires approval."
+    candidates[1]["title"] = "Meridian attachment"
+    candidates[1]["selector_summary"] = "Meridian requires manual verification."
+    question = "What is mandatory in the Meridian attachment?"
+    transport = encode_selector_transport(
+        question=question,
+        dialog_context="",
+        contract=_contract(),
+        candidates=candidates,
+    )
+    assert transport.payload["sa"] == {
+        "p": "runtime_query_contract/v1",
+        "a": ["meridian"],
+    }
+    decoded = decode_selector_transport_result(
+        json.dumps(
+            {
+                "v": 2,
+                "n": 2,
+                "r": transport.mapping.registry_nonce,
+                "a": ["de8", "de9"],
+                "done": True,
+            }
+        ),
+        mapping=transport.mapping,
+    )
+    assert decoded.decision is not None
+
+    guarded = apply_selector_question_scope_guard(
+        decoded.decision,
+        question=question,
+        candidates=candidates,
+        mapping=transport.mapping,
+    )
+
+    assert guarded.demoted_refs == ("note:n0",)
+    assert guarded.decision.assessments[0].relevance.value == "irrelevant"
+    assert guarded.decision.assessments[1].relevance.value == "direct"
 
 
 @pytest.mark.parametrize(
@@ -285,18 +371,17 @@ def test_complete_freshness_and_initial_sync_ceiling_are_blocking() -> None:
     )} == {"stale_selector_summary"}
 
 
-def test_oversized_selector_summary_is_stale_and_transport_remains_bounded() -> None:
+def test_oversized_selector_summary_is_stale_and_transport_never_slices() -> None:
     candidates = _candidates(1)
-    candidates[0]["selector_summary"] = "x" * 161
+    candidates[0]["selector_summary"] = "x" * 241
     normalized = normalize_candidates(candidates)
     assert normalized[0]["selector_summary_fresh"] is False
     assert normalized[0]["selector_summary_failure"] == "selector_summary_too_long"
 
-    transport = encode_selector_transport(
-        question="q", dialog_context="", contract=_contract(), candidates=normalized
-    )
-    assert "x" * 161 not in transport.render()
-    assert "x" * 160 in transport.render()
+    with pytest.raises(ValueError, match="regenerate the card"):
+        encode_selector_transport(
+            question="q", dialog_context="", contract=_contract(), candidates=normalized
+        )
 
 
 def test_summary_backfill_freshness_requires_both_version_and_projection() -> None:
@@ -307,6 +392,7 @@ def test_summary_backfill_freshness_requires_both_version_and_projection() -> No
         f"llm:fixture:model:v{DISCOVERY_SUMMARY_VERSION}",
         "selector summary",
         SELECTOR_SUMMARY_VERSION,
+        1,
     )
     assert _summary_row_is_fresh(
         {row}, node_type="note_summary", revision=7, model_key=row[3]
@@ -316,6 +402,9 @@ def test_summary_backfill_freshness_requires_both_version_and_projection() -> No
         node_type="note_summary",
         revision=7,
         model_key=row[3],
+    )
+    assert not _summary_row_is_fresh(
+        {(*row[:6], 0)}, node_type="note_summary", revision=7, model_key=row[3]
     )
     extractive = (*row[:3], f"extractive:v{DISCOVERY_SUMMARY_VERSION}", *row[4:])
     assert not _summary_row_is_fresh(
@@ -607,6 +696,366 @@ def test_v5_primary_semantic_qualification_is_repeatable_and_raw_safe() -> None:
     assert report["contains_source_or_user_content"] is False
 
 
+def test_v8_untouched_cohort_freezes_planner_anaphora_before_provider_output() -> None:
+    path = (
+        Path(__file__).parent
+        / "fixtures/agent_unified_phase6/v8/qualification_selector_cohort_v3.json"
+    )
+    payload = json.loads(path.read_text(encoding="utf-8"))
+    scenarios = payload["scenarios"]
+    planner_scenarios = [item for item in scenarios if item.get("planner_expectation")]
+
+    assert payload["cohort_role"] == "qualification"
+    assert payload["qualification_status"] == "untouched"
+    assert payload["labels_frozen_before_provider_output"] is True
+    assert len(scenarios) == 21
+    assert sum(len(item["critical_required_refs"]) for item in scenarios) >= 20
+    assert sum(len(item["irrelevant_refs"]) for item in scenarios) >= 20
+    assert len(planner_scenarios) == 3
+    assert all(item["dialog_context"] for item in planner_scenarios)
+    assert all(
+        item["planner_expectation"]["dialog_resolution_required"] is True
+        for item in planner_scenarios
+    )
+
+
+def test_v9_untouched_qualification_freezes_independent_mixed_cohort() -> None:
+    root = Path(__file__).parent / "fixtures/agent_unified_phase6/v9"
+    cohort_path = root / "qualification_selector_cohort_v1.json"
+    payload = json.loads(cohort_path.read_text(encoding="utf-8"))
+    manifest = json.loads(
+        (root / "qualification_manifest.json").read_text(encoding="utf-8")
+    )
+    scenarios = payload["scenarios"]
+
+    assert payload["cohort_role"] == "qualification"
+    assert payload["qualification_status"] == "untouched"
+    assert payload["labels_frozen_before_provider_output"] is True
+    assert len(scenarios) == 20
+    assert sum(len(item["critical_required_refs"]) for item in scenarios) == 21
+    assert sum(len(item["irrelevant_refs"]) for item in scenarios) == 20
+    assert sum("simple" in item["id"] for item in scenarios) >= 6
+    assert sum(bool(item.get("planner_expectation")) for item in scenarios) == 3
+    assert manifest["selector_model"] == "gpt-4.1"
+    assert manifest["planner_model"] == "gpt-4.1-mini"
+    assert manifest["recall_verifier_mode"] == "disabled"
+    assert manifest["cohort_sha256"] == hashlib.sha256(
+        cohort_path.read_bytes()
+    ).hexdigest()
+
+
+def test_v12_qualification_manifest_remains_historical_after_failed_runs() -> None:
+    root = Path(__file__).parent / "fixtures/agent_unified_phase6/v12"
+    cohort_path = root / "qualification_selector_cohort_v4.json"
+    payload = json.loads(cohort_path.read_text(encoding="utf-8"))
+    manifest = json.loads((root / "qualification_manifest.json").read_text())
+    scenarios = payload["scenarios"]
+
+    assert len(scenarios) == 20
+    assert sum(len(item["critical_required_refs"]) for item in scenarios) == 21
+    assert sum(len(item["irrelevant_refs"]) for item in scenarios) == 20
+    assert sum("simple" in item["id"] for item in scenarios) >= 5
+    assert sum(bool(item.get("planner_expectation")) for item in scenarios) == 3
+    assert manifest["cohort_sha256"] == hashlib.sha256(cohort_path.read_bytes()).hexdigest()
+    assert manifest["recall_verifier_mode"] == "disabled"
+    assert manifest["architecture"] == {
+        "runtime_model_binding": "ai_profile_and_settings",
+        "provider_capability_negotiation": True,
+        "plain_json_fallback": True,
+        "qualification_binding_is_not_a_runtime_constraint": True,
+    }
+    assert manifest["prompt_sha256"] == {
+        "planner": "45ed9eec1ce733413d1f93a78acfaa8d7378db96e3cc9ff48aa8dda696d39d3a",
+        "selector": "e1153263f1ce93e5f6d6dd2db0c9a51e43bbeee243dff9f5c9b50a49531e3e04",
+        "selector_card": "ed50ef2b37192fe4223dbd30cc013a07c756cc06fe4252e362570b6abcb9cc19",
+        "recall_verifier": "90a4de42dc4b6f693c0850e4d76ace7d0b368dec8f39c67a8eb137aa5f7897be",
+    }
+
+
+def test_v13_untouched_qualification_freezes_final_contracts_before_replay() -> None:
+    root = Path(__file__).parent / "fixtures/agent_unified_phase6/v13"
+    cohort_path = root / "qualification_selector_cohort_v5.json"
+    payload = json.loads(cohort_path.read_text(encoding="utf-8"))
+    manifest = json.loads((root / "qualification_manifest.json").read_text())
+    scenarios = payload["scenarios"]
+    cross_record = next(
+        item for item in scenarios if item["id"] == "u15-cross-record-en"
+    )
+
+    assert payload["cohort_role"] == "qualification"
+    assert payload["qualification_status"] == "untouched"
+    assert payload["labels_frozen_before_provider_output"] is True
+    assert len(scenarios) == 20
+    assert sum(len(item["critical_required_refs"]) for item in scenarios) == 21
+    assert sum(len(item["irrelevant_refs"]) for item in scenarios) == 20
+    assert sum("simple" in item["id"] for item in scenarios) >= 5
+    assert sum(bool(item.get("planner_expectation")) for item in scenarios) == 4
+    assert cross_record["planner_expectation"]["dialog_resolution_required"] is True
+    assert manifest["cohort_sha256"] == hashlib.sha256(cohort_path.read_bytes()).hexdigest()
+    assert manifest["recall_verifier_mode"] == "disabled"
+    assert manifest["planned_runs"] == [
+        "qualification_universal_v13_primary_run1.json",
+        "qualification_universal_v13_primary_run2.json",
+    ]
+    assert manifest["prompt_sha256"] == {
+        "planner": hashlib.sha256(ADAPTIVE_AGENT_SYSTEM.encode()).hexdigest(),
+        "selector": hashlib.sha256(CONTEXT_SELECTOR_SYSTEM.encode()).hexdigest(),
+        "selector_card": hashlib.sha256(SEMANTIC_SUMMARY_SYSTEM.encode()).hexdigest(),
+        "recall_verifier": hashlib.sha256(RECALL_VERIFIER_SYSTEM.encode()).hexdigest(),
+    }
+
+
+def test_v14_untouched_qualification_has_consistent_cross_record_referent() -> None:
+    root = Path(__file__).parent / "fixtures/agent_unified_phase6/v14"
+    cohort_path = root / "qualification_selector_cohort_v6.json"
+    payload = json.loads(cohort_path.read_text(encoding="utf-8"))
+    manifest = json.loads((root / "qualification_manifest.json").read_text())
+    cases = {item["id"]: item for item in payload["cases"]}
+    scenarios = payload["scenarios"]
+    cross_record = next(
+        item for item in scenarios if item["id"] == "v15-cross-record-en"
+    )
+
+    assert payload["cohort_role"] == "qualification"
+    assert payload["qualification_status"] == "untouched"
+    assert payload["labels_frozen_before_provider_output"] is True
+    assert len(scenarios) == 20
+    assert sum(len(item["critical_required_refs"]) for item in scenarios) == 21
+    assert sum(len(item["irrelevant_refs"]) for item in scenarios) == 20
+    assert sum("simple" in item["id"] for item in scenarios) >= 5
+    assert sum(bool(item.get("planner_expectation")) for item in scenarios) == 4
+    assert "raven" in cross_record["dialog_context"].casefold()
+    assert "inventory" in cross_record["dialog_context"].casefold()
+    for case_id in ("v15-a", "v15-b"):
+        evidence = f"{cases[case_id]['title']} {cases[case_id]['selector_summary']}"
+        assert "raven" in evidence.casefold()
+    assert manifest["cohort_sha256"] == hashlib.sha256(cohort_path.read_bytes()).hexdigest()
+    assert manifest["recall_verifier_mode"] == "disabled"
+    assert manifest["prompt_sha256"] == {
+        "planner": hashlib.sha256(ADAPTIVE_AGENT_SYSTEM.encode()).hexdigest(),
+        "selector": hashlib.sha256(CONTEXT_SELECTOR_SYSTEM.encode()).hexdigest(),
+        "selector_card": hashlib.sha256(SEMANTIC_SUMMARY_SYSTEM.encode()).hexdigest(),
+        "recall_verifier": hashlib.sha256(RECALL_VERIFIER_SYSTEM.encode()).hexdigest(),
+    }
+
+    outcome = json.loads((root / "qualification_outcome.json").read_text())
+    assert outcome["passed"] is True
+    assert outcome["run_count"] == 2
+    assert all(item["critical_required_recall"] == 1.0 for item in outcome["runs"])
+    assert all(item["irrelevant_selection_rate"] == 0.0 for item in outcome["runs"])
+    assert outcome["selector_card_generation"]["unrecovered_failure_count"] == 0
+    assert outcome["effective_path"] == "primary_only"
+    assert outcome["recall_verifier_required"] is False
+    assert outcome["formal_canary_authorized"] is False
+
+
+@pytest.mark.asyncio
+async def test_provider_report_can_mark_viewed_frozen_cohort_as_calibration() -> None:
+    with pytest.raises(ValueError, match="evaluation_role"):
+        await build_provider_report(evaluation_role="invalid")
+
+
+def test_selector_model_override_does_not_change_planner_binding() -> None:
+    ctx = SimpleNamespace(
+        planner_llm=lambda: ("provider", "planner-mini", "secret"),
+        settings=SimpleNamespace(agent_selector_model="selector-strong"),
+    )
+
+    assert _selector_llm_binding(ctx) == (
+        "provider",
+        "selector-strong",
+        "secret",
+    )
+    assert ctx.planner_llm()[1] == "planner-mini"
+
+
+@pytest.mark.asyncio
+async def test_frozen_card_repeats_generate_once_and_never_serialize_snapshot(
+    tmp_path: Path,
+) -> None:
+    cohort = tmp_path / "cohort.json"
+    cohort.write_text(
+        json.dumps(
+            {
+                "cases": [{"id": "c1"}],
+                "scenarios": [
+                    {"id": "q1", "kind": "semantic", "candidate_ids": ["c1"]}
+                ],
+            }
+        )
+    )
+    cards = {"c1": {"selector_summary": "Generated card.", "version": 12}}
+    generation = {
+        "enabled": True,
+        "contains_source_or_user_content": False,
+        "contains_raw_provider_output": False,
+    }
+    profile = (
+        ProviderSpec(name="Fixture", base_url="https://example.test"),
+        "planner-model",
+        "secret",
+        SimpleNamespace(),
+        {},
+    )
+    with (
+        patch(
+            "scripts.agent_unified_selector_provider_replay._resolve_profile_context",
+            new_callable=AsyncMock,
+            return_value=profile,
+        ),
+        patch(
+            "scripts.agent_unified_selector_provider_replay._generate_v12_selector_cards",
+            new_callable=AsyncMock,
+            return_value=(cards, generation),
+        ) as generate,
+        patch(
+            "scripts.agent_unified_selector_provider_replay.build_provider_report",
+            new_callable=AsyncMock,
+            side_effect=[{"repeat": 1}, {"repeat": 2}],
+        ) as build,
+    ):
+        reports = await build_provider_reports_with_frozen_cards(
+            repeat_count=2,
+            cohort_path=cohort,
+        )
+
+    assert reports == [{"repeat": 1}, {"repeat": 2}]
+    generate.assert_awaited_once()
+    assert generate.await_args.kwargs["case_ids"] == {"c1"}
+    assert build.await_count == 2
+    for index, call in enumerate(build.await_args_list, start=1):
+        assert call.kwargs["generated_cards_override"] is cards
+        metadata = call.kwargs["card_generation_override"]
+        assert metadata["snapshot_mode"] == "frozen_in_memory"
+        assert metadata["snapshot_reused_across_selector_runs"] == 2
+        assert metadata["snapshot_card_content_serialized"] is False
+        assert metadata["selector_repeat_index"] == index
+
+
+def test_planner_resolution_trace_requires_resolved_referent_and_typed_contract() -> None:
+    scenario = {
+        "planner_expectation": {
+            "call_type": "read",
+            "dialog_resolution_required": True,
+            "required_query_term_groups": [["northstar"], ["откат", "rollback"]],
+            "forbidden_query_terms": ["orion"],
+        }
+    }
+    contract = {
+        "version": 3,
+        "source_requirements": [{"source_id": "workspace-notes", "kind": "notes"}],
+    }
+
+    passed = _planner_resolution_trace(
+        scenario,
+        {
+            "current_tool": "read",
+            "search_query": "Кто отвечает за откат Northstar?",
+            "turn_contract": contract,
+        },
+    )
+    unresolved = _planner_resolution_trace(
+        scenario,
+        {
+            "current_tool": "read",
+            "search_query": "Кто отвечает за откат?",
+            "turn_contract": contract,
+        },
+    )
+    wrong_referent = _planner_resolution_trace(
+        scenario,
+        {
+            "current_tool": "read",
+            "search_query": "Кто отвечает за откат Orion?",
+            "turn_contract": contract,
+        },
+    )
+
+    assert passed["passed"] is True
+    assert unresolved["passed"] is False
+    assert wrong_referent["passed"] is False
+    assert "search_query" not in passed
+    assert len(passed["resolved_query_sha256"]) == 64
+
+
+@pytest.mark.asyncio
+async def test_provider_planner_threads_dialog_and_returns_actual_resolved_contract() -> None:
+    scenario = {
+        "planner_expectation": {
+            "call_type": "read",
+            "dialog_resolution_required": True,
+            "required_query_term_groups": [["quill"], ["block"]],
+            "forbidden_query_terms": ["raven"],
+        }
+    }
+    resolved_contract = {
+        "version": 3,
+        "source_requirements": [
+            {"source_id": "workspace-posts", "kind": "posts"}
+        ],
+    }
+    result = {
+        "current_tool": "read",
+        "search_query": "What blocks the Quill launch?",
+        "turn_contract": resolved_contract,
+    }
+    with patch(
+        "scripts.agent_unified_selector_provider_replay.workspace_agent_node",
+        new_callable=AsyncMock,
+        return_value=result,
+    ) as planner:
+        replay = await _provider_planner_resolution(
+            spec=ProviderSpec("fixture", "https://fixture.invalid"),
+            model="planner",
+            api_key="secret",
+            scenario=scenario,
+            question="What finally blocks it?",
+            dialog_context="Quill is active; Raven is not.",
+        )
+
+    config = planner.await_args.args[1]["configurable"]
+    assert config["dialog_context"] == "Quill is active; Raven is not."
+    assert replay["query"] == "What blocks the Quill launch?"
+    assert replay["contract"] == resolved_contract
+    assert replay["trace"]["passed"] is True
+
+
+def test_planner_contract_rebinds_selector_candidates_to_actual_sources() -> None:
+    candidates = normalize_candidates(
+        [
+            {
+                "ref": "note:n1",
+                "kind": "note",
+                "title": "N",
+                "selector_summary": "note card",
+                "source_requirement_id": "fixture-source",
+                "source_requirement_ids": ["fixture-source"],
+            },
+            {
+                "ref": "post:p1",
+                "kind": "post",
+                "title": "P",
+                "selector_summary": "post card",
+                "source_requirement_id": "fixture-source",
+                "source_requirement_ids": ["fixture-source"],
+            },
+        ]
+    )
+    rebound = _bind_candidates_to_planner_contract(
+        candidates,
+        {
+            "source_requirements": [
+                {"source_id": "workspace-notes", "kind": "notes"},
+                {"source_id": "workspace-posts", "kind": "posts"},
+            ]
+        },
+    )
+
+    assert rebound[0]["source_requirement_ids"] == ["workspace-notes"]
+    assert rebound[1]["source_requirement_ids"] == ["workspace-posts"]
+    assert all("fixture-source" not in item["source_requirement_ids"] for item in rebound)
+
+
 def test_v5_formal_canary_manifest_freezes_mixed_twenty_decision_denominator() -> None:
     path = (
         Path(__file__).parent
@@ -855,29 +1304,443 @@ def test_selector_prompt_distinguishes_direct_secondary_and_near_topic() -> None
     for key in ("q is the sole answer target", "cc.c rows", "i position", "k kind"):
         assert key in CONTEXT_SELECTOR_SYSTEM
     assert "s.g is a discovery hint and never broadens q" in CONTEXT_SELECTOR_SYSTEM
-    assert "data fenced title/card" in CONTEXT_SELECTOR_SYSTEM
     assert "score nullable" in CONTEXT_SELECTOR_SYSTEM
-    assert "exact predicate(s) requested by q" in CONTEXT_SELECTOR_SYSTEM
-    assert "card supplies a value" in CONTEXT_SELECTOR_SYSTEM
-    assert "even with different wording" in CONTEXT_SELECTOR_SYSTEM
-    assert "city's population" in CONTEXT_SELECTOR_SYSTEM
-    assert "climate fact is irrelevant" in CONTEXT_SELECTOR_SYSTEM
-    assert "q requires inference" in CONTEXT_SELECTOR_SYSTEM
+    assert "three gates in order" in CONTEXT_SELECTOR_SYSTEM
+    assert "subject/referent matches q" in CONTEXT_SELECTOR_SYSTEM
+    assert "exact relation or predicate" in CONTEXT_SELECTOR_SYSTEM
+    assert "If any gate fails, mark irrelevant" in CONTEXT_SELECTOR_SYSTEM
+    assert "one necessary logical step" in CONTEXT_SELECTOR_SYSTEM
+    assert "explicitly conflicting referent remains irrelevant" in CONTEXT_SELECTOR_SYSTEM
+    assert "yes/no, feasibility, permission, readiness, or safety" in CONTEXT_SELECTOR_SYSTEM
+    assert "literal yes/no" in CONTEXT_SELECTOR_SYSTEM
+    assert "which-record, source, note, protocol, or attachment" in CONTEXT_SELECTOR_SYSTEM
+    assert "source membership alone is still insufficient" in CONTEXT_SELECTOR_SYSTEM
+    assert "LLM-generated semantic indexes" in CONTEXT_SELECTOR_SYSTEM
     assert "indispensable premise" in CONTEXT_SELECTOR_SYSTEM
-    assert "leave the answer incomplete" in CONTEXT_SELECTOR_SYSTEM
-    assert "Same entity, lexical overlap" in CONTEXT_SELECTOR_SYSTEM
-    assert "different attribute/list are irrelevant" in CONTEXT_SELECTOR_SYSTEM
+    assert "observed usage" in CONTEXT_SELECTOR_SYSTEM
+    assert "roster or status does not supply" in CONTEXT_SELECTOR_SYSTEM
     assert "Never select extra context for completeness" in CONTEXT_SELECTOR_SYSTEM
     assert "secondary topic" in CONTEXT_SELECTOR_SYSTEM
     assert "membership never forces" in CONTEXT_SELECTOR_SYSTEM
-    assert "saying requested information is absent as irrelevant" in CONTEXT_SELECTOR_SYSTEM
-    assert "may need multiple indispensable premises" in CONTEXT_SELECTOR_SYSTEM
+    assert "requested information is absent" in CONTEXT_SELECTOR_SYSTEM
+    assert "Cross-record final-vs-draft questions are set-answerable" in CONTEXT_SELECTOR_SYSTEM
+    assert "select each card explicitly supplying one requested side" in CONTEXT_SELECTOR_SYSTEM
+    assert "never require a third comparison card" in CONTEXT_SELECTOR_SYSTEM
+    assert "which-record/source/protocol query" in RECALL_VERIFIER_SYSTEM
+    assert "source membership alone remains insufficient" in RECALL_VERIFIER_SYSTEM
+    assert "answer-determining semantic proposition" in RECALL_VERIFIER_SYSTEM
+    assert "answers q by one necessary logical step" in RECALL_VERIFIER_SYSTEM
 
 
 def test_selector_output_contract_repeats_semantic_independence_near_registry() -> None:
     mapping = SelectorTransportMapping(("note:a",), ("notes",), "abc123def456")
     requirements = render_selector_transport_output_requirements(mapping)
 
-    assert "Assess each candidate independently against q" in requirements
-    assert "shared subject is insufficient" in requirements
-    assert "use i otherwise" in requirements
+    assert "relevance d|s|i" in requirements
+    assert "d necessary implication" in requirements
+    assert "c comparison" in requirements
+
+
+def test_selector_question_scope_guard_demotes_only_explicit_descriptive_mismatch() -> None:
+    candidates = _candidates(4)
+    candidates[0]["selector_summary"] = (
+        "Отвечает на вопрос Как AI находит сведения: AI использует каскадный поиск."
+    )
+    candidates[1]["selector_summary"] = (
+        "Отвечает на вопрос Какие задачи решает платформа: Платформа дает AI и аналитику."
+    )
+    candidates[2]["selector_summary"] = (
+        "Отвечает на вопрос Что использует AI для поиска: AI использует каскадный поиск."
+    )
+    candidates[3]["selector_summary"] = "Legacy unscoped card about AI."
+    transport = encode_selector_transport(
+        question="Как AI находит сведения?",
+        dialog_context="",
+        contract=_contract(complete=False),
+        candidates=candidates,
+    )
+    decoded = decode_selector_transport_result(
+        json.dumps(
+            {
+                "v": 2,
+                "n": 4,
+                "r": transport.mapping.registry_nonce,
+                "a": ["de9", "se8", "se8", "se7"],
+                "done": True,
+            }
+        ),
+        mapping=transport.mapping,
+    )
+    assert decoded.decision is not None
+
+    guarded = apply_selector_question_scope_guard(
+        decoded.decision,
+        question="Как AI находит сведения?",
+        candidates=candidates,
+        mapping=transport.mapping,
+    )
+
+    assert guarded.demoted_refs == ("note:n1",)
+    by_ref = {item.ref: item for item in guarded.decision.assessments}
+    assert by_ref["note:n0"].relevance.value == "direct"
+    assert by_ref["note:n1"].relevance.value == "irrelevant"
+    assert by_ref["note:n1"].role.value == "none"
+    assert by_ref["note:n1"].resolution.value == "none"
+    assert by_ref["note:n2"].relevance.value == "supporting"
+    assert by_ref["note:n3"].relevance.value == "supporting"
+
+
+def test_selector_question_scope_guard_demotes_absent_cross_record_side() -> None:
+    candidates = _candidates(3)
+    candidates[0]["selector_summary"] = (
+        "The inventory contains no draft or signed ownership choice."
+    )
+    candidates[1]["selector_summary"] = "The signed policy assigns Priya as owner."
+    candidates[2]["selector_summary"] = "The draft proposes Priya as owner."
+    question = "Did the signed policy keep the owner proposed in the draft?"
+    transport = encode_selector_transport(
+        question=question,
+        dialog_context="",
+        contract=_contract(complete=False),
+        candidates=candidates,
+    )
+    decoded = decode_selector_transport_result(
+        json.dumps(
+            {
+                "v": 2,
+                "n": 3,
+                "r": transport.mapping.registry_nonce,
+                "a": ["dc8", "dc9", "dc9"],
+                "done": True,
+            }
+        ),
+        mapping=transport.mapping,
+    )
+    assert decoded.decision is not None
+
+    guarded = apply_selector_question_scope_guard(
+        decoded.decision,
+        question=question,
+        candidates=candidates,
+        mapping=transport.mapping,
+    )
+
+    assert guarded.demoted_refs == ("note:n0",)
+    by_ref = {item.ref: item for item in guarded.decision.assessments}
+    assert by_ref["note:n0"].relevance.value == "irrelevant"
+    assert by_ref["note:n1"].relevance.value == "direct"
+    assert by_ref["note:n2"].relevance.value == "direct"
+
+
+def test_selector_scope_guard_prefers_persisted_absence_over_legacy_text_heuristic() -> None:
+    candidates = _candidates(1)
+    candidates[0]["selector_summary"] = (
+        "The blocking hardware approval decision is missing."
+    )
+    candidates[0]["selector_semantic_flags"] = {
+        "v": 1,
+        "explicit_absence": False,
+        "observational_value": False,
+        "record_roles": [],
+    }
+    question = "Which approval blocks the release?"
+    transport = encode_selector_transport(
+        question=question,
+        dialog_context="",
+        contract=_contract(complete=False),
+        candidates=candidates,
+    )
+    decoded = decode_selector_transport_result(
+        json.dumps(
+            {
+                "v": 2,
+                "n": 1,
+                "r": transport.mapping.registry_nonce,
+                "a": ["de9"],
+                "done": True,
+            }
+        ),
+        mapping=transport.mapping,
+    )
+    assert decoded.decision is not None
+
+    guarded = apply_selector_question_scope_guard(
+        decoded.decision,
+        question=question,
+        candidates=candidates,
+        mapping=transport.mapping,
+    )
+    assert guarded.demoted_refs == ()
+
+    legacy = [{key: value for key, value in candidates[0].items() if key != "selector_semantic_flags"}]
+    legacy_guarded = apply_selector_question_scope_guard(
+        decoded.decision,
+        question=question,
+        candidates=legacy,
+        mapping=transport.mapping,
+    )
+    assert legacy_guarded.demoted_refs == ("note:n0",)
+
+
+def test_selector_scope_guard_rejects_observed_value_only_for_normative_bound() -> None:
+    candidates = _candidates(1)
+    candidates[0]["selector_summary"] = "The load test sustained 610 rps."
+    candidates[0]["selector_semantic_flags"] = {
+        "v": 1,
+        "explicit_absence": False,
+        "observational_value": True,
+        "record_roles": [],
+    }
+    question = "What approved cap applies?"
+    transport = encode_selector_transport(
+        question=question,
+        dialog_context="",
+        contract=_contract(complete=False),
+        candidates=candidates,
+    )
+    assert transport.payload["cc"][-1] == "x"
+    assert transport.payload["c"][0][-1] == "o"
+    decoded = decode_selector_transport_result(
+        json.dumps(
+            {
+                "v": 2,
+                "n": 1,
+                "r": transport.mapping.registry_nonce,
+                "a": ["de9"],
+                "done": True,
+            }
+        ),
+        mapping=transport.mapping,
+    )
+    assert decoded.decision is not None
+
+    normative = apply_selector_question_scope_guard(
+        decoded.decision,
+        question=question,
+        candidates=candidates,
+        mapping=transport.mapping,
+    )
+    assert normative.demoted_refs == ("note:n0",)
+    observed = apply_selector_question_scope_guard(
+        decoded.decision,
+        question="What throughput was observed?",
+        candidates=candidates,
+        mapping=transport.mapping,
+    )
+    assert observed.demoted_refs == ()
+
+
+def test_selector_scope_guard_keeps_cross_record_side_with_compatible_negation() -> None:
+    candidates = _candidates(1)
+    candidates[0]["selector_summary"] = (
+        "The signed policy does not change the recovery region proposed in the draft."
+    )
+    question = "Did the signed policy keep the region proposed in the draft?"
+    transport = encode_selector_transport(
+        question=question,
+        dialog_context="",
+        contract=_contract(complete=False),
+        candidates=candidates,
+    )
+    decoded = decode_selector_transport_result(
+        json.dumps(
+            {
+                "v": 2,
+                "n": 1,
+                "r": transport.mapping.registry_nonce,
+                "a": ["dc9"],
+                "done": True,
+            }
+        ),
+        mapping=transport.mapping,
+    )
+    assert decoded.decision is not None
+
+    guarded = apply_selector_question_scope_guard(
+        decoded.decision,
+        question=question,
+        candidates=candidates,
+        mapping=transport.mapping,
+    )
+
+    assert guarded.demoted_refs == ()
+    assert guarded.decision.assessments[0].relevance.value == "direct"
+
+
+def test_selector_question_scope_guard_leaves_implicit_and_descriptive_queries_to_model() -> None:
+    candidates = _candidates(1)
+    candidates[0]["selector_summary"] = (
+        "Отвечает на вопрос Что включает платформа: Платформа включает AI и аналитику."
+    )
+    transport = encode_selector_transport(
+        question="Какие функции есть?",
+        dialog_context="",
+        contract=_contract(complete=False),
+        candidates=candidates,
+    )
+    decoded = decode_selector_transport_result(
+        json.dumps(
+            {
+                "v": 2,
+                "n": 1,
+                "r": transport.mapping.registry_nonce,
+                "a": ["de9"],
+                "done": True,
+            }
+        ),
+        mapping=transport.mapping,
+    )
+    assert decoded.decision is not None
+
+    for question in ("Какие функции есть?", "А тот второй вариант?"):
+        guarded = apply_selector_question_scope_guard(
+            decoded.decision,
+            question=question,
+            candidates=candidates,
+            mapping=transport.mapping,
+        )
+        assert guarded.demoted_refs == ()
+        assert guarded.decision == decoded.decision
+
+
+def test_selector_question_scope_guard_demotes_only_missing_requested_slot() -> None:
+    candidates = _candidates(2)
+    candidates[0]["selector_summary"] = (
+        "Отвечает на вопрос What does the Orbit report state: "
+        "It discusses usage but does not specify a total token cap."
+    )
+    candidates[1]["selector_summary"] = (
+        "Отвечает на вопрос Why was Alpha delayed: "
+        "Alpha was delayed because the audit did not finish."
+    )
+    transport = encode_selector_transport(
+        question="What token cap applies to Orbit?",
+        dialog_context="",
+        contract=_contract(complete=False),
+        candidates=candidates,
+    )
+    decoded = decode_selector_transport_result(
+        json.dumps(
+            {
+                "v": 2,
+                "n": 2,
+                "r": transport.mapping.registry_nonce,
+                "a": ["de9", "de9"],
+                "done": True,
+            }
+        ),
+        mapping=transport.mapping,
+    )
+    assert decoded.decision is not None
+    assert selector_card_has_explicit_answer_slot_absence(
+        candidates[0]["selector_summary"]
+    )
+    assert not selector_card_has_explicit_answer_slot_absence(
+        candidates[1]["selector_summary"]
+    )
+
+    guarded = apply_selector_question_scope_guard(
+        decoded.decision,
+        question="What token cap applies to Orbit?",
+        candidates=candidates,
+        mapping=transport.mapping,
+    )
+    assert guarded.demoted_refs == ("note:n0", "note:n1")
+    assert guarded.decision.assessments[0].relevance.value == "irrelevant"
+    assert guarded.decision.assessments[1].relevance.value == "irrelevant"
+
+    yes_no = apply_selector_question_scope_guard(
+        decoded.decision,
+        question="Is a total token cap specified for Orbit?",
+        candidates=candidates,
+        mapping=transport.mapping,
+    )
+    assert yes_no.demoted_refs == ("note:n1",)
+    assert yes_no.decision.assessments[0].relevance.value == "direct"
+    assert yes_no.decision.assessments[1].relevance.value == "irrelevant"
+
+
+def test_selector_question_scope_guard_demotes_unprefixed_explicit_absence_card() -> None:
+    candidates = _candidates(1)
+    candidates[0]["selector_summary"] = (
+        "The report records current usage but explicitly sets no total token cap."
+    )
+    transport = encode_selector_transport(
+        question="What total token cap applies?",
+        dialog_context="",
+        contract=_contract(complete=False),
+        candidates=candidates,
+    )
+    decoded = decode_selector_transport_result(
+        json.dumps(
+            {
+                "v": 2,
+                "n": 1,
+                "r": transport.mapping.registry_nonce,
+                "a": ["de9"],
+                "done": True,
+            }
+        ),
+        mapping=transport.mapping,
+    )
+    assert decoded.decision is not None
+
+    guarded = apply_selector_question_scope_guard(
+        decoded.decision,
+        question="What total token cap applies?",
+        candidates=candidates,
+        mapping=transport.mapping,
+    )
+
+    assert guarded.demoted_refs == ("note:n0",)
+    assert guarded.decision.assessments[0].relevance.value == "irrelevant"
+
+
+def test_provider_replay_uses_complete_generated_v12_card_without_slicing() -> None:
+    card = "A" * 239 + "."
+    assert len(card) == 240
+    payload = {
+        "cases": [
+            {
+                "id": "direct",
+                "kind": "note",
+                "title": "Fixture",
+                "selector_summary": "Legacy fixture text.",
+                "source_ids": ["workspace-notes"],
+            }
+        ]
+    }
+    candidates = _scenario_candidates(
+        payload,
+        {"candidate_ids": ["direct"]},
+        variant="240",
+        generated_cards={
+            "direct": {
+                "selector_summary": card,
+                "version": SELECTOR_SUMMARY_VERSION,
+                "model_key": f"llm:OpenAI:test:v{DISCOVERY_SUMMARY_VERSION}",
+            }
+        },
+    )
+
+    assert len(candidates) == 1
+    assert candidates[0]["selector_summary"] == card
+
+    encode_selector_transport(
+        question="Which fact answers the request?",
+        dialog_context="",
+        contract=_contract(complete=False),
+        candidates=candidates,
+        summary_max_chars=240,
+    )
+    with pytest.raises(ValueError, match="regenerate the card"):
+        encode_selector_transport(
+            question="Which fact answers the request?",
+            dialog_context="",
+            contract=_contract(complete=False),
+            candidates=candidates,
+            summary_max_chars=160,
+        )
+    assert candidates[0]["selector_summary_version"] == SELECTOR_SUMMARY_VERSION
+    assert candidates[0]["selector_summary_fresh"] is True
+    assert candidates[0]["card_origin"] == "llm"

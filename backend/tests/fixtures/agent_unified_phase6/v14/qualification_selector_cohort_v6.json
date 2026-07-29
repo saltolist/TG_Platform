@@ -1,0 +1,1088 @@
+{
+  "schema": "workspace.selector-labeled-cohort/v1",
+  "version": "2026-07-29-semantic-qualification-v6",
+  "cohort_role": "qualification",
+  "qualification_status": "untouched",
+  "labels_frozen_before_provider_output": true,
+  "synthetic": true,
+  "tenant_safe": true,
+  "cases": [
+    {
+      "id": "v01-d",
+      "kind": "note",
+      "language": "ru",
+      "query": "Какое окно отката утверждено для Arbor?",
+      "title": "Arbor: утвержденный откат",
+      "selector_summary": "Комитет утвердил для Arbor окно отката с 06:15 до 06:52 UTC.",
+      "origin": "semantic_search",
+      "semantic_score": 0.59,
+      "parent_kind": null,
+      "source_ids": [
+        "ops-notes"
+      ],
+      "label": "direct"
+    },
+    {
+      "id": "v01-i",
+      "kind": "post",
+      "language": "ru",
+      "query": "Какое окно отката утверждено для Arbor?",
+      "title": "Arbor: тренировочный откат",
+      "selector_summary": "Учебный откат Arbor завершился за 34 минуты, но утвержденное окно в отчете не задано.",
+      "origin": "authoritative_catalog",
+      "semantic_score": null,
+      "parent_kind": null,
+      "source_ids": [
+        "training-posts"
+      ],
+      "label": "irrelevant"
+    },
+    {
+      "id": "v02-d",
+      "kind": "post",
+      "language": "en",
+      "query": "Who approves the Bastion production freeze?",
+      "title": "Bastion freeze authority",
+      "selector_summary": "The release duty manager approves the Bastion production freeze.",
+      "origin": "authoritative_catalog",
+      "semantic_score": null,
+      "parent_kind": null,
+      "source_ids": [
+        "release-posts"
+      ],
+      "label": "direct"
+    },
+    {
+      "id": "v02-i",
+      "kind": "note",
+      "language": "en",
+      "query": "Who approves the Bastion production freeze?",
+      "title": "Bastion escalation contacts",
+      "selector_summary": "The Bastion escalation list names support contacts but assigns no freeze approval authority.",
+      "origin": "semantic_search",
+      "semantic_score": 0.93,
+      "parent_kind": "post",
+      "source_ids": [
+        "support-notes"
+      ],
+      "label": "irrelevant"
+    },
+    {
+      "id": "v03-d",
+      "kind": "note",
+      "language": "ru",
+      "query": "А кто должен его разблокировать?",
+      "title": "Cipher: снятие блокировки",
+      "selector_summary": "Блокировку выпуска Cipher снимает хранитель ключей Антон после сверки подписей.",
+      "origin": "semantic_search",
+      "semantic_score": 0.61,
+      "parent_kind": "post",
+      "source_ids": [
+        "security-notes"
+      ],
+      "label": "direct"
+    },
+    {
+      "id": "v03-i",
+      "kind": "note",
+      "language": "ru",
+      "query": "А кто должен его разблокировать?",
+      "title": "Dahlia: снятие блокировки",
+      "selector_summary": "Блокировку Dahlia снимает руководитель смены Ольга после проверки очереди.",
+      "origin": "authoritative_catalog",
+      "semantic_score": null,
+      "parent_kind": "post",
+      "source_ids": [
+        "security-notes"
+      ],
+      "label": "irrelevant"
+    },
+    {
+      "id": "v04-d",
+      "kind": "note",
+      "language": "en",
+      "query": "When can we safely do that?",
+      "title": "Eon backup retention",
+      "selector_summary": "The Eon migration backup must remain intact until the audit closes at 08:10 UTC.",
+      "origin": "semantic_search",
+      "semantic_score": 0.58,
+      "parent_kind": "post",
+      "source_ids": [
+        "audit-notes"
+      ],
+      "label": "direct"
+    },
+    {
+      "id": "v04-i",
+      "kind": "post",
+      "language": "en",
+      "query": "When can we safely do that?",
+      "title": "Forge backup retention",
+      "selector_summary": "The Forge backup may be archived after its checksum review at 03:35 UTC.",
+      "origin": "authoritative_catalog",
+      "semantic_score": null,
+      "parent_kind": null,
+      "source_ids": [
+        "audit-posts"
+      ],
+      "label": "irrelevant"
+    },
+    {
+      "id": "v05-d",
+      "kind": "note",
+      "language": "ru",
+      "query": "Можно ли выпускать Garnet до полудня?",
+      "title": "Garnet: подпись комплаенса",
+      "selector_summary": "Обязательная подпись комплаенса для Garnet будет доступна не раньше 16:10; до нее выпуск запрещен.",
+      "origin": "semantic_search",
+      "semantic_score": 0.52,
+      "parent_kind": "post",
+      "source_ids": [
+        "compliance-notes"
+      ],
+      "label": "direct"
+    },
+    {
+      "id": "v05-i",
+      "kind": "post",
+      "language": "ru",
+      "query": "Можно ли выпускать Garnet до полудня?",
+      "title": "Garnet: готовность сборки",
+      "selector_summary": "Сборка Garnet прошла тесты в 11:50 и готова к загрузке в реестр.",
+      "origin": "authoritative_catalog",
+      "semantic_score": null,
+      "parent_kind": null,
+      "source_ids": [
+        "build-posts"
+      ],
+      "label": "irrelevant"
+    },
+    {
+      "id": "v06-d",
+      "kind": "note",
+      "language": "en",
+      "query": "Can the Helix on-call leave right after cutover?",
+      "title": "Helix post-cutover watch",
+      "selector_summary": "Helix requires an on-call engineer to watch payment errors for seven hours after cutover.",
+      "origin": "authoritative_catalog",
+      "semantic_score": null,
+      "parent_kind": "post",
+      "source_ids": [
+        "support-notes"
+      ],
+      "label": "direct"
+    },
+    {
+      "id": "v06-i",
+      "kind": "post",
+      "language": "en",
+      "query": "Can the Helix on-call leave right after cutover?",
+      "title": "Helix cutover agenda",
+      "selector_summary": "The Helix agenda sets cutover at 20:45 and lists the deployment speakers.",
+      "origin": "semantic_search",
+      "semantic_score": 0.9,
+      "parent_kind": null,
+      "source_ids": [
+        "schedule-posts"
+      ],
+      "label": "irrelevant"
+    },
+    {
+      "id": "v07-d",
+      "kind": "note",
+      "language": "ru",
+      "query": "Какой побочный операционный риск остался у Ivory?",
+      "title": "Ivory: итог недели",
+      "selector_summary": "Основной статус Ivory зеленый; в примечании указан побочный риск переполнения очереди повторов.",
+      "origin": "semantic_search",
+      "semantic_score": 0.55,
+      "parent_kind": "post",
+      "source_ids": [
+        "status-notes"
+      ],
+      "label": "direct"
+    },
+    {
+      "id": "v07-i",
+      "kind": "post",
+      "language": "ru",
+      "query": "Какой побочный операционный риск остался у Ivory?",
+      "title": "Ivory: устройство очередей",
+      "selector_summary": "Документ описывает архитектуру очередей Ivory, но не фиксирует оставшийся операционный риск.",
+      "origin": "authoritative_catalog",
+      "semantic_score": null,
+      "parent_kind": null,
+      "source_ids": [
+        "architecture-posts"
+      ],
+      "label": "irrelevant"
+    },
+    {
+      "id": "v08-d",
+      "kind": "post",
+      "language": "en",
+      "query": "What secondary legal issue remains for Jade?",
+      "title": "Jade launch review",
+      "selector_summary": "The final paragraph identifies consent-record portability as Jade's remaining secondary legal issue.",
+      "origin": "authoritative_catalog",
+      "semantic_score": null,
+      "parent_kind": null,
+      "source_ids": [
+        "review-posts"
+      ],
+      "label": "direct"
+    },
+    {
+      "id": "v08-i",
+      "kind": "note",
+      "language": "en",
+      "query": "What secondary legal issue remains for Jade?",
+      "title": "Jade counsel roster",
+      "selector_summary": "The roster names Jade's external counsel but records no unresolved legal issue.",
+      "origin": "semantic_search",
+      "semantic_score": 0.92,
+      "parent_kind": "post",
+      "source_ids": [
+        "legal-notes"
+      ],
+      "label": "irrelevant"
+    },
+    {
+      "id": "v09-d",
+      "kind": "note",
+      "language": "es",
+      "query": "Que limite cancela el despliegue de Kernel?",
+      "title": "Regla de parada Kernel",
+      "selector_summary": "El despliegue Kernel se cancela si la latencia p99 supera 975 ms durante ocho minutos.",
+      "origin": "semantic_search",
+      "semantic_score": 0.5,
+      "parent_kind": null,
+      "source_ids": [
+        "slo-notes"
+      ],
+      "label": "direct"
+    },
+    {
+      "id": "v09-i",
+      "kind": "post",
+      "language": "es",
+      "query": "Que limite cancela el despliegue de Kernel?",
+      "title": "Telemetria Kernel",
+      "selector_summary": "La telemetria actual muestra 640 ms de latencia p99 sin establecer el limite de cancelacion.",
+      "origin": "authoritative_catalog",
+      "semantic_score": null,
+      "parent_kind": null,
+      "source_ids": [
+        "monitoring-posts"
+      ],
+      "label": "irrelevant"
+    },
+    {
+      "id": "v10-d",
+      "kind": "post",
+      "language": "de",
+      "query": "Welche Freigabe blockiert Lyric?",
+      "title": "Lyric Freigabestatus",
+      "selector_summary": "Die ausstehende Freigabe des Hardware-Sicherheitsmoduls blockiert Lyric.",
+      "origin": "authoritative_catalog",
+      "semantic_score": null,
+      "parent_kind": null,
+      "source_ids": [
+        "dependency-posts"
+      ],
+      "label": "direct"
+    },
+    {
+      "id": "v10-i",
+      "kind": "note",
+      "language": "de",
+      "query": "Welche Freigabe blockiert Lyric?",
+      "title": "Lyric Kapazitaet",
+      "selector_summary": "Die Notiz nennt knappe Testkapazitaet fuer Lyric, aber keine blockierende Freigabe.",
+      "origin": "semantic_search",
+      "semantic_score": 0.88,
+      "parent_kind": "post",
+      "source_ids": [
+        "capacity-notes"
+      ],
+      "label": "irrelevant"
+    },
+    {
+      "id": "v11-d",
+      "kind": "note",
+      "language": "ru",
+      "query": "Что там было обязательным?",
+      "title": "Matrix: вложение к решению",
+      "selector_summary": "Вложенная заметка к решению Matrix требует вручную подтвердить первые 185 возвратов.",
+      "origin": "semantic_search",
+      "semantic_score": 0.57,
+      "parent_kind": "post",
+      "source_ids": [
+        "decision-notes"
+      ],
+      "label": "direct"
+    },
+    {
+      "id": "v11-i",
+      "kind": "note",
+      "language": "ru",
+      "query": "Что там было обязательным?",
+      "title": "Nova: вложение к решению",
+      "selector_summary": "Вложение Nova требует согласовать новый шаблон писем перед запуском.",
+      "origin": "authoritative_catalog",
+      "semantic_score": null,
+      "parent_kind": "post",
+      "source_ids": [
+        "decision-notes"
+      ],
+      "label": "irrelevant"
+    },
+    {
+      "id": "v12-d",
+      "kind": "note",
+      "language": "ru",
+      "query": "Какой подписанный протокол задает срок хранения Onyx?",
+      "title": "Onyx: подписанный протокол хранения",
+      "selector_summary": "Подписанный протокол Onyx устанавливает хранение аварийного снимка в течение 67 суток.",
+      "origin": "authoritative_catalog",
+      "semantic_score": null,
+      "parent_kind": "post",
+      "source_ids": [
+        "required-retention"
+      ],
+      "label": "direct"
+    },
+    {
+      "id": "v12-i",
+      "kind": "post",
+      "language": "ru",
+      "query": "Какой подписанный протокол задает срок хранения Onyx?",
+      "title": "Onyx: рабочая версия протокола",
+      "selector_summary": "Рабочая версия обсуждает три срока хранения Onyx, но не подписана и не задает обязательный срок.",
+      "origin": "authoritative_catalog",
+      "semantic_score": null,
+      "parent_kind": null,
+      "source_ids": [
+        "required-retention"
+      ],
+      "label": "irrelevant"
+    },
+    {
+      "id": "v13-d",
+      "kind": "note",
+      "language": "mixed",
+      "query": "Compare Pulse caps in the note and post / сравни лимиты Pulse",
+      "title": "Pulse approved caps",
+      "selector_summary": "The note caps Pulse at 745 rps; the published post caps it at 890 rps / лимиты расходятся.",
+      "origin": "semantic_search",
+      "semantic_score": null,
+      "parent_kind": "post",
+      "source_ids": [
+        "cap-notes",
+        "cap-posts"
+      ],
+      "label": "direct"
+    },
+    {
+      "id": "v13-i",
+      "kind": "post",
+      "language": "mixed",
+      "query": "Compare Pulse caps in the note and post / сравни лимиты Pulse",
+      "title": "Pulse load test",
+      "selector_summary": "Pulse sustained 680 rps in a load test, but this is observed throughput rather than an approved cap.",
+      "origin": "authoritative_catalog",
+      "semantic_score": null,
+      "parent_kind": null,
+      "source_ids": [
+        "test-posts"
+      ],
+      "label": "irrelevant"
+    },
+    {
+      "id": "v14-d",
+      "kind": "note",
+      "language": "fr",
+      "query": "Quelle est l'echeance de Quasar?",
+      "title": "Echeance Quasar",
+      "selector_summary": "La livraison finale de Quasar est due le 19 mai.",
+      "origin": "semantic_search",
+      "semantic_score": null,
+      "parent_kind": null,
+      "source_ids": [
+        "schedule-notes"
+      ],
+      "label": "direct"
+    },
+    {
+      "id": "v14-i",
+      "kind": "post",
+      "language": "fr",
+      "query": "Quelle est l'echeance de Quasar?",
+      "title": "Progression Quasar",
+      "selector_summary": "Le rapport indique que Quasar est termine a 79 pour cent sans donner son echeance.",
+      "origin": "authoritative_catalog",
+      "semantic_score": null,
+      "parent_kind": null,
+      "source_ids": [
+        "status-posts"
+      ],
+      "label": "irrelevant"
+    },
+    {
+      "id": "v15-a",
+      "kind": "note",
+      "language": "en",
+      "query": "Did the signed policy retain the region proposed in the draft?",
+      "title": "Raven region draft",
+      "selector_summary": "The Raven draft proposes ca-central as the recovery region.",
+      "origin": "semantic_search",
+      "semantic_score": 0.63,
+      "parent_kind": "post",
+      "source_ids": [
+        "draft-notes"
+      ],
+      "label": "direct"
+    },
+    {
+      "id": "v15-b",
+      "kind": "post",
+      "language": "en",
+      "query": "Did the signed policy retain the region proposed in the draft?",
+      "title": "Raven signed recovery policy",
+      "selector_summary": "The signed Raven policy sets ca-central as the recovery region.",
+      "origin": "authoritative_catalog",
+      "semantic_score": null,
+      "parent_kind": null,
+      "source_ids": [
+        "policy-posts"
+      ],
+      "label": "direct"
+    },
+    {
+      "id": "v15-i",
+      "kind": "note",
+      "language": "en",
+      "query": "Did the signed policy retain the region proposed in the draft?",
+      "title": "Raven region inventory",
+      "selector_summary": "The inventory lists ca-central among four available Raven regions but contains no draft or signed choice.",
+      "origin": "authoritative_catalog",
+      "semantic_score": null,
+      "parent_kind": "post",
+      "source_ids": [
+        "inventory-notes"
+      ],
+      "label": "irrelevant"
+    },
+    {
+      "id": "v16-d",
+      "kind": "note",
+      "language": "ru",
+      "query": "Стоит ли уже отправлять приглашения партнерам?",
+      "title": "Solstice: внешние приглашения",
+      "selector_summary": "Публичные приглашения партнеров Solstice запрещены до завершения проверки согласий юристами.",
+      "origin": "semantic_search",
+      "semantic_score": 0.49,
+      "parent_kind": "post",
+      "source_ids": [
+        "legal-notes"
+      ],
+      "label": "direct"
+    },
+    {
+      "id": "v16-i",
+      "kind": "post",
+      "language": "ru",
+      "query": "Стоит ли уже отправлять приглашения партнерам?",
+      "title": "Solstice: календарь запуска",
+      "selector_summary": "Календарь Solstice назначает внутреннюю демонстрацию на пятницу и не регулирует приглашения партнеров.",
+      "origin": "authoritative_catalog",
+      "semantic_score": null,
+      "parent_kind": null,
+      "source_ids": [
+        "schedule-posts"
+      ],
+      "label": "irrelevant"
+    },
+    {
+      "id": "v17-d",
+      "kind": "post",
+      "language": "fr",
+      "query": "Combien de minutes sont reservees au retour arriere Tangent?",
+      "title": "Procedure Tangent",
+      "selector_summary": "La procedure reserve trente-six minutes au retour arriere Tangent apres le signal d'incident.",
+      "origin": "authoritative_catalog",
+      "semantic_score": null,
+      "parent_kind": null,
+      "source_ids": [
+        "ops-posts"
+      ],
+      "label": "direct"
+    },
+    {
+      "id": "v17-i",
+      "kind": "note",
+      "language": "fr",
+      "query": "Combien de minutes sont reservees au retour arriere Tangent?",
+      "title": "Agenda Tangent",
+      "selector_summary": "L'agenda donne l'heure du lancement Tangent sans reserver de duree au retour arriere.",
+      "origin": "semantic_search",
+      "semantic_score": 0.91,
+      "parent_kind": "post",
+      "source_ids": [
+        "schedule-notes"
+      ],
+      "label": "irrelevant"
+    },
+    {
+      "id": "v18-d",
+      "kind": "note",
+      "language": "it",
+      "query": "Qual e il minimo di zone attive per Umbra?",
+      "title": "Requisito Umbra",
+      "selector_summary": "Umbra richiede almeno otto zone attive e verificate prima della promozione.",
+      "origin": "semantic_search",
+      "semantic_score": 0.54,
+      "parent_kind": "post",
+      "source_ids": [
+        "availability-notes"
+      ],
+      "label": "direct"
+    },
+    {
+      "id": "v18-i",
+      "kind": "post",
+      "language": "it",
+      "query": "Qual e il minimo di zone attive per Umbra?",
+      "title": "Prova Umbra",
+      "selector_summary": "La prova Umbra ha usato sei zone senza definire il minimo richiesto.",
+      "origin": "authoritative_catalog",
+      "semantic_score": null,
+      "parent_kind": null,
+      "source_ids": [
+        "test-posts"
+      ],
+      "label": "irrelevant"
+    },
+    {
+      "id": "v19-d",
+      "kind": "note",
+      "language": "pt",
+      "query": "Por que o corte de Vertex foi suspenso?",
+      "title": "Decisao Vertex",
+      "selector_summary": "O corte Vertex foi suspenso porque a reconciliacao bancaria apresentou divergencias.",
+      "origin": "authoritative_catalog",
+      "semantic_score": null,
+      "parent_kind": "post",
+      "source_ids": [
+        "decision-notes"
+      ],
+      "label": "direct"
+    },
+    {
+      "id": "v19-i",
+      "kind": "post",
+      "language": "pt",
+      "query": "Por que o corte de Vertex foi suspenso?",
+      "title": "Novo calendario Vertex",
+      "selector_summary": "O calendario move o corte Vertex para segunda-feira sem informar a causa da suspensao.",
+      "origin": "semantic_search",
+      "semantic_score": 0.89,
+      "parent_kind": null,
+      "source_ids": [
+        "calendar-posts"
+      ],
+      "label": "irrelevant"
+    },
+    {
+      "id": "v20-d",
+      "kind": "note",
+      "language": "mixed",
+      "query": "What is the approved cache quota / какая квота cache у Wave?",
+      "title": "Wave cache quota",
+      "selector_summary": "Wave has an approved cache quota of 840 GB / утвержденная квота cache равна 840 ГБ.",
+      "origin": "semantic_search",
+      "semantic_score": 0.6,
+      "parent_kind": "post",
+      "source_ids": [
+        "quota-notes"
+      ],
+      "label": "direct"
+    },
+    {
+      "id": "v20-i",
+      "kind": "post",
+      "language": "mixed",
+      "query": "What is the approved cache quota / какая квота cache у Wave?",
+      "title": "Wave cache usage",
+      "selector_summary": "Wave currently uses 525 GB of cache, but the report sets no approved quota.",
+      "origin": "authoritative_catalog",
+      "semantic_score": null,
+      "parent_kind": null,
+      "source_ids": [
+        "metrics-posts"
+      ],
+      "label": "irrelevant"
+    }
+  ],
+  "scenarios": [
+    {
+      "id": "v1-simple-ru",
+      "kind": "semantic",
+      "candidate_ids": [
+        "v01-i",
+        "v01-d"
+      ],
+      "required_refs": [
+        "note:fixture-v01-d"
+      ],
+      "critical_required_refs": [
+        "note:fixture-v01-d"
+      ],
+      "allowed_supporting_refs": [],
+      "irrelevant_refs": [
+        "post:fixture-v01-i"
+      ]
+    },
+    {
+      "id": "v2-simple-en",
+      "kind": "semantic",
+      "candidate_ids": [
+        "v02-d",
+        "v02-i"
+      ],
+      "required_refs": [
+        "post:fixture-v02-d"
+      ],
+      "critical_required_refs": [
+        "post:fixture-v02-d"
+      ],
+      "allowed_supporting_refs": [],
+      "irrelevant_refs": [
+        "note:fixture-v02-i"
+      ]
+    },
+    {
+      "id": "v3-anaphora-ru",
+      "kind": "semantic",
+      "query": "А кто должен его разблокировать?",
+      "dialog_context": "Пользователь: Продолжаем про выпуск Cipher, не Dahlia. Ассистент: Cipher остается в фокусе.",
+      "planner_expectation": {
+        "call_type": "read",
+        "dialog_resolution_required": true,
+        "required_query_term_groups": [
+          [
+            "cipher"
+          ],
+          [
+            "блокир",
+            "разблок",
+            "снят"
+          ]
+        ],
+        "forbidden_query_terms": [
+          "dahlia"
+        ]
+      },
+      "candidate_ids": [
+        "v03-i",
+        "v03-d"
+      ],
+      "required_refs": [
+        "note:fixture-v03-d"
+      ],
+      "critical_required_refs": [
+        "note:fixture-v03-d"
+      ],
+      "allowed_supporting_refs": [],
+      "irrelevant_refs": [
+        "note:fixture-v03-i"
+      ]
+    },
+    {
+      "id": "v4-anaphora-en",
+      "kind": "semantic",
+      "query": "When can we safely do that?",
+      "dialog_context": "User: We need to delete the Eon migration backup, not the Forge one. Assistant: Eon is the active task.",
+      "planner_expectation": {
+        "call_type": "read",
+        "dialog_resolution_required": true,
+        "required_query_term_groups": [
+          [
+            "eon"
+          ],
+          [
+            "delet",
+            "remov",
+            "archive"
+          ],
+          [
+            "safe",
+            "when",
+            "time"
+          ]
+        ],
+        "forbidden_query_terms": [
+          "forge"
+        ]
+      },
+      "candidate_ids": [
+        "v04-d",
+        "v04-i"
+      ],
+      "required_refs": [
+        "note:fixture-v04-d"
+      ],
+      "critical_required_refs": [
+        "note:fixture-v04-d"
+      ],
+      "allowed_supporting_refs": [],
+      "irrelevant_refs": [
+        "post:fixture-v04-i"
+      ]
+    },
+    {
+      "id": "v5-implied-ru",
+      "kind": "semantic",
+      "candidate_ids": [
+        "v05-i",
+        "v05-d"
+      ],
+      "required_refs": [
+        "note:fixture-v05-d"
+      ],
+      "critical_required_refs": [
+        "note:fixture-v05-d"
+      ],
+      "allowed_supporting_refs": [],
+      "irrelevant_refs": [
+        "post:fixture-v05-i"
+      ]
+    },
+    {
+      "id": "v6-implied-en",
+      "kind": "semantic",
+      "candidate_ids": [
+        "v06-d",
+        "v06-i"
+      ],
+      "required_refs": [
+        "note:fixture-v06-d"
+      ],
+      "critical_required_refs": [
+        "note:fixture-v06-d"
+      ],
+      "allowed_supporting_refs": [],
+      "irrelevant_refs": [
+        "post:fixture-v06-i"
+      ]
+    },
+    {
+      "id": "v7-secondary-ru",
+      "kind": "semantic",
+      "candidate_ids": [
+        "v07-i",
+        "v07-d"
+      ],
+      "required_refs": [
+        "note:fixture-v07-d"
+      ],
+      "critical_required_refs": [
+        "note:fixture-v07-d"
+      ],
+      "allowed_supporting_refs": [],
+      "irrelevant_refs": [
+        "post:fixture-v07-i"
+      ]
+    },
+    {
+      "id": "v8-secondary-en",
+      "kind": "semantic",
+      "candidate_ids": [
+        "v08-d",
+        "v08-i"
+      ],
+      "required_refs": [
+        "post:fixture-v08-d"
+      ],
+      "critical_required_refs": [
+        "post:fixture-v08-d"
+      ],
+      "allowed_supporting_refs": [],
+      "irrelevant_refs": [
+        "note:fixture-v08-i"
+      ]
+    },
+    {
+      "id": "v9-near-topic-es",
+      "kind": "semantic",
+      "candidate_ids": [
+        "v09-i",
+        "v09-d"
+      ],
+      "required_refs": [
+        "note:fixture-v09-d"
+      ],
+      "critical_required_refs": [
+        "note:fixture-v09-d"
+      ],
+      "allowed_supporting_refs": [],
+      "irrelevant_refs": [
+        "post:fixture-v09-i"
+      ]
+    },
+    {
+      "id": "v10-near-topic-de",
+      "kind": "semantic",
+      "candidate_ids": [
+        "v10-d",
+        "v10-i"
+      ],
+      "required_refs": [
+        "post:fixture-v10-d"
+      ],
+      "critical_required_refs": [
+        "post:fixture-v10-d"
+      ],
+      "allowed_supporting_refs": [],
+      "irrelevant_refs": [
+        "note:fixture-v10-i"
+      ]
+    },
+    {
+      "id": "v11-parent-ru",
+      "kind": "semantic",
+      "query": "Что там было обязательным?",
+      "dialog_context": "Пользователь: Смотрим решение Matrix и вложенную заметку, не Nova. Ассистент: Открыт контекст Matrix.",
+      "planner_expectation": {
+        "call_type": "read",
+        "dialog_resolution_required": true,
+        "required_query_term_groups": [
+          [
+            "matrix"
+          ],
+          [
+            "обяз",
+            "треб",
+            "услов"
+          ],
+          [
+            "замет",
+            "влож",
+            "attachment"
+          ]
+        ],
+        "forbidden_query_terms": [
+          "nova"
+        ]
+      },
+      "candidate_ids": [
+        "v11-i",
+        "v11-d"
+      ],
+      "required_refs": [
+        "note:fixture-v11-d"
+      ],
+      "critical_required_refs": [
+        "note:fixture-v11-d"
+      ],
+      "allowed_supporting_refs": [],
+      "irrelevant_refs": [
+        "note:fixture-v11-i"
+      ]
+    },
+    {
+      "id": "v12-required-source-ru",
+      "kind": "semantic",
+      "candidate_ids": [
+        "v12-d",
+        "v12-i"
+      ],
+      "required_refs": [
+        "note:fixture-v12-d"
+      ],
+      "critical_required_refs": [
+        "note:fixture-v12-d"
+      ],
+      "allowed_supporting_refs": [],
+      "irrelevant_refs": [
+        "post:fixture-v12-i"
+      ],
+      "required_source_ids": [
+        "required-retention"
+      ]
+    },
+    {
+      "id": "v13-multi-source",
+      "kind": "semantic",
+      "candidate_ids": [
+        "v13-i",
+        "v13-d"
+      ],
+      "required_refs": [
+        "note:fixture-v13-d"
+      ],
+      "critical_required_refs": [
+        "note:fixture-v13-d"
+      ],
+      "allowed_supporting_refs": [],
+      "irrelevant_refs": [
+        "post:fixture-v13-i"
+      ]
+    },
+    {
+      "id": "v14-nullable-fr",
+      "kind": "semantic",
+      "candidate_ids": [
+        "v14-d",
+        "v14-i"
+      ],
+      "required_refs": [
+        "note:fixture-v14-d"
+      ],
+      "critical_required_refs": [
+        "note:fixture-v14-d"
+      ],
+      "allowed_supporting_refs": [],
+      "irrelevant_refs": [
+        "post:fixture-v14-i"
+      ]
+    },
+    {
+      "id": "v15-cross-record-en",
+      "kind": "semantic",
+      "candidate_ids": [
+        "v15-i",
+        "v15-b",
+        "v15-a"
+      ],
+      "required_refs": [
+        "post:fixture-v15-b",
+        "note:fixture-v15-a"
+      ],
+      "critical_required_refs": [
+        "post:fixture-v15-b",
+        "note:fixture-v15-a"
+      ],
+      "allowed_supporting_refs": [],
+      "irrelevant_refs": [
+        "note:fixture-v15-i"
+      ],
+      "query": "And did the signed version keep that choice?",
+      "dialog_context": "User: Compare the recovery region in the Raven draft with the signed Raven policy. The inventory only lists options and is out of scope. Assistant: Raven is the active comparison.",
+      "planner_expectation": {
+        "call_type": "read",
+        "dialog_resolution_required": true,
+        "required_query_term_groups": [
+          [
+            "raven"
+          ],
+          [
+            "draft",
+            "proposed"
+          ],
+          [
+            "signed",
+            "final"
+          ],
+          [
+            "region",
+            "recovery"
+          ]
+        ],
+        "forbidden_query_terms": [
+          "inventory"
+        ]
+      }
+    },
+    {
+      "id": "v16-implied-unmentioned-note-ru",
+      "kind": "semantic",
+      "candidate_ids": [
+        "v16-d",
+        "v16-i"
+      ],
+      "required_refs": [
+        "note:fixture-v16-d"
+      ],
+      "critical_required_refs": [
+        "note:fixture-v16-d"
+      ],
+      "allowed_supporting_refs": [],
+      "irrelevant_refs": [
+        "post:fixture-v16-i"
+      ]
+    },
+    {
+      "id": "v17-simple-fr",
+      "kind": "semantic",
+      "candidate_ids": [
+        "v17-i",
+        "v17-d"
+      ],
+      "required_refs": [
+        "post:fixture-v17-d"
+      ],
+      "critical_required_refs": [
+        "post:fixture-v17-d"
+      ],
+      "allowed_supporting_refs": [],
+      "irrelevant_refs": [
+        "note:fixture-v17-i"
+      ]
+    },
+    {
+      "id": "v18-simple-it",
+      "kind": "semantic",
+      "candidate_ids": [
+        "v18-d",
+        "v18-i"
+      ],
+      "required_refs": [
+        "note:fixture-v18-d"
+      ],
+      "critical_required_refs": [
+        "note:fixture-v18-d"
+      ],
+      "allowed_supporting_refs": [],
+      "irrelevant_refs": [
+        "post:fixture-v18-i"
+      ]
+    },
+    {
+      "id": "v19-cause-pt",
+      "kind": "semantic",
+      "candidate_ids": [
+        "v19-i",
+        "v19-d"
+      ],
+      "required_refs": [
+        "note:fixture-v19-d"
+      ],
+      "critical_required_refs": [
+        "note:fixture-v19-d"
+      ],
+      "allowed_supporting_refs": [],
+      "irrelevant_refs": [
+        "post:fixture-v19-i"
+      ]
+    },
+    {
+      "id": "v20-simple-mixed",
+      "kind": "semantic",
+      "candidate_ids": [
+        "v20-d",
+        "v20-i"
+      ],
+      "required_refs": [
+        "note:fixture-v20-d"
+      ],
+      "critical_required_refs": [
+        "note:fixture-v20-d"
+      ],
+      "allowed_supporting_refs": [],
+      "irrelevant_refs": [
+        "post:fixture-v20-i"
+      ]
+    }
+  ]
+}

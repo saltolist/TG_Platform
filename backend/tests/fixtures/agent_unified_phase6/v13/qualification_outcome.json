@@ -1,0 +1,58 @@
+{
+  "schema": "workspace.phase6-semantic-qualification-outcome/v1",
+  "version": "2026-07-29-semantic-qualification-v5",
+  "passed": false,
+  "run_count": 2,
+  "cohort_sha256": "9d386e50507a2db040c51be03d90d49c49b6e05d971c70e8a3f0ee508cc61206",
+  "runs": [
+    {
+      "artifact": "qualification_universal_v13_primary_run1.json",
+      "planner_passed_count": 20,
+      "planner_scenario_count": 20,
+      "selector_first_attempt_valid": 20,
+      "selector_final_valid": 20,
+      "selector_retry_count": 0,
+      "critical_required_selected": 19,
+      "critical_required_total": 21,
+      "critical_required_recall": 0.904762,
+      "irrelevant_selected": 0,
+      "irrelevant_total": 20,
+      "irrelevant_selection_rate": 0.0,
+      "final_pack_precision": 1.0,
+      "position_error_count": 0,
+      "failed_scenario_ids": [
+        "u15-cross-record-en"
+      ]
+    },
+    {
+      "artifact": "qualification_universal_v13_primary_run2.json",
+      "planner_passed_count": 20,
+      "planner_scenario_count": 20,
+      "selector_first_attempt_valid": 20,
+      "selector_final_valid": 20,
+      "selector_retry_count": 0,
+      "critical_required_selected": 19,
+      "critical_required_total": 21,
+      "critical_required_recall": 0.904762,
+      "irrelevant_selected": 0,
+      "irrelevant_total": 20,
+      "irrelevant_selection_rate": 0.0,
+      "final_pack_precision": 1.0,
+      "position_error_count": 0,
+      "failed_scenario_ids": [
+        "u15-cross-record-en"
+      ]
+    }
+  ],
+  "failure_boundary": "qualification_fixture",
+  "failure_reason_codes": [
+    "planner_referent_does_not_match_required_candidate_referent"
+  ],
+  "effective_path": "primary_only",
+  "recall_verifier_required": false,
+  "formal_canary_authorized": false,
+  "contains_credentials": false,
+  "contains_account_identifier": false,
+  "contains_raw_provider_output": false,
+  "contains_source_or_user_content": false
+}

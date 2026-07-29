@@ -1,0 +1,50 @@
+{
+  "schema": "workspace.phase6-semantic-qualification-manifest/v1",
+  "version": "2026-07-29-semantic-qualification-v4",
+  "frozen_at": "2026-07-29T16:06:51+03:00",
+  "cohort_artifact": "qualification_selector_cohort_v4.json",
+  "cohort_sha256": "a878dde5a80948fa0c926031f8a508abb4a7be3006c4f908f2e04114b6333fea",
+  "qualification_status_before_runs": "untouched",
+  "labels_frozen_before_provider_output": true,
+  "source_head": "eeef15bb72c4acd7c8cdedbafc46e8d83b6a0693",
+  "provider": "OpenAI",
+  "planner_model": "gpt-4.1-mini",
+  "selector_model": "gpt-4.1",
+  "transport_tier": "strict_json_schema",
+  "architecture": {
+    "runtime_model_binding": "ai_profile_and_settings",
+    "provider_capability_negotiation": true,
+    "plain_json_fallback": true,
+    "qualification_binding_is_not_a_runtime_constraint": true
+  },
+  "selector_summary_version": 12,
+  "selector_summary_limit_chars": 240,
+  "recall_verifier_mode": "disabled",
+  "prompt_sha256": {
+    "planner": "45ed9eec1ce733413d1f93a78acfaa8d7378db96e3cc9ff48aa8dda696d39d3a",
+    "selector": "e1153263f1ce93e5f6d6dd2db0c9a51e43bbeee243dff9f5c9b50a49531e3e04",
+    "selector_card": "ed50ef2b37192fe4223dbd30cc013a07c756cc06fe4252e362570b6abcb9cc19",
+    "recall_verifier": "90a4de42dc4b6f693c0850e4d76ace7d0b368dec8f39c67a8eb137aa5f7897be"
+  },
+  "minimums": {
+    "semantic_scenarios": 20,
+    "critical_required_refs": 20,
+    "irrelevant_refs": 20,
+    "planner_pass_rate": 1.0,
+    "first_attempt_valid_rate": 0.95,
+    "final_valid_rate": 1.0,
+    "retry_rate_max": 0.05,
+    "critical_required_recall": 1.0,
+    "irrelevant_selection_rate": 0.0,
+    "final_pack_precision": 1.0,
+    "position_error_count": 0
+  },
+  "planned_runs": [
+    "qualification_universal_v12_primary_run1.json",
+    "qualification_universal_v12_primary_run2.json"
+  ],
+  "contains_credentials": false,
+  "contains_account_identifier": false,
+  "contains_raw_provider_output": false,
+  "contains_source_or_user_content": false
+}

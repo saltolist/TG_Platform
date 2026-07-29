@@ -247,6 +247,13 @@ class Settings(BaseSettings):
     agent_unified_selector_v1_enabled: bool = False
     agent_verified_pack_boundary_v1_enabled: bool = False
     agent_planner_policy_v1_enabled: bool = False
+    # Conditional phase-6 recall audit. Shadow records proposals without
+    # changing the material plan; active admission remains separately gated.
+    agent_recall_verifier_v1_enabled: bool = False
+    agent_recall_verifier_v1_shadow: bool = True
+    # Optional same-provider capability uplift for the semantic Selector only.
+    # Empty preserves the configured planner model.
+    agent_selector_model: str = ""
     agent_unified_default_on: bool = False
     # Durable message-level provenance and bounded semantic referent binding.
     dialog_message_context_manifest_v1: bool = True
@@ -295,6 +302,8 @@ class Settings(BaseSettings):
         "agent_unified_selector_v1_enabled",
         "agent_verified_pack_boundary_v1_enabled",
         "agent_planner_policy_v1_enabled",
+        "agent_recall_verifier_v1_enabled",
+        "agent_recall_verifier_v1_shadow",
         "agent_unified_default_on",
         "dialog_message_context_manifest_v1",
         "agent_dialog_context_v2",

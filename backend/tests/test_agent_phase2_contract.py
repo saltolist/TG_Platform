@@ -15,6 +15,7 @@ from app.services.agent.runtime.turn_contract import (
     missing_required_sources,
 )
 from app.services.agent.runtime.workspace_graph import workspace_agent_node
+from app.services.agent.runtime.workspace_graph import WORKSPACE_SYSTEM
 
 
 def test_explicit_links_are_authoritative_multi_targets_and_never_semantic_hits() -> None:
@@ -36,6 +37,13 @@ def test_explicit_links_are_authoritative_multi_targets_and_never_semantic_hits(
         "rules-1", "post-1", "post-2"
     }
     assert all(source["scope"]["mode"] == "targets" for source in contract["source_requirements"])
+
+
+def test_planner_prompt_omits_explicitly_excluded_referents_from_resolved_goal() -> None:
+    assert "назови только активный референт" in WORKSPACE_SYSTEM
+    assert "не упоминай даже с отрицанием" in WORKSPACE_SYSTEM
+    assert "вырази обе уже запрошенные стороны как явные retrieval predicates" in WORKSPACE_SYSTEM
+    assert "что указал draft/proposed record" in WORKSPACE_SYSTEM
 
 
 def test_open_post_is_a_target_with_open_object_provenance() -> None:
@@ -447,6 +455,41 @@ async def test_implicit_resolver_set_keeps_classifier_for_fidelity() -> None:
 
 
 @pytest.mark.asyncio
+async def test_classifier_cannot_expand_self_contained_question_without_dialog() -> None:
+    question = "Can support safely leave right after midnight?"
+    contract = build_turn_contract(user_text=question, history=[], scope="global")
+    ctx = SimpleNamespace(
+        reasoner_spec=object(),
+        reasoner_model="planner",
+        reasoner_api_key="secret",
+        turn_contract=contract,
+        scope="global",
+        post_data=None,
+        deadline_monotonic=None,
+        llm_client=None,
+        llm_metrics=[],
+    )
+    with patch(
+        "app.services.agent.runtime.workspace_graph.call_llm_with_deadline",
+        new_callable=AsyncMock,
+        return_value=(
+            '{"type":"read","required_sources":["notes"],'
+            '"search_query":"Can support leave, or is continued coverage required?"}'
+        ),
+    ):
+        result = await workspace_agent_node(
+            {"user_text": question, "turn_contract": contract},
+            {"configurable": {"runtime_context": ctx, "turn_contract": contract}},
+        )
+
+    assert result["search_query"] == question
+    assert all(
+        source["query_goal"] == question
+        for source in result["turn_contract"]["source_requirements"]
+    )
+
+
+@pytest.mark.asyncio
 async def test_classifier_promotes_only_semantically_required_source() -> None:
     contract = build_turn_contract(
         user_text="Сколько у меня постов?", history=[], scope="global"
@@ -477,7 +520,7 @@ async def test_classifier_promotes_only_semantically_required_source() -> None:
 
     sources = {item["kind"]: item for item in result["turn_contract"]["source_requirements"]}
     assert result["tool_call"]["type"] == "read"
-    assert result["search_query"] == "полный каталог постов пользователя"
+    assert result["search_query"] == "Сколько у меня постов?"
     assert sources["posts"]["required"] is True
     assert sources["notes"]["required"] is False
     assert sources["notes"]["evidence_granularity"] == "semantic_card"

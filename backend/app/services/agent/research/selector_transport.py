@@ -11,10 +11,20 @@ from typing import Any, Mapping, Sequence
 
 from pydantic import ValidationError
 
-from app.services.agent.research.planner_decision import ContextSelectorDecision
+from app.services.agent.research.planner_decision import (
+    CandidateReasonCode,
+    CandidateRelevance,
+    ContextSelectorDecision,
+    SelectorResolution,
+    SelectorRole,
+    SourceDispositionStatus,
+)
 from app.services.agent.research.trust import neutralize_untrusted
 from app.services.ai.rag_json import extract_json_object
-from app.services.ai.semantic_summary import SELECTOR_SUMMARY_MAX_CHARS
+from app.services.ai.semantic_summary import (
+    SELECTOR_SUMMARY_MAX_CHARS,
+    selector_card_has_explicit_absence,
+)
 
 
 LEGACY_SELECTOR_TRANSPORT_SCHEMA = "workspace.context-selector-transport/v1"
@@ -94,8 +104,55 @@ _PLAIN_FRAME_RE = re.compile(
     re.IGNORECASE,
 )
 _FORGED_FRAME_TOKEN_RE = re.compile(r"\bCS\d+\|", re.IGNORECASE)
-
-
+_DRAFT_RECORD_RE = re.compile(
+    r"\b(?:draft|proposed|proposal|чернов\w*|предлож\w*|borrador|propuest\w*|"
+    r"brouillon|propos\w*|entwurf|vorgeschlag\w*)\b",
+    re.IGNORECASE,
+)
+_FINAL_RECORD_RE = re.compile(
+    r"\b(?:final|signed|approved|итогов\w*|финальн\w*|подписан\w*|утвержден\w*|"
+    r"firmad\w*|finale?|signe\w*|unterzeichnet\w*|genehmigt\w*)\b",
+    re.IGNORECASE,
+)
+_NAMED_SUBJECT_RE = re.compile(r"\b[A-ZА-ЯЁ][A-Za-zА-Яа-яЁё0-9_-]{2,}\b")
+_SUBJECT_STOP_WORDS = frozenset(
+    {
+        "What", "Which", "Who", "When", "Where", "Why", "How", "Did", "Does", "Can", "The",
+        "Что", "Кто", "Когда", "Где", "Почему", "Как", "Какой", "Какая", "Какие", "Можно",
+        "Que", "Quelle", "Welche", "Qual", "Quanto", "Combien",
+    }
+)
+_CARD_QUESTION_PREFIX = "Отвечает на вопрос "
+_EXPLANATORY_QUERY_RE = re.compile(
+    r"(?:^|\b)(?:как|каким\s+образом|почему|зачем|how|why|cómo|por\s+qué|comment|pourquoi|wie|warum)(?:\b|$)",
+    re.IGNORECASE,
+)
+_DESCRIPTIVE_CARD_QUESTION_RE = re.compile(
+    r"^(?:что|как(?:ой|ое|ая|ие)|what|which|qué|cuál(?:es)?|quoi|quel(?:le|s)?|was|welche?)\b",
+    re.IGNORECASE,
+)
+_OPERATIONAL_CARD_QUESTION_RE = re.compile(
+    r"\b(?:механизм|процесс|способ|причин\w*|работа\w*|использу\w*|наход\w*|ищ\w*|получа\w*|"
+    r"mechanism|process|method|reason|cause|work\w*|use\w*|find\w*|search\w*|retriev\w*|"
+    r"mecanismo|proceso|método|razón|causa|funciona\w*|usa\w*|busca\w*)\b",
+    re.IGNORECASE,
+)
+_ANSWER_SLOT_QUERY_RE = re.compile(
+    r"(?:^|\b)(?:что|кто|ка(?:кой|кая|кие|кое)|сколько|когда|где|почему|зачем|как|"
+    r"what|which|who|how\s+(?:many|much)|when|where|why|how|"
+    r"que|qué|cual(?:es)?|cuál(?:es)?|quien|quién|cuanto|cuánto|cuando|cuándo|donde|dónde|"
+    r"quel(?:le|s)?|qui|combien|quand|où|pourquoi|comment|"
+    r"welche?|wer|wie\s+viel|wann|wo|warum|wie|"
+    r"quale|chi|quanto|quando|dove|perché|come|"
+    r"qual|quem|quanto|quando|onde|por\s+que|como)(?:\b|$)",
+    re.IGNORECASE,
+)
+_NORMATIVE_BOUND_QUERY_RE = re.compile(
+    r"\b(?:cap|limit|threshold|quota|minimum|required|approved|лимит\w*|порог\w*|"
+    r"квот\w*|миним\w*|требуем\w*|утвержден\w*|limite|umbral|cuota|minimum|"
+    r"seuil|quota|grenze|minimum|limite|soglia)\b",
+    re.IGNORECASE,
+)
 class SelectorValidationErrorCode(StrEnum):
     MISSING_FRAME = "missing_frame"
     MULTIPLE_FRAMES = "multiple_frames"
@@ -155,6 +212,207 @@ class SelectorDecodeResult:
     @property
     def error_codes(self) -> tuple[str, ...]:
         return tuple(item.value for item in self.errors)
+
+
+@dataclass(frozen=True)
+class SelectorScopeGuardResult:
+    decision: ContextSelectorDecision
+    demoted_refs: tuple[str, ...] = ()
+
+
+def selector_card_has_explicit_answer_slot_absence(card: str) -> bool:
+    return selector_card_has_explicit_absence(card)
+
+
+def selector_candidate_has_explicit_absence(candidate: Mapping[str, Any]) -> bool:
+    flags = candidate.get("selector_semantic_flags")
+    if isinstance(flags, Mapping) and flags.get("v") == 1:
+        return flags.get("explicit_absence") is True
+    return selector_card_has_explicit_answer_slot_absence(
+        str(candidate.get("selector_summary") or "")
+    )
+
+
+def _query_obligations(question: str) -> dict[str, Any] | None:
+    value = str(question or "")
+    if not (_DRAFT_RECORD_RE.search(value) and _FINAL_RECORD_RE.search(value)):
+        return None
+    return {
+        "p": "cross_record_comparison/v2",
+        "evidence_slots": [
+            {
+                "record_role": "draft_or_proposed",
+                "requires": "requested_relation_value",
+            },
+            {
+                "record_role": "final_or_signed",
+                "requires": "requested_relation_value",
+            },
+        ],
+        "operation": "compare_slot_values",
+    }
+
+
+def _query_subject_anchors(
+    question: str,
+    candidates: Sequence[Mapping[str, Any]],
+) -> tuple[str, ...]:
+    candidate_text = " ".join(
+        f"{item.get('title') or ''} {item.get('selector_summary') or ''}"
+        for item in candidates
+        if isinstance(item, Mapping)
+    ).casefold()
+    return tuple(
+        dict.fromkeys(
+            token.casefold()
+            for token in _NAMED_SUBJECT_RE.findall(str(question or ""))
+            if token not in _SUBJECT_STOP_WORDS and token.casefold() in candidate_text
+        )
+    )
+
+
+def apply_selector_question_scope_guard(
+    decision: ContextSelectorDecision,
+    *,
+    question: str,
+    candidates: Sequence[Mapping[str, Any]],
+    mapping: SelectorTransportMapping,
+) -> SelectorScopeGuardResult:
+    """Demote provable question-scope and missing-answer mismatches.
+
+    The guard only acts on question-scoped LLM cards. Ambiguous, implicit,
+    anaphoric and multi-intent queries remain entirely model-decided.
+    """
+
+    query = str(question or "")
+    explanatory_query = bool(_EXPLANATORY_QUERY_RE.search(query))
+    answer_slot_query = bool(_ANSWER_SLOT_QUERY_RE.search(query))
+    comparison_obligations = _query_obligations(query) is not None
+    subject_anchors = _query_subject_anchors(query, candidates)
+    if (
+        not explanatory_query
+        and not answer_slot_query
+        and not comparison_obligations
+        and not subject_anchors
+    ):
+        return SelectorScopeGuardResult(decision)
+    card_by_ref = {
+        str(item.get("ref") or ""): str(item.get("selector_summary") or "")
+        for item in candidates
+        if isinstance(item, Mapping)
+    }
+    semantic_flags_by_ref = {
+        str(item.get("ref") or ""): dict(item.get("selector_semantic_flags") or {})
+        for item in candidates
+        if isinstance(item, Mapping)
+    }
+    candidate_by_ref = {
+        str(item.get("ref") or ""): item
+        for item in candidates
+        if isinstance(item, Mapping)
+    }
+    searchable_by_ref = {
+        str(item.get("ref") or ""): (
+            f"{item.get('title') or ''} {item.get('selector_summary') or ''}".casefold()
+        )
+        for item in candidates
+        if isinstance(item, Mapping)
+    }
+    guarded_assessments = []
+    demoted_refs: list[str] = []
+    for assessment in decision.assessments:
+        card = card_by_ref.get(str(assessment.ref), "")
+        card_question = ""
+        if card.startswith(_CARD_QUESTION_PREFIX) and ": " in card:
+            card_question = card[len(_CARD_QUESTION_PREFIX) :].split(": ", 1)[0]
+        descriptive_mismatch = (
+            explanatory_query
+            and assessment.relevance != CandidateRelevance.IRRELEVANT
+            and bool(card_question)
+            and bool(_DESCRIPTIVE_CARD_QUESTION_RE.search(card_question))
+            and not _OPERATIONAL_CARD_QUESTION_RE.search(card_question)
+        )
+        missing_answer_slot = (
+            (answer_slot_query or comparison_obligations)
+            and assessment.relevance != CandidateRelevance.IRRELEVANT
+            and (
+                selector_candidate_has_explicit_absence(
+                    candidate_by_ref.get(str(assessment.ref), {})
+                )
+            )
+        )
+        observational_bound_mismatch = (
+            bool(_NORMATIVE_BOUND_QUERY_RE.search(query))
+            and assessment.relevance != CandidateRelevance.IRRELEVANT
+            and semantic_flags_by_ref.get(str(assessment.ref), {}).get(
+                "observational_value"
+            )
+            is True
+        )
+        named_subject_mismatch = (
+            bool(subject_anchors)
+            and assessment.relevance != CandidateRelevance.IRRELEVANT
+            and not any(
+                anchor in searchable_by_ref.get(str(assessment.ref), "")
+                for anchor in subject_anchors
+            )
+        )
+        should_demote = (
+            descriptive_mismatch
+            or missing_answer_slot
+            or observational_bound_mismatch
+            or named_subject_mismatch
+        )
+        if not should_demote:
+            guarded_assessments.append(assessment)
+            continue
+        demoted_refs.append(str(assessment.ref))
+        guarded_assessments.append(
+            assessment.model_copy(
+                update={
+                    "relevance": CandidateRelevance.IRRELEVANT,
+                    "role": SelectorRole.NONE,
+                    "resolution": SelectorResolution.NONE,
+                    "confidence": min(float(assessment.confidence), 0.5),
+                    "reason_code": CandidateReasonCode.TOPIC_ONLY,
+                }
+            )
+        )
+    if not demoted_refs:
+        return SelectorScopeGuardResult(decision)
+
+    selected_refs = {
+        str(item.ref)
+        for item in guarded_assessments
+        if item.relevance != CandidateRelevance.IRRELEVANT
+    }
+    selected_sources = {
+        source_id
+        for candidate in mapping.candidates
+        if candidate.ref in selected_refs
+        for source_id in candidate.source_ids
+    }
+    guarded_dispositions = tuple(
+        disposition.model_copy(
+            update={
+                "status": (
+                    SourceDispositionStatus.SELECTED
+                    if disposition.source_id in selected_sources
+                    else SourceDispositionStatus.NO_RELEVANT_CANDIDATE
+                    if disposition.status == SourceDispositionStatus.SELECTED
+                    else disposition.status
+                )
+            }
+        )
+        for disposition in decision.source_dispositions
+    )
+    return SelectorScopeGuardResult(
+        ContextSelectorDecision(
+            assessments=tuple(guarded_assessments),
+            source_dispositions=guarded_dispositions,
+        ),
+        tuple(sorted(demoted_refs)),
+    )
 
 
 def _source_ids(candidate: Mapping[str, Any]) -> tuple[str, ...]:
@@ -246,6 +504,13 @@ def encode_selector_transport(
     candidate_rows: list[list[Any]] = []
     candidate_refs: list[str] = []
     candidate_mappings: list[SelectorCandidateMapping] = []
+    include_semantic_flags = any(
+        bool(dict(item.get("selector_semantic_flags") or {}).get("explicit_absence"))
+        or bool(dict(item.get("selector_semantic_flags") or {}).get("observational_value"))
+        or bool(dict(item.get("selector_semantic_flags") or {}).get("record_roles"))
+        for item in candidates
+        if isinstance(item, Mapping)
+    )
     for index, candidate in enumerate(candidates):
         ref = str(candidate.get("ref") or "")
         candidate_refs.append(ref)
@@ -261,7 +526,12 @@ def encode_selector_transport(
                         [parent_index, _KIND_CODE.get(str(parent.get("kind") or ""), "u")]
                     )
         title = str(candidate.get("title") or "")
-        summary = str(candidate.get("selector_summary") or "")[:summary_limit]
+        summary = str(candidate.get("selector_summary") or "")
+        if len(summary) > summary_limit:
+            raise ValueError(
+                "selector_summary exceeds the transport limit; regenerate the card "
+                "instead of truncating it"
+            )
         data = (
             "<workspace_data>"
             + _neutralize_selector_data(title)
@@ -278,18 +548,30 @@ def encode_selector_transport(
         candidate_mappings.append(
             SelectorCandidateMapping(ref, member_source_ids, available, required)
         )
-        candidate_rows.append(
-            [
-                index,
-                _KIND_CODE.get(str(candidate.get("kind") or ""), "u"),
-                data,
-                _ORIGIN_CODE.get(str(candidate.get("origin") or ""), "u"),
-                float(score) if score is not None else None,
-                [source_index[item] for item in member_source_ids],
-                parent_index,
-                [_FIDELITY_CODE.get(str(item), "u") for item in available],
-            ]
-        )
+        candidate_row = [
+            index,
+            _KIND_CODE.get(str(candidate.get("kind") or ""), "u"),
+            data,
+            _ORIGIN_CODE.get(str(candidate.get("origin") or ""), "u"),
+            float(score) if score is not None else None,
+            [source_index[item] for item in member_source_ids],
+            parent_index,
+            [_FIDELITY_CODE.get(str(item), "u") for item in available],
+        ]
+        if include_semantic_flags:
+            flags = dict(candidate.get("selector_semantic_flags") or {})
+            roles = set(flags.get("record_roles") or ())
+            candidate_row.append(
+                "".join(
+                    [
+                        "a" if flags.get("explicit_absence") is True else "",
+                        "d" if "draft_or_proposed" in roles else "",
+                        "f" if "final_or_signed" in roles else "",
+                        "o" if flags.get("observational_value") is True else "",
+                    ]
+                )
+            )
+        candidate_rows.append(candidate_row)
 
     nonce = _registry_nonce(
         question=question,
@@ -305,9 +587,28 @@ def encode_selector_transport(
         "d": str(dialog_context or "")[:3000],
         "sc": ["i", "k", "e", "min", "max", "f", "g"],
         "s": source_rows,
-        "cc": ["i", "k", "data", "o", "score", "s", "p", "f"],
+        "cc": [
+            "i",
+            "k",
+            "data",
+            "o",
+            "score",
+            "s",
+            "p",
+            "f",
+            *(["x"] if include_semantic_flags else []),
+        ],
         "c": candidate_rows,
     }
+    obligations = _query_obligations(question)
+    if obligations is not None:
+        payload["ob"] = obligations
+    subject_anchors = _query_subject_anchors(question, candidates)
+    if subject_anchors:
+        payload["sa"] = {
+            "p": "runtime_query_contract/v1",
+            "a": list(subject_anchors),
+        }
     if parent_rows:
         payload["p"] = parent_rows
     return SelectorTransport(
@@ -357,14 +658,14 @@ def render_selector_transport_output_requirements(
 ) -> str:
     count = len(mapping.candidate_refs)
     codes = (
-        "Each assessment code has exactly three characters: relevance d|s|i, "
-        "reason t|e|d|c|q|u|m|a|l|x|b|s, confidence bucket 0..9. "
-        "Assess each candidate independently against q. Use d/s only when its card contributes "
-        "answer evidence; a shared subject is insufficient, so use i otherwise. "
-        "Use t=topic-only, x=unrelated, b=ambiguous, or s=search-more only with "
-        "irrelevant. Every direct or supporting assessment must use an evidence-bearing "
-        "reason e/d/c/q/u/m/a/l. If a card explicitly says the requested answer is absent, "
-        "code it as irrelevant it or ix, regardless of topical overlap."
+        "Each 3-char code is relevance d|s|i, reason t|e|d|c|q|u|m|a|l|x|b|s, confidence 0..9. "
+        "Reasons: e explicit, d necessary implication, c comparison; q/u/m/a/l specialized; "
+        "irrelevant t subject, x predicate, b absent value, s insufficient/ambiguous. "
+        "Assess subject, exact predicate and requested value independently; shared topic is insufficient. "
+        "A mandatory rule deciding permission/safety is d without literal yes/no. Fill ob evidence_slots from "
+        "cards; operation needs no card. For cross-record ob, c each explicit requested side; with both slots "
+        "filled, s is invalid. x hints role but never proves it; x a supplies no value. "
+        "A different named referent is i even when predicate/value match, unless q explicitly compares it."
     )
     if plain_frame:
         return (
@@ -378,7 +679,7 @@ def render_selector_transport_output_requirements(
         f"Copy v=2, n={count}, r={mapping.registry_nonce}, done=true. "
         f"a must contain exactly {count} assessment strings in candidate position order. "
         + codes
-        + " Do not return indexes, refs, roles, resolutions, source dispositions, or prose."
+        + " No indexes, refs, roles, resolutions, dispositions or prose."
     )
 
 
@@ -653,7 +954,9 @@ __all__ = [
     "SelectorDecodeResult",
     "SelectorTransport",
     "SelectorTransportMapping",
+    "SelectorScopeGuardResult",
     "SelectorValidationErrorCode",
+    "apply_selector_question_scope_guard",
     "decode_selector_transport_result",
     "decode_selector_transport_v1_result",
     "decode_selector_transport_v2_result",

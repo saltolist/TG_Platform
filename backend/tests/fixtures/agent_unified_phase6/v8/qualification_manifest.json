@@ -1,0 +1,29 @@
+{
+  "schema": "workspace.phase6-semantic-qualification-manifest/v1",
+  "version": "2026-07-28-semantic-qualification-v3",
+  "frozen_at": "2026-07-27T22:04:40Z",
+  "source_head": "eeef15bb72c4acd7c8cdedbafc46e8d83b6a0693",
+  "cohort_artifact": "qualification_selector_cohort_v3.json",
+  "cohort_sha256": "68bd638923899ab18f7333c8408942ffcbe6693b7fccbe7fa55f4e143c382e1f",
+  "labels_frozen_before_provider_output": true,
+  "qualification_status_before_runs": "untouched",
+  "planned_repeat_count": 2,
+  "semantic_scenario_count": 21,
+  "critical_ref_occurrences": 21,
+  "irrelevant_ref_occurrences": 22,
+  "planner_dialog_resolution_scenarios": 3,
+  "configuration": {
+    "planner_qualification": true,
+    "selector_variants": ["160"],
+    "llm_v10_cards": true,
+    "recall_verifier": "active",
+    "include_boundary": false,
+    "tuning_between_repeats": false
+  },
+  "privacy": {
+    "contains_credentials": false,
+    "contains_account_identifier": false,
+    "contains_raw_provider_output": false,
+    "contains_source_or_user_content": false
+  }
+}

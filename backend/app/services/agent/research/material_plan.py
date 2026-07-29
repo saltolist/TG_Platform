@@ -68,6 +68,7 @@ class CandidateEnvelope(TypedDict):
     summary_model: str
     selector_summary: str
     selector_summary_version: int
+    selector_semantic_flags: dict[str, Any]
     selector_summary_fresh: bool
     selector_summary_failure: str | None
     card_origin: str
@@ -258,6 +259,7 @@ def normalize_candidate(
         "summary_model": summary_model,
         "selector_summary": str(candidate.get("selector_summary") or ""),
         "selector_summary_version": int(candidate.get("selector_summary_version") or 0),
+        "selector_semantic_flags": dict(candidate.get("selector_semantic_flags") or {}),
         "card_origin": candidate_origin or card_origin(summary_model),
         "status": str(candidate.get("status") or "active"),
         "parent_post_id": parent_post_id or None,

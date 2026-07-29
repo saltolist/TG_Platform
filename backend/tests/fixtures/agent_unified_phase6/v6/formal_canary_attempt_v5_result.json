@@ -1,0 +1,69 @@
+{
+  "schema": "workspace.phase6-formal-canary-result/v1",
+  "manifest_version": "2026-07-27-account-live-v5",
+  "report_id": "unified-phase6-live-canary-v5-2026-07-27",
+  "source_head": "eeef15bb72c4acd7c8cdedbafc46e8d83b6a0693",
+  "availability": "measured",
+  "status": "failed_stop_condition",
+  "traffic": {
+    "fresh_chat_count": 1,
+    "user_message_count": 1,
+    "semantic_selector_decision_count": 1,
+    "remaining_scenarios_not_sent": 19
+  },
+  "selector": {
+    "final_canonical_valid": 1,
+    "first_attempt_valid": 1,
+    "retry_count": 0,
+    "position_error_count": 0,
+    "provider_failure_count": 0
+  },
+  "semantic": {
+    "critical_total": 1,
+    "critical_selected": 0,
+    "critical_required_recall": 0.0,
+    "irrelevant_total": 1,
+    "irrelevant_selected": 0,
+    "irrelevant_selection_rate": 0.0,
+    "selected_total": 0
+  },
+  "stop_conditions_triggered": [
+    "critical_recall_below_one",
+    "evidence_or_checkpoint_loss"
+  ],
+  "scenario_attribution": [
+    {
+      "scenario_id": "live-v3-q01",
+      "run_digest": "d6d5e7f6ab73f2a6",
+      "candidate_count": 7,
+      "missed_critical_refs": [
+        "note:41a63404-cc97-4fb8-a37e-612bcb15fd98"
+      ],
+      "selected_irrelevant_refs": [],
+      "selector_attempts": 1,
+      "schema_result": "valid",
+      "attribution_boundary": "card_generation_readiness",
+      "critical_candidate_card_origin": "extractive",
+      "critical_candidate_selector_summary_version": 0,
+      "critical_candidate_fresh": false,
+      "critical_entered_evidence_pack": false
+    }
+  ],
+  "post_stop_readiness_measurement": {
+    "pending_index_jobs": 0,
+    "processing_index_jobs": 0,
+    "failed_index_jobs": 0,
+    "scoped_selector_cards_total": 13,
+    "scoped_llm_v9_fresh_cards": 13,
+    "restored_critical_card_matches_prior_measured_card": true
+  },
+  "can_convert_later_canary_to_pass": false,
+  "privacy": {
+    "aggregate_and_ref_only": true,
+    "contains_credentials": false,
+    "contains_account_identifier": false,
+    "contains_raw_queries": false,
+    "contains_raw_provider_output": false,
+    "contains_source_or_user_content": false
+  }
+}

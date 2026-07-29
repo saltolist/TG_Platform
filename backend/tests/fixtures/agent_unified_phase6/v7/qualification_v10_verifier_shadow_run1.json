@@ -1,0 +1,1520 @@
+{
+  "boundary_256": {
+    "actual_total_tokens_availability": "unavailable",
+    "actual_total_tokens_p95": null,
+    "attempts": [],
+    "availability": "not_measured",
+    "candidate_count": 256,
+    "final_canonical_valid": null,
+    "gate_total_tokens_lte_22000": null,
+    "latency_p95_ms": null,
+    "maximum_dialog_context_chars": 3000,
+    "retry_count": 0
+  },
+  "cohort_role": "qualification",
+  "cohort_version": "2026-07-27-semantic-qualification-v2",
+  "contains_account_identifier": false,
+  "contains_credentials": false,
+  "contains_raw_provider_output": false,
+  "contains_source_or_user_content": false,
+  "estimated_cost": {
+    "availability": "unavailable",
+    "value_usd": null
+  },
+  "model": "gpt-4.1-mini",
+  "position_error_count": 0,
+  "price_snapshot": {
+    "availability": "unavailable",
+    "version": null
+  },
+  "provider": "OpenAI",
+  "provider_call_count": 21,
+  "provider_failure_count": 0,
+  "recall_verifier": {
+    "actual_total_tokens_availability": "measured",
+    "actual_total_tokens_max_per_call": 700,
+    "actual_total_tokens_sum": 12859,
+    "complete_boundary_call_count": 0,
+    "contains_raw_provider_output": false,
+    "contains_source_or_user_content": false,
+    "gate_latency_p95_lte_10000": true,
+    "gate_max_tokens_per_call_lte_2500": true,
+    "latency_p95_ms": 2150.6,
+    "mode": "shadow",
+    "provider_call_count": 21,
+    "retry_count": 0,
+    "schema_results": {
+      "valid": 21
+    },
+    "validation_error_counts": {}
+  },
+  "schema": "workspace.selector-provider-replay/v1",
+  "schema_results": {
+    "valid": 21
+  },
+  "selector_card_generation": {
+    "all_cards_within_160_chars": true,
+    "all_llm_v10": true,
+    "contains_raw_provider_output": false,
+    "contains_source_or_user_content": false,
+    "enabled": true,
+    "fixture_retry_count": 0,
+    "generation_status_counts": {
+      "llm_valid": 36,
+      "llm_valid_retry": 6
+    },
+    "llm_v10_count": 42,
+    "maximum_card_chars": 158,
+    "required_count": 42,
+    "source": "frozen_fixture_document_body"
+  },
+  "semantic_sample_sufficient": true,
+  "semantic_scenario_count": 21,
+  "semantic_variant": "baseline",
+  "summary_160_non_inferior_recall": null,
+  "transport_tier": "strict_json_schema",
+  "validation_error_counts": {},
+  "variants": {
+    "160": {
+      "critical_required_recall": 0.95,
+      "critical_selected": 19,
+      "critical_total": 20,
+      "final_pack_precision": 1.0,
+      "final_valid": 21,
+      "first_attempt_valid": 21,
+      "irrelevant_selected": 0,
+      "irrelevant_selection_rate": 0.0,
+      "irrelevant_total": 22,
+      "language_cohorts": {
+        "de": {
+          "critical_required_recall": 1.0,
+          "critical_selected": 3,
+          "critical_total": 3,
+          "final_pack_precision": 1.0,
+          "irrelevant_selected": 0,
+          "irrelevant_selection_rate": 0.0,
+          "irrelevant_total": 3,
+          "relevant_selected": 3,
+          "relevant_total": 3,
+          "required_recall": 1.0,
+          "required_selected": 3,
+          "required_total": 3,
+          "selected_total": 3
+        },
+        "en": {
+          "critical_required_recall": 1.0,
+          "critical_selected": 3,
+          "critical_total": 3,
+          "final_pack_precision": 1.0,
+          "irrelevant_selected": 0,
+          "irrelevant_selection_rate": 0.0,
+          "irrelevant_total": 5,
+          "relevant_selected": 3,
+          "relevant_total": 3,
+          "required_recall": 1.0,
+          "required_selected": 3,
+          "required_total": 3,
+          "selected_total": 3
+        },
+        "es": {
+          "critical_required_recall": 1.0,
+          "critical_selected": 3,
+          "critical_total": 3,
+          "final_pack_precision": 1.0,
+          "irrelevant_selected": 0,
+          "irrelevant_selection_rate": 0.0,
+          "irrelevant_total": 3,
+          "relevant_selected": 3,
+          "relevant_total": 3,
+          "required_recall": 1.0,
+          "required_selected": 3,
+          "required_total": 3,
+          "selected_total": 3
+        },
+        "fr": {
+          "critical_required_recall": 1.0,
+          "critical_selected": 2,
+          "critical_total": 2,
+          "final_pack_precision": 1.0,
+          "irrelevant_selected": 0,
+          "irrelevant_selection_rate": 0.0,
+          "irrelevant_total": 2,
+          "relevant_selected": 2,
+          "relevant_total": 2,
+          "required_recall": 1.0,
+          "required_selected": 2,
+          "required_total": 2,
+          "selected_total": 2
+        },
+        "it": {
+          "critical_required_recall": 1.0,
+          "critical_selected": 2,
+          "critical_total": 2,
+          "final_pack_precision": 1.0,
+          "irrelevant_selected": 0,
+          "irrelevant_selection_rate": 0.0,
+          "irrelevant_total": 2,
+          "relevant_selected": 2,
+          "relevant_total": 2,
+          "required_recall": 1.0,
+          "required_selected": 2,
+          "required_total": 2,
+          "selected_total": 2
+        },
+        "mixed": {
+          "critical_required_recall": 1.0,
+          "critical_selected": 2,
+          "critical_total": 2,
+          "final_pack_precision": 1.0,
+          "irrelevant_selected": 0,
+          "irrelevant_selection_rate": 0.0,
+          "irrelevant_total": 2,
+          "relevant_selected": 2,
+          "relevant_total": 2,
+          "required_recall": 1.0,
+          "required_selected": 2,
+          "required_total": 2,
+          "selected_total": 2
+        },
+        "pt": {
+          "critical_required_recall": 1.0,
+          "critical_selected": 2,
+          "critical_total": 2,
+          "final_pack_precision": 1.0,
+          "irrelevant_selected": 0,
+          "irrelevant_selection_rate": 0.0,
+          "irrelevant_total": 2,
+          "relevant_selected": 2,
+          "relevant_total": 2,
+          "required_recall": 1.0,
+          "required_selected": 2,
+          "required_total": 2,
+          "selected_total": 2
+        },
+        "ru": {
+          "critical_required_recall": 0.666667,
+          "critical_selected": 2,
+          "critical_total": 3,
+          "final_pack_precision": 1.0,
+          "irrelevant_selected": 0,
+          "irrelevant_selection_rate": 0.0,
+          "irrelevant_total": 5,
+          "relevant_selected": 2,
+          "relevant_total": 3,
+          "required_recall": 0.666667,
+          "required_selected": 2,
+          "required_total": 3,
+          "selected_total": 2
+        }
+      },
+      "recall_verifier": {
+        "called_scenarios": 21,
+        "confusion_matrix": {
+          "correct_noop": 13,
+          "false_promotion": 9,
+          "recovered_true_positive": 1,
+          "remaining_false_negative": 0
+        },
+        "eligible_scenarios": 21,
+        "failure_result_change_count": 0,
+        "mode": "shadow",
+        "post_admission": {
+          "critical_required_recall": 1.0,
+          "critical_selected": 20,
+          "critical_total": 20,
+          "final_pack_precision": 0.689655,
+          "irrelevant_selected": 9,
+          "irrelevant_selection_rate": 0.409091,
+          "irrelevant_total": 22,
+          "language_cohorts": {
+            "de": {
+              "critical_required_recall": 1.0,
+              "critical_selected": 3,
+              "critical_total": 3,
+              "final_pack_precision": 0.75,
+              "irrelevant_selected": 1,
+              "irrelevant_selection_rate": 0.333333,
+              "irrelevant_total": 3,
+              "relevant_selected": 3,
+              "relevant_total": 3,
+              "required_recall": 1.0,
+              "required_selected": 3,
+              "required_total": 3,
+              "selected_total": 4
+            },
+            "en": {
+              "critical_required_recall": 1.0,
+              "critical_selected": 3,
+              "critical_total": 3,
+              "final_pack_precision": 0.5,
+              "irrelevant_selected": 3,
+              "irrelevant_selection_rate": 0.6,
+              "irrelevant_total": 5,
+              "relevant_selected": 3,
+              "relevant_total": 3,
+              "required_recall": 1.0,
+              "required_selected": 3,
+              "required_total": 3,
+              "selected_total": 6
+            },
+            "es": {
+              "critical_required_recall": 1.0,
+              "critical_selected": 3,
+              "critical_total": 3,
+              "final_pack_precision": 0.6,
+              "irrelevant_selected": 2,
+              "irrelevant_selection_rate": 0.666667,
+              "irrelevant_total": 3,
+              "relevant_selected": 3,
+              "relevant_total": 3,
+              "required_recall": 1.0,
+              "required_selected": 3,
+              "required_total": 3,
+              "selected_total": 5
+            },
+            "fr": {
+              "critical_required_recall": 1.0,
+              "critical_selected": 2,
+              "critical_total": 2,
+              "final_pack_precision": 1.0,
+              "irrelevant_selected": 0,
+              "irrelevant_selection_rate": 0.0,
+              "irrelevant_total": 2,
+              "relevant_selected": 2,
+              "relevant_total": 2,
+              "required_recall": 1.0,
+              "required_selected": 2,
+              "required_total": 2,
+              "selected_total": 2
+            },
+            "it": {
+              "critical_required_recall": 1.0,
+              "critical_selected": 2,
+              "critical_total": 2,
+              "final_pack_precision": 0.666667,
+              "irrelevant_selected": 1,
+              "irrelevant_selection_rate": 0.5,
+              "irrelevant_total": 2,
+              "relevant_selected": 2,
+              "relevant_total": 2,
+              "required_recall": 1.0,
+              "required_selected": 2,
+              "required_total": 2,
+              "selected_total": 3
+            },
+            "mixed": {
+              "critical_required_recall": 1.0,
+              "critical_selected": 2,
+              "critical_total": 2,
+              "final_pack_precision": 0.666667,
+              "irrelevant_selected": 1,
+              "irrelevant_selection_rate": 0.5,
+              "irrelevant_total": 2,
+              "relevant_selected": 2,
+              "relevant_total": 2,
+              "required_recall": 1.0,
+              "required_selected": 2,
+              "required_total": 2,
+              "selected_total": 3
+            },
+            "pt": {
+              "critical_required_recall": 1.0,
+              "critical_selected": 2,
+              "critical_total": 2,
+              "final_pack_precision": 0.666667,
+              "irrelevant_selected": 1,
+              "irrelevant_selection_rate": 0.5,
+              "irrelevant_total": 2,
+              "relevant_selected": 2,
+              "relevant_total": 2,
+              "required_recall": 1.0,
+              "required_selected": 2,
+              "required_total": 2,
+              "selected_total": 3
+            },
+            "ru": {
+              "critical_required_recall": 1.0,
+              "critical_selected": 3,
+              "critical_total": 3,
+              "final_pack_precision": 0.75,
+              "irrelevant_selected": 1,
+              "irrelevant_selection_rate": 0.2,
+              "irrelevant_total": 5,
+              "relevant_selected": 3,
+              "relevant_total": 3,
+              "required_recall": 1.0,
+              "required_selected": 3,
+              "required_total": 3,
+              "selected_total": 4
+            }
+          },
+          "relevant_selected": 20,
+          "relevant_total": 20,
+          "required_recall": 1.0,
+          "required_selected": 20,
+          "required_total": 20,
+          "selected_total": 29
+        },
+        "primary_selected_removal_count": 0,
+        "retry_count": 0,
+        "valid_calls": 21
+      },
+      "relevant_selected": 19,
+      "relevant_total": 20,
+      "required_recall": 0.95,
+      "required_selected": 19,
+      "required_total": 20,
+      "retries": 0,
+      "scenario_count": 21,
+      "scenario_rows": [
+        {
+          "attempt_count": 1,
+          "attempts": [
+            {
+              "attempt": 1,
+              "schema_result": "valid",
+              "validation_error_codes": []
+            }
+          ],
+          "attribution_boundary": "none",
+          "candidate_count": 2,
+          "expected": {
+            "critical_positions": [
+              0
+            ],
+            "irrelevant_positions": [
+              1
+            ],
+            "required_positions": [
+              0
+            ]
+          },
+          "missed_critical_refs": [],
+          "reason_codes_by_position": {
+            "0": "exact_fact",
+            "1": "search_more"
+          },
+          "recall_verifier": {
+            "admitted_positions": [],
+            "attempts": 1,
+            "called": true,
+            "eligible": true,
+            "hypothetical_admitted_positions": [],
+            "omitted_candidate_count": 1,
+            "primary_selected_removal_count": 0,
+            "proposed_positions": [],
+            "reason_codes": [
+              "entity_term_match",
+              "unresolved_source_disposition"
+            ],
+            "rejected_positions": [],
+            "retry_count": 0,
+            "schema_result": "valid",
+            "transport_tier": "strict_json_schema",
+            "validation_error_codes": []
+          },
+          "scenario_id": "v2-q01",
+          "selected_irrelevant_refs": [],
+          "selected_positions": [
+            0
+          ],
+          "unassessed_critical_refs": []
+        },
+        {
+          "attempt_count": 1,
+          "attempts": [
+            {
+              "attempt": 1,
+              "schema_result": "valid",
+              "validation_error_codes": []
+            }
+          ],
+          "attribution_boundary": "none",
+          "candidate_count": 2,
+          "expected": {
+            "critical_positions": [
+              0
+            ],
+            "irrelevant_positions": [
+              1
+            ],
+            "required_positions": [
+              0
+            ]
+          },
+          "missed_critical_refs": [],
+          "reason_codes_by_position": {
+            "0": "exact_fact",
+            "1": "unrelated_topic"
+          },
+          "recall_verifier": {
+            "admitted_positions": [],
+            "attempts": 1,
+            "called": true,
+            "eligible": true,
+            "hypothetical_admitted_positions": [],
+            "omitted_candidate_count": 1,
+            "primary_selected_removal_count": 0,
+            "proposed_positions": [],
+            "reason_codes": [
+              "entity_term_match"
+            ],
+            "rejected_positions": [],
+            "retry_count": 0,
+            "schema_result": "valid",
+            "transport_tier": "strict_json_schema",
+            "validation_error_codes": []
+          },
+          "scenario_id": "v2-q02",
+          "selected_irrelevant_refs": [],
+          "selected_positions": [
+            0
+          ],
+          "unassessed_critical_refs": []
+        },
+        {
+          "attempt_count": 1,
+          "attempts": [
+            {
+              "attempt": 1,
+              "schema_result": "valid",
+              "validation_error_codes": []
+            }
+          ],
+          "attribution_boundary": "none",
+          "candidate_count": 2,
+          "expected": {
+            "critical_positions": [
+              0
+            ],
+            "irrelevant_positions": [
+              1
+            ],
+            "required_positions": [
+              0
+            ]
+          },
+          "missed_critical_refs": [],
+          "reason_codes_by_position": {
+            "0": "exact_fact",
+            "1": "search_more"
+          },
+          "recall_verifier": {
+            "admitted_positions": [],
+            "attempts": 1,
+            "called": true,
+            "eligible": true,
+            "hypothetical_admitted_positions": [
+              1
+            ],
+            "omitted_candidate_count": 1,
+            "primary_selected_removal_count": 0,
+            "proposed_positions": [
+              1
+            ],
+            "reason_codes": [
+              "entity_term_match",
+              "unresolved_source_disposition"
+            ],
+            "rejected_positions": [],
+            "retry_count": 0,
+            "schema_result": "valid",
+            "transport_tier": "strict_json_schema",
+            "validation_error_codes": []
+          },
+          "scenario_id": "v2-q03",
+          "selected_irrelevant_refs": [],
+          "selected_positions": [
+            0
+          ],
+          "unassessed_critical_refs": []
+        },
+        {
+          "attempt_count": 1,
+          "attempts": [
+            {
+              "attempt": 1,
+              "schema_result": "valid",
+              "validation_error_codes": []
+            }
+          ],
+          "attribution_boundary": "none",
+          "candidate_count": 2,
+          "expected": {
+            "critical_positions": [
+              0
+            ],
+            "irrelevant_positions": [
+              1
+            ],
+            "required_positions": [
+              0
+            ]
+          },
+          "missed_critical_refs": [],
+          "reason_codes_by_position": {
+            "0": "exact_fact",
+            "1": "search_more"
+          },
+          "recall_verifier": {
+            "admitted_positions": [],
+            "attempts": 1,
+            "called": true,
+            "eligible": true,
+            "hypothetical_admitted_positions": [
+              1
+            ],
+            "omitted_candidate_count": 1,
+            "primary_selected_removal_count": 0,
+            "proposed_positions": [
+              1
+            ],
+            "reason_codes": [
+              "entity_term_match",
+              "unresolved_source_disposition"
+            ],
+            "rejected_positions": [],
+            "retry_count": 0,
+            "schema_result": "valid",
+            "transport_tier": "strict_json_schema",
+            "validation_error_codes": []
+          },
+          "scenario_id": "v2-q04",
+          "selected_irrelevant_refs": [],
+          "selected_positions": [
+            0
+          ],
+          "unassessed_critical_refs": []
+        },
+        {
+          "attempt_count": 1,
+          "attempts": [
+            {
+              "attempt": 1,
+              "schema_result": "valid",
+              "validation_error_codes": []
+            }
+          ],
+          "attribution_boundary": "none",
+          "candidate_count": 2,
+          "expected": {
+            "critical_positions": [
+              0
+            ],
+            "irrelevant_positions": [
+              1
+            ],
+            "required_positions": [
+              0
+            ]
+          },
+          "missed_critical_refs": [],
+          "reason_codes_by_position": {
+            "0": "exact_fact",
+            "1": "unrelated_topic"
+          },
+          "recall_verifier": {
+            "admitted_positions": [],
+            "attempts": 1,
+            "called": true,
+            "eligible": true,
+            "hypothetical_admitted_positions": [],
+            "omitted_candidate_count": 1,
+            "primary_selected_removal_count": 0,
+            "proposed_positions": [],
+            "reason_codes": [
+              "entity_term_match"
+            ],
+            "rejected_positions": [],
+            "retry_count": 0,
+            "schema_result": "valid",
+            "transport_tier": "strict_json_schema",
+            "validation_error_codes": []
+          },
+          "scenario_id": "v2-q05",
+          "selected_irrelevant_refs": [],
+          "selected_positions": [
+            0
+          ],
+          "unassessed_critical_refs": []
+        },
+        {
+          "attempt_count": 1,
+          "attempts": [
+            {
+              "attempt": 1,
+              "schema_result": "valid",
+              "validation_error_codes": []
+            }
+          ],
+          "attribution_boundary": "none",
+          "candidate_count": 2,
+          "expected": {
+            "critical_positions": [
+              0
+            ],
+            "irrelevant_positions": [
+              1
+            ],
+            "required_positions": [
+              0
+            ]
+          },
+          "missed_critical_refs": [],
+          "reason_codes_by_position": {
+            "0": "exact_fact",
+            "1": "unrelated_topic"
+          },
+          "recall_verifier": {
+            "admitted_positions": [],
+            "attempts": 1,
+            "called": true,
+            "eligible": true,
+            "hypothetical_admitted_positions": [],
+            "omitted_candidate_count": 1,
+            "primary_selected_removal_count": 0,
+            "proposed_positions": [],
+            "reason_codes": [
+              "entity_term_match"
+            ],
+            "rejected_positions": [],
+            "retry_count": 0,
+            "schema_result": "valid",
+            "transport_tier": "strict_json_schema",
+            "validation_error_codes": []
+          },
+          "scenario_id": "v2-q06",
+          "selected_irrelevant_refs": [],
+          "selected_positions": [
+            0
+          ],
+          "unassessed_critical_refs": []
+        },
+        {
+          "attempt_count": 1,
+          "attempts": [
+            {
+              "attempt": 1,
+              "schema_result": "valid",
+              "validation_error_codes": []
+            }
+          ],
+          "attribution_boundary": "none",
+          "candidate_count": 2,
+          "expected": {
+            "critical_positions": [
+              0
+            ],
+            "irrelevant_positions": [
+              1
+            ],
+            "required_positions": [
+              0
+            ]
+          },
+          "missed_critical_refs": [],
+          "reason_codes_by_position": {
+            "0": "exact_fact",
+            "1": "search_more"
+          },
+          "recall_verifier": {
+            "admitted_positions": [],
+            "attempts": 1,
+            "called": true,
+            "eligible": true,
+            "hypothetical_admitted_positions": [
+              1
+            ],
+            "omitted_candidate_count": 1,
+            "primary_selected_removal_count": 0,
+            "proposed_positions": [
+              1
+            ],
+            "reason_codes": [
+              "entity_term_match",
+              "unresolved_source_disposition"
+            ],
+            "rejected_positions": [],
+            "retry_count": 0,
+            "schema_result": "valid",
+            "transport_tier": "strict_json_schema",
+            "validation_error_codes": []
+          },
+          "scenario_id": "v2-q07",
+          "selected_irrelevant_refs": [],
+          "selected_positions": [
+            0
+          ],
+          "unassessed_critical_refs": []
+        },
+        {
+          "attempt_count": 1,
+          "attempts": [
+            {
+              "attempt": 1,
+              "schema_result": "valid",
+              "validation_error_codes": []
+            }
+          ],
+          "attribution_boundary": "none",
+          "candidate_count": 2,
+          "expected": {
+            "critical_positions": [
+              1
+            ],
+            "irrelevant_positions": [
+              0
+            ],
+            "required_positions": [
+              1
+            ]
+          },
+          "missed_critical_refs": [],
+          "reason_codes_by_position": {
+            "0": "search_more",
+            "1": "exact_fact"
+          },
+          "recall_verifier": {
+            "admitted_positions": [],
+            "attempts": 1,
+            "called": true,
+            "eligible": true,
+            "hypothetical_admitted_positions": [],
+            "omitted_candidate_count": 1,
+            "primary_selected_removal_count": 0,
+            "proposed_positions": [],
+            "reason_codes": [
+              "entity_term_match",
+              "unresolved_source_disposition"
+            ],
+            "rejected_positions": [],
+            "retry_count": 0,
+            "schema_result": "valid",
+            "transport_tier": "strict_json_schema",
+            "validation_error_codes": []
+          },
+          "scenario_id": "v2-q08",
+          "selected_irrelevant_refs": [],
+          "selected_positions": [
+            1
+          ],
+          "unassessed_critical_refs": []
+        },
+        {
+          "attempt_count": 1,
+          "attempts": [
+            {
+              "attempt": 1,
+              "schema_result": "valid",
+              "validation_error_codes": []
+            }
+          ],
+          "attribution_boundary": "selector",
+          "candidate_count": 2,
+          "expected": {
+            "critical_positions": [
+              0
+            ],
+            "irrelevant_positions": [
+              1
+            ],
+            "required_positions": [
+              0
+            ]
+          },
+          "missed_critical_refs": [
+            "note:fixture-v2-09-d"
+          ],
+          "reason_codes_by_position": {
+            "0": "unrelated_topic",
+            "1": "unrelated_topic"
+          },
+          "recall_verifier": {
+            "admitted_positions": [],
+            "attempts": 1,
+            "called": true,
+            "eligible": true,
+            "hypothetical_admitted_positions": [
+              0
+            ],
+            "omitted_candidate_count": 2,
+            "primary_selected_removal_count": 0,
+            "proposed_positions": [
+              0
+            ],
+            "reason_codes": [
+              "empty_primary_selection",
+              "entity_term_match",
+              "secondary_topic_signal"
+            ],
+            "rejected_positions": [],
+            "retry_count": 0,
+            "schema_result": "valid",
+            "transport_tier": "strict_json_schema",
+            "validation_error_codes": []
+          },
+          "scenario_id": "v2-q09",
+          "selected_irrelevant_refs": [],
+          "selected_positions": [],
+          "unassessed_critical_refs": []
+        },
+        {
+          "attempt_count": 1,
+          "attempts": [
+            {
+              "attempt": 1,
+              "schema_result": "valid",
+              "validation_error_codes": []
+            }
+          ],
+          "attribution_boundary": "none",
+          "candidate_count": 2,
+          "expected": {
+            "critical_positions": [
+              0
+            ],
+            "irrelevant_positions": [
+              1
+            ],
+            "required_positions": [
+              0
+            ]
+          },
+          "missed_critical_refs": [],
+          "reason_codes_by_position": {
+            "0": "quote",
+            "1": "search_more"
+          },
+          "recall_verifier": {
+            "admitted_positions": [],
+            "attempts": 1,
+            "called": true,
+            "eligible": true,
+            "hypothetical_admitted_positions": [
+              1
+            ],
+            "omitted_candidate_count": 1,
+            "primary_selected_removal_count": 0,
+            "proposed_positions": [
+              1
+            ],
+            "reason_codes": [
+              "entity_term_match",
+              "unresolved_source_disposition"
+            ],
+            "rejected_positions": [],
+            "retry_count": 0,
+            "schema_result": "valid",
+            "transport_tier": "strict_json_schema",
+            "validation_error_codes": []
+          },
+          "scenario_id": "v2-q10",
+          "selected_irrelevant_refs": [],
+          "selected_positions": [
+            0
+          ],
+          "unassessed_critical_refs": []
+        },
+        {
+          "attempt_count": 1,
+          "attempts": [
+            {
+              "attempt": 1,
+              "schema_result": "valid",
+              "validation_error_codes": []
+            }
+          ],
+          "attribution_boundary": "none",
+          "candidate_count": 2,
+          "expected": {
+            "critical_positions": [
+              0
+            ],
+            "irrelevant_positions": [
+              1
+            ],
+            "required_positions": [
+              0
+            ]
+          },
+          "missed_critical_refs": [],
+          "reason_codes_by_position": {
+            "0": "exact_fact",
+            "1": "search_more"
+          },
+          "recall_verifier": {
+            "admitted_positions": [],
+            "attempts": 1,
+            "called": true,
+            "eligible": true,
+            "hypothetical_admitted_positions": [],
+            "omitted_candidate_count": 1,
+            "primary_selected_removal_count": 0,
+            "proposed_positions": [],
+            "reason_codes": [
+              "entity_term_match",
+              "unresolved_source_disposition"
+            ],
+            "rejected_positions": [],
+            "retry_count": 0,
+            "schema_result": "valid",
+            "transport_tier": "strict_json_schema",
+            "validation_error_codes": []
+          },
+          "scenario_id": "v2-q11",
+          "selected_irrelevant_refs": [],
+          "selected_positions": [
+            0
+          ],
+          "unassessed_critical_refs": []
+        },
+        {
+          "attempt_count": 1,
+          "attempts": [
+            {
+              "attempt": 1,
+              "schema_result": "valid",
+              "validation_error_codes": []
+            }
+          ],
+          "attribution_boundary": "none",
+          "candidate_count": 2,
+          "expected": {
+            "critical_positions": [
+              0
+            ],
+            "irrelevant_positions": [
+              1
+            ],
+            "required_positions": [
+              0
+            ]
+          },
+          "missed_critical_refs": [],
+          "reason_codes_by_position": {
+            "0": "exact_fact",
+            "1": "search_more"
+          },
+          "recall_verifier": {
+            "admitted_positions": [],
+            "attempts": 1,
+            "called": true,
+            "eligible": true,
+            "hypothetical_admitted_positions": [],
+            "omitted_candidate_count": 1,
+            "primary_selected_removal_count": 0,
+            "proposed_positions": [],
+            "reason_codes": [
+              "entity_term_match",
+              "unresolved_source_disposition"
+            ],
+            "rejected_positions": [],
+            "retry_count": 0,
+            "schema_result": "valid",
+            "transport_tier": "strict_json_schema",
+            "validation_error_codes": []
+          },
+          "scenario_id": "v2-q12",
+          "selected_irrelevant_refs": [],
+          "selected_positions": [
+            0
+          ],
+          "unassessed_critical_refs": []
+        },
+        {
+          "attempt_count": 1,
+          "attempts": [
+            {
+              "attempt": 1,
+              "schema_result": "valid",
+              "validation_error_codes": []
+            }
+          ],
+          "attribution_boundary": "none",
+          "candidate_count": 2,
+          "expected": {
+            "critical_positions": [
+              0
+            ],
+            "irrelevant_positions": [
+              1
+            ],
+            "required_positions": [
+              0
+            ]
+          },
+          "missed_critical_refs": [],
+          "reason_codes_by_position": {
+            "0": "quote",
+            "1": "search_more"
+          },
+          "recall_verifier": {
+            "admitted_positions": [],
+            "attempts": 1,
+            "called": true,
+            "eligible": true,
+            "hypothetical_admitted_positions": [],
+            "omitted_candidate_count": 1,
+            "primary_selected_removal_count": 0,
+            "proposed_positions": [],
+            "reason_codes": [
+              "entity_term_match",
+              "unresolved_source_disposition"
+            ],
+            "rejected_positions": [],
+            "retry_count": 0,
+            "schema_result": "valid",
+            "transport_tier": "strict_json_schema",
+            "validation_error_codes": []
+          },
+          "scenario_id": "v2-q13",
+          "selected_irrelevant_refs": [],
+          "selected_positions": [
+            0
+          ],
+          "unassessed_critical_refs": []
+        },
+        {
+          "attempt_count": 1,
+          "attempts": [
+            {
+              "attempt": 1,
+              "schema_result": "valid",
+              "validation_error_codes": []
+            }
+          ],
+          "attribution_boundary": "none",
+          "candidate_count": 2,
+          "expected": {
+            "critical_positions": [
+              0
+            ],
+            "irrelevant_positions": [
+              1
+            ],
+            "required_positions": [
+              0
+            ]
+          },
+          "missed_critical_refs": [],
+          "reason_codes_by_position": {
+            "0": "exact_fact",
+            "1": "search_more"
+          },
+          "recall_verifier": {
+            "admitted_positions": [],
+            "attempts": 1,
+            "called": true,
+            "eligible": true,
+            "hypothetical_admitted_positions": [
+              1
+            ],
+            "omitted_candidate_count": 1,
+            "primary_selected_removal_count": 0,
+            "proposed_positions": [
+              1
+            ],
+            "reason_codes": [
+              "entity_term_match",
+              "unresolved_source_disposition"
+            ],
+            "rejected_positions": [],
+            "retry_count": 0,
+            "schema_result": "valid",
+            "transport_tier": "strict_json_schema",
+            "validation_error_codes": []
+          },
+          "scenario_id": "v2-q14",
+          "selected_irrelevant_refs": [],
+          "selected_positions": [
+            0
+          ],
+          "unassessed_critical_refs": []
+        },
+        {
+          "attempt_count": 1,
+          "attempts": [
+            {
+              "attempt": 1,
+              "schema_result": "valid",
+              "validation_error_codes": []
+            }
+          ],
+          "attribution_boundary": "none",
+          "candidate_count": 2,
+          "expected": {
+            "critical_positions": [
+              0
+            ],
+            "irrelevant_positions": [
+              1
+            ],
+            "required_positions": [
+              0
+            ]
+          },
+          "missed_critical_refs": [],
+          "reason_codes_by_position": {
+            "0": "exact_fact",
+            "1": "search_more"
+          },
+          "recall_verifier": {
+            "admitted_positions": [],
+            "attempts": 1,
+            "called": true,
+            "eligible": true,
+            "hypothetical_admitted_positions": [],
+            "omitted_candidate_count": 1,
+            "primary_selected_removal_count": 0,
+            "proposed_positions": [],
+            "reason_codes": [
+              "entity_term_match",
+              "unresolved_source_disposition"
+            ],
+            "rejected_positions": [],
+            "retry_count": 0,
+            "schema_result": "valid",
+            "transport_tier": "strict_json_schema",
+            "validation_error_codes": []
+          },
+          "scenario_id": "v2-q15",
+          "selected_irrelevant_refs": [],
+          "selected_positions": [
+            0
+          ],
+          "unassessed_critical_refs": []
+        },
+        {
+          "attempt_count": 1,
+          "attempts": [
+            {
+              "attempt": 1,
+              "schema_result": "valid",
+              "validation_error_codes": []
+            }
+          ],
+          "attribution_boundary": "none",
+          "candidate_count": 2,
+          "expected": {
+            "critical_positions": [
+              0
+            ],
+            "irrelevant_positions": [
+              1
+            ],
+            "required_positions": [
+              0
+            ]
+          },
+          "missed_critical_refs": [],
+          "reason_codes_by_position": {
+            "0": "quote",
+            "1": "unrelated_topic"
+          },
+          "recall_verifier": {
+            "admitted_positions": [],
+            "attempts": 1,
+            "called": true,
+            "eligible": true,
+            "hypothetical_admitted_positions": [],
+            "omitted_candidate_count": 1,
+            "primary_selected_removal_count": 0,
+            "proposed_positions": [],
+            "reason_codes": [
+              "entity_term_match"
+            ],
+            "rejected_positions": [],
+            "retry_count": 0,
+            "schema_result": "valid",
+            "transport_tier": "strict_json_schema",
+            "validation_error_codes": []
+          },
+          "scenario_id": "v2-q16",
+          "selected_irrelevant_refs": [],
+          "selected_positions": [
+            0
+          ],
+          "unassessed_critical_refs": []
+        },
+        {
+          "attempt_count": 1,
+          "attempts": [
+            {
+              "attempt": 1,
+              "schema_result": "valid",
+              "validation_error_codes": []
+            }
+          ],
+          "attribution_boundary": "none",
+          "candidate_count": 2,
+          "expected": {
+            "critical_positions": [
+              0
+            ],
+            "irrelevant_positions": [
+              1
+            ],
+            "required_positions": [
+              0
+            ]
+          },
+          "missed_critical_refs": [],
+          "reason_codes_by_position": {
+            "0": "quote",
+            "1": "search_more"
+          },
+          "recall_verifier": {
+            "admitted_positions": [],
+            "attempts": 1,
+            "called": true,
+            "eligible": true,
+            "hypothetical_admitted_positions": [
+              1
+            ],
+            "omitted_candidate_count": 1,
+            "primary_selected_removal_count": 0,
+            "proposed_positions": [
+              1
+            ],
+            "reason_codes": [
+              "entity_term_match",
+              "unresolved_source_disposition"
+            ],
+            "rejected_positions": [],
+            "retry_count": 0,
+            "schema_result": "valid",
+            "transport_tier": "strict_json_schema",
+            "validation_error_codes": []
+          },
+          "scenario_id": "v2-q17",
+          "selected_irrelevant_refs": [],
+          "selected_positions": [
+            0
+          ],
+          "unassessed_critical_refs": []
+        },
+        {
+          "attempt_count": 1,
+          "attempts": [
+            {
+              "attempt": 1,
+              "schema_result": "valid",
+              "validation_error_codes": []
+            }
+          ],
+          "attribution_boundary": "none",
+          "candidate_count": 2,
+          "expected": {
+            "critical_positions": [
+              0
+            ],
+            "irrelevant_positions": [
+              1
+            ],
+            "required_positions": [
+              0
+            ]
+          },
+          "missed_critical_refs": [],
+          "reason_codes_by_position": {
+            "0": "exact_fact",
+            "1": "search_more"
+          },
+          "recall_verifier": {
+            "admitted_positions": [],
+            "attempts": 1,
+            "called": true,
+            "eligible": true,
+            "hypothetical_admitted_positions": [
+              1
+            ],
+            "omitted_candidate_count": 1,
+            "primary_selected_removal_count": 0,
+            "proposed_positions": [
+              1
+            ],
+            "reason_codes": [
+              "entity_term_match",
+              "unresolved_source_disposition"
+            ],
+            "rejected_positions": [],
+            "retry_count": 0,
+            "schema_result": "valid",
+            "transport_tier": "strict_json_schema",
+            "validation_error_codes": []
+          },
+          "scenario_id": "v2-q18",
+          "selected_irrelevant_refs": [],
+          "selected_positions": [
+            0
+          ],
+          "unassessed_critical_refs": []
+        },
+        {
+          "attempt_count": 1,
+          "attempts": [
+            {
+              "attempt": 1,
+              "schema_result": "valid",
+              "validation_error_codes": []
+            }
+          ],
+          "attribution_boundary": "none",
+          "candidate_count": 2,
+          "expected": {
+            "critical_positions": [
+              0
+            ],
+            "irrelevant_positions": [
+              1
+            ],
+            "required_positions": [
+              0
+            ]
+          },
+          "missed_critical_refs": [],
+          "reason_codes_by_position": {
+            "0": "quote",
+            "1": "unrelated_topic"
+          },
+          "recall_verifier": {
+            "admitted_positions": [],
+            "attempts": 1,
+            "called": true,
+            "eligible": true,
+            "hypothetical_admitted_positions": [],
+            "omitted_candidate_count": 1,
+            "primary_selected_removal_count": 0,
+            "proposed_positions": [],
+            "reason_codes": [
+              "entity_term_match"
+            ],
+            "rejected_positions": [],
+            "retry_count": 0,
+            "schema_result": "valid",
+            "transport_tier": "strict_json_schema",
+            "validation_error_codes": []
+          },
+          "scenario_id": "v2-q19",
+          "selected_irrelevant_refs": [],
+          "selected_positions": [
+            0
+          ],
+          "unassessed_critical_refs": []
+        },
+        {
+          "attempt_count": 1,
+          "attempts": [
+            {
+              "attempt": 1,
+              "schema_result": "valid",
+              "validation_error_codes": []
+            }
+          ],
+          "attribution_boundary": "none",
+          "candidate_count": 2,
+          "expected": {
+            "critical_positions": [
+              0
+            ],
+            "irrelevant_positions": [
+              1
+            ],
+            "required_positions": [
+              0
+            ]
+          },
+          "missed_critical_refs": [],
+          "reason_codes_by_position": {
+            "0": "exact_fact",
+            "1": "search_more"
+          },
+          "recall_verifier": {
+            "admitted_positions": [],
+            "attempts": 1,
+            "called": true,
+            "eligible": true,
+            "hypothetical_admitted_positions": [
+              1
+            ],
+            "omitted_candidate_count": 1,
+            "primary_selected_removal_count": 0,
+            "proposed_positions": [
+              1
+            ],
+            "reason_codes": [
+              "entity_term_match",
+              "unresolved_source_disposition"
+            ],
+            "rejected_positions": [],
+            "retry_count": 0,
+            "schema_result": "valid",
+            "transport_tier": "strict_json_schema",
+            "validation_error_codes": []
+          },
+          "scenario_id": "v2-q20",
+          "selected_irrelevant_refs": [],
+          "selected_positions": [
+            0
+          ],
+          "unassessed_critical_refs": []
+        },
+        {
+          "attempt_count": 1,
+          "attempts": [
+            {
+              "attempt": 1,
+              "schema_result": "valid",
+              "validation_error_codes": []
+            }
+          ],
+          "attribution_boundary": "none",
+          "candidate_count": 2,
+          "expected": {
+            "critical_positions": [],
+            "irrelevant_positions": [
+              0,
+              1
+            ],
+            "required_positions": []
+          },
+          "missed_critical_refs": [],
+          "reason_codes_by_position": {
+            "0": "search_more",
+            "1": "search_more"
+          },
+          "recall_verifier": {
+            "admitted_positions": [],
+            "attempts": 1,
+            "called": true,
+            "eligible": true,
+            "hypothetical_admitted_positions": [
+              0
+            ],
+            "omitted_candidate_count": 2,
+            "primary_selected_removal_count": 0,
+            "proposed_positions": [
+              0,
+              1
+            ],
+            "reason_codes": [
+              "empty_primary_selection",
+              "entity_term_match",
+              "unresolved_source_disposition"
+            ],
+            "rejected_positions": [],
+            "retry_count": 0,
+            "schema_result": "valid",
+            "transport_tier": "strict_json_schema",
+            "validation_error_codes": []
+          },
+          "scenario_id": "v2-q21-empty",
+          "selected_irrelevant_refs": [],
+          "selected_positions": [],
+          "unassessed_critical_refs": []
+        }
+      ],
+      "selected_total": 19
+    }
+  }
+}

@@ -308,6 +308,8 @@ def test_feature_sequence_canary_and_planner_boundary_are_deterministic() -> Non
         "unified_selector_enabled": True,
         "verified_pack_boundary_enabled": False,
         "planner_policy_enabled": False,
+        "recall_verifier_enabled": False,
+        "recall_verifier_shadow": True,
     }
 
 

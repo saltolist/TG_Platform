@@ -374,6 +374,9 @@ async def tool_search_nodes(
                 "summary_model": str(item.get("summary_model") or ""),
                 "selector_summary": str(item.get("selector_summary") or ""),
                 "selector_summary_version": int(item.get("selector_summary_version") or 0),
+                "selector_semantic_flags": dict(
+                    item.get("selector_semantic_flags") or {}
+                ),
                 "title": str(item.get("object_title") or ""),
                 "preview": preview,
                 "status": str(item.get("object_status") or ""),

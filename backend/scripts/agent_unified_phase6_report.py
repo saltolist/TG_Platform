@@ -173,7 +173,9 @@ def _benchmark_scenario(
         started = time.perf_counter()
         transport = encode_selector_transport(
             question="Какие материалы относятся к запуску, включая вторичные темы и ограничения?",
-            dialog_context=dialog,
+            # Production Selector consumes Planner's self-contained resolved goal;
+            # repeating the dialog would add tokens and reintroduce excluded referents.
+            dialog_context="",
             contract=contract,
             candidates=candidates,
             summary_max_chars=summary_chars,
