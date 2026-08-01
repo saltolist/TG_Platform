@@ -13,6 +13,7 @@ import pytest
 from app.services.agent.research.graph import (
     ADAPTIVE_AGENT_SYSTEM,
     CONTEXT_SELECTOR_SYSTEM,
+    OPENED_EVIDENCE_REASSESSMENT_SYSTEM,
     RECALL_VERIFIER_SYSTEM,
     _selector_llm_binding,
     _selector_preflight_gaps,
@@ -25,11 +26,14 @@ from app.services.agent.research.selector_transport import (
     SelectorTransportMapping,
     SelectorValidationErrorCode,
     apply_selector_question_scope_guard,
+    build_matched_evidence_excerpt,
+    build_opened_evidence_excerpt,
     decode_selector_transport_result,
     decode_selector_transport_v1_result,
     encode_selector_transport,
     render_selector_transport_output_requirements,
     selector_card_has_explicit_answer_slot_absence,
+    selector_candidate_has_explicit_absence,
     selector_transport_json_schema,
 )
 from app.services.agent.runtime.budget import call_llm_with_deadline
@@ -42,6 +46,7 @@ from app.services.ai.providers import (
 from app.services.ai.rag_worker import _summary_row_is_fresh
 from app.services.ai.semantic_summary import (
     DISCOVERY_SUMMARY_VERSION,
+    SELECTOR_SEMANTIC_FLAGS_VERSION,
     SELECTOR_SUMMARY_VERSION,
     _SYSTEM as SEMANTIC_SUMMARY_SYSTEM,
 )
@@ -55,6 +60,13 @@ from scripts.agent_unified_selector_provider_replay import (
     build_provider_reports_with_frozen_cards,
 )
 from scripts.agent_unified_semantic_qualification import build_aggregate
+
+HISTORICAL_V13_V14_PROMPT_SHA256 = {
+    "planner": "9cf87c65f03aff28e9a1b27368471ee722315db9554149846e906e90dad928bc",
+    "selector": "d0efe586a519a03f7012a0e333982e91a26135fefde5f3d7480f4ff1a23ed1e2",
+    "selector_card": "2974e88cc40758eddd1ca37fd12d1b75dca325f39b90004b2b650a4db16d3ecc",
+    "recall_verifier": "90a4de42dc4b6f693c0850e4d76ace7d0b368dec8f39c67a8eb137aa5f7897be",
+}
 
 
 def _contract(*, complete: bool = True) -> dict:
@@ -145,6 +157,139 @@ def test_compact_transport_round_trip_uses_only_local_indexes_and_neutralizes_fe
     )
 
 
+def test_compact_transport_adds_bounded_matched_evidence_with_raw_safe_provenance() -> None:
+    candidates = _candidates(1)
+    candidates[0]["matched_evidence"] = build_matched_evidence_excerpt(
+        "Docker is the full product; GitHub Pages is only a UI demo.",
+        node_type="note_chunk",
+        source_revision=7,
+        rank=1,
+    ).model_dump(mode="json")
+    transport = encode_selector_transport(
+        question="Which delivery contour is complete?",
+        dialog_context="",
+        contract=_contract(),
+        candidates=candidates,
+    )
+
+    rendered = transport.render()
+    candidate_data = transport.payload["c"][0][2]
+    assert "<matched_evidence schema=\"v1\"" in candidate_data
+    assert "revision=\"7\"" in candidate_data
+    assert "Docker is the full product" in candidate_data
+    assert "matched_evidence" in candidate_data
+    assert "schema_version" not in rendered
+
+
+def test_compact_transport_adds_verified_opened_evidence_with_bounded_content() -> None:
+    candidates = _candidates(1)
+    candidates[0]["opened_evidence"] = build_opened_evidence_excerpt(
+        "Docker is the full product; GitHub Pages is only a UI demo. " * 300,
+        citation_path="/note/global/n0/",
+        source_revision=7,
+        owner_verified=True,
+        status_verified=True,
+    ).model_dump(mode="json")
+    transport = encode_selector_transport(
+        question="Which delivery contour is complete?",
+        dialog_context="",
+        contract=_contract(),
+        candidates=candidates,
+    )
+
+    candidate_data = transport.payload["c"][0][2]
+    assert "<opened_evidence schema=\"v1\"" in candidate_data
+    assert "path=\"/note/global/n0/\"" in candidate_data
+    assert "owner_verified=\"1\" status_verified=\"1\"" in candidate_data
+    assert "truncated=\"1\"" in candidate_data
+
+
+def test_verified_opened_evidence_preserves_facts_beyond_legacy_prefix() -> None:
+    late_fact = "The requested answer appears after the long introduction."
+    source = "intro " * 800 + late_fact
+
+    excerpt = build_opened_evidence_excerpt(
+        source,
+        citation_path="/note/global/n0/",
+        source_revision=7,
+        owner_verified=True,
+        status_verified=True,
+    )
+
+    assert excerpt is not None
+    assert len(source) > 4000
+    assert late_fact in excerpt.text
+    assert excerpt.truncated is False
+
+
+def test_verified_opened_evidence_preserves_document_layout() -> None:
+    source = (
+        "# Workspace zones\r\n\r\n"
+        "The workspace contains:\r\n"
+        "- Feed\r\n"
+        "- Posts\r\n"
+        "- Notes\r\n"
+    )
+
+    excerpt = build_opened_evidence_excerpt(
+        source,
+        citation_path="/note/global/n0/",
+        source_revision=7,
+        owner_verified=True,
+        status_verified=True,
+    )
+
+    assert excerpt is not None
+    assert excerpt.text == (
+        "# Workspace zones\n\n"
+        "The workspace contains:\n"
+        "- Feed\n"
+        "- Posts\n"
+        "- Notes"
+    )
+
+
+def test_opened_reassessment_prompt_requires_complete_layout_scan() -> None:
+    assert "line breaks preserve headings, paragraphs, tables, and lists" in (
+        OPENED_EVIDENCE_REASSESSMENT_SYSTEM
+    )
+    assert "from beginning to end, including late sections" in (
+        OPENED_EVIDENCE_REASSESSMENT_SYSTEM
+    )
+    assert "smallest non-redundant set that completely answers q" in (
+        OPENED_EVIDENCE_REASSESSMENT_SYSTEM
+    )
+    assert "related, partial, overlapping, or merely background rows irrelevant" in (
+        OPENED_EVIDENCE_REASSESSMENT_SYSTEM
+    )
+
+
+def test_selector_prompt_keeps_matched_evidence_optional_and_non_forcing() -> None:
+    assert "lossy discovery indexes" in CONTEXT_SELECTOR_SYSTEM
+    assert "presence and score never force relevance" in CONTEXT_SELECTOR_SYSTEM
+    assert "matched_evidence" in CONTEXT_SELECTOR_SYSTEM
+
+
+def test_matched_evidence_bounds_ranked_hit_without_lexical_query_logic() -> None:
+    source = "Two delivery contours differ. " + "Deployment detail. " * 30
+    excerpt = build_matched_evidence_excerpt(
+        source,
+        node_type="note_chunk",
+        source_revision=3,
+        rank=2,
+        max_chars=80,
+    )
+
+    assert excerpt is not None
+    assert len(excerpt.text) <= 80
+    assert excerpt.source_revision == 3
+    assert excerpt.rank == 2
+    assert excerpt.truncated is True
+    assert build_matched_evidence_excerpt(
+        "", node_type="note_chunk", source_revision=1, rank=1
+    ) is None
+
+
 def test_compact_transport_renders_dynamic_every_index_cardinality() -> None:
     transport = encode_selector_transport(
         question="q", dialog_context="", contract=_contract(), candidates=_candidates(7)
@@ -189,7 +334,7 @@ def test_compact_transport_adds_raw_safe_cross_record_obligations() -> None:
     assert "with both slots filled, s is invalid" in requirements
 
 
-def test_compact_transport_and_scope_guard_enforce_named_subject_anchor() -> None:
+def test_compact_transport_does_not_infer_named_subject_anchor() -> None:
     candidates = _candidates(2)
     candidates[0]["title"] = "Northstar attachment"
     candidates[0]["selector_summary"] = "Northstar requires approval."
@@ -202,10 +347,7 @@ def test_compact_transport_and_scope_guard_enforce_named_subject_anchor() -> Non
         contract=_contract(),
         candidates=candidates,
     )
-    assert transport.payload["sa"] == {
-        "p": "runtime_query_contract/v1",
-        "a": ["meridian"],
-    }
+    assert "sa" not in transport.payload
     decoded = decode_selector_transport_result(
         json.dumps(
             {
@@ -220,16 +362,8 @@ def test_compact_transport_and_scope_guard_enforce_named_subject_anchor() -> Non
     )
     assert decoded.decision is not None
 
-    guarded = apply_selector_question_scope_guard(
-        decoded.decision,
-        question=question,
-        candidates=candidates,
-        mapping=transport.mapping,
-    )
-
-    assert guarded.demoted_refs == ("note:n0",)
-    assert guarded.decision.assessments[0].relevance.value == "irrelevant"
-    assert guarded.decision.assessments[1].relevance.value == "direct"
+    assert decoded.decision.assessments[0].relevance.value == "direct"
+    assert decoded.decision.assessments[1].relevance.value == "direct"
 
 
 @pytest.mark.parametrize(
@@ -392,7 +526,7 @@ def test_summary_backfill_freshness_requires_both_version_and_projection() -> No
         f"llm:fixture:model:v{DISCOVERY_SUMMARY_VERSION}",
         "selector summary",
         SELECTOR_SUMMARY_VERSION,
-        1,
+        SELECTOR_SEMANTIC_FLAGS_VERSION,
     )
     assert _summary_row_is_fresh(
         {row}, node_type="note_summary", revision=7, model_key=row[3]
@@ -797,12 +931,7 @@ def test_v13_untouched_qualification_freezes_final_contracts_before_replay() -> 
         "qualification_universal_v13_primary_run1.json",
         "qualification_universal_v13_primary_run2.json",
     ]
-    assert manifest["prompt_sha256"] == {
-        "planner": hashlib.sha256(ADAPTIVE_AGENT_SYSTEM.encode()).hexdigest(),
-        "selector": hashlib.sha256(CONTEXT_SELECTOR_SYSTEM.encode()).hexdigest(),
-        "selector_card": hashlib.sha256(SEMANTIC_SUMMARY_SYSTEM.encode()).hexdigest(),
-        "recall_verifier": hashlib.sha256(RECALL_VERIFIER_SYSTEM.encode()).hexdigest(),
-    }
+    assert manifest["prompt_sha256"] == HISTORICAL_V13_V14_PROMPT_SHA256
 
 
 def test_v14_untouched_qualification_has_consistent_cross_record_referent() -> None:
@@ -831,12 +960,7 @@ def test_v14_untouched_qualification_has_consistent_cross_record_referent() -> N
         assert "raven" in evidence.casefold()
     assert manifest["cohort_sha256"] == hashlib.sha256(cohort_path.read_bytes()).hexdigest()
     assert manifest["recall_verifier_mode"] == "disabled"
-    assert manifest["prompt_sha256"] == {
-        "planner": hashlib.sha256(ADAPTIVE_AGENT_SYSTEM.encode()).hexdigest(),
-        "selector": hashlib.sha256(CONTEXT_SELECTOR_SYSTEM.encode()).hexdigest(),
-        "selector_card": hashlib.sha256(SEMANTIC_SUMMARY_SYSTEM.encode()).hexdigest(),
-        "recall_verifier": hashlib.sha256(RECALL_VERIFIER_SYSTEM.encode()).hexdigest(),
-    }
+    assert manifest["prompt_sha256"] == HISTORICAL_V13_V14_PROMPT_SHA256
 
     outcome = json.loads((root / "qualification_outcome.json").read_text())
     assert outcome["passed"] is True
@@ -855,15 +979,14 @@ async def test_provider_report_can_mark_viewed_frozen_cohort_as_calibration() ->
         await build_provider_report(evaluation_role="invalid")
 
 
-def test_selector_model_override_does_not_change_planner_binding() -> None:
+def test_selector_uses_the_user_configured_planner_binding() -> None:
     ctx = SimpleNamespace(
         planner_llm=lambda: ("provider", "planner-mini", "secret"),
-        settings=SimpleNamespace(agent_selector_model="selector-strong"),
     )
 
     assert _selector_llm_binding(ctx) == (
         "provider",
-        "selector-strong",
+        "planner-mini",
         "secret",
     )
     assert ctx.planner_llm()[1] == "planner-mini"
@@ -1315,7 +1438,8 @@ def test_selector_prompt_distinguishes_direct_secondary_and_near_topic() -> None
     assert "literal yes/no" in CONTEXT_SELECTOR_SYSTEM
     assert "which-record, source, note, protocol, or attachment" in CONTEXT_SELECTOR_SYSTEM
     assert "source membership alone is still insufficient" in CONTEXT_SELECTOR_SYSTEM
-    assert "LLM-generated semantic indexes" in CONTEXT_SELECTOR_SYSTEM
+    assert "lossy discovery indexes" in CONTEXT_SELECTOR_SYSTEM
+    assert "matched_evidence" in CONTEXT_SELECTOR_SYSTEM
     assert "indispensable premise" in CONTEXT_SELECTOR_SYSTEM
     assert "observed usage" in CONTEXT_SELECTOR_SYSTEM
     assert "roster or status does not supply" in CONTEXT_SELECTOR_SYSTEM
@@ -1330,6 +1454,43 @@ def test_selector_prompt_distinguishes_direct_secondary_and_near_topic() -> None
     assert "source membership alone remains insufficient" in RECALL_VERIFIER_SYSTEM
     assert "answer-determining semantic proposition" in RECALL_VERIFIER_SYSTEM
     assert "answers q by one necessary logical step" in RECALL_VERIFIER_SYSTEM
+
+
+def test_opened_evidence_reassessment_prompt_prioritizes_verified_full_text() -> None:
+    assert "opened_evidence as the primary source" in OPENED_EVIDENCE_REASSESSMENT_SYSTEM
+    assert "navigation context only" in OPENED_EVIDENCE_REASSESSMENT_SYSTEM
+    assert "Do not preserve or infer any earlier assessment" in (
+        OPENED_EVIDENCE_REASSESSMENT_SYSTEM
+    )
+    assert "never force relevance from source membership or score" in (
+        OPENED_EVIDENCE_REASSESSMENT_SYSTEM
+    )
+
+
+def test_opened_evidence_reassessment_compares_new_reads_to_selected_baseline() -> None:
+    prompt = OPENED_EVIDENCE_REASSESSMENT_SYSTEM
+
+    assert "selected_baseline" in prompt
+    assert "adds facts necessary beyond that baseline" in prompt
+    assert "redundant current rows irrelevant" in prompt
+    assert "source membership or score" in prompt
+
+
+def test_current_structured_absence_flag_prevents_legacy_text_fallback() -> None:
+    candidate = {
+        "selector_summary": "The demo does not contain a backend.",
+        "selector_semantic_flags": {
+            "v": 2,
+            "explicit_absence": False,
+            "observational_value": False,
+            "record_roles": [],
+        },
+    }
+
+    assert selector_candidate_has_explicit_absence(candidate) is False
+    assert selector_candidate_has_explicit_absence(
+        {**candidate, "selector_semantic_flags": {}}
+    ) is True
 
 
 def test_selector_output_contract_repeats_semantic_independence_near_registry() -> None:
@@ -1485,6 +1646,7 @@ def test_selector_scope_guard_prefers_persisted_absence_over_legacy_text_heurist
 def test_selector_scope_guard_rejects_observed_value_only_for_normative_bound() -> None:
     candidates = _candidates(1)
     candidates[0]["selector_summary"] = "The load test sustained 610 rps."
+    candidates[0]["title"] = "Pulse load test"
     candidates[0]["selector_semantic_flags"] = {
         "v": 1,
         "explicit_absence": False,
@@ -1528,6 +1690,14 @@ def test_selector_scope_guard_rejects_observed_value_only_for_normative_bound() 
         mapping=transport.mapping,
     )
     assert observed.demoted_refs == ()
+
+    mixed_plural = apply_selector_question_scope_guard(
+        decoded.decision,
+        question="Compare Pulse caps / сравни лимиты Pulse",
+        candidates=candidates,
+        mapping=transport.mapping,
+    )
+    assert mixed_plural.demoted_refs == ("note:n0",)
 
 
 def test_selector_scope_guard_keeps_cross_record_side_with_compatible_negation() -> None:

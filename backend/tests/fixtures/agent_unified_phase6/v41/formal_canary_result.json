@@ -1,0 +1,109 @@
+{
+  "schema": "workspace.phase6-formal-canary-result/v1",
+  "manifest_version": "2026-07-31-account-live-v32",
+  "report_id": "unified-phase6-live-canary-v32-2026-07-31",
+  "source_head": "0e87f6c45d9ed356dc9fba8f3372754b4db87634",
+  "status": "failed_stop_condition",
+  "started_at": "2026-07-31T22:10:38.223918Z",
+  "stopped_after_sequence": 2,
+  "chat_count": 2,
+  "user_message_count": 2,
+  "semantic_selector_decision_count": 2,
+  "stop_condition": "irrelevant_selection_above_zero",
+  "attribution_boundary": "isolated_semantic_gate_false_positive_on_different_enumeration",
+  "attribution": {
+    "scenario_id": "live-v8-q02",
+    "required_ref": "note:9fd458be-d060-4a4b-b055-02d39ff2948e",
+    "required_ref_selected_by_reassessment": true,
+    "required_ref_opened": true,
+    "all_scheduled_reads_owner_and_status_verified": true,
+    "all_opened_transport_truncated": false,
+    "opened_recall_provider_calls": 2,
+    "unexpected_ref_confirmed": true,
+    "unexpected_ref_gate_verdicts": {
+      "subject": true,
+      "predicate": true,
+      "membership": true,
+      "value": true,
+      "complete": true
+    },
+    "unexpected_ref_q_count": 2,
+    "unexpected_ref_evidence_count": 2,
+    "required_ref_materialized": true,
+    "provenance_verified": true
+  },
+  "decision": {
+    "candidate_count": 13,
+    "selected_refs": [
+      "note:41a63404-cc97-4fb8-a37e-612bcb15fd98",
+      "note:9fd458be-d060-4a4b-b055-02d39ff2948e"
+    ],
+    "materialized_candidate_refs": [
+      "note:41a63404-cc97-4fb8-a37e-612bcb15fd98",
+      "note:9fd458be-d060-4a4b-b055-02d39ff2948e"
+    ],
+    "missed_critical_refs": [],
+    "selected_irrelevant_refs": [
+      "note:41a63404-cc97-4fb8-a37e-612bcb15fd98"
+    ],
+    "unexpected_refs": [
+      "note:41a63404-cc97-4fb8-a37e-612bcb15fd98"
+    ],
+    "selector_attempts": 1,
+    "evidence_reassessment": {
+      "required": true,
+      "provider_calls": 1,
+      "schema_results": [
+        "valid"
+      ]
+    },
+    "opened_evidence_recall_confirmation": {
+      "called": true,
+      "schema_result": "valid",
+      "provider_calls": 2,
+      "confirmed_refs": [
+        "note:41a63404-cc97-4fb8-a37e-612bcb15fd98"
+      ],
+      "admitted_refs": [
+        "note:41a63404-cc97-4fb8-a37e-612bcb15fd98"
+      ]
+    },
+    "precision_confirmation": {
+      "called": false,
+      "schema_result": "not_called",
+      "confirmed_refs": [
+        "note:9fd458be-d060-4a4b-b055-02d39ff2948e"
+      ],
+      "demoted_refs": []
+    },
+    "schema_result": "valid",
+    "provider_total_tokens": 3791,
+    "provider_duration_ms": 1552.6,
+    "validation_error_codes": [],
+    "checks": {
+      "completed": true,
+      "critical_recall": true,
+      "no_unexpected_selection": false,
+      "no_frozen_irrelevant": false,
+      "critical_materialized": true,
+      "first_attempt_valid": true,
+      "no_validation_errors": true,
+      "no_position_errors": true,
+      "cards_llm_current_fresh": true,
+      "provenance_verified": true
+    }
+  },
+  "passed_sequences": [
+    1
+  ],
+  "remaining_scenarios_sent": 0,
+  "can_convert_to_pass": false,
+  "privacy": {
+    "aggregate_and_ref_only": true,
+    "contains_credentials": false,
+    "contains_account_identifier": false,
+    "contains_raw_queries": false,
+    "contains_raw_provider_output": false,
+    "contains_source_or_user_content": false
+  }
+}

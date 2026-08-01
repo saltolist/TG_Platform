@@ -1,0 +1,60 @@
+{
+  "schema": "workspace.phase6-formal-canary-result/v1",
+  "manifest_version": "2026-07-29-account-live-v8",
+  "report_id": "unified-phase6-live-canary-v8-2026-07-29",
+  "source_head": "0e87f6c45d9ed356dc9fba8f3372754b4db87634",
+  "status": "failed_stop_condition",
+  "started_at": "2026-07-29T21:35:14.707953Z",
+  "stopped_after_sequence": 1,
+  "chat_count": 1,
+  "user_message_count": 1,
+  "semantic_selector_decision_count": 1,
+  "stop_condition": "critical_recall_below_one",
+  "attribution_boundary": "query_time_evidence_transport",
+  "attribution": {
+    "scenario_id": "live-v8-q01",
+    "required_ref": "note:41a63404-cc97-4fb8-a37e-612bcb15fd98",
+    "discovery_present": true,
+    "semantic_rank_score": 0.7149,
+    "candidate_position": 0,
+    "matched_evidence_attached": false,
+    "selector_layer_false_negative": true,
+    "materialization_reached": false,
+    "answer_model_received_required_evidence": false
+  },
+  "decision": {
+    "candidate_count": 8,
+    "selected_refs": [],
+    "materialized_candidate_refs": [],
+    "missed_critical_refs": ["note:41a63404-cc97-4fb8-a37e-612bcb15fd98"],
+    "selected_irrelevant_refs": [],
+    "unexpected_refs": [],
+    "selector_attempts": 1,
+    "schema_result": "valid",
+    "provider_total_tokens": 2208,
+    "provider_duration_ms": 1607.6,
+    "validation_error_codes": [],
+    "checks": {
+      "completed": true,
+      "critical_recall": false,
+      "no_unexpected_selection": true,
+      "no_frozen_irrelevant": true,
+      "critical_materialized": false,
+      "first_attempt_valid": true,
+      "no_validation_errors": true,
+      "no_position_errors": true,
+      "cards_llm_current_fresh": true,
+      "provenance_verified": true
+    }
+  },
+  "remaining_scenarios_sent": 0,
+  "can_convert_to_pass": false,
+  "privacy": {
+    "aggregate_and_ref_only": true,
+    "contains_credentials": false,
+    "contains_account_identifier": false,
+    "contains_raw_queries": false,
+    "contains_raw_provider_output": false,
+    "contains_source_or_user_content": false
+  }
+}

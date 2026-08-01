@@ -123,7 +123,7 @@ def test_record_marker_preservation_is_model_independent_and_multilingual() -> N
     assert selector_semantic_flags(
         "The load test sustained 610 rps rather than an approved cap."
     ) == {
-        "v": 1,
+        "v": 2,
         "explicit_absence": False,
         "observational_value": True,
         "record_roles": [],
@@ -136,6 +136,9 @@ def test_explicit_absence_preservation_tracks_semantics_not_any_negation() -> No
     )
     assert selector_card_has_explicit_absence(
         "No draft or signed recovery-region choice is recorded."
+    )
+    assert selector_card_has_explicit_absence(
+        "Учебный откат завершился за 34 минуты, но утвержденное окно не задано."
     )
     assert not selector_card_has_explicit_absence(
         "The signed policy does not change the region proposed in the draft."
@@ -338,7 +341,7 @@ async def test_semantic_summary_does_not_force_incidental_negation_into_long_car
     assert projections.generation_status == "llm_valid"
     assert projections.selector_summary_version == SELECTOR_SUMMARY_VERSION
     assert projections.selector_semantic_flags == {
-        "v": 1,
+        "v": 2,
         "explicit_absence": False,
         "observational_value": False,
         "record_roles": ["draft_or_proposed"],
@@ -384,7 +387,7 @@ async def test_semantic_summary_regenerates_when_explicit_negation_is_lost() -> 
 
 
 @pytest.mark.asyncio
-async def test_semantic_summary_still_retries_lost_non_absence_negation() -> None:
+async def test_semantic_summary_accepts_lossy_card_when_matched_evidence_carries_negation() -> None:
     resolved = (SimpleNamespace(name="OpenAI"), "small", "secret")
     lost = (
         '{"discovery_summary":"The release policy defines permissions.",'
@@ -411,11 +414,9 @@ async def test_semantic_summary_still_retries_lost_non_absence_negation() -> Non
             text_value="The release is not permitted before approval.",
         )
 
-    assert complete.await_count == 2
-    assert projections.selector_summary == "The release is not permitted before approval."
-    assert "code=selector_negation_lost" in (
-        complete.await_args_list[1].kwargs["messages"][-1]["content"]
-    )
+    assert complete.await_count == 1
+    assert projections.selector_summary == "The release is permitted before approval."
+    assert projections.generation_status == "llm_valid"
 
 
 @pytest.mark.asyncio

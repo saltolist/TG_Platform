@@ -56,6 +56,7 @@ class CandidateEnvelope(TypedDict):
     semantic_score: float | None
     semantic_rank_score: NotRequired[float | None]
     search_enriched: NotRequired[bool]
+    matched_evidence_rank: NotRequired[int | None]
     source_requirement_ids: list[str]
     source_requirement_id: str
     parent: dict[str, str] | None
@@ -250,6 +251,10 @@ def normalize_candidate(
         ),
         "semantic_score": semantic_score,
         "semantic_rank_score": semantic_score,
+        "search_enriched": bool(
+            candidate.get("search_enriched")
+            or (origin == "semantic_search" and semantic_score is not None)
+        ),
         "score": semantic_score,
         "source_requirement_ids": source_requirement_ids,
         "source_requirement_id": source_requirement_ids[0] if source_requirement_ids else "",
@@ -276,6 +281,13 @@ def normalize_candidate(
         try:
             envelope["estimated_full_text_chars"] = max(
                 0, int(candidate["estimated_full_text_chars"])
+            )
+        except (TypeError, ValueError):
+            pass
+    if candidate.get("matched_evidence_rank") is not None:
+        try:
+            envelope["matched_evidence_rank"] = max(
+                1, int(candidate["matched_evidence_rank"])
             )
         except (TypeError, ValueError):
             pass
@@ -357,6 +369,17 @@ def normalize_candidates(
                     previous.get("semantic_score") is not None
                     or candidate.get("semantic_score") is not None
                 ),
+                "matched_evidence_rank": min(
+                    (
+                        int(value)
+                        for value in (
+                            previous.get("matched_evidence_rank"),
+                            candidate.get("matched_evidence_rank"),
+                        )
+                        if value is not None
+                    ),
+                    default=None,
+                ),
             }
             continue
         if len(normalized) >= limit:
@@ -401,6 +424,17 @@ def empty_material_plan() -> dict[str, Any]:
         "needs_expansion_assessment": False,
         "coverage": "complete",
         "full_read_batches": [],
+        "evidence_escalation_pending_refs": [],
+        "evidence_escalation_opened_refs": [],
+        "evidence_escalation_failed_refs": [],
+        "evidence_escalation_attempted_sources": [],
+        "evidence_escalation_reassess_refs": [],
+        # A reassessment may establish that an ordinary semantic corpus adds
+        # nothing beyond already verified evidence.  This is deliberately
+        # separate from discovery: the corpus was still searched and assessed.
+        "baseline_discharged_source_ids": [],
+        "needs_evidence_reassessment": False,
+        "deferred_discovery_actions": [],
         "card_eligibility_failures": {},
         # Phase-4 fields are additive so v1 checkpoints remain readable.
         "materialization_queue": [],
@@ -616,6 +650,11 @@ def compile_material_plan(
         for item in source_dispositions
         if isinstance(item, Mapping) and item.get("source_id")
     }
+    discharged_sources = {
+        str(item)
+        for item in plan.get("baseline_discharged_source_ids") or ()
+        if str(item)
+    }
 
     trace = list(plan.get("runtime_trace") or ())
     gaps = [
@@ -636,7 +675,7 @@ def compile_material_plan(
             required_source = (
                 str(requirement.get("evidence_obligation") or "") == "required"
                 or bool(requirement.get("required"))
-            )
+            ) and source_id not in discharged_sources
             source_candidates = [
                 candidate
                 for candidate in candidate_map.values()
@@ -671,6 +710,13 @@ def compile_material_plan(
                 {"kind": "search_more", "source_id": source_id, "blocks_ready": True}
             )
         elif status == "ambiguous":
+            discovery_actions.append(
+                {
+                    "kind": "bounded_discovery",
+                    "source_id": source_id,
+                    "max_actions": 1,
+                }
+            )
             gaps.append(
                 {"kind": "ambiguous", "source_id": source_id, "blocks_ready": True}
             )
@@ -907,6 +953,290 @@ def next_full_read_batch(plan: Mapping[str, Any], *, size: int = FULL_READ_BATCH
     return [ref for ref in _unique(ordered) if ref in pending][: max(1, min(size, 3))]
 
 
+def schedule_evidence_escalation(
+    plan: Mapping[str, Any],
+    *,
+    contract: Mapping[str, Any],
+    deep_reads_remaining: int,
+    planner_calls_remaining: int,
+    size: int = FULL_READ_BATCH_SIZE,
+) -> tuple[dict[str, Any], list[str]]:
+    """Open the best unread candidate before accepting a required-source miss.
+
+    Required source discovery is not a mandate to spend a full read in every
+    corpus.  A verified read can make a second corpus redundant; the existing
+    reassessment call is responsible for making that semantic decision.
+    """
+
+    result = {**empty_material_plan(), **dict(plan)}
+    if deep_reads_remaining <= 0 or planner_calls_remaining <= 0:
+        return result, []
+    # Full text already selected by the reasoner is stronger evidence than a
+    # negative-source probe. Let that read complete before scheduling fallback
+    # candidates from another corpus.
+    if result.get("pending_full_text_ids"):
+        return result, []
+    requirements = {
+        str(item.get("source_id") or ""): dict(item)
+        for item in contract.get("source_requirements") or ()
+        if isinstance(item, Mapping) and item.get("source_id")
+    }
+    discharged_sources = {
+        str(item)
+        for item in result.get("baseline_discharged_source_ids") or ()
+        if str(item)
+    }
+    disposition_by_source = {
+        str(item.get("source_id") or ""): str(item.get("status") or "")
+        for item in result.get("source_dispositions") or ()
+        if isinstance(item, Mapping) and item.get("source_id")
+    }
+    unresolved_sources = [
+        source_id
+        for source_id, status in disposition_by_source.items()
+        if status in {"no_relevant_candidate", "search_more", "ambiguous"}
+        and (
+            str(requirements.get(source_id, {}).get("evidence_obligation") or "")
+            == "required"
+            or bool(requirements.get(source_id, {}).get("required"))
+        )
+        and source_id not in discharged_sources
+    ]
+    attempted_sources = set(
+        str(item) for item in result.get("evidence_escalation_attempted_sources") or ()
+    )
+    unresolved_sources = [
+        source_id for source_id in _unique(unresolved_sources) if source_id not in attempted_sources
+    ]
+    if not unresolved_sources:
+        return result, []
+
+    assessments = {
+        canonical_candidate_ref(str(item.get("ref") or "")): str(item.get("relevance") or "")
+        for item in result.get("assessments") or ()
+        if isinstance(item, Mapping) and item.get("ref")
+    }
+    unavailable = set(
+        _unique(
+            (
+                *result.get("opened_full_text_ids", ()),
+                *result.get("failed_full_text_ids", ()),
+                *result.get("evidence_escalation_pending_refs", ()),
+            )
+        )
+    )
+    queues: dict[str, list[dict[str, Any]]] = {source_id: [] for source_id in unresolved_sources}
+    for candidate in result.get("candidates") or ():
+        if not isinstance(candidate, Mapping):
+            continue
+        ref = canonical_candidate_ref(str(candidate.get("ref") or ""))
+        if (
+            not ref.startswith(("note:", "post:"))
+            or ref in unavailable
+            or "full_text" not in set(candidate.get("available_fidelity") or ())
+            or assessments.get(ref) not in {None, "irrelevant"}
+        ):
+            continue
+        for source_id in _candidate_source_ids(candidate):
+            if source_id in queues:
+                queues[source_id].append(dict(candidate))
+    for queue in queues.values():
+        queue.sort(
+            key=lambda item: (
+                int(item.get("inclusion_priority") or 50),
+                -float(item.get("semantic_rank_score") or 0.0),
+                str(item.get("ref") or ""),
+            )
+        )
+
+    # An all-negative card pass is not verified absence. Open one bounded
+    # global batch so the existing reassessment call can compare full candidates.
+    # This never imposes a per-source quota or materializes unselected reads.
+    ranked = [
+        (candidate, source_id)
+        for source_id in unresolved_sources
+        for candidate in queues[source_id]
+    ]
+    ranked.sort(
+        key=lambda item: (
+            int(item[0].get("matched_evidence_rank") or 1_000_000),
+            int(item[0].get("inclusion_priority") or 50),
+            -float(item[0].get("semantic_rank_score") or 0.0),
+            str(item[0].get("ref") or ""),
+        )
+    )
+    selected: list[str] = []
+    selected_sources: list[str] = []
+    target_count = min(size, deep_reads_remaining)
+    for candidate, source_id in ranked:
+        ref = canonical_candidate_ref(str(candidate.get("ref") or ""))
+        if not ref or ref in selected:
+            continue
+        selected.append(ref)
+        selected_sources.append(source_id)
+        if len(selected) >= target_count:
+            break
+    if not selected:
+        return result, []
+
+    result["evidence_escalation_pending_refs"] = _unique(
+        (*result.get("evidence_escalation_pending_refs", ()), *selected)
+    )
+    result["evidence_escalation_attempted_sources"] = _unique(
+        (*result.get("evidence_escalation_attempted_sources", ()), *selected_sources)
+    )
+    result["context_selection_done"] = False
+    result["needs_evidence_reassessment"] = True
+    result["needs_expansion_assessment"] = False
+    result["deferred_discovery_actions"] = list(result.get("discovery_actions") or ())
+    result["discovery_actions"] = []
+    result["runtime_trace"] = [
+        *list(result.get("runtime_trace") or ()),
+        {
+            "kind": "evidence_escalation_scheduled",
+            "refs": selected,
+            "source_ids": selected_sources,
+        },
+    ]
+    return result, selected
+
+
+def next_evidence_escalation_batch(
+    plan: Mapping[str, Any], *, size: int = FULL_READ_BATCH_SIZE
+) -> list[str]:
+    return _unique(plan.get("evidence_escalation_pending_refs") or ())[: max(1, min(size, 3))]
+
+
+def schedule_selected_evidence_reassessment(
+    plan: Mapping[str, Any],
+    *,
+    contract: Mapping[str, Any],
+    opened: Iterable[str],
+) -> dict[str, Any]:
+    """Reassess the final verified opened set and fail closed on unread selections."""
+
+    result = {**empty_material_plan(), **dict(plan)}
+    if result.get("pending_full_text_ids"):
+        return result
+    opened_refs = {
+        canonical_candidate_ref(str(ref))
+        for ref in (*result.get("opened_full_text_ids", ()), *opened)
+        if str(ref)
+    }
+    positive_refs = {
+        canonical_candidate_ref(str(item.get("ref") or ""))
+        for item in result.get("assessments") or ()
+        if isinstance(item, Mapping)
+        and str(item.get("relevance") or "") in {"direct", "supporting"}
+    }
+    failed_selected = positive_refs & {
+        canonical_candidate_ref(str(ref))
+        for ref in result.get("failed_full_text_ids") or ()
+        if str(ref)
+    }
+    if failed_selected:
+        result["assessments"] = [
+            (
+                {
+                    **dict(item),
+                    "relevance": "irrelevant",
+                    "role": "none",
+                    "selected_role": "none",
+                    "resolution": "none",
+                    "selected_resolution": "none",
+                    "confidence": 0.0,
+                    "reason_code": "ambiguous",
+                }
+                if isinstance(item, Mapping)
+                and canonical_candidate_ref(str(item.get("ref") or ""))
+                in failed_selected
+                else dict(item)
+            )
+            for item in result.get("assessments") or ()
+            if isinstance(item, Mapping)
+        ]
+        positive_refs -= failed_selected
+        refs_by_source: dict[str, set[str]] = {}
+        for candidate in result.get("candidates") or ():
+            if not isinstance(candidate, Mapping):
+                continue
+            ref = canonical_candidate_ref(str(candidate.get("ref") or ""))
+            for source_id in _candidate_source_ids(candidate):
+                refs_by_source.setdefault(source_id, set()).add(ref)
+        result["source_dispositions"] = [
+            {
+                **dict(item),
+                "status": (
+                    "search_more"
+                    if str(item.get("status") or "") == "selected"
+                    and not (
+                        refs_by_source.get(str(item.get("source_id") or ""), set())
+                        & positive_refs
+                    )
+                    else str(item.get("status") or "")
+                ),
+            }
+            for item in result.get("source_dispositions") or ()
+            if isinstance(item, Mapping)
+        ]
+        result["runtime_trace"] = [
+            *list(result.get("runtime_trace") or ()),
+            {
+                "kind": "failed_selected_full_text_demoted",
+                "refs": sorted(failed_selected),
+            },
+        ]
+    selected_opened = sorted(opened_refs & positive_refs)
+    if not selected_opened:
+        return result
+
+    dispositions = {
+        str(item.get("source_id") or ""): str(item.get("status") or "")
+        for item in result.get("source_dispositions") or ()
+        if isinstance(item, Mapping) and item.get("source_id")
+    }
+    discharged = {
+        str(item)
+        for item in result.get("baseline_discharged_source_ids") or ()
+        if str(item)
+    }
+    eligible_negative_sources = []
+    for raw_requirement in contract.get("source_requirements") or ():
+        if not isinstance(raw_requirement, Mapping):
+            continue
+        requirement = dict(raw_requirement)
+        source_id = str(requirement.get("source_id") or "")
+        evidence_required = (
+            str(requirement.get("evidence_obligation") or "") == "required"
+            or bool(requirement.get("required"))
+        )
+        if (
+            source_id
+            and source_id not in discharged
+            and dispositions.get(source_id) == "no_relevant_candidate"
+            and evidence_required
+            and str(requirement.get("coverage") or "") == "relevant"
+            and str(requirement.get("predicate_kind") or "semantic") == "semantic"
+            and str((requirement.get("scope") or {}).get("mode") or "") == "corpus"
+        ):
+            eligible_negative_sources.append(source_id)
+    result["evidence_escalation_reassess_refs"] = _unique(
+        (*result.get("evidence_escalation_reassess_refs", ()), *selected_opened)
+    )
+    result["needs_evidence_reassessment"] = True
+    result["context_selection_done"] = False
+    result["runtime_trace"] = [
+        *list(result.get("runtime_trace") or ()),
+        {
+            "kind": "selected_evidence_reassessment_scheduled",
+            "refs": selected_opened,
+            "source_ids": sorted(eligible_negative_sources),
+            "reason": "minimal_verified_opened_set",
+        },
+    ]
+    return result
+
+
 def saturated_sources(plan: Mapping[str, Any]) -> list[str]:
     """Sources whose visible page is entirely direct and advertises more rows."""
 
@@ -942,8 +1272,17 @@ def record_full_read_results(
     batch: Iterable[str] = (),
 ) -> dict[str, Any]:
     result = {**empty_material_plan(), **dict(plan)}
+    batch_ids = set(str(ref) for ref in batch)
+    escalation_batch = batch_ids & set(
+        str(ref) for ref in result.get("evidence_escalation_pending_refs") or ()
+    )
     opened_ids = _unique((*result.get("opened_full_text_ids", ()), *opened))
-    failed_ids = _unique((*result.get("failed_full_text_ids", ()), *failed))
+    failed_ids = _unique(
+        (
+            *result.get("failed_full_text_ids", ()),
+            *(str(ref) for ref in failed if str(ref) not in escalation_batch),
+        )
+    )
     resolved = set((*opened_ids, *failed_ids))
     result["opened_full_text_ids"] = opened_ids
     result["failed_full_text_ids"] = failed_ids
@@ -951,6 +1290,30 @@ def record_full_read_results(
         str(ref) for ref in result.get("pending_full_text_ids") or () if str(ref) not in resolved
     ]
     result["omitted_ids"] = _unique((*result.get("omitted_ids", ()), *failed_ids))
+    if escalation_batch:
+        escalation_opened = [str(ref) for ref in opened if str(ref) in escalation_batch]
+        escalation_failed = [str(ref) for ref in failed if str(ref) in escalation_batch]
+        result["evidence_escalation_opened_refs"] = _unique(
+            (*result.get("evidence_escalation_opened_refs", ()), *escalation_opened)
+        )
+        result["evidence_escalation_failed_refs"] = _unique(
+            (*result.get("evidence_escalation_failed_refs", ()), *escalation_failed)
+        )
+        result["evidence_escalation_pending_refs"] = [
+            str(ref)
+            for ref in result.get("evidence_escalation_pending_refs") or ()
+            if str(ref) not in escalation_batch
+        ]
+        result["evidence_escalation_reassess_refs"] = _unique(
+            (*result.get("evidence_escalation_reassess_refs", ()), *escalation_opened)
+        )
+        result["needs_evidence_reassessment"] = bool(escalation_opened)
+        if not escalation_opened:
+            result["context_selection_done"] = True
+            result["discovery_actions"] = list(
+                result.get("deferred_discovery_actions") or ()
+            )
+        result["deferred_discovery_actions"] = []
     if list(batch):
         result["full_read_batches"] = [
             *list(result.get("full_read_batches") or ()),
@@ -989,9 +1352,12 @@ __all__ = [
     "compile_material_plan",
     "empty_material_plan",
     "merge_material_plan",
+    "next_evidence_escalation_batch",
     "next_full_read_batch",
     "normalize_candidate",
     "normalize_candidates",
     "record_full_read_results",
+    "schedule_evidence_escalation",
+    "schedule_selected_evidence_reassessment",
     "saturated_sources",
 ]

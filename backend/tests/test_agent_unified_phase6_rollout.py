@@ -420,6 +420,52 @@ def test_rollout_trace_contains_policy_additive_search_and_no_source_text() -> N
     assert comparison["material_plan"]["shadow"]["schema"] == "workspace.material-plan/v2"
 
 
+def test_rollout_trace_uses_merged_assessments_across_selector_batches() -> None:
+    state = {
+        "planner_steps": [
+            {
+                "schema": SELECTOR_SCHEMA_V2,
+                "assessments": [{"ref": "note:selected", "relevance": "direct"}],
+                "source_dispositions": [
+                    {"source_id": "workspace-notes", "status": "selected"}
+                ],
+                "precision_confirmation": {
+                    "called": True,
+                    "schema_result": "valid",
+                    "confirmed_refs": ["note:selected"],
+                },
+            },
+            {
+                "schema": SELECTOR_SCHEMA_V2,
+                "assessments": [{"ref": "post:reassessed", "relevance": "irrelevant"}],
+                "source_dispositions": [
+                    {"source_id": "workspace-posts", "status": "no_relevant_candidate"}
+                ],
+                "precision_confirmation": {"called": False},
+            },
+        ],
+        "material_plan": {
+            "schema": "workspace.material-plan/v2",
+            "assessments": [
+                {"ref": "note:selected", "relevance": "direct"},
+                {"ref": "post:reassessed", "relevance": "irrelevant"},
+            ],
+            "source_dispositions": [
+                {"source_id": "workspace-notes", "status": "selected"},
+                {"source_id": "workspace-posts", "status": "no_relevant_candidate"},
+            ],
+        },
+    }
+
+    trace = capture_unified_rollout_trace(state)
+
+    assert trace["selector"]["assessments"] == state["material_plan"]["assessments"]
+    assert trace["selector"]["source_dispositions"] == (
+        state["material_plan"]["source_dispositions"]
+    )
+    assert trace["selector"]["precision_confirmation"]["called"] is True
+
+
 def test_registry_over_256_remains_incomplete_and_blocks_ready() -> None:
     contract = {
         "version": 3,

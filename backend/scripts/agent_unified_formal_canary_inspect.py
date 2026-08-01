@@ -7,6 +7,7 @@ import asyncio
 import hashlib
 import json
 import sys
+import uuid
 from pathlib import Path
 from typing import Any, Mapping
 
@@ -18,7 +19,10 @@ if str(BACKEND_ROOT) not in sys.path:
 
 from app.db.models import AgentEvent, AgentRun
 from app.db.session import async_session_factory
-from app.services.ai.semantic_summary import SELECTOR_SUMMARY_VERSION
+from app.services.ai.semantic_summary import (
+    SELECTOR_SEMANTIC_FLAGS_VERSION,
+    SELECTOR_SUMMARY_VERSION,
+)
 
 
 DEFAULT_MANIFEST = (
@@ -58,17 +62,31 @@ def _materialized_candidate_refs(
     return refs
 
 
-async def inspect(sequence: int, manifest_path: Path) -> dict[str, Any]:
+async def inspect(
+    sequence: int,
+    manifest_path: Path,
+    *,
+    run_id: uuid.UUID | None = None,
+) -> dict[str, Any]:
     manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+    if sequence < 1 or sequence > len(manifest.get("scenarios") or ()):
+        raise ValueError(
+            f"sequence must be between 1 and {len(manifest.get('scenarios') or ())}"
+        )
     scenario = manifest["scenarios"][sequence - 1]
     async with async_session_factory() as session:
         runs = (
             await session.execute(select(AgentRun).order_by(AgentRun.created_at.desc()).limit(200))
         ).scalars().all()
-        run = next(
-            item
-            for item in runs
-            if _digest((item.snapshot or {}).get("user_text")) == scenario["query_digest"]
+        run = (
+            next(item for item in runs if item.id == run_id)
+            if run_id is not None
+            else next(
+                item
+                for item in runs
+                if _digest((item.snapshot or {}).get("user_text"))
+                == scenario["query_digest"]
+            )
         )
         events = (
             await session.execute(
@@ -96,6 +114,80 @@ async def inspect(sequence: int, manifest_path: Path) -> dict[str, Any]:
     candidates = (run.snapshot or {}).get("candidate_envelopes") or []
     materialized = _materialized_candidate_refs(final_items, candidates)
     provider = selector.get("provider_observability") or []
+    primary_provider = [
+        item
+        for item in provider
+        if item.get("phase")
+        in {"research.selector.context", "research.selector.context_schema_retry"}
+    ]
+    precision_provider = [
+        item
+        for item in provider
+        if item.get("phase") == "research.selector.context_precision_confirmation"
+    ]
+    reassessment_provider = [
+        item
+        for item in provider
+        if item.get("phase")
+        in {
+            "research.selector.context_evidence_reassessment",
+            "research.selector.context_evidence_reassessment_schema_retry",
+        }
+    ]
+    reassessment_required = any(
+        (event.payload.get("evidence_escalation") or {}).get("reassessment") is True
+        for event in events
+        if event.event_type == "planner_step"
+    )
+    precision = selector.get("precision_confirmation") or {}
+    selected_baseline = selector.get("selected_evidence_baseline") or {}
+    baseline_refs = selected_baseline.get("selected_refs") or []
+    baseline_evidence = selected_baseline.get("evidence") or []
+    baseline_provenance_verified = (
+        isinstance(baseline_refs, list)
+        and len(set(baseline_refs)) == len(baseline_refs)
+        and len(baseline_evidence) == len(baseline_refs)
+        and all(
+            isinstance(item, Mapping)
+            and len(str(item.get("digest") or "")) == 16
+            and int(item.get("chars") or 0) > 0
+            for item in baseline_evidence
+        )
+    )
+    material_plan = trace.get("material_plan") or {}
+    source_requirements = {
+        str(item.get("source_id") or "")
+        for item in (trace.get("turn_contract") or {}).get("source_requirements") or []
+        if isinstance(item, Mapping) and item.get("source_id")
+    }
+    source_dispositions = {
+        str(item.get("source_id") or ""): str(item.get("status") or "")
+        for item in material_plan.get("source_dispositions") or []
+        if isinstance(item, Mapping) and item.get("source_id")
+    }
+    discharges = [
+        dict(item)
+        for item in material_plan.get("runtime_trace") or []
+        if isinstance(item, Mapping)
+        and item.get("kind") == "baseline_discharged_source_obligation"
+    ]
+    discharged_source_ids = {
+        str(source_id)
+        for item in discharges
+        for source_id in item.get("source_ids") or []
+        if str(source_id)
+    }
+    discharge_provenance_verified = all(
+        source_id in source_requirements
+        and source_dispositions.get(source_id) == "no_relevant_candidate"
+        for source_id in discharged_source_ids
+    )
+    research_models = {
+        str(item.get("model") or "")
+        for item in provider
+        if str(item.get("phase") or "").startswith("research.selector.")
+        and item.get("model")
+    }
     validation_errors = [
         str(code)
         for event in events
@@ -119,9 +211,31 @@ async def inspect(sequence: int, manifest_path: Path) -> dict[str, Any]:
         "critical_materialized": critical <= materialized,
         "first_attempt_valid": (
             selector.get("attempts") == 1
-            and len(provider) == 1
+            and len(primary_provider) == 1
             and all(
                 item.get("schema_result") == "valid" and not item.get("retry")
+                for item in primary_provider
+            )
+            and (
+                (not reassessment_required and not reassessment_provider)
+                or (
+                    reassessment_required
+                    and len(reassessment_provider) == 1
+                    and reassessment_provider[0].get("schema_result") == "valid"
+                    and not reassessment_provider[0].get("retry")
+                )
+            )
+            and (
+                not precision.get("called")
+                or (
+                    precision.get("schema_result") == "valid"
+                    and len(precision_provider) == 1
+                    and precision_provider[0].get("schema_result") == "valid"
+                )
+            )
+            and not any(
+                item.get("phase")
+                == "research.selector.context_opened_recall_confirmation"
                 for item in provider
             )
         ),
@@ -130,13 +244,22 @@ async def inspect(sequence: int, manifest_path: Path) -> dict[str, Any]:
         "cards_llm_current_fresh": all(
             item.get("card_origin") == "llm"
             and item.get("selector_summary_version") == SELECTOR_SUMMARY_VERSION
-            and (item.get("selector_semantic_flags") or {}).get("v") == 1
+            and (item.get("selector_semantic_flags") or {}).get("v")
+            == SELECTOR_SEMANTIC_FLAGS_VERSION
             and item.get("selector_summary_fresh") is True
             for item in candidates
         ),
         "provenance_verified": owner_verified and status_verified,
+        "baseline_provenance_verified": baseline_provenance_verified,
+        "source_obligation_discharge_provenance_verified": discharge_provenance_verified,
+        "no_extra_opened_evidence_arbiter": not any(
+            item.get("phase")
+            == "research.selector.context_opened_recall_confirmation"
+            for item in provider
+        ),
+        "single_reasoner_model": len(research_models) == 1,
     }
-    observability = provider[0] if provider else {}
+    observability = primary_provider[0] if primary_provider else {}
     return {
         "sequence": sequence,
         "scenario_id": scenario["scenario_id"],
@@ -149,7 +272,26 @@ async def inspect(sequence: int, manifest_path: Path) -> dict[str, Any]:
         "missed_critical_refs": sorted(critical - selected),
         "selected_irrelevant_refs": sorted(selected & frozen_irrelevant),
         "selector_attempts": selector.get("attempts"),
+        "precision_confirmation": {
+            "called": bool(precision.get("called")),
+            "schema_result": precision.get("schema_result"),
+            "confirmed_refs": list(precision.get("confirmed_refs") or ()),
+            "demoted_refs": list(precision.get("demoted_refs") or ()),
+        },
         "schema_result": observability.get("schema_result"),
+        "evidence_reassessment": {
+            "required": reassessment_required,
+            "provider_calls": len(reassessment_provider),
+            "schema_results": [
+                item.get("schema_result") for item in reassessment_provider
+            ],
+        },
+        "selected_evidence_baseline": {
+            "schema": selected_baseline.get("schema"),
+            "selected_refs": list(baseline_refs),
+            "provider_calls": int(selected_baseline.get("provider_calls") or 0),
+        },
+        "source_obligation_discharges": sorted(discharged_source_ids),
         "provider_total_tokens": observability.get("total_tokens"),
         "provider_duration_ms": observability.get("duration_ms"),
         "validation_error_codes": validation_errors,
@@ -160,10 +302,11 @@ async def inspect(sequence: int, manifest_path: Path) -> dict[str, Any]:
 
 def main() -> None:
     parser = argparse.ArgumentParser()
-    parser.add_argument("--sequence", type=int, required=True, choices=range(1, 21))
+    parser.add_argument("--sequence", type=int, required=True)
     parser.add_argument("--manifest", type=Path, default=DEFAULT_MANIFEST)
+    parser.add_argument("--run-id", type=uuid.UUID)
     args = parser.parse_args()
-    result = asyncio.run(inspect(args.sequence, args.manifest))
+    result = asyncio.run(inspect(args.sequence, args.manifest, run_id=args.run_id))
     print(json.dumps(result, ensure_ascii=False, sort_keys=True))
     raise SystemExit(0 if result["pass"] else 1)
 

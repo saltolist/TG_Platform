@@ -79,6 +79,7 @@ def merge_plan(
     incoming: list[dict[str, Any]] | None,
     *,
     evidence_ids: frozenset[str],
+    evidence_handle_map: Mapping[str, str] | None = None,
 ) -> tuple[list[dict[str, Any]], list[str]]:
     """Merge the planner's new plan onto the persisted one, enforcing invariants.
 
@@ -115,7 +116,12 @@ def merge_plan(
         if prior and prior.get("status") in TERMINAL_STATUS:
             _emit(key, dict(prior))
             continue
-        resolved = _resolve_transition(item, evidence_ids=evidence_ids, hints=hints)
+        resolved = _resolve_transition(
+            item,
+            evidence_ids=evidence_ids,
+            evidence_handle_map=evidence_handle_map or {},
+            hints=hints,
+        )
         _emit(key, resolved)
 
     # No-silent-drop: any previously-open item the model omitted comes back open.
@@ -138,6 +144,7 @@ def _resolve_transition(
     item: dict[str, Any],
     *,
     evidence_ids: frozenset[str],
+    evidence_handle_map: Mapping[str, str],
     hints: list[str],
 ) -> dict[str, Any]:
     """Validate one incoming item's status; downgrade to `open` if unjustified."""
@@ -147,30 +154,9 @@ def _resolve_transition(
         # Exact match (normal case).
         if evidence_id in evidence_ids:
             return item
-        # Fuzzy match: the planner sometimes truncates the last few chars of a
-        # UUID segment in the evidence path (chat 9f3d5fdf/8caf07f4: "…3db81d"
-        # instead of "…3db81d9b4a7f"). Accept if a real record has at least 20
-        # chars of common prefix with the submitted id — enough to confirm they
-        # refer to the same object, not just a coincidental overlap.
-        best_match: str | None = None
-        if evidence_id:
-            for real_id in evidence_ids:
-                shorter = evidence_id if len(evidence_id) <= len(real_id) else real_id
-                longer = real_id if shorter is evidence_id else evidence_id
-                common = sum(
-                    1
-                    for a, b in zip(shorter, longer)
-                    if a == b
-                )
-                # zip stops at the shorter string — common == len(shorter) means
-                # the shorter is a strict prefix of the longer.
-                if common == len(shorter) and common >= 20:
-                    best_match = real_id
-                    break
-        if best_match is not None:
-            # Repair the item's evidence_id to the canonical path so downstream
-            # verify also accepts it without a separate fuzzy pass.
-            return {**item, "evidence_id": best_match}
+        canonical = evidence_handle_map.get(evidence_id)
+        if canonical in evidence_ids:
+            return {**item, "evidence_id": canonical}
         hints.append(
             f"plan_done_needs_evidence: «{item.get('text')}» помечен done без "
             f"валидного evidence_id из собранного context — оставлен open"

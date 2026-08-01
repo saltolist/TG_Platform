@@ -139,6 +139,22 @@ def _chunk_text(text: str, max_chars: int) -> list[str]:
     current_len = 0
 
     for para in paragraphs:
+        if len(para) > max_chars:
+            if current:
+                chunks.append("\n\n".join(current))
+                current = []
+                current_len = 0
+            remaining = para
+            while len(remaining) > max_chars:
+                boundary = remaining.rfind(" ", 0, max_chars + 1)
+                if boundary < max_chars // 2:
+                    boundary = max_chars
+                chunks.append(remaining[:boundary].rstrip())
+                remaining = remaining[boundary:].lstrip()
+            if remaining:
+                current = [remaining]
+                current_len = len(remaining) + 2
+            continue
         if current_len + len(para) + 2 > max_chars and current:
             chunks.append("\n\n".join(current))
             current = []
@@ -148,7 +164,7 @@ def _chunk_text(text: str, max_chars: int) -> list[str]:
 
     if current:
         chunks.append("\n\n".join(current))
-    return chunks or [text[:max_chars]]
+    return [chunk for chunk in chunks if chunk] or [text[:max_chars]]
 
 
 _KEYWORD_RE = re.compile(r"[\w\-]{3,}", re.UNICODE)

@@ -69,6 +69,34 @@ def test_merge_done_requires_valid_evidence_id() -> None:
     assert hints2 == []
 
 
+def test_merge_accepts_runtime_handle_and_rejects_truncated_canonical_id() -> None:
+    canonical = "/note/global/12345678-1234-1234-1234-123456789abc/"
+    prev = _plan({"id": "1", "text": "прочитать заметку", "status": "open"})
+    by_handle = _plan(
+        {"id": "1", "text": "прочитать заметку", "status": "done", "evidence_id": "evidence:1"}
+    )
+    merged, hints = merge_plan(
+        prev,
+        by_handle,
+        evidence_ids=frozenset({canonical}),
+        evidence_handle_map={"evidence:1": canonical},
+    )
+    assert merged[0]["evidence_id"] == canonical
+    assert hints == []
+
+    truncated = _plan(
+        {"id": "1", "text": "прочитать заметку", "status": "done", "evidence_id": canonical[:-8]}
+    )
+    rejected, hints = merge_plan(
+        prev,
+        truncated,
+        evidence_ids=frozenset({canonical}),
+        evidence_handle_map={"evidence:1": canonical},
+    )
+    assert rejected[0]["status"] == "open"
+    assert any("plan_done_needs_evidence" in hint for hint in hints)
+
+
 def test_merge_drop_requires_reason() -> None:
     prev = _plan({"id": "1", "text": "проверить global notes", "status": "open"})
     incoming = _plan({"id": "1", "text": "проверить global notes", "status": "dropped"})

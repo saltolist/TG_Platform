@@ -186,6 +186,23 @@ def capture_unified_rollout_trace(
         item for item in planner_steps if str(item.get("schema") or "") == SELECTOR_SCHEMA_V2
     ]
     selector = selector_steps[-1] if selector_steps else {}
+    precision_selector = next(
+        (
+            item
+            for item in reversed(selector_steps)
+            if (item.get("precision_confirmation") or {}).get("called")
+        ),
+        selector,
+    )
+    baseline_selector = next(
+        (
+            item
+            for item in reversed(selector_steps)
+            if (item.get("selected_evidence_baseline") or {}).get("schema")
+            == "workspace.selected-evidence-baseline/v1"
+        ),
+        selector,
+    )
     search_rows = [
         dict(item)
         for item in state.get("search_ledger") or ()
@@ -242,6 +259,7 @@ def capture_unified_rollout_trace(
                     "inclusion_priority",
                     "semantic_score",
                     "semantic_rank_score",
+                    "matched_evidence_rank",
                     "search_enriched",
                     "parent",
                     "source_requirement_ids",
@@ -281,14 +299,22 @@ def capture_unified_rollout_trace(
         "selector": {
             "schema": selector.get("schema"),
             "visible_refs": list(selector.get("visible_refs") or ()),
-            "assessments": list(selector.get("assessments") or material_plan.get("assessments") or ()),
+            "assessments": list(
+                material_plan.get("assessments") or selector.get("assessments") or ()
+            ),
             "source_dispositions": list(
-                selector.get("source_dispositions")
-                or material_plan.get("source_dispositions")
+                material_plan.get("source_dispositions")
+                or selector.get("source_dispositions")
                 or ()
             ),
             "attempts": selector.get("attempts"),
             "transport_schema": selector.get("transport_schema"),
+            "precision_confirmation": dict(
+                precision_selector.get("precision_confirmation") or {}
+            ),
+            "selected_evidence_baseline": dict(
+                baseline_selector.get("selected_evidence_baseline") or {}
+            ),
             "provider_observability": [
                 {
                     key: call.get(key)

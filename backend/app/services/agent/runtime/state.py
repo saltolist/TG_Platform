@@ -118,6 +118,7 @@ class AgentGraphState(TypedDict, total=False):
     planner_last_gap_count: int
     planner_noop_count: int
     planner_calls_used: int
+    selector_verification_calls_used: int
     search_calls_used: int
     deep_reads_used: int
     tool_calls_used: int

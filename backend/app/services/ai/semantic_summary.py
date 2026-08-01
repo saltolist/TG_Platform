@@ -24,6 +24,7 @@ from app.services.ai.rag import build_discovery_summary
 SUMMARY_SCHEMA_VERSION = 2
 DISCOVERY_SUMMARY_VERSION = SUMMARY_SCHEMA_VERSION
 SELECTOR_SUMMARY_VERSION = 12
+SELECTOR_SEMANTIC_FLAGS_VERSION = 2
 DISCOVERY_SUMMARY_MAX_CHARS = 480
 SELECTOR_SUMMARY_MAX_CHARS = 240
 SELECTOR_SUMMARY_TARGET_MAX_CHARS = 225
@@ -65,6 +66,7 @@ _EXPLICIT_ABSENCE_RE = re.compile(
     r"cause|reason|answer)\b.{0,48}\b(?:absent|missing|unknown|unspecified|unrecorded)\b"
     r"|\bне\s+(?:указывает|задает|содержит|формулирует|перечисляет|объясняет|"
     r"называет|говорит|приводит|фиксирует|устанавливает|подтверждает|определяет|регулирует)\b"
+    r"|\bне\s+(?:задан|указан|установлен|определен|зафиксирован|приведен)\w*\b"
     r"|\b(?:решени\w*|ответ\w*|лимит\w*|владел\w*|дат\w*|причин\w*|значени\w*)\b"
     r".{0,48}\b(?:нет|отсутству\w*|неизвест\w*)\b"
     r"|\bбез\s+(?:указания|описания|объяснения|значения|даты|времени|лимита|решения|выбора)\b"
@@ -233,7 +235,7 @@ def selector_semantic_flags(source: str) -> dict[str, Any]:
     explicit_absence = selector_card_has_explicit_absence(source)
     observational_value = bool(_OBSERVATIONAL_VALUE_RE.search(str(source or "")))
     return {
-        "v": 1,
+        "v": SELECTOR_SEMANTIC_FLAGS_VERSION,
         "explicit_absence": explicit_absence,
         "observational_value": observational_value,
         "record_roles": (
@@ -459,19 +461,6 @@ async def build_semantic_summary_projections(
         if (
             not parsed.failure
             and len(source) <= COMPACT_SOURCE_PRESERVATION_MAX_CHARS
-            and not selector_card_has_explicit_absence(source)
-            and not _selector_card_preserves_explicit_negation(
-                source, parsed.selector_summary
-            )
-        ):
-            parsed = _ProjectionParseResult(
-                failure="selector_negation_lost",
-                discovery_chars=parsed.discovery_chars,
-                selector_chars=parsed.selector_chars,
-            )
-        if (
-            not parsed.failure
-            and len(source) <= COMPACT_SOURCE_PRESERVATION_MAX_CHARS
             and not _selector_card_preserves_record_markers(source, parsed.selector_summary)
         ):
             parsed = _ProjectionParseResult(
@@ -529,6 +518,7 @@ async def build_semantic_discovery_card(
 __all__ = [
     "DISCOVERY_SUMMARY_VERSION",
     "SELECTOR_SUMMARY_VERSION",
+    "SELECTOR_SEMANTIC_FLAGS_VERSION",
     "SELECTOR_SUMMARY_TARGET_MAX_CHARS",
     "SemanticSummaryProjections",
     "build_semantic_discovery_card",

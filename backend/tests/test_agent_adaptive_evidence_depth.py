@@ -18,6 +18,7 @@ from app.services.agent.research.evidence_pack import (
 )
 from app.services.agent.research.graph import (
     _apply_complete_source_policy,
+    _catalog_members_in_source_scope,
     _card_records_from_plan,
     _evidence_pack_annotations,
     _hydrate_selected_catalog_members,
@@ -31,9 +32,11 @@ from app.services.agent.research.graph import (
 from app.services.agent.research.material_plan import (
     empty_material_plan,
     merge_material_plan,
+    next_evidence_escalation_batch,
     next_full_read_batch,
     normalize_candidates,
     record_full_read_results,
+    schedule_evidence_escalation,
 )
 from app.services.agent.research.prefetch import load_discovery_cards_for_objects
 from app.services.agent.research.planner_decision import PlannerDecision
@@ -324,6 +327,19 @@ def test_complete_source_policy_keeps_every_catalog_candidate() -> None:
     assert all(item["resolution"] == "card" for item in enforced)
 
 
+def test_complete_history_catalog_excludes_members_outside_typed_status_scope() -> None:
+    members = _catalog_members_in_source_scope(
+        [
+            {"id": "published-1", "status": "published"},
+            {"id": "draft-1", "status": "draft"},
+            {"id": "published-2", "status": "PUBLISHED"},
+        ],
+        source={"scope": {"mode": "corpus", "statuses": ["published"]}},
+    )
+
+    assert [item["id"] for item in members] == ["published-1", "published-2"]
+
+
 def test_complete_source_is_materialized_without_planner_assessment() -> None:
     candidates = normalize_candidates(
         [_candidate(f"post:p{index}", source="workspace-posts") for index in range(5)]
@@ -385,6 +401,21 @@ def test_optional_assessment_routes_to_planner_before_ready_pack() -> None:
             "pending_full_text_ids": [],
         },
         "sufficiency": {"status": "ready"},
+    }
+
+    assert route_research_verify(state) == "planner"
+
+
+def test_opened_escalation_routes_to_reassessment_before_pack() -> None:
+    state = {
+        "phase5_enabled": True,
+        "adaptive_evidence_depth_enabled": True,
+        "material_plan": {
+            "needs_evidence_reassessment": True,
+            "evidence_escalation_reassess_refs": ["note:n1"],
+            "pending_full_text_ids": [],
+        },
+        "sufficiency": {"status": "exhausted"},
     }
 
     assert route_research_verify(state) == "planner"
@@ -793,6 +824,252 @@ def test_five_full_reads_dispatch_as_three_plus_two_without_planner() -> None:
     plan = record_full_read_results(plan, opened=second, batch=second)
     assert plan["pending_full_text_ids"] == []
     assert plan["full_read_batches"] == [first, second]
+
+
+def test_search_more_escalates_one_bounded_batch_across_required_sources() -> None:
+    candidates = normalize_candidates(
+        [
+            _candidate("note:a1", source="source-a"),
+            {**_candidate("note:a2", source="source-a"), "similarity": 0.7},
+            _candidate("note:b1", source="source-b"),
+            _candidate("note:optional", source="source-optional"),
+        ]
+    )
+    plan = merge_material_plan(
+        None,
+        candidates=candidates,
+        assessments=[
+            _assessment(item["ref"], relevance="irrelevant", resolution="none")
+            for item in candidates
+        ],
+    )
+    plan["source_dispositions"] = [
+        {"source_id": source_id, "status": "search_more"}
+        for source_id in ("source-a", "source-b", "source-optional")
+    ]
+    plan["discovery_actions"] = [
+        {"kind": "bounded_discovery", "source_id": source_id}
+        for source_id in ("source-a", "source-b", "source-optional")
+    ]
+    contract = {
+        "source_requirements": [
+            {"source_id": "source-a", "evidence_obligation": "required"},
+            {"source_id": "source-b", "evidence_obligation": "required"},
+            {"source_id": "source-optional", "evidence_obligation": "optional"},
+        ]
+    }
+
+    escalated, refs = schedule_evidence_escalation(
+        plan,
+        contract=contract,
+        deep_reads_remaining=3,
+        planner_calls_remaining=1,
+    )
+
+    assert refs == ["note:a1", "note:b1", "note:a2"]
+    assert next_evidence_escalation_batch(escalated) == refs
+    assert escalated["discovery_actions"] == []
+    assert escalated["evidence_escalation_attempted_sources"] == ["source-a", "source-b"]
+
+
+def test_ambiguous_disposition_opens_one_bounded_global_batch() -> None:
+    candidates = normalize_candidates(
+        [
+            {**_candidate("note:n1"), "matched_evidence_rank": 1},
+            {**_candidate("note:n2"), "matched_evidence_rank": 2},
+            {**_candidate("note:n3"), "matched_evidence_rank": 3},
+            {**_candidate("note:n4"), "matched_evidence_rank": 4},
+            {
+                **_candidate("post:p1", source="workspace-posts"),
+                "matched_evidence_rank": 5,
+            },
+        ]
+    )
+    plan = merge_material_plan(
+        None,
+        candidates=candidates,
+        assessments=[
+            _assessment(item["ref"], relevance="irrelevant", resolution="none")
+            for item in candidates
+        ],
+    )
+    plan["source_dispositions"] = [
+        {"source_id": "workspace-notes", "status": "ambiguous"},
+        {"source_id": "workspace-posts", "status": "ambiguous"},
+    ]
+    contract = {
+        "source_requirements": [
+            {"source_id": "workspace-notes", "evidence_obligation": "required"},
+            {"source_id": "workspace-posts", "evidence_obligation": "required"},
+        ]
+    }
+
+    escalated, refs = schedule_evidence_escalation(
+        plan,
+        contract=contract,
+        deep_reads_remaining=3,
+        planner_calls_remaining=1,
+    )
+
+    assert refs == ["note:n1", "note:n2", "note:n3"]
+    assert next_evidence_escalation_batch(escalated) == refs
+    assert escalated["evidence_escalation_attempted_sources"] == ["workspace-notes"]
+
+
+def test_required_source_negative_opens_ranked_batch_before_accepting_absence() -> None:
+    candidates = normalize_candidates(
+        [
+            {**_candidate("note:n2"), "similarity": 0.7},
+            _candidate("note:n1"),
+        ]
+    )
+    plan = merge_material_plan(
+        None,
+        candidates=candidates,
+        assessments=[
+            _assessment(item["ref"], relevance="irrelevant", resolution="none")
+            for item in candidates
+        ],
+    )
+    plan["source_dispositions"] = [
+        {"source_id": "workspace-notes", "status": "no_relevant_candidate"}
+    ]
+    contract = {
+        "source_requirements": [
+            {"source_id": "workspace-notes", "evidence_obligation": "required"}
+        ]
+    }
+
+    escalated, refs = schedule_evidence_escalation(
+        plan,
+        contract=contract,
+        deep_reads_remaining=3,
+        planner_calls_remaining=1,
+    )
+
+    assert refs == ["note:n1", "note:n2"]
+    assert escalated["needs_evidence_reassessment"] is True
+    assert escalated["evidence_escalation_attempted_sources"] == ["workspace-notes"]
+
+
+def test_negative_source_escalation_waits_for_selected_full_text() -> None:
+    candidates = normalize_candidates(
+        [
+            _candidate("note:selected"),
+            _candidate("post:probe", source="workspace-posts"),
+        ]
+    )
+    plan = merge_material_plan(
+        None,
+        candidates=candidates,
+        assessments=[
+            _assessment("note:selected", resolution="full_text"),
+            _assessment("post:probe", relevance="irrelevant", resolution="none"),
+        ],
+    )
+    plan["source_dispositions"] = [
+        {"source_id": "workspace-notes", "status": "selected"},
+        {"source_id": "workspace-posts", "status": "no_relevant_candidate"},
+    ]
+    contract = {
+        "source_requirements": [
+            {"source_id": "workspace-notes", "evidence_obligation": "required"},
+            {"source_id": "workspace-posts", "evidence_obligation": "required"},
+        ]
+    }
+
+    unchanged, refs = schedule_evidence_escalation(
+        plan,
+        contract=contract,
+        deep_reads_remaining=3,
+        planner_calls_remaining=1,
+    )
+
+    assert refs == []
+    assert unchanged["pending_full_text_ids"] == ["note:selected"]
+    assert unchanged["evidence_escalation_pending_refs"] == []
+
+
+def test_complete_coverage_escalates_the_global_best_candidate_without_source_quota() -> None:
+    candidates = normalize_candidates(
+        [
+            {**_candidate("note:n1"), "matched_evidence_rank": 1},
+            {**_candidate("note:n2"), "matched_evidence_rank": 2},
+            {**_candidate("note:n3"), "matched_evidence_rank": 3},
+            {
+                **_candidate("post:p1", source="workspace-posts"),
+                "matched_evidence_rank": 5,
+            },
+        ]
+    )
+    plan = merge_material_plan(
+        None,
+        candidates=candidates,
+        assessments=[
+            _assessment(item["ref"], relevance="irrelevant", resolution="none")
+            for item in candidates
+        ],
+    )
+    plan["source_dispositions"] = [
+        {"source_id": source_id, "status": "no_relevant_candidate"}
+        for source_id in ("workspace-notes", "workspace-posts")
+    ]
+    contract = {
+        "source_requirements": [
+            {
+                "source_id": source_id,
+                "coverage": "complete",
+                "evidence_obligation": "required",
+                "selection_cardinality": {"min": 1, "max": 6},
+            }
+            for source_id in ("workspace-notes", "workspace-posts")
+        ]
+    }
+
+    escalated, refs = schedule_evidence_escalation(
+        plan,
+        contract=contract,
+        deep_reads_remaining=3,
+        planner_calls_remaining=1,
+    )
+
+    assert refs == ["note:n1", "note:n2", "note:n3"]
+    assert escalated["evidence_escalation_attempted_sources"] == ["workspace-notes"]
+
+
+def test_opened_escalation_is_reassessed_once_then_cannot_loop() -> None:
+    candidate = normalize_candidates([_candidate("note:n1")])[0]
+    plan = merge_material_plan(
+        None,
+        candidates=[candidate],
+        assessments=[_assessment("note:n1", relevance="irrelevant", resolution="none")],
+    )
+    plan["source_dispositions"] = [
+        {"source_id": "workspace-notes", "status": "search_more"}
+    ]
+    contract = {
+        "source_requirements": [
+            {"source_id": "workspace-notes", "evidence_obligation": "required"}
+        ]
+    }
+    scheduled, refs = schedule_evidence_escalation(
+        plan,
+        contract=contract,
+        deep_reads_remaining=3,
+        planner_calls_remaining=1,
+    )
+    opened = record_full_read_results(scheduled, opened=refs, batch=refs)
+
+    assert opened["evidence_escalation_reassess_refs"] == ["note:n1"]
+    assert opened["needs_evidence_reassessment"] is True
+    repeated, repeated_refs = schedule_evidence_escalation(
+        opened,
+        contract=contract,
+        deep_reads_remaining=2,
+        planner_calls_remaining=1,
+    )
+    assert repeated_refs == []
+    assert repeated["evidence_escalation_attempted_sources"] == ["workspace-notes"]
 
 
 def test_ineligible_card_is_promoted_and_stale_card_is_rejected_by_pack() -> None:

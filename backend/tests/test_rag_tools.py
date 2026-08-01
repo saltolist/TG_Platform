@@ -21,6 +21,7 @@ from app.services.ai.rag_tools import (
     tool_list_posts,
     tool_open_note,
     tool_open_post,
+    tool_read_channel,
     tool_search_nodes,
 )
 
@@ -968,6 +969,42 @@ def test_list_post_comments_precondition_failure_does_not_poison_ref() -> None:
     second = tool_list_post_comments(state, post_id="post-1")
     assert second.error is None
     assert "уже открыт ранее" not in second.summary
+
+
+def test_empty_post_comments_are_citable_evidence() -> None:
+    state = _state()
+    outcome = tool_list_post_comments(state, post_id="post-1")
+
+    assert outcome.error is None
+    record = records_from_agent_state(state)["/post/post-1/comments/"]
+    assert record.kind == "comment"
+    assert "отсутствуют" in record.content
+
+
+def test_read_channel_excludes_credentials_and_records_profile() -> None:
+    state = _state(
+        channel_profile={
+            "core": {"topic": "Architecture"},
+            "voice": {"tone": "direct"},
+            "apiKey": "channel-secret",
+        },
+        telegram_profile={
+            "channelTitle": "Workspace",
+            "subscriberCount": 42,
+            "apiHash": "telegram-secret",
+            "sessionString": "session-secret",
+            "botApiToken": "bot-secret",
+        },
+    )
+
+    outcome = tool_read_channel(state)
+    record = records_from_agent_state(state)["/channel/profile/"]
+
+    assert outcome.error is None
+    assert record.kind == "channel_profile"
+    assert "Architecture" in record.content
+    assert "Workspace" in record.content
+    assert "secret" not in record.content
 
 
 @pytest.mark.asyncio

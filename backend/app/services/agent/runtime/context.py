@@ -11,6 +11,7 @@ from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
 from app.core.config import Settings
 from app.db.models import User
+from app.services.agent.runtime.artifacts import ArtifactHandle
 from app.services.ai.embeddings import EmbeddingBackend
 from app.services.ai.providers import ProviderSpec
 from app.services.ai.rag_tools import AgentState
@@ -61,6 +62,7 @@ class RuntimeContext:
     # with the rest of RuntimeContext and is passed through configurable.
     dialog_ledger: tuple[Any, ...] = ()
     ledger_key: str | None = None
+    pending_artifact: ArtifactHandle | None = None
     # HTML body of the most recently proposed edit_post action in this thread
     # (approved, rejected, or pending), if any. dialog_context above only
     # carries display text and drops the `proposal` payload, so a follow-up
@@ -123,6 +125,8 @@ class RuntimeContext:
             min_similarity=self.min_similarity,
             search_k=self.search_k,
             ai_profile=self.ai_profile,
+            channel_profile=self.channel_profile or {},
+            telegram_profile=self.telegram_profile or {},
             user=self.user,
             settings=self.settings,
             scope_bias=self.scope_bias,
@@ -168,6 +172,8 @@ class RuntimeContext:
             target_evidence_gap=base.target_evidence_gap,
             scope_bias=base.scope_bias,
             ai_profile=base.ai_profile,
+            channel_profile=base.channel_profile,
+            telegram_profile=base.telegram_profile,
             user=base.user,
             settings=base.settings,
         )

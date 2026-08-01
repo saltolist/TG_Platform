@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import json
 import logging
 import uuid
 from dataclasses import dataclass, field, replace
@@ -116,6 +117,8 @@ class AgentState:
     target_evidence_gap: str | None = None
     scope_bias: float = 0.04
     ai_profile: Mapping[str, Any] = field(default_factory=dict)
+    channel_profile: Mapping[str, Any] = field(default_factory=dict)
+    telegram_profile: Mapping[str, Any] = field(default_factory=dict)
     user: User | None = None
     settings: Settings | None = None
 
@@ -549,8 +552,12 @@ async def tool_list_posts(
     state: AgentState,
     *,
     status: str | None = None,
+    statuses: tuple[str, ...] | list[str] | None = None,
     query: str | None = None,
     limit: int | None = None,
+    order_by: str | None = None,
+    order_direction: str | None = None,
+    bounded_window: bool = False,
     source_requirement_id: str = "workspace-posts",
 ) -> ToolOutcome:
     from sqlalchemy import select
@@ -558,21 +565,58 @@ async def tool_list_posts(
     from app.db.models import Post
     from app.services.ai.rag import _post_title_from_text
 
+    status_filters = tuple(
+        dict.fromkeys(
+            str(item or "").strip().lower()
+            for item in (statuses or ())
+            if str(item or "").strip()
+        )
+    )
     status_filter = str(status or "all").strip().lower() or "all"
+    if not status_filters and status_filter != "all":
+        status_filters = (status_filter,)
+    status_label = ",".join(status_filters) if status_filters else "all"
     query_filter = str(query or "").strip().lower()
     result_limit = max(1, int(limit)) if limit is not None else None
-    ref = f"list_posts:{status_filter}:{query_filter}:{result_limit or 'all'}"
+    catalog_order = str(order_by or "position").strip().lower()
+    catalog_direction = str(order_direction or "asc").strip().lower()
+    if bounded_window and (
+        query_filter
+        or result_limit is None
+        or catalog_order not in {"position", "created_at"}
+        or catalog_direction not in {"asc", "desc"}
+    ):
+        return ToolOutcome(
+            summary="Некорректная стратегия ограниченного каталога постов.",
+            error="invalid_catalog_window",
+        )
+    ref = (
+        f"list_posts:{status_label}:{query_filter}:{result_limit or 'all'}:"
+        f"{catalog_order}:{catalog_direction}:{int(bounded_window)}"
+    )
     existing = _already_visited(state, ref)
     if existing:
         return existing
     _mark_visited(state, ref)
 
     try:
-        result = await state.session.execute(
-            select(Post)
-            .where(Post.user_id == state.user_id)
-            .order_by(Post.position, Post.created_at)
-        )
+        statement = select(Post).where(Post.user_id == state.user_id)
+        if bounded_window:
+            if status_filters:
+                statement = statement.where(Post.data["status"].astext.in_(status_filters))
+            order_column = Post.position if catalog_order == "position" else Post.created_at
+            primary_order = (
+                order_column.desc() if catalog_direction == "desc" else order_column.asc()
+            )
+            tie_breaker = (
+                Post.created_at.desc()
+                if catalog_direction == "desc"
+                else Post.created_at.asc()
+            )
+            statement = statement.order_by(primary_order, tie_breaker).limit(result_limit)
+        else:
+            statement = statement.order_by(Post.position, Post.created_at)
+        result = await state.session.execute(statement)
         rows = list(result.scalars().all())
         overlay_notes_by_post: dict[str, list[dict[str, Any]]] | None = None
         if state.tenant_key:
@@ -616,7 +660,7 @@ async def tool_list_posts(
         post_status = str(data.get("status") or "draft").strip().lower()
         if not is_catalog_visible(data):
             continue
-        if status_filter != "all" and post_status != status_filter:
+        if status_filters and post_status not in status_filters:
             continue
         text_value = str(data.get("text") or "").strip()
         title = _post_title_from_text(text_value) if text_value else f"Пост {post_id}"
@@ -672,7 +716,7 @@ async def tool_list_posts(
             f"notes={notes_count}{att_suffix} preview={preview!r}"
         )
     lines[0] = (
-        f"Посты пользователя (status={status_filter}, total={matched}, shown={shown}). "
+        f"Посты пользователя (status={status_label}, total={matched}, shown={shown}). "
         "tech_id — технический ключ для OpenPost/GetPostAnalytics, НЕ порядковый номер:"
     )
 
@@ -682,9 +726,15 @@ async def tool_list_posts(
     if query_filter:
         listing_path = f"/posts/q:{query_filter}/"
         listing_title = f"Список постов по запросу {query_filter!r}"
-    elif status_filter != "all":
-        listing_path = f"/posts/status:{status_filter}/"
-        listing_title = f"Список постов (статус {status_filter})"
+    elif bounded_window:
+        listing_path = (
+            f"/posts/window:{status_label}:{catalog_order}:{catalog_direction}:"
+            f"{result_limit}/"
+        )
+        listing_title = "Ограниченное окно каталога постов"
+    elif status_filters:
+        listing_path = f"/posts/status:{status_label}/"
+        listing_title = f"Список постов (статус {status_label})"
     else:
         listing_path = "/posts/"
         listing_title = "Список постов"
@@ -693,7 +743,7 @@ async def tool_list_posts(
         empty = (
             f"Постов по запросу {query_filter!r} не найдено."
             if query_filter
-            else f"Постов со статусом {status_filter!r} не найдено."
+            else f"Постов со статусом {status_label!r} не найдено."
         )
         snapshot = (
             build_catalog_snapshot(
@@ -1825,7 +1875,12 @@ def tool_list_post_comments(state: AgentState, *, post_id: str) -> ToolOutcome:
         if isinstance(item, dict) and str(item.get("text") or "").strip()
     ]
     if not comments:
-        return ToolOutcome(summary=f"У поста {post_id} нет комментариев.")
+        cite = NoteCite(path=f"/post/{post_id}/comments/", title=f"Комментарии поста {post_id}")
+        state.context_blocks.append((cite, "Комментарии отсутствуют."))
+        return ToolOutcome(
+            summary=f"У поста {post_id} нет комментариев. [id: {cite.path}]",
+            result_count=0,
+        )
 
     def _sort_key(item: dict[str, Any]) -> str:
         return str(item.get("date") or "")
@@ -1845,8 +1900,67 @@ def tool_list_post_comments(state: AgentState, *, post_id: str) -> ToolOutcome:
     cite = NoteCite(path=f"/post/{post_id}/comments/", title=f"Комментарии поста {post_id}")
     state.context_blocks.append((cite, body))
     return ToolOutcome(
-        summary=f"Прочитано {len(included)} из {len(comments)} комментариев поста {post_id}."
+        summary=(
+            f"Прочитано {len(included)} из {len(comments)} комментариев поста {post_id}. "
+            f"[id: {cite.path}]"
+        ),
+        result_count=len(included),
     )
+
+
+def tool_read_channel(state: AgentState) -> ToolOutcome:
+    """Read the safe channel/profile projection as first-class evidence."""
+
+    ref = "channel:profile"
+    existing = _already_visited(state, ref)
+    if existing:
+        return existing
+    raw_channel = dict(state.channel_profile or {})
+    safe_channel_keys = ("core", "voice", "rules", "rubrics")
+    channel = {
+        key: raw_channel.get(key)
+        for key in safe_channel_keys
+        if raw_channel.get(key) not in (None, "", [], {})
+    }
+    telegram = dict(state.telegram_profile or {})
+    safe_telegram_keys = (
+        "channel",
+        "channelTitle",
+        "channelId",
+        "channelStatus",
+        "syncMode",
+        "lastSync",
+        "importedPosts",
+        "importStatus",
+        "syncRevision",
+        "commentsRevision",
+        "metricsRevision",
+        "commentsEnabled",
+        "subscriberCount",
+        "subscriberCountAt",
+        "lastAnalyticsSnapshotAt",
+    )
+    safe_telegram = {
+        key: telegram.get(key)
+        for key in safe_telegram_keys
+        if telegram.get(key) not in (None, "")
+    }
+    if not channel and not safe_telegram:
+        return ToolOutcome(summary="Профиль канала не настроен.", error="empty_scope")
+    _mark_visited(state, ref)
+    path = "/channel/profile/"
+    body = json.dumps(
+        {"channel": channel, "telegram": safe_telegram},
+        ensure_ascii=False,
+        sort_keys=True,
+    )
+    state.context_blocks.append((NoteCite(path=path, title="Профиль канала"), body))
+    state.evidence_metadata[path] = {
+        "fidelity": "metadata",
+        "owner_verified": True,
+        "status_verified": True,
+    }
+    return ToolOutcome(summary=f"Профиль канала прочитан. [id: {path}]", result_count=1)
 
 
 async def tool_get_post_analytics(

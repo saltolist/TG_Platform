@@ -181,7 +181,9 @@ class Settings(BaseSettings):
     # MiniLM models typically score 0.35–0.55 for relevant hits; e5 models score higher.
     rag_min_similarity: float = 0.38
     # Hard cap on note text fed to the embedder (chars); long notes are chunked
-    rag_max_note_chars: int = 4000
+    # Keep contextual chunks bounded so a ranked hit can be shown to the
+    # Selector without a second lexical interpretation layer.
+    rag_max_note_chars: int = 1200
     # Background LLM cards used only for post/note discovery. Original source
     # content remains mandatory evidence for factual answers.
     rag_semantic_summaries_enabled: bool = True
@@ -251,9 +253,6 @@ class Settings(BaseSettings):
     # changing the material plan; active admission remains separately gated.
     agent_recall_verifier_v1_enabled: bool = False
     agent_recall_verifier_v1_shadow: bool = True
-    # Optional same-provider capability uplift for the semantic Selector only.
-    # Empty preserves the configured planner model.
-    agent_selector_model: str = ""
     agent_unified_default_on: bool = False
     # Durable message-level provenance and bounded semantic referent binding.
     dialog_message_context_manifest_v1: bool = True

@@ -13,6 +13,7 @@ from app.db.models import AgentRun, GlobalNote, Profile, User
 from app.db.resolve import get_owned_chat, get_owned_post
 from app.services.agent.runtime import events as event_service
 from app.services.agent.runtime.context import RuntimeContext
+from app.services.agent.runtime.artifacts import proposal_artifact_from_history
 
 
 async def start_run(
@@ -203,10 +204,8 @@ async def rebuild_runtime_context_for_run(
             post_data = dict(post.data)
         except HTTPException:
             post_data = None
-    from app.services.ai.chat_history import extract_last_proposed_edit
-
     history = await load_run_history(session, run, user)
-    last_proposed_post_html = extract_last_proposed_edit(history) if history else None
+    pending_artifact = proposal_artifact_from_history(history) if history else None
     recent_note_row = await session.scalar(
         select(GlobalNote)
         .where(GlobalNote.user_id == user.id)
@@ -346,6 +345,7 @@ async def rebuild_runtime_context_for_run(
         turn_contract=turn_contract,
         dialog_ledger=dialog_ledger,
         ledger_key=ledger_key,
-        last_proposed_post_html=last_proposed_post_html,
+        pending_artifact=pending_artifact,
+        last_proposed_post_html=(pending_artifact.content if pending_artifact else None),
         user_timezone=run.timezone,
     )

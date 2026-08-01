@@ -1,0 +1,69 @@
+{
+  "schema": "workspace.phase6-formal-canary-result/v1",
+  "manifest_version": "2026-07-31-account-live-v23",
+  "report_id": "unified-phase6-live-canary-v23-2026-07-31",
+  "source_head": "0e87f6c45d9ed356dc9fba8f3372754b4db87634",
+  "status": "failed_stop_condition",
+  "started_at": "2026-07-31T10:59:10.555826Z",
+  "stopped_after_sequence": 3,
+  "chat_count": 3,
+  "user_message_count": 3,
+  "semantic_selector_decision_count": 3,
+  "stop_condition": "critical_recall_below_one",
+  "attribution_boundary": "complete_coverage_cardinality_variant_scheduler",
+  "attribution": {
+    "scenario_id": "live-v8-q03",
+    "required_ref": "note:402ac3a4-9f28-4d35-bcf0-ffdd7aceab30",
+    "required_ref_matched_evidence_rank": 3,
+    "bootstrap_coverage": "complete",
+    "bootstrap_selection_cardinality_min": 1,
+    "scheduled_refs": [
+      "note:9fd458be-d060-4a4b-b055-02d39ff2948e",
+      "post:1c96b290-1405-417f-a171-995dede3da35"
+    ],
+    "required_ref_opened": false,
+    "opened_recall_confirmation_called": true,
+    "opened_recall_confirmation_only_saw_scheduled_refs": true,
+    "required_ref_materialized": false,
+    "provenance_verified": true
+  },
+  "decision": {
+    "candidate_count": 13,
+    "selected_refs": [],
+    "materialized_candidate_refs": [],
+    "missed_critical_refs": ["note:402ac3a4-9f28-4d35-bcf0-ffdd7aceab30"],
+    "selected_irrelevant_refs": [],
+    "unexpected_refs": [],
+    "selector_attempts": 1,
+    "evidence_reassessment": {"required": true, "provider_calls": 1, "schema_results": ["valid"]},
+    "opened_evidence_recall_confirmation": {"called": true, "schema_result": "valid", "confirmed_refs": [], "admitted_refs": []},
+    "precision_confirmation": {"called": false, "schema_result": "not_called", "confirmed_refs": [], "demoted_refs": []},
+    "schema_result": "valid",
+    "provider_total_tokens": 3759,
+    "provider_duration_ms": 1952.9,
+    "validation_error_codes": [],
+    "checks": {
+      "completed": true,
+      "critical_recall": false,
+      "no_unexpected_selection": true,
+      "no_frozen_irrelevant": true,
+      "critical_materialized": false,
+      "first_attempt_valid": true,
+      "no_validation_errors": true,
+      "no_position_errors": true,
+      "cards_llm_current_fresh": true,
+      "provenance_verified": true
+    }
+  },
+  "passed_sequences": [1, 2],
+  "remaining_scenarios_sent": 0,
+  "can_convert_to_pass": false,
+  "privacy": {
+    "aggregate_and_ref_only": true,
+    "contains_credentials": false,
+    "contains_account_identifier": false,
+    "contains_raw_queries": false,
+    "contains_raw_provider_output": false,
+    "contains_source_or_user_content": false
+  }
+}

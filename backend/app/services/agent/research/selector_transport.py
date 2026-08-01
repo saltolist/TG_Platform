@@ -9,7 +9,7 @@ from dataclasses import dataclass
 from enum import StrEnum
 from typing import Any, Mapping, Sequence
 
-from pydantic import ValidationError
+from pydantic import BaseModel, ConfigDict, Field, ValidationError
 
 from app.services.agent.research.planner_decision import (
     CandidateReasonCode,
@@ -32,6 +32,12 @@ LEGACY_SELECTOR_TRANSPORT_VERSION = 1
 SELECTOR_TRANSPORT_SCHEMA = "workspace.context-selector-transport/v2"
 SELECTOR_TRANSPORT_VERSION = 2
 SELECTOR_TRANSPORT_FRAME = "CS2"
+MATCHED_EVIDENCE_SCHEMA = "workspace.matched-evidence/v1"
+MATCHED_EVIDENCE_MAX_CHARS = 1200
+OPENED_EVIDENCE_SCHEMA = "workspace.opened-evidence/v1"
+# A verified full read must cover ordinary long notes end to end. The material
+# planner already bounds full-text work to this same per-turn budget.
+OPENED_EVIDENCE_MAX_CHARS = 12_000
 
 _KIND_CODE = {
     "note": "n",
@@ -148,7 +154,7 @@ _ANSWER_SLOT_QUERY_RE = re.compile(
     re.IGNORECASE,
 )
 _NORMATIVE_BOUND_QUERY_RE = re.compile(
-    r"\b(?:cap|limit|threshold|quota|minimum|required|approved|лимит\w*|порог\w*|"
+    r"\b(?:caps?|limits?|thresholds?|quotas?|minimum|required|approved|лимит\w*|порог\w*|"
     r"квот\w*|миним\w*|требуем\w*|утвержден\w*|limite|umbral|cuota|minimum|"
     r"seuil|quota|grenze|minimum|limite|soglia)\b",
     re.IGNORECASE,
@@ -226,7 +232,7 @@ def selector_card_has_explicit_answer_slot_absence(card: str) -> bool:
 
 def selector_candidate_has_explicit_absence(candidate: Mapping[str, Any]) -> bool:
     flags = candidate.get("selector_semantic_flags")
-    if isinstance(flags, Mapping) and flags.get("v") == 1:
+    if isinstance(flags, Mapping) and int(flags.get("v") or 0) >= 1:
         return flags.get("explicit_absence") is True
     return selector_card_has_explicit_answer_slot_absence(
         str(candidate.get("selector_summary") or "")
@@ -433,6 +439,106 @@ def _neutralize_selector_data(text: str) -> str:
     return _FORGED_FRAME_TOKEN_RE.sub("[neutralized-frame]|", fenced)
 
 
+class MatchedEvidenceExcerpt(BaseModel):
+    """Bounded query-time evidence from an already ranked contextual hit."""
+
+    model_config = ConfigDict(extra="forbid", frozen=True)
+
+    schema_version: str = MATCHED_EVIDENCE_SCHEMA
+    text: str = Field(min_length=1, max_length=MATCHED_EVIDENCE_MAX_CHARS)
+    digest: str = Field(pattern=r"^[a-f0-9]{16}$")
+    node_type: str = Field(min_length=1, max_length=40)
+    source_revision: int = Field(ge=1)
+    rank: int = Field(ge=1)
+    truncated: bool = False
+
+
+class OpenedEvidenceExcerpt(BaseModel):
+    """Bounded transport view of an ownership-checked full object read."""
+
+    model_config = ConfigDict(extra="forbid", frozen=True)
+
+    schema_version: str = OPENED_EVIDENCE_SCHEMA
+    text: str = Field(min_length=1, max_length=OPENED_EVIDENCE_MAX_CHARS)
+    digest: str = Field(pattern=r"^[a-f0-9]{16}$")
+    citation_path: str = Field(min_length=1, max_length=500)
+    source_revision: int = Field(ge=1)
+    owner_verified: bool
+    status_verified: bool
+    truncated: bool = False
+
+
+def build_matched_evidence_excerpt(
+    source_text: str,
+    *,
+    node_type: str,
+    source_revision: int,
+    rank: int,
+    max_chars: int = MATCHED_EVIDENCE_MAX_CHARS,
+) -> MatchedEvidenceExcerpt | None:
+    """Bound a semantic retrieval hit without re-interpreting it lexically."""
+
+    limit = max(80, min(MATCHED_EVIDENCE_MAX_CHARS, int(max_chars)))
+    source = " ".join(str(source_text or "").split())
+    if not source:
+        return None
+    truncated = len(source) > limit
+    text_value = source[:limit].rstrip()
+    if truncated:
+        last_space = text_value.rfind(" ")
+        if last_space >= limit // 2:
+            text_value = text_value[:last_space]
+    return MatchedEvidenceExcerpt(
+        text=text_value,
+        digest=hashlib.sha256(text_value.encode()).hexdigest()[:16],
+        node_type=str(node_type or "contextual_chunk"),
+        source_revision=max(1, int(source_revision or 1)),
+        rank=max(1, int(rank or 1)),
+        truncated=truncated,
+    )
+
+
+def build_opened_evidence_excerpt(
+    source_text: str,
+    *,
+    citation_path: str,
+    source_revision: int,
+    owner_verified: bool,
+    status_verified: bool,
+    max_chars: int = OPENED_EVIDENCE_MAX_CHARS,
+) -> OpenedEvidenceExcerpt | None:
+    """Bound a verified full read while preserving its document structure."""
+
+    limit = max(200, min(OPENED_EVIDENCE_MAX_CHARS, int(max_chars)))
+    normalized_lines = [
+        re.sub(r"[\t\f\v ]+", " ", line).strip()
+        for line in str(source_text or "").replace("\r\n", "\n").replace("\r", "\n").split("\n")
+    ]
+    lines: list[str] = []
+    for line in normalized_lines:
+        if line or (lines and lines[-1]):
+            lines.append(line)
+    source = "\n".join(lines).strip()
+    path = str(citation_path or "").strip()
+    if not source or not path or not owner_verified or not status_verified:
+        return None
+    truncated = len(source) > limit
+    text_value = source[:limit].rstrip()
+    if truncated:
+        boundary = max(text_value.rfind("\n"), text_value.rfind(" "))
+        if boundary >= limit // 2:
+            text_value = text_value[:boundary].rstrip()
+    return OpenedEvidenceExcerpt(
+        text=text_value,
+        digest=hashlib.sha256(text_value.encode()).hexdigest()[:16],
+        citation_path=path,
+        source_revision=max(1, int(source_revision or 1)),
+        owner_verified=True,
+        status_verified=True,
+        truncated=truncated,
+    )
+
+
 def _registry_nonce(
     *,
     question: str,
@@ -532,11 +638,57 @@ def encode_selector_transport(
                 "selector_summary exceeds the transport limit; regenerate the card "
                 "instead of truncating it"
             )
+        matched_raw = candidate.get("matched_evidence")
+        matched = (
+            MatchedEvidenceExcerpt.model_validate(matched_raw)
+            if isinstance(matched_raw, Mapping)
+            else None
+        )
+        matched_block = ""
+        if matched is not None:
+            matched_block = (
+                "\n<matched_evidence schema=\"v1\" digest=\""
+                + matched.digest
+                + "\" node=\""
+                + _neutralize_selector_data(matched.node_type)
+                + "\" revision=\""
+                + str(matched.source_revision)
+                + "\" rank=\""
+                + str(matched.rank)
+                + "\" truncated=\""
+                + ("1" if matched.truncated else "0")
+                + "\">"
+                + _neutralize_selector_data(matched.text)
+                + "</matched_evidence>"
+            )
+        opened_raw = candidate.get("opened_evidence")
+        opened = (
+            OpenedEvidenceExcerpt.model_validate(opened_raw)
+            if isinstance(opened_raw, Mapping)
+            else None
+        )
+        opened_block = ""
+        if opened is not None:
+            opened_block = (
+                "\n<opened_evidence schema=\"v1\" digest=\""
+                + opened.digest
+                + "\" path=\""
+                + _neutralize_selector_data(opened.citation_path)
+                + "\" revision=\""
+                + str(opened.source_revision)
+                + "\" owner_verified=\"1\" status_verified=\"1\" truncated=\""
+                + ("1" if opened.truncated else "0")
+                + "\">"
+                + _neutralize_selector_data(opened.text)
+                + "</opened_evidence>"
+            )
         data = (
             "<workspace_data>"
             + _neutralize_selector_data(title)
             + "\n"
             + _neutralize_selector_data(summary)
+            + matched_block
+            + opened_block
             + "</workspace_data>"
         )
         score = candidate.get("semantic_score")
@@ -603,12 +755,6 @@ def encode_selector_transport(
     obligations = _query_obligations(question)
     if obligations is not None:
         payload["ob"] = obligations
-    subject_anchors = _query_subject_anchors(question, candidates)
-    if subject_anchors:
-        payload["sa"] = {
-            "p": "runtime_query_contract/v1",
-            "a": list(subject_anchors),
-        }
     if parent_rows:
         payload["p"] = parent_rows
     return SelectorTransport(
@@ -956,6 +1102,7 @@ __all__ = [
     "SelectorTransportMapping",
     "SelectorScopeGuardResult",
     "SelectorValidationErrorCode",
+    "build_opened_evidence_excerpt",
     "apply_selector_question_scope_guard",
     "decode_selector_transport_result",
     "decode_selector_transport_v1_result",

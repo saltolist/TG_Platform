@@ -16,6 +16,7 @@ import pytest
 
 from app.services.agent.runtime import budget
 from app.services.agent.runtime.budget import (
+    PhaseDeadlineExceeded,
     RunDeadlineExceeded,
     call_llm_with_deadline,
     stream_llm_with_deadline,
@@ -42,6 +43,22 @@ async def test_future_deadline_allows_call(monkeypatch) -> None:
     monkeypatch.setattr(budget.llm, "complete_chat_completion", fake)
     ctx = SimpleNamespace(deadline_monotonic=time.monotonic() + 60)
     assert await call_llm_with_deadline(ctx, **_CALL_KWARGS) == "ok"
+
+
+@pytest.mark.asyncio
+async def test_phase_deadline_preserves_remaining_run_budget(monkeypatch) -> None:
+    async def slow(**kwargs):
+        await asyncio.sleep(1)
+        return "late"
+
+    monkeypatch.setattr(budget.llm, "complete_chat_completion", slow)
+    run_deadline = time.monotonic() + 60
+    ctx = SimpleNamespace(deadline_monotonic=run_deadline)
+    with pytest.raises(PhaseDeadlineExceeded):
+        await call_llm_with_deadline(
+            ctx, phase_timeout_s=0.01, **_CALL_KWARGS
+        )
+    assert ctx.deadline_monotonic == run_deadline
 
 
 @pytest.mark.asyncio
@@ -98,6 +115,7 @@ async def test_call_records_phase_timing_and_token_estimates(monkeypatch) -> Non
             "streaming": False,
             "provider": "unknown",
             "model": "m",
+            "model_role": "unspecified",
             "candidate_count": None,
             "cohort": None,
             "retry": False,

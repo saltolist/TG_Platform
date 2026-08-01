@@ -16,6 +16,7 @@ from typing import Any, Literal, Mapping
 
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 
+from app.services.agent.resources.registry import get_resource_descriptor
 from app.services.ai.chat_history import linearize_for_llm
 
 _POST_IDEA_RE = re.compile(
@@ -45,13 +46,16 @@ EVIDENCE_REQUIREMENT_SCHEMA = "workspace.evidence-requirement/v1"
 TargetRole = Literal["subject", "source", "comparison", "style_reference", "context"]
 TargetMode = Literal["exact", "set", "corpus", "mixed", "ambiguous"]
 ExecutionMode = Literal["fast", "compact", "deep", "batch"]
-SourceKind = Literal["notes", "posts", "analytics", "comments", "attachments", "images", "dialog"]
+SourceKind = str
 SourceRole = Literal["source", "comparison", "style_reference", "context"]
 Obligation = Literal["required", "optional"]
 PredicateKind = Literal["structural", "semantic", "mixed"]
 RequiredFidelity = Literal[
     "catalog", "semantic_card", "full_text", "metadata", "vision", "analytics"
 ]
+DiscoveryMode = Literal["semantic_relevance", "catalog_window"]
+CatalogOrderBy = Literal["position", "created_at"]
+OrderDirection = Literal["asc", "desc"]
 
 
 class _ContractModel(BaseModel):
@@ -215,6 +219,12 @@ class SourceRequirement(_ContractModel):
     freshness: Freshness
     budget: SourceBudget
 
+    @model_validator(mode="after")
+    def validate_resource_kind(self) -> "SourceRequirement":
+        if get_resource_descriptor(self.kind) is None:
+            raise ValueError(f"unsupported resource kind: {self.kind}")
+        return self
+
 
 class SelectionCardinality(_ContractModel):
     min: int = Field(default=0, ge=0, le=8)
@@ -248,6 +258,9 @@ class SourceRequirementV3(_ContractModel):
     evidence_obligation: Obligation
     selection_cardinality: SelectionCardinality
     coverage: Literal["relevant", "complete"] = "relevant"
+    discovery_mode: DiscoveryMode = "semantic_relevance"
+    order_by: CatalogOrderBy | None = None
+    order_direction: OrderDirection | None = None
     predicate_kind: PredicateKind
     required_fidelity: RequiredFidelity
     evidence_requirements: tuple[EvidenceRequirement, ...] = ()
@@ -257,10 +270,23 @@ class SourceRequirementV3(_ContractModel):
 
     @model_validator(mode="after")
     def validate_evidence_requirements(self) -> "SourceRequirementV3":
+        if get_resource_descriptor(self.kind) is None:
+            raise ValueError(f"unsupported resource kind: {self.kind}")
         if any(item.source_id != self.source_id for item in self.evidence_requirements):
             raise ValueError("evidence requirement source_id must match its source")
         if self.evidence_obligation == "optional" and self.selection_cardinality.min > 0:
             raise ValueError("optional evidence cannot require a positive selection minimum")
+        if self.discovery_mode == "catalog_window":
+            if self.kind != "posts" or self.scope.mode != "corpus":
+                raise ValueError("catalog_window is supported only for the posts corpus")
+            if self.predicate_kind != "semantic":
+                raise ValueError("catalog_window supports semantic comparison only")
+            if self.order_by is None or self.order_direction is None:
+                raise ValueError("catalog_window requires order_by and order_direction")
+            if self.coverage != "relevant":
+                raise ValueError("catalog_window is bounded relevant coverage, not complete coverage")
+        elif self.order_by is not None or self.order_direction is not None:
+            raise ValueError("semantic_relevance cannot carry catalog ordering")
         return self
 
 
@@ -274,7 +300,9 @@ class ContractPlanDecision(_ContractModel):
 class RunBudget(_ContractModel):
     soft_deadline_ms: int = Field(gt=0)
     hard_deadline_ms: int = Field(gt=0)
+    bootstrap_deadline_ms: int = Field(default=10_000, gt=0)
     planner_calls: int = Field(ge=0)
+    selector_verification_calls: int = Field(default=0, ge=0)
     search_calls: int = Field(ge=0)
     search_rewrites_per_intent: int = Field(ge=0)
     deep_reads: int = Field(ge=0)
@@ -284,6 +312,8 @@ class RunBudget(_ContractModel):
     def validate_deadlines(self) -> "RunBudget":
         if self.soft_deadline_ms > self.hard_deadline_ms:
             raise ValueError("soft deadline cannot exceed hard deadline")
+        if self.bootstrap_deadline_ms > self.soft_deadline_ms:
+            raise ValueError("bootstrap deadline cannot exceed soft deadline")
         return self
 
 
@@ -503,6 +533,9 @@ def normalize_turn_contract(contract: Mapping[str, Any] | None) -> dict[str, Any
                     ),
                 },
                 "coverage": str(source.get("coverage") or "relevant"),
+                "discovery_mode": "semantic_relevance",
+                "order_by": None,
+                "order_direction": None,
                 "predicate_kind": (
                     "structural"
                     if str(source.get("evidence_granularity") or "") == "catalog"
@@ -1178,6 +1211,7 @@ def _run_budget(*, profile: str, target_contract: TargetContract,
         return "batch", RunBudget(
             soft_deadline_ms=30_000,
             hard_deadline_ms=60_000,
+            bootstrap_deadline_ms=10_000,
             planner_calls=0,
             search_calls=0,
             search_rewrites_per_intent=0,
@@ -1187,14 +1221,17 @@ def _run_budget(*, profile: str, target_contract: TargetContract,
     exact_reads = sum(source.budget.deep_reads for source in sources)
     if profile == "exact_lookup" and target_contract.target_mode in {"exact", "set"}:
         return "fast", RunBudget(
-            soft_deadline_ms=10_000, hard_deadline_ms=30_000, planner_calls=0,
+            soft_deadline_ms=10_000, hard_deadline_ms=30_000,
+            bootstrap_deadline_ms=5_000, planner_calls=0,
             search_calls=0, search_rewrites_per_intent=0, deep_reads=max(1, exact_reads),
             tool_calls=max(2, exact_reads + 1),
         )
     local_search = sum(source.budget.search_calls for source in sources)
     local_reads = sum(source.budget.deep_reads for source in sources)
     return "compact", RunBudget(
-        soft_deadline_ms=30_000, hard_deadline_ms=60_000, planner_calls=2,
+        soft_deadline_ms=30_000, hard_deadline_ms=60_000,
+        bootstrap_deadline_ms=10_000, planner_calls=2,
+        selector_verification_calls=4,
         search_calls=max(3, local_search), search_rewrites_per_intent=1,
         deep_reads=max(3, local_reads), tool_calls=max(8, local_search + local_reads + 2),
     )
@@ -1427,6 +1464,49 @@ def build_turn_contract(
     batch_enabled: bool = True,
 ) -> dict[str, Any]:
     current = (user_text or "").strip()
+    if not semantic_referent_enabled:
+        # Unified runtime bootstrap is deliberately semantic-neutral. It binds
+        # only structural authority that code can prove (explicit links/IDs and
+        # the currently open post); the existing bootstrap model call supplies
+        # operation, source, predicate, coverage and fidelity in one response.
+        legacy = {
+            "version": 1,
+            "intent": "answer",
+            "scope": scope,
+            "corpus": "workspace",
+            "target": None,
+            "output": {"kind": "answer"},
+            "requires_workspace": True,
+            "required_evidence_kinds": [],
+            "search_query": current,
+            "max_steps": 10,
+            "success_criteria": [
+                "answer the current user request, not a neighboring semantic topic"
+            ],
+            "supported_capabilities": list(SUPPORTED_CAPABILITIES),
+            "prohibited_recommendations": [
+                "link a note to posts or files",
+                "claim a workspace mutation exists when it is not in supported_capabilities",
+            ],
+        }
+        if not v2_enabled:
+            return legacy
+        v2_contract = _upgrade_contract_v2(
+            legacy=legacy,
+            user_text=current,
+            scope=scope,
+            open_post=open_post,
+            dialog_ledger=(),
+            prior_contract=prior_contract,
+            batch_enabled=batch_enabled,
+            message_manifests=(),
+            semantic_referent_enabled=False,
+        )
+        return (
+            _upgrade_contract_v3(v2_contract, user_text="")
+            if typed_requirements_enabled
+            else v2_contract
+        )
     lowered = current.lower()
     pairs = _dialog_pairs(history)
     history_assistant = _last_text(pairs, "assistant")
@@ -1635,17 +1715,6 @@ def missing_required_sources(
     )
 
 
-_SOURCE_RECORD_KINDS: dict[str, frozenset[str]] = {
-    "notes": frozenset({"note_chunk", "semantic_card"}),
-    "posts": frozenset({"post_text", "semantic_card"}),
-    "analytics": frozenset({"analytics"}),
-    "comments": frozenset({"comment"}),
-    "attachments": frozenset({"attachment_text", "media_meta"}),
-    "images": frozenset({"vision", "media_meta"}),
-    "dialog": frozenset(),
-}
-
-
 def _semantic_card_object_kind(evidence_id: str, record: Mapping[str, Any]) -> str:
     """Resolve the workspace object represented by a generic semantic card."""
 
@@ -1684,10 +1753,19 @@ def evidence_matches_source(
         fidelity_kinds: dict[str, frozenset[str]] = {
             "catalog": frozenset({"catalog"}),
             "semantic_card": frozenset(
-                {"semantic_card", "note_chunk", "post_text", "attachment_text"}
+                {
+                    "semantic_card",
+                    "note_chunk",
+                    "post_text",
+                    "attachment_text",
+                    "comment",
+                    "channel_profile",
+                }
             ),
-            "full_text": frozenset({"note_chunk", "post_text", "attachment_text"}),
-            "metadata": frozenset({"catalog", "media_meta"}),
+            "full_text": frozenset(
+                {"note_chunk", "post_text", "attachment_text", "comment", "channel_profile"}
+            ),
+            "metadata": frozenset({"catalog", "media_meta", "channel_profile"}),
             "vision": frozenset({"vision"}),
             "analytics": frozenset({"analytics"}),
         }
@@ -1708,7 +1786,8 @@ def evidence_matches_source(
         if not catalog_match:
             return False
     else:
-        allowed_kinds = _SOURCE_RECORD_KINDS.get(source_kind, frozenset())
+        descriptor = get_resource_descriptor(source_kind)
+        allowed_kinds = descriptor.evidence_kinds if descriptor is not None else frozenset()
         if not catalog_match and (not allowed_kinds or record_kind not in allowed_kinds):
             return False
 

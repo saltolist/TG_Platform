@@ -126,6 +126,11 @@ def _typed_contract_gaps(
     gaps: list[dict[str, Any]] = []
     satisfied: list[str] = []
     material_plan = state.get("material_plan") or {}
+    baseline_discharged_sources = {
+        str(item)
+        for item in material_plan.get("baseline_discharged_source_ids") or ()
+        if str(item)
+    }
     assessment_refs = {
         str(item.get("ref") or "")
         for item in material_plan.get("assessments") or ()
@@ -138,6 +143,7 @@ def _typed_contract_gaps(
             continue
         source = dict(raw_source)
         source_id = str(source.get("source_id") or "")
+        evidence_discharged = source_id in baseline_discharged_sources
         snapshot = _snapshot_for_source(source, snapshots)
         matches = [
             evidence_id
@@ -172,7 +178,7 @@ def _typed_contract_gaps(
                     allowed_actions=("structural_aggregate", "search_source"),
                 )
             )
-        if source_evidence_required(source) and discovery_matches and not matches:
+        if source_evidence_required(source) and not evidence_discharged and discovery_matches and not matches:
             gaps.append(
                 _gap(
                     kind="fidelity_mismatch",
@@ -237,7 +243,7 @@ def _typed_contract_gaps(
                     allowed_actions=("assess_candidates",),
                 )
             )
-        if source_evidence_required(source) and len(selected_matches) < minimum:
+        if source_evidence_required(source) and not evidence_discharged and len(selected_matches) < minimum:
             gaps.append(
                 _gap(
                     kind="missing_selection",
@@ -276,7 +282,7 @@ def _typed_contract_gaps(
                     if snapshot is not None
                     else "no_catalog"
                 )
-            if source_evidence_required(source) and not requirement_met:
+            if source_evidence_required(source) and not evidence_discharged and not requirement_met:
                 gaps.append(
                     _gap(
                         kind="missing_property" if property_name != "grounded_evidence" else "missing_evidence",

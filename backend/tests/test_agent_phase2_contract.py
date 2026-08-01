@@ -6,6 +6,7 @@ from unittest.mock import AsyncMock, patch
 import pytest
 from pydantic import ValidationError
 
+from app.services.agent.runtime.budget import PhaseDeadlineExceeded
 from app.services.agent.runtime.turn_contract import (
     RunBudget,
     SourceBudget,
@@ -277,6 +278,17 @@ def test_schema_rejects_local_budget_overrun_and_mutation() -> None:
             deep_reads=0,
             tool_calls=0,
         )
+    with pytest.raises(ValidationError):
+        RunBudget(
+            soft_deadline_ms=100,
+            hard_deadline_ms=200,
+            bootstrap_deadline_ms=101,
+            planner_calls=0,
+            search_calls=0,
+            search_rewrites_per_intent=0,
+            deep_reads=0,
+            tool_calls=0,
+        )
 
 
 def test_scope_and_freshness_are_rechecked_at_evidence_boundary() -> None:
@@ -524,6 +536,41 @@ async def test_classifier_promotes_only_semantically_required_source() -> None:
     assert sources["posts"]["required"] is True
     assert sources["notes"]["required"] is False
     assert sources["notes"]["evidence_granularity"] == "semantic_card"
+    assert result["turn_contract"]["answerability_without_evidence"] is False
+
+
+@pytest.mark.asyncio
+async def test_classifier_phase_deadline_falls_back_to_typed_workspace_sources() -> None:
+    question = "Какие объекты описаны в моем workspace?"
+    contract = build_turn_contract(user_text=question, history=[], scope="global")
+    ctx = SimpleNamespace(
+        reasoner_spec=object(),
+        reasoner_model="planner",
+        reasoner_api_key="secret",
+        turn_contract=contract,
+        scope="global",
+        post_data=None,
+        deadline_monotonic=None,
+        llm_client=None,
+        llm_metrics=[],
+    )
+    with patch(
+        "app.services.agent.runtime.workspace_graph.call_llm_with_deadline",
+        new_callable=AsyncMock,
+        side_effect=PhaseDeadlineExceeded("slow bootstrap"),
+    ) as classifier:
+        result = await workspace_agent_node(
+            {"user_text": question, "turn_contract": contract},
+            {"configurable": {"runtime_context": ctx, "turn_contract": contract}},
+        )
+
+    assert classifier.await_args.kwargs["phase_timeout_s"] == 10.0
+    assert result["tool_call"]["type"] == "read"
+    assert result["tool_call"]["bootstrap_fallback"] == "phase_deadline"
+    assert result["search_query"] == question
+    sources = result["turn_contract"]["source_requirements"]
+    assert {source["kind"] for source in sources} == {"notes", "posts"}
+    assert all(source["required"] is True for source in sources)
     assert result["turn_contract"]["answerability_without_evidence"] is False
 
 

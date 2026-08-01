@@ -47,6 +47,7 @@ from app.services.ai.rag import (
 from app.services.ai.semantic_summary import (
     DISCOVERY_SUMMARY_VERSION,
     SELECTOR_SUMMARY_VERSION,
+    SELECTOR_SEMANTIC_FLAGS_VERSION,
     SemanticSummaryProjections,
     build_semantic_summary_projections,
     semantic_summary_model_key,
@@ -106,7 +107,7 @@ def _summary_row_is_fresh(
         and item[3].startswith("llm:")
         and bool(item[4])
         and item[5] == SELECTOR_SUMMARY_VERSION
-        and item[6] == 1
+        and item[6] == SELECTOR_SEMANTIC_FLAGS_VERSION
         for item in indexed
     )
 

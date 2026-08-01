@@ -19,7 +19,10 @@ from app.services.agent.runtime.turn_contract import (
     source_required_fidelity,
     source_selection_cardinality,
 )
-from app.services.agent.runtime.workspace_graph import _apply_classifier_source_policy
+from app.services.agent.runtime.workspace_graph import (
+    WORKSPACE_SYSTEM,
+    _apply_classifier_source_policy,
+)
 
 
 def _typed_contract(question: str) -> dict:
@@ -113,6 +116,143 @@ def test_classifier_adapter_maps_image_evidence_to_vision_fidelity() -> None:
     assert not {"required", "min_evidence", "evidence_granularity"}.intersection(images)
 
 
+def test_classifier_preserves_independent_source_goals_for_implicit_dependencies() -> None:
+    contract = _apply_classifier_source_policy(
+        _typed_contract("Нужна рекомендация для следующего результата"),
+        required_sources=["notes", "posts"],
+        classifier_requires_evidence=True,
+        classified_source_requirements=[
+            {
+                "kind": "notes",
+                "query_goal": "Find plans, constraints, and unfinished sequences relevant to the recommendation.",
+                "coverage": "complete",
+                "evidence_granularity": "full_text",
+            },
+            {
+                "kind": "posts",
+                "query_goal": "Read recent completed artifacts to avoid repetition and preserve continuity.",
+                "coverage": "relevant",
+                "discovery_mode": "catalog_window",
+                "statuses": ["published"],
+                "order_by": "position",
+                "order_direction": "desc",
+                "candidate_limit": 5,
+                "evidence_granularity": "full_text",
+            },
+        ],
+    )
+    sources = {item["kind"]: item for item in contract["source_requirements"]}
+
+    assert sources["notes"]["query_goal"].startswith("Find plans")
+    assert sources["posts"]["query_goal"].startswith("Read recent")
+    assert sources["notes"]["coverage"] == "complete"
+    assert sources["posts"]["coverage"] == "relevant"
+    assert sources["posts"]["discovery_mode"] == "catalog_window"
+    assert sources["posts"]["order_by"] == "position"
+    assert sources["posts"]["order_direction"] == "desc"
+    assert sources["posts"]["budget"]["candidate_limit"] == 5
+    assert sources["posts"]["scope"]["statuses"] == ["published"]
+    assert all(item["evidence_obligation"] == "required" for item in sources.values())
+
+
+def test_classifier_prompt_requires_implicit_dependency_planning_without_case_routing() -> None:
+    assert "Сам выведи необходимые предпосылки" in WORKSPACE_SYSTEM
+    assert 'coverage="complete"' in WORKSPACE_SYSTEM
+    assert 'discovery_mode="catalog_window"' in WORKSPACE_SYSTEM
+    assert 'statuses=["published"]' in WORKSPACE_SYSTEM
+    assert "Источники должны затем сопоставляться по смыслу" in WORKSPACE_SYSTEM
+    assert "Это семантическое выявление зависимостей, а не keyword routing" in WORKSPACE_SYSTEM
+    assert "Про что написать следующий пост" not in WORKSPACE_SYSTEM
+
+
+def test_classifier_rejects_unknown_post_status_filters() -> None:
+    contract = _apply_classifier_source_policy(
+        _typed_contract("Choose the next deliverable from the current plan and history"),
+        required_sources=["posts"],
+        classifier_requires_evidence=True,
+        classified_source_requirements=[
+            {
+                "kind": "posts",
+                "query_goal": "Inspect completed deliverables in sequence order.",
+                "coverage": "relevant",
+                "discovery_mode": "catalog_window",
+                "statuses": ["completed", "published", "removed"],
+                "order_by": "position",
+                "order_direction": "desc",
+                "candidate_limit": 4,
+                "evidence_granularity": "semantic_card",
+            }
+        ],
+    )
+    posts = next(item for item in contract["source_requirements"] if item["kind"] == "posts")
+
+    assert posts["scope"]["statuses"] == ["published"]
+    assert posts["discovery_mode"] == "catalog_window"
+
+
+def test_classifier_rejects_catalog_window_without_supported_order_contract() -> None:
+    contract = _apply_classifier_source_policy(
+        _typed_contract("Choose the next deliverable"),
+        required_sources=["posts"],
+        classifier_requires_evidence=True,
+        classified_source_requirements=[
+            {
+                "kind": "posts",
+                "query_goal": "Compare a bounded completed-history premise.",
+                "coverage": "relevant",
+                "discovery_mode": "catalog_window",
+                "statuses": ["published"],
+                "order_by": "title",
+                "order_direction": "desc",
+                "candidate_limit": 4,
+                "predicate_kind": "semantic",
+            }
+        ],
+    )
+    posts = next(item for item in contract["source_requirements"] if item["kind"] == "posts")
+
+    assert posts["discovery_mode"] == "semantic_relevance"
+    assert posts["order_by"] is None
+    assert posts["order_direction"] is None
+
+
+def test_classifier_binds_post_comments_to_authoritative_post_target() -> None:
+    base = build_turn_contract(
+        user_text="Что пишут в комментариях к этому посту?",
+        history=[],
+        scope="post",
+        open_post={"id": "post-42", "text": "Current post"},
+        typed_requirements_enabled=True,
+    )
+    contract = _apply_classifier_source_policy(
+        base,
+        required_sources=["comments"],
+        classifier_requires_evidence=True,
+        classified_source_requirements=[
+            {"kind": "comments", "coverage": "relevant", "evidence_granularity": "full_text"}
+        ],
+    )
+    comments = next(item for item in contract["source_requirements"] if item["kind"] == "comments")
+
+    assert comments["scope"]["mode"] == "targets"
+    assert comments["scope"]["target_ids"] == ["post-42"]
+
+
+def test_classifier_supports_channel_as_metadata_source() -> None:
+    contract = _apply_classifier_source_policy(
+        _typed_contract("Какая тема у моего канала?"),
+        required_sources=["channel"],
+        classifier_requires_evidence=True,
+        classified_source_requirements=[
+            {"kind": "channel", "coverage": "relevant", "evidence_granularity": "catalog"}
+        ],
+    )
+    channel = next(item for item in contract["source_requirements"] if item["kind"] == "channel")
+
+    assert channel["required_fidelity"] == "metadata"
+    assert channel["evidence_obligation"] == "required"
+
+
 def test_classifier_propagates_resolved_query_goal_to_semantic_sources() -> None:
     resolved = "Compare the launch constraint with the budget decision."
     contract = _apply_classifier_source_policy(
@@ -195,6 +335,48 @@ def test_required_evidence_with_positive_min_blocks_missing_selection() -> None:
         contract=contract,
     )
     assert ready.status == "ready"
+
+
+def test_reassessment_can_discharge_redundant_corpus_evidence_but_not_discovery() -> None:
+    contract = _apply_classifier_source_policy(
+        _typed_contract("Какие два корневых объекта предусмотрены?"),
+        required_sources=["notes", "posts"],
+        classifier_requires_evidence=True,
+        classified_source_requirements=[
+            {"kind": "notes", "evidence_granularity": "full_text"},
+            {"kind": "posts", "evidence_granularity": "full_text"},
+        ],
+    )
+    notes = next(item for item in contract["source_requirements"] if item["kind"] == "notes")
+    posts = next(item for item in contract["source_requirements"] if item["kind"] == "posts")
+    note = _note_record("n1")
+    post_snapshot = build_catalog_snapshot(
+        [{"id": "p1", "title": "Nearby post"}],
+        kind="posts",
+        source_requirement_id=posts["source_id"],
+    )
+
+    result = evaluate_sufficiency(
+        state={
+            "turn_contract": contract,
+            "evidence_records": {
+                "/note/global/n1/": note,
+                "/posts/": _catalog_record("/posts/", post_snapshot),
+            },
+            "catalog_snapshots": {"/posts/": post_snapshot},
+            "material_plan": {
+                "baseline_discharged_source_ids": [posts["source_id"]],
+                "assessments": [{"ref": "note:n1", "relevance": "direct"}],
+            },
+            "search_ledger": [],
+        },
+        contract=contract,
+    )
+
+    assert result.status == "ready"
+    assert notes["source_id"] in result.satisfied_requirements
+    assert posts["source_id"] in result.satisfied_requirements
+    assert not any(gap["source_id"] == posts["source_id"] for gap in result.gaps)
 
 
 def test_structural_property_requires_catalog_property_and_aggregate() -> None:

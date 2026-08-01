@@ -32,6 +32,10 @@ class RunDeadlineExceeded(Exception):
     """Raised when a run's wall-clock budget is spent before/at an LLM call."""
 
 
+class PhaseDeadlineExceeded(Exception):
+    """Raised when a non-terminal LLM phase spends its reserved time slice."""
+
+
 def _record_llm_metric(
     ctx: RuntimeContext,
     *,
@@ -78,6 +82,7 @@ def _record_llm_metric(
         "streaming": streaming,
         "provider": str(getattr(spec, "name", "") or getattr(spec, "provider", "") or "unknown"),
         "model": str(kwargs.get("model") or "unknown"),
+        "model_role": telemetry.get("model_role") or "unspecified",
         "candidate_count": telemetry.get("candidate_count"),
         "cohort": telemetry.get("cohort"),
         "retry": bool(telemetry.get("retry")),
@@ -85,7 +90,7 @@ def _record_llm_metric(
         "transport_tier": telemetry.get("transport_tier") or "plain",
         "schema_result": telemetry.get("schema_result") or "not_measured",
         "validation_error_codes": list(telemetry.get("validation_error_codes") or ()),
-        "timeout": error_kind in {"timeout", "deadline"},
+        "timeout": error_kind in {"timeout", "deadline", "phase_deadline"},
         "provider_latency": {
             "availability": "measured",
             "value_ms": round((time.perf_counter() - started_at) * 1000, 1),
@@ -134,16 +139,16 @@ async def call_llm_with_deadline(
     ctx: RuntimeContext,
     *,
     phase: str = "unspecified",
+    phase_timeout_s: float | None = None,
     telemetry: Mapping[str, Any] | None = None,
     **kwargs,
 ) -> str:
     """Call complete_chat_completion, bounded by the run's wall-clock deadline.
 
-    If ctx.deadline_monotonic is None the call runs unbounded (only the
-    underlying HTTP timeout applies). Otherwise the remaining budget caps the
-    call: no time left → RunDeadlineExceeded without dialing the provider; a
-    provider that overruns the remainder → asyncio.TimeoutError, surfaced as
-    RunDeadlineExceeded so the executor marks the run deadline_exceeded.
+    The run deadline remains authoritative. ``phase_timeout_s`` may reserve a
+    smaller slice for a degradable phase such as bootstrap classification; its
+    expiry raises PhaseDeadlineExceeded so the caller can use a typed fallback
+    without misreporting the whole run as exhausted.
     """
     started_at = time.perf_counter()
     llm_client = getattr(ctx, "llm_client", None)
@@ -153,15 +158,35 @@ async def call_llm_with_deadline(
     kwargs["usage_sink"] = provider_usage
     deadline = ctx.deadline_monotonic
     try:
-        if deadline is None:
+        if deadline is None and phase_timeout_s is None:
             result = await llm.complete_chat_completion(**kwargs)
         else:
-            remaining = deadline - time.monotonic()
-            if remaining <= 0:
+            now = time.monotonic()
+            run_remaining = deadline - now if deadline is not None else None
+            if run_remaining is not None and run_remaining <= 0:
                 raise RunDeadlineExceeded("run wall-clock budget exhausted before LLM call")
+            phase_remaining = float(phase_timeout_s) if phase_timeout_s is not None else None
+            if phase_remaining is not None and phase_remaining <= 0:
+                raise PhaseDeadlineExceeded("phase wall-clock budget exhausted before LLM call")
+            phase_limited = phase_remaining is not None and (
+                run_remaining is None or phase_remaining < run_remaining
+            )
+            timeout = (
+                phase_remaining
+                if run_remaining is None
+                else run_remaining
+                if phase_remaining is None
+                else min(run_remaining, phase_remaining)
+            )
             try:
-                result = await asyncio.wait_for(llm.complete_chat_completion(**kwargs), timeout=remaining)
+                result = await asyncio.wait_for(
+                    llm.complete_chat_completion(**kwargs), timeout=timeout
+                )
             except asyncio.TimeoutError as exc:
+                if phase_limited:
+                    raise PhaseDeadlineExceeded(
+                        "phase wall-clock budget exhausted during LLM call"
+                    ) from exc
                 raise RunDeadlineExceeded("run wall-clock budget exhausted during LLM call") from exc
     except Exception as exc:
         _record_llm_metric(
@@ -177,6 +202,8 @@ async def call_llm_with_deadline(
             error_kind=(
                 "deadline"
                 if isinstance(exc, RunDeadlineExceeded)
+                else "phase_deadline"
+                if isinstance(exc, PhaseDeadlineExceeded)
                 else "timeout"
                 if isinstance(exc, (asyncio.TimeoutError, TimeoutError))
                 else type(exc).__name__

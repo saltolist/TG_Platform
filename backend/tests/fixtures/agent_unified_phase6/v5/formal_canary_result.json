@@ -1,0 +1,186 @@
+{
+  "schema": "workspace.phase6-formal-canary-result/v1",
+  "manifest_version": "2026-07-27-account-live-v2",
+  "source_head": "affbe772b2ed7ea54fd7630a07e6b6fed94bcf87",
+  "status": "failed_stop_condition",
+  "availability": "measured",
+  "observed_at": "2026-07-27T15:32:15.017Z",
+  "default_on": false,
+  "messages_sent": true,
+  "traffic": {
+    "chat_count": 2,
+    "user_message_count": 2,
+    "maximum_user_messages_per_chat": 1,
+    "semantic_selector_decisions": 2
+  },
+  "prior_formal_traffic_excluded": {
+    "manifest_version": "2026-07-27-account-live-v1",
+    "chat_count": 1,
+    "user_message_count": 1,
+    "semantic_selector_decision_count": 1,
+    "can_convert_new_canary_to_pass": false
+  },
+  "stop_conditions_triggered": [
+    "critical_recall_below_one"
+  ],
+  "scenario_attribution": [
+    {
+      "sequence": 1,
+      "scenario_id": "live-v2-q01",
+      "candidate_count": 13,
+      "primary_attempt_count": 1,
+      "primary_schema_result": "valid",
+      "primary_first_attempt_valid": true,
+      "primary_final_valid": true,
+      "primary_retry_count": 0,
+      "primary_position_error_count": 0,
+      "selected_count": 1,
+      "critical_ref_count": 1,
+      "critical_ref_in_candidate_envelope_count": 1,
+      "critical_ref_selected_count": 1,
+      "critical_ref_in_final_pack_count": 1,
+      "frozen_irrelevant_ref_count": 1,
+      "frozen_irrelevant_selected_count": 0,
+      "frozen_irrelevant_in_final_pack_count": 0,
+      "checkpoint_row_count": 12,
+      "message_context_row_count": 1,
+      "attribution_boundary": [
+        "passed"
+      ]
+    },
+    {
+      "sequence": 2,
+      "scenario_id": "live-v2-q02",
+      "candidate_count": 13,
+      "primary_attempt_count": 1,
+      "primary_schema_result": "valid",
+      "primary_first_attempt_valid": true,
+      "primary_final_valid": true,
+      "primary_retry_count": 0,
+      "primary_position_error_count": 0,
+      "selected_count": 0,
+      "critical_ref_count": 1,
+      "critical_ref_in_candidate_envelope_count": 1,
+      "critical_ref_selected_count": 0,
+      "critical_ref_in_final_pack_count": 0,
+      "frozen_irrelevant_ref_count": 1,
+      "frozen_irrelevant_selected_count": 0,
+      "frozen_irrelevant_in_final_pack_count": 0,
+      "checkpoint_row_count": 11,
+      "message_context_row_count": 1,
+      "attribution_boundary": [
+        "selector_false_negative",
+        "selector_summary_insufficient_signal"
+      ]
+    }
+  ],
+  "provider_observability": {
+    "provider": "OpenAI",
+    "model": "gpt-4.1-mini",
+    "transport_tier": "strict_json_schema",
+    "sample_size": 2,
+    "selector_latency_ms": [
+      33577.3,
+      53553.7
+    ],
+    "input_tokens": 3302,
+    "output_tokens": 133,
+    "total_tokens": 3435
+  },
+  "final_pack": {
+    "schema": "workspace.evidence-pack/v2",
+    "critical_ref_count": 2,
+    "critical_ref_in_final_pack_count": 1,
+    "critical_required_evidence_recall": 0.5,
+    "frozen_irrelevant_ref_count": 2,
+    "frozen_irrelevant_inclusion_count": 0,
+    "frozen_irrelevant_inclusion_rate": 0.0,
+    "precision_availability": "inconclusive"
+  },
+  "measurements": {
+    "capped_canary_chat_count": {
+      "availability": "measured",
+      "value": 2.0,
+      "threshold": 20.0,
+      "sample_size": 2
+    },
+    "capped_canary_max_user_messages_per_chat": {
+      "availability": "measured",
+      "value": 1.0,
+      "threshold": 1.0,
+      "sample_size": 2
+    },
+    "semantic_selector_initial_calls_per_selector_run": {
+      "availability": "measured",
+      "value": 1.0,
+      "threshold": 1.0,
+      "sample_size": 2
+    },
+    "selector_first_attempt_valid_rate": {
+      "availability": "inconclusive",
+      "value": 1.0,
+      "threshold": 0.95,
+      "sample_size": 2
+    },
+    "selector_final_valid_rate": {
+      "availability": "inconclusive",
+      "value": 1.0,
+      "threshold": 1.0,
+      "sample_size": 2
+    },
+    "selector_retry_rate": {
+      "availability": "inconclusive",
+      "value": 0.0,
+      "threshold": 0.05,
+      "sample_size": 2
+    },
+    "selector_position_error_count": {
+      "availability": "inconclusive",
+      "value": 0.0,
+      "threshold": 0.0,
+      "sample_size": 2
+    },
+    "required_critical_evidence_recall": {
+      "availability": "measured",
+      "value": 0.5,
+      "threshold": 1.0,
+      "sample_size": 2
+    },
+    "irrelevant_selection_rate": {
+      "availability": "measured",
+      "value": 0.0,
+      "baseline": 0.0,
+      "threshold": 0.0,
+      "sample_size": 2
+    },
+    "false_workspace_data_unavailable_answer_count": {
+      "availability": "measured",
+      "value": 0.0,
+      "threshold": 0.0,
+      "sample_size": 2
+    },
+    "complete_classification_required_object_coverage": {
+      "availability": "unavailable",
+      "value": null,
+      "sample_size": 0
+    },
+    "staging_canary_rollback_drill_pass_rate": {
+      "availability": "unavailable",
+      "value": null,
+      "sample_size": 0
+    }
+  },
+  "rollback": {
+    "status": "not_run_after_stop_condition",
+    "availability": "unavailable",
+    "reason": "semantic stop condition terminated formal traffic before staging rollback"
+  },
+  "privacy": {
+    "contains_account_identifier": false,
+    "contains_credentials": false,
+    "contains_raw_user_content": false,
+    "contains_source_content": false,
+    "contains_raw_provider_output": false,
+    "contains_run_or_thread_ids": false
+  }
+}

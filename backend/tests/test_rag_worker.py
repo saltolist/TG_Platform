@@ -32,6 +32,7 @@ from app.services.ai.rag_worker import (
 )
 from app.services.ai.semantic_summary import (
     DISCOVERY_SUMMARY_VERSION,
+    SELECTOR_SEMANTIC_FLAGS_VERSION,
     SELECTOR_SUMMARY_VERSION,
     SemanticSummaryProjections,
 )
@@ -110,7 +111,7 @@ async def test_startup_backfill_is_model_fingerprint_aware(
             selector_summary="Fresh selector summary",
             selector_summary_version=SELECTOR_SUMMARY_VERSION,
             selector_semantic_flags={
-                "v": 1,
+                "v": SELECTOR_SEMANTIC_FLAGS_VERSION,
                 "explicit_absence": False,
                 "record_roles": [],
             },

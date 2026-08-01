@@ -12,6 +12,7 @@ import pytest
 
 from app.core.config import Settings
 from app.services.agent.runtime.context import RuntimeContext
+from app.services.agent.runtime.artifacts import ArtifactHandle
 from app.services.agent.runtime.workspace_graph import _generate_edited_post_html
 from app.services.ai.providers import ProviderSpec
 
@@ -141,21 +142,27 @@ async def test_prior_proposal_identical_to_current_edits_current_html() -> None:
 
 
 @pytest.mark.asyncio
-async def test_question_mark_followup_after_period_is_deterministic() -> None:
-    """Regression for chat 21613326: the router understood the referent, but
-    the edit model returned the original period. The prior proposal's only
-    delta is '?' so 'after the period' must produce '.?' without an LLM call."""
+async def test_question_mark_followup_uses_typed_pending_artifact() -> None:
     ctx = _ctx()
     with patch(
         "app.services.ai.llm.complete_chat_completion",
         new_callable=AsyncMock,
+        return_value="Убери цифру 2 в конце этого поста.?",
     ) as mock_llm:
         result = await _generate_edited_post_html(
             ctx,
             current_html="Убери цифру 2 в конце этого поста.",
             instruction="Сделай его после точки",
-            last_proposed_post_html="Убери цифру 2 в конце этого поста?",
+            pending_artifact=ArtifactHandle(
+                handle="artifact:pending-edit",
+                kind="edit_post_proposal",
+                canonical_ref="proposal:p1",
+                content="Убери цифру 2 в конце этого поста?",
+                provenance="history_proposal",
+            ),
         )
 
     assert result == "Убери цифру 2 в конце этого поста.?"
-    mock_llm.assert_not_awaited()
+    mock_llm.assert_awaited_once()
+    prompt = mock_llm.await_args.kwargs["messages"][1]["content"]
+    assert "artifact:pending-edit" in prompt

@@ -14,6 +14,7 @@ EvidenceKind = Literal[
     "vision",
     "analytics",
     "comment",
+    "channel_profile",
     "catalog",
     "search_hit",
     "semantic_card",
@@ -81,6 +82,10 @@ def records_from_agent_state(agent_state) -> dict[str, EvidenceRecord]:
             or path.endswith("/media/")
         ):
             kind = "catalog"
+        elif path.endswith("/comments/"):
+            kind = "comment"
+        elif path == "/channel/profile/":
+            kind = "channel_profile"
         elif "/attachment/" in path:
             kind = "attachment_text"
         elif path.endswith("/post/") or "/post/" in path and "/note/" not in path:
