@@ -84,7 +84,13 @@ def test_run_metrics_and_trace_split_mode_warm_state_and_phases(monkeypatch: pyt
 
     monkeypatch.setattr(
         "app.tasks.async_runtime.runtime_status",
-        lambda: {"ready": True, "status": "ready", "worker_init_ms": 24.0},
+        lambda: {
+            "ready": True,
+            "status": "ready",
+            "worker_init_ms": 24.0,
+            "checkpointer_init_ms": 3.0,
+            "graph_compile_ms": 2.0,
+        },
     )
     ctx = SimpleNamespace(
         llm_metrics=[],
@@ -96,6 +102,8 @@ def test_run_metrics_and_trace_split_mode_warm_state_and_phases(monkeypatch: pyt
     assert payload["execution_mode"] == "compact"
     assert payload["worker_warm"] is True
     assert payload["time_to_final_ms"] == 92.0
+    assert payload["checkpointer_init_ms"] == 3.0
+    assert payload["graph_compile_ms"] == 2.0
     body = render_run_trace([{"sequence": 1, "event_type": "run_metrics", "payload": payload}])
     assert "mode=compact worker=warm" in body
     assert "deep_read=40.0ms" in body

@@ -269,7 +269,7 @@ async def fts_search(
 
     stmt = text(
         f"""
-        SELECT note_id, post_id, node_type, file_id, chunk_text, search_text,
+        SELECT note_id, post_id, chunk_index, node_type, file_id, chunk_text, search_text,
                object_title, object_status, index_revision, keywords,
                summary_version, summary_model, selector_summary, selector_summary_version,
                selector_semantic_flags,
@@ -306,6 +306,7 @@ async def fts_search(
             {
                 "note_id": row["note_id"],
                 "post_id": row["post_id"],
+                "chunk_index": int(row.get("chunk_index") or 0),
                 "node_type": row["node_type"],
                 "file_id": row["file_id"],
                 "chunk_text": row["chunk_text"],
@@ -339,13 +340,14 @@ async def fts_search(
     return results
 
 
-def _result_key(item: Mapping[str, Any]) -> str:
+def _result_key(item: Mapping[str, Any], *, preserve_chunks: bool) -> str:
     return ":".join(
         [
             str(item.get("node_type") or ""),
             str(item.get("note_id") or ""),
             str(item.get("file_id") or ""),
             str(item.get("post_id") or ""),
+            str(int(item.get("chunk_index") or 0)) if preserve_chunks else "",
         ]
     )
 
@@ -356,16 +358,17 @@ def merge_and_rerank(
     fts_results: list[dict[str, Any]],
     top_k: int = 8,
     vector_weight: float = 0.7,
+    preserve_chunks: bool = False,
 ) -> list[dict[str, Any]]:
     """Dedupe by canonical key and rank-fuse vector/lexical result lists."""
     merged: dict[str, dict[str, Any]] = {}
     rank_constant = 60
     for rank, item in enumerate(vector_results, start=1):
-        key = _result_key(item)
+        key = _result_key(item, preserve_chunks=preserve_chunks)
         score = vector_weight / (rank_constant + rank)
         merged[key] = {**item, "blended_score": score, "sources": ["vector"]}
     for rank, item in enumerate(fts_results, start=1):
-        key = _result_key(item)
+        key = _result_key(item, preserve_chunks=preserve_chunks)
         fts_score = (1.0 - vector_weight) / (rank_constant + rank)
         if key in merged:
             merged[key]["blended_score"] = merged[key].get("blended_score", 0) + fts_score
@@ -437,7 +440,12 @@ async def hybrid_prefetch(
             for item in fts
             if str(item.get("node_type") or "") in node_types_filter
         ]
-    return merge_and_rerank(vector_results=vector, fts_results=fts, top_k=top_k)
+    return merge_and_rerank(
+        vector_results=vector,
+        fts_results=fts,
+        top_k=top_k,
+        preserve_chunks=bool(object_ids),
+    )
 
 
 async def retrieve_for_discovery(

@@ -116,3 +116,35 @@ def test_merge_hits_dedup_keeps_best_score() -> None:
     )
     assert len(merged) == 1
     assert merged[0]["similarity"] == 0.8
+
+
+def test_merge_hits_preserves_chunks_for_scoped_object_search() -> None:
+    pass_cfg = RetrievalPass(scope="global", is_home=True)
+    merged = merge_hits(
+        [
+            (
+                pass_cfg,
+                [
+                    {
+                        "node_type": NODE_NOTE_CHUNK,
+                        "note_id": "n1",
+                        "file_id": "",
+                        "chunk_index": 0,
+                        "similarity": 0.8,
+                    },
+                    {
+                        "node_type": NODE_NOTE_CHUNK,
+                        "note_id": "n1",
+                        "file_id": "",
+                        "chunk_index": 2,
+                        "similarity": 0.7,
+                    },
+                ],
+            )
+        ],
+        scope_bias=0.0,
+        k=2,
+        preserve_chunks=True,
+    )
+
+    assert [item["chunk_index"] for item in merged] == [0, 2]

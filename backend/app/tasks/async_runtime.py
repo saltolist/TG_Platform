@@ -24,6 +24,8 @@ _worker_warmup: dict[str, Any] = {
     "status": "not_initialized",
     "embedding_init_ms": None,
     "first_embed_ms": None,
+    "checkpointer_init_ms": None,
+    "graph_compile_ms": None,
     "pid": None,
 }
 logger = logging.getLogger(__name__)
@@ -68,6 +70,8 @@ def reset_after_fork() -> None:
         status="initializing",
         embedding_init_ms=None,
         first_embed_ms=None,
+        checkpointer_init_ms=None,
+        graph_compile_ms=None,
         pid=_worker_pid,
     )
 
@@ -85,7 +89,7 @@ def reset_after_fork() -> None:
 
 
 async def initialize_worker_runtime() -> dict[str, Any]:
-    """Warm the child-local embedding runtime and mark it ready."""
+    """Warm all child-local interactive dependencies before accepting work."""
     _ensure_loop()
     from app.services.agent.runtime.checkpoint import mark_checkpointer_loop_persistent
 
@@ -98,11 +102,30 @@ async def initialize_worker_runtime() -> dict[str, Any]:
                 "status": "ready_non_interactive",
                 "embedding_init_ms": None,
                 "first_embed_ms": None,
+                "checkpointer_init_ms": None,
+                "graph_compile_ms": None,
             }
         else:
             from app.services.ai.embeddings import warmup_local_embedding_runtime
 
             result = await warmup_local_embedding_runtime()
+            checkpointer_started = time.perf_counter()
+            from app.services.agent.runtime.checkpoint import ensure_checkpointer_ready
+
+            await ensure_checkpointer_ready()
+            result["checkpointer_init_ms"] = round(
+                (time.perf_counter() - checkpointer_started) * 1000, 1
+            )
+
+            graph_started = time.perf_counter()
+            from app.services.agent.runtime.workspace_graph import (
+                get_compiled_workspace_graph,
+            )
+
+            get_compiled_workspace_graph()
+            result["graph_compile_ms"] = round(
+                (time.perf_counter() - graph_started) * 1000, 1
+            )
         _worker_warmup.update(result)
         _worker_warmup["worker_init_ms"] = round((time.perf_counter() - started) * 1000, 1)
         _worker_warmup["pid"] = os.getpid()
@@ -120,12 +143,15 @@ async def initialize_worker_runtime() -> dict[str, Any]:
             AGENT_WORKER_FIRST_EMBED.observe(float(result["first_embed_ms"]) / 1000)
         logger.info(
             "worker_runtime.ready pid=%s status=%s worker_init_ms=%s "
-            "embedding_init_ms=%s first_embed_ms=%s",
+            "embedding_init_ms=%s first_embed_ms=%s checkpointer_init_ms=%s "
+            "graph_compile_ms=%s",
             _worker_warmup["pid"],
             _worker_warmup["status"],
             _worker_warmup["worker_init_ms"],
             _worker_warmup.get("embedding_init_ms"),
             _worker_warmup.get("first_embed_ms"),
+            _worker_warmup.get("checkpointer_init_ms"),
+            _worker_warmup.get("graph_compile_ms"),
         )
     except Exception as exc:  # noqa: BLE001 - readiness is observable, worker stays diagnosable
         _worker_warmup.update(

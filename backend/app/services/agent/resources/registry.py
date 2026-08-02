@@ -24,6 +24,8 @@ class ResourceDescriptor:
     evidence_kinds: frozenset[str]
     discovery_node_types: tuple[str, ...] = ()
     read_tool: str | None = None
+    catalog_statuses: frozenset[str] = frozenset()
+    catalog_order_fields: frozenset[str] = frozenset()
 
     def supports(self, capability: Capability) -> bool:
         return capability in self.capabilities
@@ -53,6 +55,8 @@ _DESCRIPTORS = (
         evidence_kinds=frozenset({"post_text", "semantic_card", "catalog"}),
         discovery_node_types=("post_summary", "post_text"),
         read_tool="OpenPost",
+        catalog_statuses=frozenset({"draft", "scheduled", "published"}),
+        catalog_order_fields=frozenset({"position", "created_at"}),
     ),
     ResourceDescriptor(
         kind="comments",

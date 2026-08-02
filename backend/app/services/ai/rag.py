@@ -883,9 +883,14 @@ async def retrieve_top_k(
             == int(expected_revisions[str(row.note_id)])
         )
     ]
-    seen: dict[tuple[str, str, str], dict[str, Any]] = {}
+    seen: dict[tuple[str, str, str, int | None], dict[str, Any]] = {}
     for r in results:
-        key = (r["node_type"], r["note_id"], r["file_id"])
+        key = (
+            r["node_type"],
+            r["note_id"],
+            r["file_id"],
+            int(r["chunk_index"]) if object_ids else None,
+        )
         if key not in seen or r["similarity"] > seen[key]["similarity"]:
             seen[key] = r
     return sorted(seen.values(), key=lambda x: x["similarity"], reverse=True)[:k]

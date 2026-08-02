@@ -388,6 +388,8 @@ def _llm_metrics_payload(runtime_context: RuntimeContext, *, duration_ms: float)
         "cold_start_ms": worker_state.get("worker_init_ms"),
         "embedding_init_ms": worker_state.get("embedding_init_ms"),
         "first_embed_ms": worker_state.get("first_embed_ms"),
+        "checkpointer_init_ms": worker_state.get("checkpointer_init_ms"),
+        "graph_compile_ms": worker_state.get("graph_compile_ms"),
         "db_timings_ms": {},
     }
 

@@ -600,9 +600,19 @@ def encode_selector_transport(
             maximum,
             _FIDELITY_CODE.get(str(source.get("required_fidelity") or "semantic_card"), "s"),
         ]
+        if str(source.get("discovery_mode") or "") == "catalog_window":
+            row.extend(
+                [
+                    "w",
+                    str(source.get("order_by") or ""),
+                    str(source.get("order_direction") or ""),
+                    int((source.get("budget") or {}).get("candidate_limit") or maximum),
+                ]
+            )
+        else:
+            row.extend(["s", None, None, None])
         goal = str(source.get("query_goal") or question or "").strip()
-        if goal:
-            row.append(_neutralize_selector_data(goal[:240]))
+        row.append(_neutralize_selector_data(goal[:240]) if goal else "")
         source_rows.append(row)
 
     parent_ids: dict[str, int] = {}
@@ -614,6 +624,11 @@ def encode_selector_transport(
         bool(dict(item.get("selector_semantic_flags") or {}).get("explicit_absence"))
         or bool(dict(item.get("selector_semantic_flags") or {}).get("observational_value"))
         or bool(dict(item.get("selector_semantic_flags") or {}).get("record_roles"))
+        for item in candidates
+        if isinstance(item, Mapping)
+    )
+    include_catalog_windows = any(
+        bool(item.get("catalog_window_memberships"))
         for item in candidates
         if isinstance(item, Mapping)
     )
@@ -723,6 +738,33 @@ def encode_selector_transport(
                     ]
                 )
             )
+        if include_catalog_windows:
+            memberships = []
+            for membership in candidate.get("catalog_window_memberships") or ():
+                if not isinstance(membership, Mapping):
+                    continue
+                membership_source_id = str(
+                    membership.get("source_requirement_id") or ""
+                )
+                if (
+                    membership_source_id not in source_index
+                    or str(
+                        requirements_by_id.get(membership_source_id, {}).get(
+                            "discovery_mode"
+                        )
+                        or ""
+                    )
+                    != "catalog_window"
+                ):
+                    continue
+                memberships.append(
+                    [
+                        source_index[membership_source_id],
+                        int(membership.get("position") or 0),
+                        int(membership.get("window_size") or 0),
+                    ]
+                )
+            candidate_row.append(memberships)
         candidate_rows.append(candidate_row)
 
     nonce = _registry_nonce(
@@ -737,7 +779,7 @@ def encode_selector_transport(
         "r": nonce,
         "q": str(question or "")[:1000],
         "d": str(dialog_context or "")[:3000],
-        "sc": ["i", "k", "e", "min", "max", "f", "g"],
+        "sc": ["i", "k", "e", "min", "max", "f", "dm", "by", "dir", "lim", "g"],
         "s": source_rows,
         "cc": [
             "i",
@@ -749,6 +791,7 @@ def encode_selector_transport(
             "p",
             "f",
             *(["x"] if include_semantic_flags else []),
+            *(["w"] if include_catalog_windows else []),
         ],
         "c": candidate_rows,
     }

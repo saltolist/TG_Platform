@@ -11,19 +11,29 @@ import pytest
 
 from app.services.agent.research.evidence import EvidenceRecord
 from app.services.agent.research.graph import (
+    PRECISION_CONFIRMATION_SYSTEM,
+    PRECISION_CONFIRMATION_VERSION,
     _attach_matched_selector_evidence,
+    _catalog_member_candidates,
     _compact_planner_node,
     _decode_precision_confirmation,
+    _is_inventory_answer_shape,
     _precision_confirmation_json_schema,
+    _precision_evidence_units,
     _render_precision_confirmation_registry,
     _semantic_selector_candidates,
     _unified_selector_decision_is_valid,
+    _uses_decision_input_precision,
 )
 from app.services.agent.research.material_plan import (
+    compile_material_plan,
     empty_material_plan,
     merge_material_plan,
+    next_evidence_escalation_batch,
     normalize_candidates,
     record_full_read_results,
+    schedule_evidence_escalation,
+    schedule_matched_evidence_recall_probes,
     schedule_selected_evidence_reassessment,
 )
 from app.services.agent.research.planner_decision import (
@@ -100,6 +110,12 @@ def _candidate(
     }
 
 
+def test_precision_category_entailment_is_semantic_but_source_grounded() -> None:
+    assert "semantic, not exact-string matching" in PRECISION_CONFIRMATION_SYSTEM
+    assert "same evidence explicitly states the property" in PRECISION_CONFIRMATION_SYSTEM
+    assert "Never manufacture the requested taxonomy" in PRECISION_CONFIRMATION_SYSTEM
+
+
 def _state(contract: dict, candidates: list[dict], *, material_plan: dict | None = None) -> dict:
     return {
         "user_text": "Что относится к теме?",
@@ -154,6 +170,7 @@ def _precision_output(
     *,
     contract: dict,
     complete_ref: str | None = None,
+    source_texts: dict[str, str] | None = None,
 ) -> str:
     transport = encode_selector_transport(
         question="Что относится к теме?",
@@ -175,37 +192,55 @@ def _precision_output(
         if len(positions) == 1
         else -1
     )
-    gates = [
-        (
+
+    def member_warrant(position: int) -> list[dict[str, object]]:
+        candidate = candidates[position]
+        ref = str(candidate["ref"])
+        text = str(
+            (source_texts or {}).get(ref)
+            or ((candidate.get("opened_evidence") or {}).get("text"))
+            or ((candidate.get("matched_evidence") or {}).get("text"))
+            or candidate.get("selector_summary")
+            or ""
+        )
+        units = _precision_evidence_units(text)
+        quote = units[0]["text"] if units else text.strip()
+        return [{"unit": 0, "quote": quote}]
+
+    gates = {
+        str(position): (
             {
                 "subject": True,
                 "relation": True,
                 "complete": True,
-                "relation_warrant": f"{position}.0",
-                "value_warrants": [f"{position}.0"],
+                "relation_warrant": 0,
+                "value_warrants": [0],
+                "member_warrants": member_warrant(position),
             }
             if position == complete_position
             else {
                 "subject": True,
                 "relation": True,
                 "complete": False,
-                "relation_warrant": f"{position}.0",
-                "value_warrants": [f"{position}.0"],
+                "relation_warrant": 0,
+                "value_warrants": [0],
+                "member_warrants": member_warrant(position),
             }
             if position in positions
             else {
                 "subject": False,
                 "relation": False,
                 "complete": False,
-                "relation_warrant": "-",
+                "relation_warrant": -1,
                 "value_warrants": [],
+                "member_warrants": [],
             }
         )
         for position in range(len(candidates))
-    ]
+    }
     return json.dumps(
         {
-            "v": 10,
+            "v": PRECISION_CONFIRMATION_VERSION,
             "n": len(candidates),
             "r": transport.mapping.registry_nonce,
             "g": gates,
@@ -264,12 +299,25 @@ def test_precision_subset_contract_rejects_noncanonical_positions() -> None:
         candidates=candidates,
     )
     mapping = transport.mapping
-    _, unit_counts = _render_precision_confirmation_registry(transport, candidates)
+    _, unit_counts, unit_sections, unit_texts = _render_precision_confirmation_registry(
+        transport, candidates
+    )
     schema = _precision_confirmation_json_schema(mapping, unit_counts)
     assert schema["properties"]["k"]["items"]["enum"] == [0, 1]
-    gate_schema = schema["properties"]["g"]["items"]["properties"]
-    assert gate_schema["relation_warrant"]["enum"] == ["-", "0.0", "1.0"]
-    assert gate_schema["value_warrants"]["items"]["enum"] == ["0.0", "1.0"]
+    gate_schema = schema["properties"]["g"]["properties"]["0"]["properties"]
+    assert gate_schema["relation_warrant"]["enum"] == [-1, 0]
+    assert gate_schema["value_warrants"]["items"]["enum"] == [0]
+    assert gate_schema["member_warrants"]["items"]["required"] == ["unit", "quote"]
+    assert "proof_shape" not in gate_schema
+    unequal_schema = _precision_confirmation_json_schema(mapping, (1, 3))
+    unequal_gates = unequal_schema["properties"]["g"]["properties"]
+    assert unequal_gates["0"]["properties"]["relation_warrant"]["enum"] == [-1, 0]
+    assert unequal_gates["1"]["properties"]["relation_warrant"]["enum"] == [
+        -1,
+        0,
+        1,
+        2,
+    ]
     assert "a" not in schema["properties"]
     assert "uniqueItems" not in schema["properties"]["k"]
     assert "minimum" not in schema["properties"]["k"]["items"]
@@ -278,18 +326,20 @@ def test_precision_subset_contract_rejects_noncanonical_positions() -> None:
         valid,
         mapping=mapping,
         unit_counts=unit_counts,
+        unit_sections=unit_sections,
+        unit_texts=unit_texts,
     )
     assert positions == (0,)
     assert errors == ()
 
     payload = json.loads(valid)
-    payload["g"][0]["relation_warrant"] = "1.0"
+    payload["g"]["0"]["relation_warrant"] = 1
     assert _decode_precision_confirmation(
         json.dumps(payload), mapping=mapping, unit_counts=unit_counts
     ) == (None, ("invalid_relation_warrant",))
 
     payload = json.loads(valid)
-    payload["g"][0]["value_warrants"] = ["1.0"]
+    payload["g"]["0"]["value_warrants"] = [1]
     assert _decode_precision_confirmation(
         json.dumps(payload), mapping=mapping, unit_counts=unit_counts
     ) == (None, ("invalid_value_warrants",))
@@ -314,15 +364,15 @@ def test_precision_subset_contract_rejects_noncanonical_positions() -> None:
         valid + "\nexplanation", mapping=mapping, unit_counts=unit_counts
     ) == (None, ("missing_frame",))
     payload = json.loads(valid)
-    payload["g"][0].update({"relation": False, "relation_warrant": "-"})
+    payload["g"]["0"].update({"relation": False, "relation_warrant": -1})
     assert _decode_precision_confirmation(
         json.dumps(payload), mapping=mapping, unit_counts=unit_counts
-    ) == (None, ("inconsistent_self_contained_gate",))
+    ) == (None, ("inconsistent_value_warrants",))
     payload = json.loads(valid)
-    payload["g"] = [
-        {"subject": True, "relation": True, "complete": True, "relation_warrant": "0.0", "value_warrants": ["0.0"]},
-        {"subject": True, "relation": True, "complete": False, "relation_warrant": "1.0", "value_warrants": ["1.0"]},
-    ]
+    payload["g"] = {
+        "0": {"subject": True, "relation": True, "complete": True, "relation_warrant": 0, "value_warrants": [0], "member_warrants": [{"unit": 0, "quote": "Selector summary for note:n1"}]},
+        "1": {"subject": True, "relation": True, "complete": False, "relation_warrant": 0, "value_warrants": [0], "member_warrants": [{"unit": 0, "quote": "Selector summary for note:n2"}]},
+    }
     payload["b"] = -1
     payload["k"] = [0, 1]
     assert _decode_precision_confirmation(
@@ -331,12 +381,14 @@ def test_precision_subset_contract_rejects_noncanonical_positions() -> None:
         None,
         ("inconsistent_composite_subset",),
     )
+
+
     payload = json.loads(valid)
     payload.update({"b": 1, "k": [1]})
-    payload["g"] = [
-        {"subject": True, "relation": True, "complete": True, "relation_warrant": "0.0", "value_warrants": ["0.0"]},
-        {"subject": True, "relation": True, "complete": True, "relation_warrant": "1.0", "value_warrants": ["1.0"]},
-    ]
+    payload["g"] = {
+        "0": {"subject": True, "relation": True, "complete": True, "relation_warrant": 0, "value_warrants": [0], "member_warrants": [{"unit": 0, "quote": "Selector summary for note:n1"}]},
+        "1": {"subject": True, "relation": True, "complete": True, "relation_warrant": 0, "value_warrants": [0], "member_warrants": [{"unit": 0, "quote": "Selector summary for note:n2"}]},
+    }
     assert _decode_precision_confirmation(
         json.dumps(payload), mapping=mapping, unit_counts=unit_counts
     ) == (
@@ -344,15 +396,111 @@ def test_precision_subset_contract_rejects_noncanonical_positions() -> None:
         (),
     )
     payload.update({"b": -1, "k": [0]})
-    payload["g"] = [
-        {"subject": True, "relation": True, "complete": False, "relation_warrant": "0.0", "value_warrants": ["0.0"]},
-        {"subject": False, "relation": False, "complete": False, "relation_warrant": "-", "value_warrants": []},
-    ]
+    payload["g"] = {
+        "0": {"subject": True, "relation": True, "complete": False, "relation_warrant": 0, "value_warrants": [0], "member_warrants": [{"unit": 0, "quote": "Selector summary for note:n1"}]},
+        "1": {"subject": False, "relation": False, "complete": False, "relation_warrant": -1, "value_warrants": [], "member_warrants": []},
+    }
     assert _decode_precision_confirmation(
         json.dumps(payload), mapping=mapping, unit_counts=unit_counts
     ) == (
         None,
         ("inconsistent_composite_subset",),
+    )
+
+
+def test_precision_non_inventory_does_not_require_member_level_provenance() -> None:
+    candidates = normalize_candidates([_candidate("note:record"), _candidate("note:other")])
+    contract = _contract(_source("workspace-notes"))
+    transport = encode_selector_transport(
+        question="Compare the two delivery variants.",
+        dialog_context="",
+        contract=contract,
+        candidates=candidates,
+    )
+    payload = json.loads(_precision_output(candidates, ["note:record"], contract=contract))
+    payload["r"] = transport.mapping.registry_nonce
+    selected_position = payload["b"]
+    payload["g"][str(selected_position)]["member_warrants"] = []
+
+    assert _decode_precision_confirmation(
+        json.dumps(payload), mapping=transport.mapping, unit_counts=(1, 1)
+    ) == ((selected_position,), ())
+
+
+def test_precision_inventory_cardinality_requires_distinct_verified_member_quotes() -> None:
+    candidates = normalize_candidates([_candidate("note:five"), _candidate("note:six")])
+    contract = {
+        **_contract(_source("workspace-notes")),
+        "answer_shape": {"kind": "inventory", "expected_member_count": 6},
+    }
+    transport = encode_selector_transport(
+        question="List all six functional zones.",
+        dialog_context="",
+        contract=contract,
+        candidates=candidates,
+    )
+    candidates[0]["opened_evidence"] = {
+        "text": "Functional zones: Alpha, Beta, Gamma, Delta, Epsilon."
+    }
+    candidates[1]["opened_evidence"] = {
+        "text": "Functional zones: Alpha, Beta, Gamma, Delta, Epsilon, **Zeta\u00a0Zone**."
+    }
+    _, unit_counts, unit_sections, unit_texts = _render_precision_confirmation_registry(
+        transport, candidates
+    )
+
+    def gate(names: list[str], *, complete: bool) -> dict:
+        return {
+            "subject": True,
+            "relation": True,
+            "complete": complete,
+            "relation_warrant": 0,
+            "value_warrants": [0],
+            "member_warrants": [{"unit": 0, "quote": name} for name in names],
+        }
+
+    five = ["Alpha", "Beta", "Gamma", "Delta", "Epsilon"]
+    six = [*five, "Zeta Zone"]
+    payload = {
+        "v": PRECISION_CONFIRMATION_VERSION,
+        "n": 2,
+        "r": transport.mapping.registry_nonce,
+        "g": {
+            "0": gate(five, complete=True),
+            "1": gate(six, complete=False),
+        },
+        "b": 0,
+        "k": [0],
+        "done": True,
+    }
+    decode_kwargs = {
+        "mapping": transport.mapping,
+        "unit_counts": unit_counts,
+        "unit_sections": unit_sections,
+        "unit_texts": unit_texts,
+        "inventory_shape": True,
+        "expected_member_count": 6,
+    }
+
+    assert _decode_precision_confirmation(json.dumps(payload), **decode_kwargs) == (
+        None,
+        ("wrong_member_cardinality",),
+    )
+
+    payload.update({"b": 1, "k": [1]})
+    payload["g"] = {
+        "0": gate(five, complete=False),
+        "1": gate(six, complete=True),
+    }
+    assert _decode_precision_confirmation(json.dumps(payload), **decode_kwargs) == ((1,), ())
+
+    payload["g"]["0"]["member_warrants"][0]["quote"] = "missing unselected member"
+    assert _decode_precision_confirmation(json.dumps(payload), **decode_kwargs) == ((1,), ())
+
+    payload["g"]["1"]["member_warrants"][-1]["quote"] = "missing member"
+    assert _decode_precision_confirmation(json.dumps(payload), **decode_kwargs) == (
+        None,
+        ("invalid_member_quote",),
     )
 
 
@@ -368,17 +516,319 @@ def test_precision_registry_excludes_discovery_ranking_metadata() -> None:
         candidates=candidates,
     )
 
-    rendered, unit_counts = _render_precision_confirmation_registry(
+    rendered, unit_counts, unit_sections, unit_texts = _render_precision_confirmation_registry(
         transport, candidates
     )
     payload = json.loads(rendered)
 
     assert [row["row"] for row in payload["rows"]] == [0, 1]
     assert payload["rows"][0]["evidence_units"] == [
-        {"id": "0.0", "text": "Selector summary for note:n1"}
+        {
+            "unit": 0,
+            "kind": "paragraph",
+            "section_path": "root",
+            "text": "Selector summary for note:n1",
+        }
     ]
+    assert payload["rows"][0]["query_focus_units"] == []
     assert unit_counts == (1, 1)
+    assert unit_sections == (("root",), ("root",))
+    assert unit_texts == (("Selector summary for note:n1",), ("Selector summary for note:n2",))
     assert "semantic_search" not in json.dumps(payload)
+
+
+def test_precision_registry_aligns_evidence_by_transport_ref_not_input_order() -> None:
+    candidates = normalize_candidates([_candidate("note:n1"), _candidate("note:n2")])
+    contract = _contract(_source("workspace-notes"))
+    transport = encode_selector_transport(
+        question="Which source contains the answer?",
+        dialog_context="",
+        contract=contract,
+        candidates=candidates,
+    )
+    candidates[0]["opened_evidence"] = {"text": "Evidence belonging to n1."}
+    candidates[1]["opened_evidence"] = {"text": "Evidence belonging to n2."}
+
+    rendered, _, _, unit_texts = _render_precision_confirmation_registry(
+        transport, list(reversed(candidates))
+    )
+    rows = json.loads(rendered)["rows"]
+
+    assert transport.mapping.candidate_refs == ("note:n1", "note:n2")
+    assert [row["evidence_units"][0]["text"] for row in rows] == [
+        "Evidence belonging to n1.",
+        "Evidence belonging to n2.",
+    ]
+    assert unit_texts == (
+        ("Evidence belonging to n1.",),
+        ("Evidence belonging to n2.",),
+    )
+
+
+def test_precision_registry_indexes_matched_units_without_replacing_full_text() -> None:
+    candidates = normalize_candidates([_candidate("note:n1"), _candidate("note:n2")])
+    contract = _contract(_source("workspace-notes"))
+    candidates[0]["opened_evidence"] = {
+        "text": """## Background
+
+Unrelated introduction.
+
+## Product areas
+
+The workspace consists of linked areas, each with its own role.
+
+Feed - current work.
+
+Notes - retained knowledge.
+
+## Appendix
+
+Unrelated closing material.
+""",
+        "digest": "1111111111111111",
+        "citation_path": "/note/global/n1/",
+        "source_revision": 1,
+        "owner_verified": True,
+        "status_verified": True,
+        "truncated": False,
+    }
+    candidates[0]["matched_evidence"] = {
+        "text": """The workspace consists of linked areas, each with its own role.
+
+Feed - current work.
+
+Notes - retained knowledge.""",
+        "digest": "2222222222222222",
+        "node_type": "note_chunk",
+        "source_revision": 1,
+        "rank": 1,
+        "truncated": False,
+    }
+    transport = encode_selector_transport(
+        question="List every functional area.",
+        dialog_context="",
+        contract=contract,
+        candidates=candidates,
+    )
+
+    rendered, unit_counts, unit_sections, unit_texts = _render_precision_confirmation_registry(
+        transport, candidates
+    )
+    row = json.loads(rendered)["rows"][0]
+
+    assert [unit["text"] for unit in row["query_focus_units"]] == [
+        "The workspace consists of linked areas, each with its own role.",
+        "Feed - current work.",
+        "Notes - retained knowledge.",
+    ]
+    assert [unit["unit"] for unit in row["query_focus_units"]] == [3, 4, 5]
+    assert [unit["text"] for unit in row["evidence_units"]] == [
+        "Background",
+        "Unrelated introduction.",
+        "Product areas",
+        "The workspace consists of linked areas, each with its own role.",
+        "Feed - current work.",
+        "Notes - retained knowledge.",
+        "Appendix",
+        "Unrelated closing material.",
+    ]
+    assert unit_counts == (8, 1)
+    assert unit_sections[0][3:6] == ("Product areas",) * 3
+    assert unit_texts[0][3:6] == tuple(
+        unit["text"] for unit in row["query_focus_units"]
+    )
+
+
+def test_precision_registry_indexes_multiple_scoped_chunks_from_one_source() -> None:
+    candidates = normalize_candidates([_candidate("note:n1"), _candidate("note:n2")])
+    contract = _contract(_source("workspace-notes"))
+    transport = encode_selector_transport(
+        question="Find all relevant sections.",
+        dialog_context="",
+        contract=contract,
+        candidates=candidates,
+    )
+    candidates[0]["opened_evidence"] = {
+        "text": "First relevant section.\n\nUnrelated middle.\n\nSecond relevant section."
+    }
+    candidates[0]["matched_evidence_units"] = [
+        {"text": "First relevant section."},
+        {"text": "Second relevant section."},
+    ]
+    rendered, _, _, _ = _render_precision_confirmation_registry(transport, candidates)
+    focus = json.loads(rendered)["rows"][0]["query_focus_units"]
+
+    assert [(item["unit"], item["text"]) for item in focus] == [
+        (0, "First relevant section."),
+        (2, "Second relevant section."),
+    ]
+
+
+def test_precision_units_preserve_sections_and_keep_fenced_blocks_atomic() -> None:
+    units = _precision_evidence_units(
+        """## Architecture
+
+The system has two roots.
+
+```text
+root one
+  child
+root two
+```
+
+## Interface
+
+The interface consists of linked zones.
+
+- Feed
+- Notes
+"""
+    )
+
+    assert [unit["kind"] for unit in units] == [
+        "heading",
+        "paragraph",
+        "code_block",
+        "heading",
+        "paragraph",
+        "list_item",
+        "list_item",
+    ]
+    assert units[2]["text"] == "root one\n  child\nroot two"
+    assert units[2]["section_path"] == "Architecture"
+    assert {unit["section_path"] for unit in units[3:]} == {"Interface"}
+
+
+def test_precision_decoder_requires_structurally_scoped_grouped_warrants() -> None:
+    candidates = normalize_candidates([_candidate("note:n1"), _candidate("note:n2")])
+    contract = _contract(_source("workspace-notes"))
+    transport = encode_selector_transport(
+        question="List the members.",
+        dialog_context="",
+        contract=contract,
+        candidates=candidates,
+    )
+    payload = json.loads(
+        _precision_output(candidates, ["note:n1"], contract=contract)
+    )
+    payload["r"] = transport.mapping.registry_nonce
+    payload["g"]["0"].update(
+        {
+            "relation_warrant": 0,
+            "value_warrants": [1],
+            "member_warrants": [{"unit": 1, "quote": "member one"}],
+        }
+    )
+    unit_counts = (3, 1)
+    unit_sections = (("section-a", "section-a", "section-b"), ("root",))
+
+    assert _decode_precision_confirmation(
+        json.dumps(payload),
+        mapping=transport.mapping,
+        unit_counts=unit_counts,
+        unit_sections=unit_sections,
+    ) == ((0,), ())
+
+    payload["g"]["0"]["value_warrants"] = [0, 1]
+    payload["g"]["0"]["member_warrants"] = [
+        {"unit": 0, "quote": "scope"},
+        {"unit": 1, "quote": "member one"},
+    ]
+    assert _decode_precision_confirmation(
+        json.dumps(payload),
+        mapping=transport.mapping,
+        unit_counts=unit_counts,
+        unit_sections=unit_sections,
+    ) == (None, ("inconsistent_proof_shape",))
+
+    payload["g"]["0"]["value_warrants"] = [2]
+    payload["g"]["0"]["member_warrants"] = [{"unit": 2, "quote": "member two"}]
+    assert _decode_precision_confirmation(
+        json.dumps(payload),
+        mapping=transport.mapping,
+        unit_counts=unit_counts,
+        unit_sections=unit_sections,
+    ) == (None, ("cross_section_value_warrants",))
+
+
+def test_precision_grouped_inventory_uses_distinct_member_units_as_provenance() -> None:
+    candidates = normalize_candidates([_candidate("note:n1"), _candidate("note:n2")])
+    contract = {
+        **_contract(_source("workspace-notes")),
+        "answer_shape": {"kind": "inventory", "expected_member_count": 2},
+    }
+    transport = encode_selector_transport(
+        question="List both areas.",
+        dialog_context="",
+        contract=contract,
+        candidates=candidates,
+    )
+    payload = json.loads(_precision_output(candidates, ["note:n1"], contract=contract))
+    payload["r"] = transport.mapping.registry_nonce
+    payload["g"]["0"].update(
+        {
+            "relation_warrant": 0,
+            "value_warrants": [1, 2],
+            "member_warrants": [
+                {"unit": 1, "quote": ""},
+                {"unit": 2, "quote": ""},
+            ],
+        }
+    )
+    decode_kwargs = {
+        "mapping": transport.mapping,
+        "unit_counts": (3, 1),
+        "unit_sections": (("areas", "areas", "areas"), ("root",)),
+        "unit_texts": (("Areas", "First area", "Second area"), ("Other",)),
+        "inventory_shape": True,
+        "expected_member_count": 2,
+    }
+
+    assert _decode_precision_confirmation(json.dumps(payload), **decode_kwargs) == (
+        (0,),
+        (),
+    )
+
+    payload["g"]["0"].update(
+        {
+            "relation_warrant": 1,
+            "value_warrants": [1, 2],
+            "member_warrants": [
+                {"unit": 1, "quote": ""},
+                {"unit": 2, "quote": ""},
+            ],
+        }
+    )
+    assert _decode_precision_confirmation(json.dumps(payload), **decode_kwargs) == (
+        (0,),
+        (),
+    )
+
+    cross_section_kwargs = {
+        **decode_kwargs,
+        "unit_sections": (("areas", "areas", "appendix"), ("root",)),
+    }
+    assert _decode_precision_confirmation(
+        json.dumps(payload), **cross_section_kwargs
+    ) == (None, ("cross_section_value_warrants",))
+
+    payload["g"]["0"]["value_warrants"] = [0, 1, 2]
+    assert _decode_precision_confirmation(json.dumps(payload), **decode_kwargs) == (
+        (0,),
+        (),
+    )
+
+    payload["g"]["0"]["value_warrants"] = [2, 1, 2]
+    assert _decode_precision_confirmation(json.dumps(payload), **decode_kwargs) == (
+        (0,),
+        (),
+    )
+
+    payload["g"]["0"]["member_warrants"][1]["unit"] = 1
+    assert _decode_precision_confirmation(json.dumps(payload), **decode_kwargs) == (
+        None,
+        ("invalid_member_warrants",),
+    )
 
 
 def test_selector_schema_requires_complete_typed_assessments() -> None:
@@ -481,6 +931,148 @@ def test_candidate_envelope_separates_inclusion_score_sources_and_parent() -> No
     assert "full_text" in envelope["available_fidelity"]
 
 
+@pytest.mark.asyncio
+async def test_catalog_window_candidates_preserve_source_local_member_positions() -> None:
+    members = [
+        {"id": "newest", "revision": 1},
+        {"id": "older", "revision": 1},
+    ]
+    cards = [
+        _candidate("post:older", source="recent-posts", origin="catalog_member", score=None),
+        _candidate("post:newest", source="recent-posts", origin="catalog_member", score=None),
+    ]
+    with (
+        patch(
+            "app.services.agent.research.graph.resolve_current_source_revisions",
+            new_callable=AsyncMock,
+            return_value={},
+        ),
+        patch(
+            "app.services.agent.research.graph.load_discovery_cards_for_objects",
+            new_callable=AsyncMock,
+            return_value=cards,
+        ),
+    ):
+        candidates, fresh_count = await _catalog_member_candidates(
+            AsyncMock(),
+            user_id="user",
+            tenant_key=None,
+            kind="posts",
+            members=members,
+            source_id="recent-posts",
+            typed_catalog=True,
+            catalog_window={"discovery_mode": "catalog_window"},
+        )
+
+    assert fresh_count == 2
+    memberships = {
+        item["ref"]: item["catalog_window_memberships"][0] for item in candidates
+    }
+    assert memberships == {
+        "post:newest": {
+            "source_requirement_id": "recent-posts",
+            "position": 1,
+            "window_size": 2,
+        },
+        "post:older": {
+            "source_requirement_id": "recent-posts",
+            "position": 2,
+            "window_size": 2,
+        },
+    }
+
+
+def test_catalog_window_order_survives_candidate_merge_and_selector_transport() -> None:
+    source = {
+        **_source("recent-posts", evidence="required", maximum=4),
+        "query_goal": "Observe recent output history before choosing the next artifact.",
+        "discovery_mode": "catalog_window",
+        "order_by": "created_at",
+        "order_direction": "desc",
+        "budget": {"candidate_limit": 4},
+    }
+    window_candidate = {
+        **_candidate("post:p1", source="recent-posts", origin="catalog_member", score=None),
+        "catalog_window_memberships": [
+            {
+                "source_requirement_id": "recent-posts",
+                "position": 1,
+                "window_size": 4,
+            }
+        ],
+    }
+    candidates = normalize_candidates(
+        [window_candidate, _candidate("post:p1", source="semantic-posts")]
+    )
+
+    assert candidates[0]["catalog_window_memberships"] == [
+        {
+            "source_requirement_id": "recent-posts",
+            "position": 1,
+            "window_size": 4,
+        }
+    ]
+    transport = encode_selector_transport(
+        question="What should the next artifact be?",
+        dialog_context="",
+        contract=_contract(source, _source("semantic-posts")),
+        candidates=candidates,
+    )
+    source_row = dict(zip(transport.payload["sc"], transport.payload["s"][0]))
+    candidate_row = dict(zip(transport.payload["cc"], transport.payload["c"][0]))
+
+    assert source_row | {} == {
+        "i": 0,
+        "k": "p",
+        "e": "r",
+        "min": 0,
+        "max": 4,
+        "f": "s",
+        "g": "Observe recent output history before choosing the next artifact.",
+        "dm": "w",
+        "by": "created_at",
+        "dir": "desc",
+        "lim": 4,
+    }
+    assert candidate_row["w"] == [[0, 1, 4]]
+
+
+def test_semantic_source_transport_has_no_catalog_window_membership_signal() -> None:
+    candidates = normalize_candidates([_candidate("post:p1", source="semantic-posts")])
+    transport = encode_selector_transport(
+        question="Which post states the requested fact?",
+        dialog_context="",
+        contract=_contract(_source("semantic-posts")),
+        candidates=candidates,
+    )
+
+    assert "w" not in transport.payload["cc"]
+    source_row = dict(zip(transport.payload["sc"], transport.payload["s"][0]))
+    assert source_row["dm"] == "s"
+
+
+def test_workspace_synthesis_inventory_shape_does_not_enable_finite_inventory_proof() -> None:
+    contract = {
+        **_contract(_source("recent-posts")),
+        "task_profile": "workspace_synthesis",
+        "answer_shape": {"kind": "inventory", "expected_member_count": None},
+    }
+
+    assert _is_inventory_answer_shape(contract) is False
+    assert _uses_decision_input_precision(contract) is True
+
+
+def test_finite_inventory_uses_factual_precision_even_with_synthesis_profile() -> None:
+    contract = {
+        **_contract(_source("workspace-notes")),
+        "task_profile": "workspace_synthesis",
+        "answer_shape": {"kind": "inventory", "expected_member_count": 6},
+    }
+
+    assert _is_inventory_answer_shape(contract) is True
+    assert _uses_decision_input_precision(contract) is False
+
+
 def test_unique_semantic_candidate_preserves_query_evidence_provenance() -> None:
     envelope = normalize_candidates([_candidate("note:n1")])[0]
 
@@ -528,6 +1120,56 @@ async def test_first_pass_matched_evidence_uses_unique_semantic_candidate() -> N
 
     assert augmented[0]["matched_evidence"]["text"].startswith("Two delivery contours")
     assert telemetry[0]["ref"] == "note:n1"
+
+
+@pytest.mark.asyncio
+async def test_matched_evidence_retains_bounded_ranked_chunks_per_object() -> None:
+    class SessionContext:
+        async def __aenter__(self):
+            return AsyncMock()
+
+        async def __aexit__(self, *_args):
+            return None
+
+    candidates = normalize_candidates([_candidate("note:n1")])
+    ctx = SimpleNamespace(
+        session_factory=SessionContext,
+        user_id="user",
+        scope="global",
+        embedding_backend=AsyncMock(),
+        tenant_key=None,
+        post_data=None,
+        min_similarity=0.38,
+        scope_bias=0.0,
+    )
+    hits = [
+        {
+            "node_type": "note_chunk",
+            "note_id": "n1",
+            "chunk_text": f"Relevant chunk {index}",
+            "index_revision": 1,
+        }
+        for index in range(4)
+    ]
+    with patch(
+        "app.services.agent.research.graph.retrieve_for_discovery",
+        new_callable=AsyncMock,
+        return_value=hits,
+    ):
+        augmented, telemetry = await _attach_matched_selector_evidence(
+            ctx=ctx,
+            question="Find the relevant detail.",
+            candidates=candidates,
+        )
+
+    assert [item["text"] for item in augmented[0]["matched_evidence_units"]] == [
+        "Relevant chunk 0",
+        "Relevant chunk 1",
+        "Relevant chunk 2",
+    ]
+    assert augmented[0]["matched_evidence"]["text"] == "Relevant chunk 0"
+    assert telemetry[0]["focus_chunk_count"] == 3
+    assert telemetry[0]["focus_chunk_ranks"] == [1, 2, 3]
 
 
 @pytest.mark.asyncio
@@ -918,7 +1560,15 @@ async def test_opened_reassessment_runs_independent_precision_for_multiple_selec
         contract=contract,
         source_status="s",
     )
-    confirmation = _precision_output(candidates, ["note:n1"], contract=contract)
+    confirmation = _precision_output(
+        candidates,
+        ["note:n1"],
+        contract=contract,
+        source_texts={
+            str(candidate["ref"]): f"Isolated verified evidence for {candidate['ref']}."
+            for candidate in candidates
+        },
+    )
     state = {
         **_state(contract, candidates, material_plan=plan),
         "planner_calls_used": 1,
@@ -994,7 +1644,7 @@ async def test_precision_keeps_one_complete_source_over_partial_related_and_back
         source_status="s",
     )
     confirmation = _precision_output(
-        candidates, ["note:complete"], contract=contract
+        candidates, ["note:complete"], contract=contract, source_texts=contents
     )
     state = {
         **_state(contract, candidates, material_plan=plan),
@@ -1058,24 +1708,37 @@ async def test_precision_keeps_indispensable_plan_and_completed_history_premises
     candidates = normalize_candidates(
         [
             _candidate("note:planned-sequence"),
-            _candidate("post:completed-history", source="workspace-posts"),
+            _candidate("post:completed-alpha", source="workspace-posts"),
+            _candidate("post:completed-beta", source="workspace-posts"),
+            _candidate("note:independent-constraint"),
             _candidate("note:related-background"),
+            _candidate("post:unrelated-history", source="workspace-posts"),
         ]
     )
-    contract = _contract(
-        _source("workspace-notes", minimum=1, evidence="required"),
-        _source("workspace-posts", minimum=1, evidence="required"),
-        planner_calls=2,
-    )
+    note_source = _source("workspace-notes", minimum=1, evidence="required")
+    post_source = _source("workspace-posts", minimum=1, evidence="required")
+    for source in (note_source, post_source):
+        source["discovery_mode"] = "catalog_window"
+    contract = _contract(note_source, post_source, planner_calls=2)
+    contract["task_profile"] = "recommendation"
     contents = {
         "note:planned-sequence": (
             "Planned sequence\n\nThe backlog orders Alpha before Beta and Gamma."
         ),
-        "post:completed-history": (
-            "Completed history\n\nAlpha has already been published; Beta and Gamma remain."
+        "post:completed-alpha": (
+            "Published result\n\nAlpha from the planned sequence has already been published."
+        ),
+        "post:completed-beta": (
+            "Published result\n\nBeta from the planned sequence has already been published."
+        ),
+        "note:independent-constraint": (
+            "Editorial constraint\n\nGamma must precede Delta because Delta assumes Gamma."
         ),
         "note:related-background": (
             "Related background\n\nAlpha, Beta, and Gamma belong to the same broad program."
+        ),
+        "post:unrelated-history": (
+            "Published result\n\nA separate campaign used a neighboring broad topic."
         ),
     }
     plan, records = _opened_reassessment_fixture(candidates, contents)
@@ -1090,8 +1753,93 @@ async def test_precision_keeps_indispensable_plan_and_completed_history_premises
     )
     confirmation = _precision_output(
         candidates,
-        ["note:planned-sequence", "post:completed-history"],
+        [
+            "note:planned-sequence",
+            "post:completed-alpha",
+            "post:completed-beta",
+            "note:independent-constraint",
+        ],
         contract=contract,
+        source_texts=contents,
+    )
+    state = {
+        **_state(contract, candidates, material_plan=plan),
+        "planner_calls_used": 1,
+        "evidence_records": records,
+    }
+    with (
+        patch(
+            "app.services.agent.research.graph._attach_matched_selector_evidence",
+            new_callable=AsyncMock,
+            return_value=(candidates, []),
+        ),
+        patch(
+            "app.services.agent.runtime.budget.call_llm_with_deadline",
+            new_callable=AsyncMock,
+            side_effect=[reassessment, confirmation],
+        ),
+    ):
+        result = await _compact_planner_node(
+            state,
+            {"configurable": {"runtime_context": _ctx(), "turn_contract": contract}},
+        )
+
+    assert {
+        item["ref"]
+        for item in result["material_plan"]["assessments"]
+        if item["relevance"] != "irrelevant"
+    } == {
+        "note:planned-sequence",
+        "post:completed-alpha",
+        "post:completed-beta",
+        "note:independent-constraint",
+    }
+    precision = result["planner_steps"][-1]["precision_confirmation"]
+    assert set(precision["confirmed_refs"]) == {
+        "note:planned-sequence",
+        "post:completed-alpha",
+        "post:completed-beta",
+        "note:independent-constraint",
+    }
+    assert set(precision["demoted_refs"]) == {
+        "note:related-background",
+        "post:unrelated-history",
+    }
+
+
+@pytest.mark.asyncio
+async def test_decision_input_precision_rejects_missing_required_window_source() -> None:
+    candidates = normalize_candidates(
+        [
+            _candidate("note:plan"),
+            _candidate("post:history", source="workspace-posts"),
+        ]
+    )
+    note_source = _source("workspace-notes", minimum=1, evidence="required")
+    post_source = _source("workspace-posts", minimum=1, evidence="required")
+    for source in (note_source, post_source):
+        source["discovery_mode"] = "catalog_window"
+    contract = _contract(note_source, post_source, planner_calls=2)
+    contract["task_profile"] = "recommendation"
+    contents = {
+        "note:plan": "Planned sequence\n\nGamma follows Alpha.",
+        "post:history": "Published history\n\nAlpha has already been published.",
+    }
+    plan, records = _opened_reassessment_fixture(candidates, contents)
+    reassessment = _wire_output(
+        candidates,
+        {
+            str(candidate["ref"]): ("d", "a", "f", 0.9, "e")
+            for candidate in candidates
+        },
+        contract=contract,
+        source_status="s",
+    )
+    confirmation = _precision_output(
+        candidates,
+        ["note:plan"],
+        contract=contract,
+        source_texts=contents,
     )
     state = {
         **_state(contract, candidates, material_plan=plan),
@@ -1119,13 +1867,13 @@ async def test_precision_keeps_indispensable_plan_and_completed_history_premises
         item["ref"]
         for item in result["material_plan"]["assessments"]
         if item["relevance"] != "irrelevant"
-    ] == ["note:planned-sequence", "post:completed-history"]
+    ] == []
     precision = result["planner_steps"][-1]["precision_confirmation"]
-    assert precision["confirmed_refs"] == [
-        "note:planned-sequence",
-        "post:completed-history",
+    assert precision["schema_result"] == "invalid_transport"
+    assert precision["validation_error_codes"] == [
+        "incomplete_decision_source_coverage"
     ]
-    assert precision["demoted_refs"] == ["note:related-background"]
+    assert precision["missing_required_source_ids"] == ["workspace-posts"]
 
 
 @pytest.mark.asyncio
@@ -1471,6 +2219,83 @@ async def test_required_source_negative_opens_candidate_before_accepting_absence
     ]
 
 
+def test_decision_input_catalog_window_opens_reasoner_requested_rows_in_one_batch() -> None:
+    candidates = normalize_candidates(
+        [
+            _candidate("note:plan"),
+            _candidate("note:background"),
+            _candidate("post:recent-one", source="workspace-posts"),
+            _candidate("post:recent-two", source="workspace-posts"),
+            _candidate("post:topic-only", source="workspace-posts"),
+        ]
+    )
+    positions = {
+        "note:plan": 2,
+        "note:background": 1,
+        "post:recent-one": 1,
+        "post:recent-two": 2,
+        "post:topic-only": 3,
+    }
+    for candidate in candidates:
+        source_id = str(candidate["source_requirement_id"])
+        candidate["catalog_window_memberships"] = [
+            {
+                "source_requirement_id": source_id,
+                "position": positions[str(candidate["ref"])],
+                "window_size": 3,
+            }
+        ]
+        candidate["available_fidelity"] = ["semantic_card", "full_text"]
+    note_source = _source("workspace-notes", minimum=1, evidence="required")
+    post_source = _source("workspace-posts", minimum=1, evidence="required")
+    for source in (note_source, post_source):
+        source["discovery_mode"] = "catalog_window"
+    contract = _contract(note_source, post_source, planner_calls=2)
+    contract["task_profile"] = "recommendation"
+    plan = merge_material_plan(
+        empty_material_plan(),
+        candidates=candidates,
+        assessments=[
+            {
+                "ref": candidate["ref"],
+                "relevance": "irrelevant",
+                "role": "none",
+                "resolution": "none",
+                "confidence": 1.0,
+                "reason_code": (
+                    "topic_only"
+                    if candidate["ref"] in {"note:background", "post:topic-only"}
+                    else "search_more"
+                ),
+            }
+            for candidate in candidates
+        ],
+    )
+    plan["source_dispositions"] = [
+        {"source_id": "workspace-notes", "status": "search_more"},
+        {"source_id": "workspace-posts", "status": "search_more"},
+    ]
+
+    result, refs = schedule_evidence_escalation(
+        plan,
+        contract=contract,
+        deep_reads_remaining=4,
+        planner_calls_remaining=1,
+    )
+
+    assert refs == [
+        "post:recent-one",
+        "note:plan",
+        "post:recent-two",
+    ]
+    assert next_evidence_escalation_batch(result) == refs
+    assert "note:background" not in refs
+    assert "post:topic-only" not in refs
+    assert result["runtime_trace"][-1]["strategy"] == (
+        "reasoner_requested_catalog_window_evidence"
+    )
+
+
 @pytest.mark.asyncio
 async def test_selected_full_text_opens_before_negative_source_probe() -> None:
     candidates = normalize_candidates(
@@ -1566,6 +2391,230 @@ def test_completed_selected_reads_schedule_reassessment_without_a_negative_sourc
     assert result["needs_evidence_reassessment"] is True
     assert result["evidence_escalation_reassess_refs"] == sorted(refs)
     assert result["runtime_trace"][-1]["reason"] == "minimal_verified_opened_set"
+
+
+def test_matched_evidence_probes_fill_spare_budget_and_join_one_reassessment() -> None:
+    candidates = normalize_candidates(
+        [
+            _candidate("note:selected"),
+            _candidate("note:selected-two"),
+            _candidate("note:rank-one"),
+            _candidate("note:rank-three"),
+            _candidate("note:rank-four"),
+            _candidate("note:rank-five"),
+        ]
+    )
+    ranks = {
+        "note:selected": 2,
+        "note:selected-two": 6,
+        "note:rank-one": 1,
+        "note:rank-three": 3,
+        "note:rank-four": 4,
+        "note:rank-five": 5,
+    }
+    for candidate in candidates:
+        candidate["matched_evidence_rank"] = ranks[str(candidate["ref"])]
+    source = _source("workspace-notes", minimum=1, evidence="required")
+    source["required_fidelity"] = "full_text"
+    contract = _contract(source)
+    contract["budgets"]["deep_reads"] = 5
+    assessments = [
+        {
+            "ref": str(candidate["ref"]),
+            "relevance": (
+                "direct"
+                if candidate["ref"] in {"note:selected", "note:selected-two"}
+                else "irrelevant"
+            ),
+            "role": (
+                "answer_evidence"
+                if candidate["ref"] in {"note:selected", "note:selected-two"}
+                else "none"
+            ),
+            "resolution": (
+                "full_text"
+                if candidate["ref"] in {"note:selected", "note:selected-two"}
+                else "none"
+            ),
+            "confidence": 0.9,
+            "reason_code": (
+                "exact_fact"
+                if candidate["ref"] in {"note:selected", "note:selected-two"}
+                else "topic_only"
+            ),
+        }
+        for candidate in candidates
+    ]
+    plan = compile_material_plan(
+        empty_material_plan(),
+        candidates=candidates,
+        assessments=assessments,
+        source_dispositions=[
+            {"source_id": "workspace-notes", "status": "selected"}
+        ],
+        contract=contract,
+    )
+
+    plan = schedule_matched_evidence_recall_probes(
+        plan,
+        contract=contract,
+        deep_reads_remaining=5,
+    )
+
+    assert plan["matched_evidence_recall_refs"] == [
+        "note:rank-one",
+        "note:rank-three",
+        "note:rank-four",
+    ]
+    assert plan["pending_full_text_ids"] == [
+        "note:selected",
+        "note:selected-two",
+        "note:rank-one",
+        "note:rank-three",
+        "note:rank-four",
+    ]
+    assert "note:rank-five" not in plan["pending_full_text_ids"]
+
+    opened = list(plan["pending_full_text_ids"])
+    plan = record_full_read_results(plan, opened=opened, batch=opened)
+    result = schedule_selected_evidence_reassessment(
+        plan,
+        contract=contract,
+        opened=opened,
+    )
+
+    assert result["evidence_escalation_reassess_refs"] == opened
+    assert result["runtime_trace"][-1]["probe_refs"] == [
+        "note:rank-one",
+        "note:rank-three",
+        "note:rank-four",
+    ]
+
+
+def test_matched_evidence_probes_do_not_expand_a_single_selected_source() -> None:
+    by_ref = {
+        str(candidate["ref"]): candidate
+        for candidate in normalize_candidates(
+            [_candidate("note:selected"), _candidate("note:probe")]
+        )
+    }
+    selected = by_ref["note:selected"]
+    probe = by_ref["note:probe"]
+    probe["matched_evidence_rank"] = 1
+    source = _source("workspace-notes", minimum=1, evidence="required")
+    source["required_fidelity"] = "full_text"
+    contract = _contract(source)
+    plan = compile_material_plan(
+        empty_material_plan(),
+        candidates=[selected, probe],
+        assessments=[
+            {
+                "ref": selected["ref"],
+                "relevance": "direct",
+                "role": "answer_evidence",
+                "resolution": "full_text",
+                "confidence": 0.9,
+                "reason_code": "exact_fact",
+            },
+            {
+                "ref": probe["ref"],
+                "relevance": "irrelevant",
+                "role": "none",
+                "resolution": "none",
+                "confidence": 0.9,
+                "reason_code": "topic_only",
+            },
+        ],
+        source_dispositions=[
+            {"source_id": "workspace-notes", "status": "selected"}
+        ],
+        contract=contract,
+    )
+
+    result = schedule_matched_evidence_recall_probes(
+        plan,
+        contract=contract,
+        deep_reads_remaining=3,
+    )
+
+    assert "matched_evidence_recall_refs" not in result
+    assert result["pending_full_text_ids"] == ["note:selected"]
+
+
+@pytest.mark.asyncio
+async def test_selector_schedules_ranked_recall_probes_without_an_extra_llm_call() -> None:
+    candidates = normalize_candidates(
+        [
+            _candidate("note:selected"),
+            _candidate("note:selected-two"),
+            _candidate("note:rank-one"),
+            _candidate("note:rank-three"),
+            _candidate("note:rank-four"),
+        ]
+    )
+    ranks = {
+        "note:selected": 2,
+        "note:selected-two": 5,
+        "note:rank-one": 1,
+        "note:rank-three": 3,
+        "note:rank-four": 4,
+    }
+    for candidate in candidates:
+        rank = ranks[str(candidate["ref"])]
+        candidate["matched_evidence_rank"] = rank
+        candidate["matched_evidence"] = {
+            "text": f"Matched evidence for {candidate['ref']}",
+            "rank": rank,
+            "node_type": "note_chunk",
+            "source_revision": 1,
+            "digest": f"{rank:016x}",
+            "truncated": False,
+        }
+    source = _source("workspace-notes", minimum=1, evidence="required")
+    source["required_fidelity"] = "full_text"
+    contract = _contract(source)
+    contract["budgets"]["deep_reads"] = 5
+    primary = _wire_output(
+        candidates,
+        {
+            "note:selected": ("d", "a", "f", 0.9, "e"),
+            "note:selected-two": ("d", "a", "f", 0.9, "e"),
+            "note:rank-one": ("i", "n", "n", 0.9, "t"),
+            "note:rank-three": ("i", "n", "n", 0.9, "t"),
+            "note:rank-four": ("i", "n", "n", 0.9, "t"),
+        },
+        contract=contract,
+        source_status="s",
+    )
+    with (
+        patch(
+            "app.services.agent.research.graph._attach_matched_selector_evidence",
+            new_callable=AsyncMock,
+            return_value=(candidates, []),
+        ),
+        patch(
+            "app.services.agent.runtime.budget.call_llm_with_deadline",
+            new_callable=AsyncMock,
+            return_value=primary,
+        ) as selector,
+    ):
+        result = await _compact_planner_node(
+            {
+                **_state(contract, candidates),
+                "verified_pack_boundary_enabled": True,
+            },
+            {"configurable": {"runtime_context": _ctx(), "turn_contract": contract}},
+        )
+
+    assert selector.await_count == 1
+    assert result["material_plan"]["matched_evidence_recall_refs"] == [
+        "note:rank-one",
+        "note:rank-three",
+        "note:rank-four",
+    ]
+    assert [
+        action["args"]["note_id"] for action in result["tool_action"]["actions"]
+    ] == ["selected", "selected-two", "rank-one"]
 
 
 def test_failed_required_read_is_demoted_before_opened_set_reassessment() -> None:

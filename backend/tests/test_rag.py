@@ -298,6 +298,45 @@ async def test_retrieve_top_k_deduplication():
 
 
 @pytest.mark.asyncio
+async def test_retrieve_top_k_preserves_chunks_for_scoped_object_search():
+    mock_session = AsyncMock()
+    ext_result = MagicMock()
+    ext_result.scalar_one_or_none.return_value = "vector"
+
+    class FakeRow:
+        def __init__(self, chunk_index, similarity):
+            self.note_id = "note1"
+            self.post_id = None
+            self.chunk_index = chunk_index
+            self.tenant_key = ""
+            self.node_type = "note_chunk"
+            self.file_id = ""
+            self.chunk_text = f"chunk-{chunk_index}"
+            self.referenced_ids = []
+            self.similarity = similarity
+
+    rows_result = MagicMock()
+    rows_result.fetchall.return_value = [FakeRow(0, 0.9), FakeRow(2, 0.8)]
+    mock_session.execute = AsyncMock(side_effect=[ext_result, rows_result])
+
+    result = await retrieve_top_k(
+        session=mock_session,
+        user_id=uuid.uuid4(),
+        scope="global",
+        query_vec=[0.1] * 384,
+        model_key="local:multilingual-e5-small",
+        k=4,
+        min_similarity=0.72,
+        object_ids=frozenset({"note1"}),
+    )
+
+    assert [(item["note_id"], item["chunk_index"]) for item in result] == [
+        ("note1", 0),
+        ("note1", 2),
+    ]
+
+
+@pytest.mark.asyncio
 async def test_retrieve_top_k_dedup_by_node_type_and_file_id():
     """Same note_id with different node_type/file_id should not collapse."""
     from unittest.mock import AsyncMock, MagicMock

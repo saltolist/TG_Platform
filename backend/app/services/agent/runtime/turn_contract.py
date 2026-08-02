@@ -249,6 +249,17 @@ class EvidenceRequirement(_ContractModel):
     scope: Literal["source", "target", "member", "corpus", "aggregate"]
 
 
+class AnswerShape(_ContractModel):
+    kind: Literal["freeform", "scalar", "record", "inventory"] = "freeform"
+    expected_member_count: int | None = Field(default=None, ge=1, le=100)
+
+    @model_validator(mode="after")
+    def validate_member_count(self) -> "AnswerShape":
+        if self.kind != "inventory" and self.expected_member_count is not None:
+            raise ValueError("only inventory answers may declare a member count")
+        return self
+
+
 class SourceRequirementV3(_ContractModel):
     source_id: str = Field(min_length=1)
     kind: SourceKind
@@ -277,12 +288,19 @@ class SourceRequirementV3(_ContractModel):
         if self.evidence_obligation == "optional" and self.selection_cardinality.min > 0:
             raise ValueError("optional evidence cannot require a positive selection minimum")
         if self.discovery_mode == "catalog_window":
-            if self.kind != "posts" or self.scope.mode != "corpus":
-                raise ValueError("catalog_window is supported only for the posts corpus")
+            descriptor = get_resource_descriptor(self.kind)
+            if (
+                descriptor is None
+                or not descriptor.catalog_order_fields
+                or self.scope.mode != "corpus"
+            ):
+                raise ValueError("catalog_window requires an ordered catalog capability")
             if self.predicate_kind != "semantic":
                 raise ValueError("catalog_window supports semantic comparison only")
             if self.order_by is None or self.order_direction is None:
                 raise ValueError("catalog_window requires order_by and order_direction")
+            if self.order_by not in descriptor.catalog_order_fields:
+                raise ValueError("catalog_window order_by is unsupported by the resource")
             if self.coverage != "relevant":
                 raise ValueError("catalog_window is bounded relevant coverage, not complete coverage")
         elif self.order_by is not None or self.order_direction is not None:
@@ -404,6 +422,7 @@ class TurnContractV3(_ContractModel):
     plan_decision: ContractPlanDecision
     answer_requires: tuple[str, ...]
     output_schema: str
+    answer_shape: AnswerShape = Field(default_factory=AnswerShape)
     execution_mode: ExecutionMode
     budgets: RunBudget
     # Stable compatibility surface unrelated to source-obligation semantics.

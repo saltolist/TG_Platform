@@ -21,6 +21,7 @@ from app.services.agent.runtime.turn_contract import (
 )
 from app.services.agent.runtime.workspace_graph import (
     WORKSPACE_SYSTEM,
+    _apply_classifier_answer_shape,
     _apply_classifier_source_policy,
 )
 
@@ -84,6 +85,24 @@ def test_v3_separates_all_source_obligations_and_writes_no_legacy_triplet() -> N
         not {"required", "min_evidence", "evidence_granularity"}.intersection(source)
         for source in contract["source_requirements"]
     )
+
+
+def test_classifier_answer_shape_preserves_explicit_inventory_cardinality() -> None:
+    contract = _typed_contract("List the requested category.")
+
+    shaped = _apply_classifier_answer_shape(
+        contract,
+        {"kind": "inventory", "expected_member_count": 6},
+    )
+
+    assert shaped["answer_shape"] == {
+        "kind": "inventory",
+        "expected_member_count": 6,
+    }
+    assert _apply_classifier_answer_shape(
+        shaped,
+        {"kind": "scalar", "expected_member_count": 6},
+    )["answer_shape"] == {"kind": "scalar", "expected_member_count": None}
 
 
 def test_mixed_predicate_keeps_structural_requirements_on_typed_planner_route() -> None:

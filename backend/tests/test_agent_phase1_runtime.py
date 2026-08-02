@@ -138,6 +138,44 @@ async def test_worker_warmup_constructs_model_and_performs_real_embed(
     assert embedded == ["workspace agent worker readiness probe"]
 
 
+@pytest.mark.asyncio
+async def test_interactive_worker_readiness_warms_checkpointer_and_graph(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    calls: list[str] = []
+
+    async def fake_embedding_warmup():
+        calls.append("embedding")
+        return {
+            "ready": True,
+            "status": "ready",
+            "embedding_init_ms": 1.0,
+            "first_embed_ms": 2.0,
+        }
+
+    async def fake_checkpointer_warmup():
+        calls.append("checkpointer")
+
+    def fake_graph_compile():
+        calls.append("graph")
+        return object()
+
+    monkeypatch.setenv("TG_CELERY_WORKER_KIND", "interactive")
+    monkeypatch.setattr(embeddings, "warmup_local_embedding_runtime", fake_embedding_warmup)
+    monkeypatch.setattr(checkpoint, "ensure_checkpointer_ready", fake_checkpointer_warmup)
+    monkeypatch.setattr(
+        "app.services.agent.runtime.workspace_graph.get_compiled_workspace_graph",
+        fake_graph_compile,
+    )
+
+    result = await async_runtime.initialize_worker_runtime()
+
+    assert result["ready"] is True
+    assert calls == ["embedding", "checkpointer", "graph"]
+    assert result["checkpointer_init_ms"] is not None
+    assert result["graph_compile_ms"] is not None
+
+
 def test_celery_routes_isolate_interactive_and_heavy_work() -> None:
     assert celery_app.conf.task_routes
     routes = celery_app.conf.task_routes

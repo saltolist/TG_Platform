@@ -31,6 +31,43 @@ async def test_hybrid_prefetch_merge_dedupes() -> None:
     assert "fts" in merged[0]["sources"]
 
 
+def test_scoped_hybrid_prefetch_keeps_distinct_chunks() -> None:
+    from app.services.agent.research.prefetch import merge_and_rerank
+
+    vector = [
+        {
+            "node_type": "note_chunk",
+            "note_id": "n1",
+            "file_id": "",
+            "post_id": "",
+            "chunk_index": 0,
+            "similarity": 0.8,
+        }
+    ]
+    fts = [
+        {
+            "node_type": "note_chunk",
+            "note_id": "n1",
+            "file_id": "",
+            "post_id": "",
+            "chunk_index": 2,
+            "similarity": 0.6,
+        }
+    ]
+
+    merged = merge_and_rerank(
+        vector_results=vector,
+        fts_results=fts,
+        top_k=4,
+        preserve_chunks=True,
+    )
+
+    assert [(item["note_id"], item["chunk_index"]) for item in merged] == [
+        ("n1", 0),
+        ("n1", 2),
+    ]
+
+
 def test_golden_catalog_has_implemented_ids() -> None:
     from tests.golden_runner import implemented_scenario_ids
 

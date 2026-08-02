@@ -114,6 +114,7 @@ def merge_hits(
     *,
     scope_bias: float,
     k: int,
+    preserve_chunks: bool = False,
 ) -> list[dict[str, Any]]:
     """Merge multi-pass hits with optional home-scope bias."""
     combined: list[dict[str, Any]] = []
@@ -126,12 +127,13 @@ def merge_hits(
             item["similarity"] = raw_similarity + boost
             combined.append(item)
 
-    seen: dict[tuple[str, str, str], dict[str, Any]] = {}
+    seen: dict[tuple[str, str, str, int | None], dict[str, Any]] = {}
     for item in combined:
         key = (
             str(item.get("node_type") or ""),
             str(item.get("note_id") or ""),
             str(item.get("file_id") or ""),
+            int(item.get("chunk_index") or 0) if preserve_chunks else None,
         )
         if key not in seen or float(item["similarity"]) > float(seen[key]["similarity"]):
             seen[key] = item
@@ -199,4 +201,9 @@ async def retrieve_for_chat(
         )
         pass_results.append((pass_cfg, hits))
 
-    return merge_hits(pass_results, scope_bias=scope_bias, k=k)
+    return merge_hits(
+        pass_results,
+        scope_bias=scope_bias,
+        k=k,
+        preserve_chunks=bool(object_ids),
+    )

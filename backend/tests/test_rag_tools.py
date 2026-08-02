@@ -346,6 +346,60 @@ async def test_tool_list_posts_filters_status() -> None:
 
 
 @pytest.mark.asyncio
+async def test_post_catalog_window_applies_status_order_and_limit_in_database() -> None:
+    state = _state(scope="global", base_post_data=None)
+    rows = []
+    for post_id in ("recent-2", "recent-1"):
+        row = MagicMock()
+        row.data = {
+            "id": post_id,
+            "status": "published",
+            "text": f"Published {post_id}",
+            "notes": [],
+        }
+        rows.append(row)
+    mock_result = MagicMock()
+    mock_result.scalars.return_value.all.return_value = rows
+    state.session.execute = AsyncMock(return_value=mock_result)
+
+    outcome = await tool_list_posts(
+        state,
+        statuses=["published"],
+        limit=2,
+        order_by="position",
+        order_direction="desc",
+        bounded_window=True,
+    )
+
+    statement = state.session.execute.await_args.args[0]
+    sql = str(statement)
+    params = statement.compile().params
+    assert "ORDER BY posts.position DESC" in sql
+    assert "LIMIT" in sql
+    assert "published" in repr(params)
+    assert [item["id"] for item in outcome.items] == ["recent-2", "recent-1"]
+    assert "/posts/window:published:position:desc:2/" in state.catalog_members
+
+
+@pytest.mark.asyncio
+async def test_post_catalog_window_rejects_query_ranked_retrieval() -> None:
+    state = _state(scope="global", base_post_data=None)
+
+    outcome = await tool_list_posts(
+        state,
+        statuses=["published"],
+        query="topic",
+        limit=4,
+        order_by="position",
+        order_direction="desc",
+        bounded_window=True,
+    )
+
+    assert outcome.error == "invalid_catalog_window"
+    state.session.execute.assert_not_awaited()
+
+
+@pytest.mark.asyncio
 async def test_tool_open_note_from_post_scope() -> None:
     state = _state()
     with patch(

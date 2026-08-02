@@ -48,7 +48,7 @@ from app.services.agent.runtime.output_contract import (
     resolve_output_schema,
     validate_answer_output,
 )
-from app.services.agent.resources.registry import resource_kinds
+from app.services.agent.resources.registry import get_resource_descriptor, resource_kinds
 from app.services.agent.runtime.result_quality import (
     build_style_profile,
     validate_result_contract,
@@ -66,7 +66,7 @@ _compiled_graphs: dict[int, tuple[object, Any]] = {}
 
 WORKSPACE_SYSTEM = """Ты единственный WorkspaceAgent платформы.
 Верни один JSON tool call:
-- {"type":"read","requires_evidence":true,"required_sources":["notes|posts|analytics|comments|attachments|images|channel"],"source_requirements":[{"kind":"posts","query_goal":"самостоятельная цель этого источника","coverage":"relevant|complete","discovery_mode":"semantic_relevance|catalog_window","statuses":["draft|scheduled|published"],"order_by":"position|created_at","order_direction":"asc|desc","candidate_limit":4,"evidence_granularity":"catalog|semantic_card|full_text"}]} — ответ невозможен без фактов workspace;
+- {"type":"read","requires_evidence":true,"answer_shape":{"kind":"freeform|scalar|record|inventory","expected_member_count":null},"required_sources":["notes|posts|analytics|comments|attachments|images|channel"],"source_requirements":[{"kind":"posts","query_goal":"самостоятельная цель этого источника","coverage":"relevant|complete","discovery_mode":"semantic_relevance|catalog_window","statuses":["draft|scheduled|published"],"order_by":"position|created_at","order_direction":"asc|desc","candidate_limit":4,"evidence_granularity":"catalog|semantic_card|full_text"}]} — ответ невозможен без фактов workspace;
 - {"type":"finish","requires_evidence":false,"required_sources":[]} — на сообщение можно полноценно ответить по его тексту, диалогу и общим знаниям;
 - {"type":"reuse_context","context_refs":["note:ID|post:ID"]} — нужны детали уже использованных материалов; открывай только эти проверенные refs по ID;
 - {"type":"post_proposal","command":"create_post|edit_post|schedule_post|publish_post|cancel_schedule|delete_post|restore_post","payload":{...}} — только когда передан блок "Текущий пост";
@@ -77,6 +77,7 @@ WORKSPACE_SYSTEM = """Ты единственный WorkspaceAgent платфо�
 частью workspace и доступны AI после сохранения.
 Ходы, на которые можно полноценно ответить без новых фактов workspace, завершаются без поиска. Для factual "read" required_sources — это источники, без которых grounded-ответ будет неполным; включи туда КАЖДЫЙ такой источник. Выбирай "read", когда пользователь просит найти, перечислить, посчитать, проверить или описать свои объекты/метрики. Косвенная, условная или подразумеваемая формулировка все равно является factual "read", если истинность ответа зависит от значения, причины, роли, ограничения или состояния объекта workspace. Совет, оценка, продолжение или правка предыдущего ответа без новых фактов — "finish".
 Для каждого обязательного источника заполни source_requirements. Кроме kind верни predicate_kind="structural|semantic|mixed", coverage="relevant|complete", discovery_mode="semantic_relevance|catalog_window", evidence_granularity="catalog|semantic_card|full_text" и evidence_requirements. Каждый evidence_requirement имеет property (какое фактическое свойство нужно доказать), operator="exists|count|filter|equals|contains" и scope="source|target|member|corpus|aggregate". structural означает, что ответ определяется каталогом/метаданными без толкования текста; semantic требует понимания содержания; mixed требует и полного структурного охвата, и смыслового отбора. coverage="relevant" означает, что достаточно относящегося к вопросу подмножества; coverage="complete" означает, что ответ должен охватить каждый объект указанного корпуса. Выбирай complete для полного перечня, подсчёта по всей категории, описания каждого объекта и других задач, где пропуск хотя бы одного объекта делает ответ неверным. evidence_granularity="catalog" достаточно для количества, названий, статусов и наличия; "semantic_card" — для общей темы или назначения каждого объекта; "full_text" — для точных деталей, сравнений, цитат и редактирования. Не подменяй complete семантическим top-k.
+Для read всегда верни answer_shape. kind="inventory" означает, что ответ должен перечислить членов одной запрошенной категории; если пользователь явно задал точное число членов цифрами или словами на любом языке, запиши это число в expected_member_count, иначе null. Не выводи число из количества найденных источников, candidate_limit или предположений. Для одиночного значения используй scalar, для одного объекта с несколькими полями record, иначе freeform; у них expected_member_count всегда null.
 discovery_mode="semantic_relevance" означает смысловой top-k по query_goal. discovery_mode="catalog_window" означает ограниченное упорядоченное окно каталога posts без смыслового ранжирования; для него обязательно верни statuses, order_by, order_direction и candidate_limit от 1 до 12, а coverage оставь "relevant". Сам реши, когда нужна недавняя или иная ограниченная часть истории и какого размера достаточно. Не используй catalog_window для требования обо всей истории и не запрашивай полный корпус, если решение зависит только от ограниченной актуальной части.
 Для рекомендации, планирования, приоритизации или выбора следующего результата не считай ход независимым от workspace только потому, что пользователь не перечислил источники. Сам выведи необходимые предпосылки: планы, серии, ограничения или незавершённые заготовки обычно живут в notes; уже созданные результаты и их история — в posts; фактическая оптимизация по результату требует analytics. Сделай обязательным только тот источник, без которого рекомендация могла бы противоречить текущей работе, повторить уже сделанное или пропустить явный план. Каждую независимую предпосылку оформи отдельным source_requirement с самостоятельным query_goal. Источники должны затем сопоставляться по смыслу: например, история результатов полезна лишь в той мере, в какой она подтверждает выполнение, продолжение или конфликт с найденным планом. Если пропуск любого члена плана, очереди или backlog может изменить выбор, для соответствующего источника ставь coverage="complete": это требует полного обнаружения и смысловой оценки его каталога, но не выбора и не полного чтения каждого объекта. Для истории завершённых результатов выбери минимально достаточную стратегию сам: обычно это catalog_window по posts со statuses=["published"] и явными order/limit, а не complete по всей истории. Косвенный источник делай обязательным только когда он даёт незаменимую предпосылку решения; тематический фон и дубли создают шум. Это семантическое выявление зависимостей, а не keyword routing: если рекомендация действительно не зависит от данных workspace, выбери finish. Для каждого source_requirement верни query_goal без предполагаемого ответа и без ключевых слов вместо вопроса.
 Если передан блок "Диалог" — используй его, чтобы понять контекст запроса. Короткая правка твоего предыдущего ответа без новых фактических вопросов (перефразируй, покороче, на другом языке, другим тоном) — это "finish", даже если предыдущий ответ был по фактам workspace: факты уже собраны и лежат в диалоге, повторный поиск не нужен.
@@ -85,8 +86,6 @@ discovery_mode="semantic_relevance" означает смысловой top-k п
 Для "read" добавь поле "search_query" — самодостаточный resolved goal для поиска и последующего Context Selector. Это должен быть один грамматический вопрос, который сохраняет точный предмет, запрошенный predicate, отрицание, условность и причинность исходного запроса; разреши в нем анафоры из диалога, но не превращай вопрос в список ключевых слов и не расширяй его соседними темами. В search_query назови только активный референт: имена объектов, явно исключенных или противопоставленных в диалоге, не упоминай даже с отрицанием. Не отвечай на вопрос внутри search_query, не добавляй гипотезы, предполагаемые факты или альтернативные predicates. Для cross-record сравнения вырази обе уже запрошенные стороны как явные retrieval predicates и затем само сравнение: что указал draft/proposed record, что указал final/signed record и совпадают ли значения; не добавляй сами значения. Если анафор нет и это не сравнение, сохрани исходный вопрос, ограничившись грамматической нормализацией и явным названием уже указанного предмета. Для "finish" поле не требуется и может быть пустым. Не пытайся превратить материалы прошлого ответа в один целевой DB-объект."""
 
 _CLASSIFIER_SOURCE_KINDS = resource_kinds(classifier_visible=True)
-_POST_SOURCE_STATUSES = frozenset({"draft", "scheduled", "published"})
-_CATALOG_WINDOW_ORDER_FIELDS = frozenset({"position", "created_at"})
 _CATALOG_WINDOW_DIRECTIONS = frozenset({"asc", "desc"})
 _CATALOG_WINDOW_MAX_CANDIDATES = 12
 
@@ -101,13 +100,15 @@ def _classified_scope_statuses(
     if not isinstance(raw, (list, tuple)):
         scope = classified.get("scope")
         raw = scope.get("statuses") if isinstance(scope, Mapping) else ()
-    if kind != "posts" or not isinstance(raw, (list, tuple)):
+    descriptor = get_resource_descriptor(kind)
+    supported_statuses = descriptor.catalog_statuses if descriptor is not None else ()
+    if not supported_statuses or not isinstance(raw, (list, tuple)):
         return ()
     return tuple(
         dict.fromkeys(
             status
             for item in raw
-            if (status := str(item or "").strip().lower()) in _POST_SOURCE_STATUSES
+            if (status := str(item or "").strip().lower()) in supported_statuses
         )
     )
 
@@ -125,15 +126,16 @@ def _classified_discovery_strategy(
     order_by = str(classified.get("order_by") or "").strip().lower()
     order_direction = str(classified.get("order_direction") or "").strip().lower()
     statuses = _classified_scope_statuses(kind, classified)
+    descriptor = get_resource_descriptor(kind)
     try:
         candidate_limit = int(classified.get("candidate_limit") or 0)
     except (TypeError, ValueError):
         candidate_limit = 0
     if (
-        kind != "posts"
+        descriptor is None
         or predicate_kind != "semantic"
         or not statuses
-        or order_by not in _CATALOG_WINDOW_ORDER_FIELDS
+        or order_by not in descriptor.catalog_order_fields
         or order_direction not in _CATALOG_WINDOW_DIRECTIONS
         or not 1 <= candidate_limit <= _CATALOG_WINDOW_MAX_CANDIDATES
     ):
@@ -511,6 +513,28 @@ def _apply_classifier_source_policy(
     return result
 
 
+def _apply_classifier_answer_shape(
+    contract: dict[str, Any], classified: Mapping[str, Any] | None
+) -> dict[str, Any]:
+    """Admit the reasoner's typed answer shape without language-specific inference."""
+
+    raw = dict(classified or {})
+    kind = str(raw.get("kind") or "").strip()
+    if kind not in {"freeform", "scalar", "record", "inventory"}:
+        return contract
+    expected_count: int | None = None
+    raw_count = raw.get("expected_member_count")
+    if kind == "inventory" and type(raw_count) is int and 1 <= raw_count <= 100:
+        expected_count = raw_count
+    return {
+        **contract,
+        "answer_shape": {
+            "kind": kind,
+            "expected_member_count": expected_count,
+        },
+    }
+
+
 async def bootstrap_node(state: AgentGraphState, config: RunnableConfig) -> dict[str, Any]:
     ctx: RuntimeContext = config["configurable"]["runtime_context"]
     contract = dict(state.get("turn_contract") or ctx.turn_contract or {})
@@ -630,7 +654,7 @@ async def workspace_agent_node(
                 model=planner_model,
                 api_key=planner_api_key,
                 temperature=0.0,
-                max_tokens=600,
+                max_tokens=800,
             )
             call = extract_json_object(raw) or {"type": "read"}
         except PhaseDeadlineExceeded:
@@ -739,6 +763,10 @@ async def workspace_agent_node(
             if isinstance(item, dict)
         ],
         query_goal=str(call.get("search_query") or ""),
+    )
+    turn_contract = _apply_classifier_answer_shape(
+        turn_contract,
+        call.get("answer_shape") if isinstance(call.get("answer_shape"), Mapping) else None,
     )
     if any(
         source_evidence_required(item) and item.get("coverage") == "complete"
