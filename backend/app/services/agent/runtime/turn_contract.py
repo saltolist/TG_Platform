@@ -1115,23 +1115,22 @@ def _target_contract_for(*, legacy: Mapping[str, Any], user_text: str, scope: st
 
 def _is_exhaustive_request(value: str) -> bool:
     lowered = value.casefold()
-    return any(
+    explicit_inventory = any(
+        marker in lowered for marker in ("инвентаризац", "exhaustive inventory")
+    )
+    explicit_workspace_scope = "workspace" in lowered and any(
         marker in lowered
         for marker in (
-            "проанализируй всё",
-            "проанализируй все",
-            "анализ всех",
-            "инвентаризац",
-            "перечисли всё",
-            "перечисли все",
             "весь workspace",
+            "всё workspace",
+            "все workspace",
+            "всём workspace",
             "всего workspace",
-            "analyze all",
-            "analyse all",
             "entire workspace",
-            "exhaustive inventory",
+            "all workspace",
         )
     )
+    return explicit_inventory or explicit_workspace_scope
 
 
 def _task_profile(
@@ -1230,7 +1229,7 @@ def _run_budget(*, profile: str, target_contract: TargetContract,
         return "batch", RunBudget(
             soft_deadline_ms=30_000,
             hard_deadline_ms=60_000,
-            bootstrap_deadline_ms=10_000,
+            bootstrap_deadline_ms=20_000,
             planner_calls=0,
             search_calls=0,
             search_rewrites_per_intent=0,
@@ -1249,7 +1248,7 @@ def _run_budget(*, profile: str, target_contract: TargetContract,
     local_reads = sum(source.budget.deep_reads for source in sources)
     return "compact", RunBudget(
         soft_deadline_ms=30_000, hard_deadline_ms=60_000,
-        bootstrap_deadline_ms=10_000, planner_calls=2,
+        bootstrap_deadline_ms=20_000, planner_calls=2,
         selector_verification_calls=4,
         search_calls=max(3, local_search), search_rewrites_per_intent=1,
         deep_reads=max(3, local_reads), tool_calls=max(8, local_search + local_reads + 2),

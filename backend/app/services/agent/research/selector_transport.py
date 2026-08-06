@@ -283,6 +283,7 @@ def apply_selector_question_scope_guard(
     question: str,
     candidates: Sequence[Mapping[str, Any]],
     mapping: SelectorTransportMapping,
+    contract: Mapping[str, Any] | None = None,
 ) -> SelectorScopeGuardResult:
     """Demote provable question-scope and missing-answer mismatches.
 
@@ -295,11 +296,18 @@ def apply_selector_question_scope_guard(
     answer_slot_query = bool(_ANSWER_SLOT_QUERY_RE.search(query))
     comparison_obligations = _query_obligations(query) is not None
     subject_anchors = _query_subject_anchors(query, candidates)
+    normative_source_ids = {
+        str(source.get("source_id") or "")
+        for source in (contract or {}).get("source_requirements") or ()
+        if isinstance(source, Mapping)
+        and str(source.get("claim_modality") or "") == "normative"
+    }
     if (
         not explanatory_query
         and not answer_slot_query
         and not comparison_obligations
         and not subject_anchors
+        and not normative_source_ids
     ):
         return SelectorScopeGuardResult(decision)
     card_by_ref = {
@@ -355,6 +363,13 @@ def apply_selector_question_scope_guard(
             )
             is True
         )
+        flags = semantic_flags_by_ref.get(str(assessment.ref), {})
+        typed_normative_mismatch = (
+            assessment.relevance != CandidateRelevance.IRRELEVANT
+            and bool(normative_source_ids)
+            and int(flags.get("v") or 0) >= 3
+            and flags.get("normative_value") is not True
+        )
         named_subject_mismatch = (
             bool(subject_anchors)
             and assessment.relevance != CandidateRelevance.IRRELEVANT
@@ -367,6 +382,7 @@ def apply_selector_question_scope_guard(
             descriptive_mismatch
             or missing_answer_slot
             or observational_bound_mismatch
+            or typed_normative_mismatch
             or named_subject_mismatch
         )
         if not should_demote:
@@ -653,6 +669,18 @@ def encode_selector_transport(
                 "selector_summary exceeds the transport limit; regenerate the card "
                 "instead of truncating it"
             )
+        discovery_summary = str(candidate.get("card_text") or "").strip()
+        discovery_block = ""
+        if (
+            str(candidate.get("origin") or "") == "authoritative_catalog"
+            and discovery_summary
+            and discovery_summary != summary.strip()
+        ):
+            discovery_block = (
+                "\n<discovery_summary>"
+                + _neutralize_selector_data(discovery_summary[:480])
+                + "</discovery_summary>"
+            )
         matched_raw = candidate.get("matched_evidence")
         matched = (
             MatchedEvidenceExcerpt.model_validate(matched_raw)
@@ -700,8 +728,12 @@ def encode_selector_transport(
         data = (
             "<workspace_data>"
             + _neutralize_selector_data(title)
+            + "\n<lifecycle_status>"
+            + _neutralize_selector_data(str(candidate.get("status") or ""))
+            + "</lifecycle_status>"
             + "\n"
             + _neutralize_selector_data(summary)
+            + discovery_block
             + matched_block
             + opened_block
             + "</workspace_data>"
@@ -848,6 +880,10 @@ def render_selector_transport_output_requirements(
     count = len(mapping.candidate_refs)
     codes = (
         "Each 3-char code is relevance d|s|i, reason t|e|d|c|q|u|m|a|l|x|b|s, confidence 0..9. "
+        "In every source row, max is the maximum count of positive d/s rows among candidates whose s memberships include that source. "
+        "Before returning, count d/s independently for every source and keep only the strongest non-redundant rows within each max. "
+        "A maximum is only a ceiling, never a target; catalog-window membership or recency alone never makes a row positive. "
+        "Use i for background or redundant rows; a required source or min never justifies selecting irrelevant material. "
         "Reasons: e explicit, d necessary implication, c comparison; q/u/m/a/l specialized; "
         "irrelevant t subject, x predicate, b absent value, s insufficient/ambiguous. "
         "Assess subject, exact predicate and requested value independently; shared topic is insufficient. "
@@ -869,6 +905,48 @@ def render_selector_transport_output_requirements(
         f"a must contain exactly {count} assessment strings in candidate position order. "
         + codes
         + " No indexes, refs, roles, resolutions, dispositions or prose."
+    )
+
+
+def render_selector_transport_cardinality_correction(
+    mapping: SelectorTransportMapping,
+    assessment_codes: Sequence[str] = (),
+) -> str:
+    limits: list[str] = []
+    for index, source in enumerate(mapping.sources):
+        positions = [
+            position
+            for position, candidate in enumerate(mapping.candidates)
+            if source.source_id in candidate.source_ids
+        ]
+        refs = [mapping.candidate_refs[position] for position in positions]
+        selected_positions = [
+            position
+            for position in positions
+            if position < len(assessment_codes)
+            and str(assessment_codes[position] or "")[:1] in {"d", "s"}
+        ]
+        prior_selection = (
+            f"; your prior vector selected {len(selected_positions)} at positions "
+            f"{selected_positions}, overflow {max(0, len(selected_positions) - source.maximum)}"
+            if assessment_codes
+            else ""
+        )
+        limits.append(
+            f"source index {index} ({source.source_id}) max {source.maximum} positive rows; "
+            f"its candidate positions are {positions} with refs {refs}{prior_selection}"
+        )
+    return (
+        "For source_cardinality_exceeded only: codes beginning d or s are positive selections. "
+        + (
+            f"Your prior assessment vector was {list(assessment_codes)}. "
+            if assessment_codes
+            else ""
+        )
+        + "Keep the strongest non-redundant semantic subset within every typed source maximum. "
+        "Make each retained row pass a deletion test; potentially useful background is not indispensable. "
+        "Use i for every non-selected row; never select more than the stated maximum."
+        + (" " + "; ".join(limits) + "." if limits else "")
     )
 
 
@@ -950,6 +1028,7 @@ def decode_selector_transport_v2_result(
     *,
     mapping: SelectorTransportMapping,
     plain_frame: bool = False,
+    allow_source_overflow: bool = False,
 ) -> SelectorDecodeResult:
     payload, parse_errors = _normalize_v2_payload(raw, plain_frame=plain_frame)
     if parse_errors:
@@ -1020,7 +1099,7 @@ def decode_selector_transport_v2_result(
             for index in member_indexes
             if mapping.candidate_refs[index] in positive_refs
         ]
-        if len(selected) > source.maximum:
+        if len(selected) > source.maximum and not allow_source_overflow:
             errors.append(SelectorValidationErrorCode.SOURCE_CARDINALITY_EXCEEDED)
             continue
         member_reasons = {decoded[index]["reason_code"] for index in member_indexes}
@@ -1054,6 +1133,7 @@ def decode_selector_transport_result(
     *,
     mapping: SelectorTransportMapping,
     plain_frame: bool = False,
+    allow_source_overflow: bool = False,
 ) -> SelectorDecodeResult:
     """Decode the active v2 positional vector into canonical selector v2."""
 
@@ -1061,6 +1141,7 @@ def decode_selector_transport_result(
         raw,
         mapping=mapping,
         plain_frame=plain_frame,
+        allow_source_overflow=allow_source_overflow,
     )
 
 

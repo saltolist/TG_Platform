@@ -986,6 +986,8 @@ async def tool_list_all_notes(
     state: AgentState,
     *,
     source_requirement_id: str = "workspace-notes",
+    limit: int | None = None,
+    record: bool = True,
 ) -> ToolOutcome:
     """Enumerate the complete note corpus across global and post-owned notes."""
 
@@ -993,11 +995,13 @@ async def tool_list_all_notes(
 
     from app.db.models import Post
 
+    bounded_limit = max(1, int(limit)) if limit is not None else None
     ref = "all_notes"
-    existing = _already_visited(state, ref)
-    if existing:
-        return existing
-    _mark_visited(state, ref)
+    if record:
+        existing = _already_visited(state, ref)
+        if existing:
+            return existing
+        _mark_visited(state, ref)
     try:
         global_notes = await list_global_notes(
             state.session, state.user_id, tenant_key=state.tenant_key
@@ -1029,6 +1033,9 @@ async def tool_list_all_notes(
     members: list[dict[str, Any]] = []
     snapshot_sources: list[dict[str, Any]] = []
 
+    def limit_reached() -> bool:
+        return bounded_limit is not None and len(members) >= bounded_limit
+
     def note_title(value: Any) -> str:
         return next(
             (line.strip() for line in str(value or "").splitlines() if line.strip()),
@@ -1036,6 +1043,8 @@ async def tool_list_all_notes(
         )
 
     for item in global_notes:
+        if limit_reached():
+            break
         if not isinstance(item, Mapping) or not is_catalog_visible(item):
             continue
         note_id = str(item.get("id") or "").strip()
@@ -1055,11 +1064,15 @@ async def tool_list_all_notes(
         )
         snapshot_sources.append(dict(item))
     for row in posts:
+        if limit_reached():
+            break
         post_data = dict(row.data or {})
         if not is_catalog_visible(post_data):
             continue
         parent_post_id = str(post_data.get("id") or row.id)
         for item in post_data.get("notes") or ():
+            if limit_reached():
+                break
             if not isinstance(item, Mapping) or not is_catalog_visible(item):
                 continue
             note_id = str(item.get("id") or "").strip()
@@ -1079,6 +1092,8 @@ async def tool_list_all_notes(
             )
             snapshot_sources.append({**dict(item), "_parent_post_id": parent_post_id})
     for item in tenant_post_notes or ():
+        if limit_reached():
+            break
         if not isinstance(item, Mapping) or not is_catalog_visible(item):
             continue
         note_id = str(item.get("id") or "").strip()
@@ -1124,6 +1139,12 @@ async def tool_list_all_notes(
         )
         is not None
     ]
+    if not record:
+        return ToolOutcome(
+            summary=f"Bounded note catalog probe returned {len(typed_members)} members.",
+            items=tuple(typed_members),
+            result_count=len(typed_members),
+        )
     outcome = _record_listing(
         state,
         path="/notes/",

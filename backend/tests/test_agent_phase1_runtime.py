@@ -12,6 +12,7 @@ from pathlib import Path
 from unittest.mock import Mock
 
 import pytest
+import httpx
 from psycopg_pool import AsyncConnectionPool, AsyncNullConnectionPool
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
@@ -214,6 +215,26 @@ def test_cross_loop_programming_error_is_not_retried(monkeypatch: pytest.MonkeyP
         agent_runs.execute_agent_run_task.run(str(uuid.uuid4()), "test")
 
     retry.assert_not_called()
+
+
+def test_transient_transport_error_uses_bounded_celery_retry(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    retry_signal = RuntimeError("retry scheduled")
+    retry = Mock(side_effect=retry_signal)
+
+    def fail_transport(coroutine):
+        coroutine.close()
+        raise httpx.ConnectError("dns unavailable")
+
+    monkeypatch.setattr(agent_runs, "run_async", Mock(side_effect=fail_transport))
+    monkeypatch.setattr(agent_runs.execute_agent_run_task, "retry", retry)
+
+    with pytest.raises(RuntimeError, match="retry scheduled"):
+        agent_runs.execute_agent_run_task.run(str(uuid.uuid4()), "test")
+
+    retry.assert_called_once()
+    assert retry.call_args.kwargs["countdown"] == 1
 
 
 def test_runtime_health_probe_exposes_worker_state(monkeypatch: pytest.MonkeyPatch) -> None:

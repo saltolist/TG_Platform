@@ -654,6 +654,26 @@ def test_records_from_agent_state_uses_natural_ids() -> None:
     assert records["/post/3/"].kind == "post_text"
 
 
+def test_records_from_agent_state_prefers_later_deeper_read_at_same_path() -> None:
+    """A full read appended after a preview must replace that preview."""
+    from types import SimpleNamespace
+
+    from app.services.agent.research.evidence import records_from_agent_state
+
+    cite = NoteCite(path="/note/global/n1/", title="Note 1")
+    agent_state = SimpleNamespace(
+        context_blocks=[
+            (cite, "Discovery preview."),
+            (cite, "Complete opened note body."),
+        ],
+        visited=[],
+    )
+
+    records = records_from_agent_state(agent_state)
+
+    assert records["/note/global/n1/"].content == "Complete opened note body."
+
+
 @pytest.mark.asyncio
 async def test_answer_node_passes_empty_discovery_to_final_generation() -> None:
     """Empty discovery informs final generation instead of terminating the turn."""

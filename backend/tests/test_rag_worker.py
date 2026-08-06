@@ -507,7 +507,7 @@ async def test_process_post_text_upsert_indexes_canonical_id_from_stale_job_key(
                 data={
                     "id": "3",
                     "status": "published",
-                    "text": "Canonical body",
+                    "text": "Canonical intro.\n\nCanonical details.",
                     "telegramMessageId": "3",
                 },
             )
@@ -519,12 +519,23 @@ async def test_process_post_text_upsert_indexes_canonical_id_from_stale_job_key(
         backend.model_key = "local:test"
         backend.dim = 4
         backend.embed_passages = AsyncMock(return_value=[[0.1, 0.2, 0.3, 0.4]])
+        summaries = SemanticSummaryProjections(
+            discovery_summary="Canonical post summary.",
+            selector_summary="The canonical post has an introduction and details.",
+            model_key="llm:test:small:v2",
+            semantic_section_starts=(1,),
+        )
 
         with (
             patch("app.services.ai.rag_worker.get_settings") as mock_settings,
             patch(
                 "app.services.ai.embeddings.resolve_embedding_backend",
                 return_value=backend,
+            ),
+            patch(
+                "app.services.ai.rag_worker._semantic_card",
+                new_callable=AsyncMock,
+                return_value=summaries,
             ),
             patch(
                 "app.services.ai.rag_worker.purge_post_text_embeddings",
@@ -561,6 +572,10 @@ async def test_process_post_text_upsert_indexes_canonical_id_from_stale_job_key(
         mock_index.assert_awaited_once()
         assert mock_index.await_args.args[4] == "3"
         assert mock_index.await_args.kwargs["post_id"] == "3"
+        assert mock_index.await_args.kwargs["chunks_override"] == [
+            "Canonical intro.",
+            "Canonical details.",
+        ]
 
 
 @pytest.mark.asyncio

@@ -461,6 +461,8 @@ def empty_material_plan() -> dict[str, Any]:
         "evidence_escalation_failed_refs": [],
         "evidence_escalation_attempted_sources": [],
         "evidence_escalation_reassess_refs": [],
+        "finite_source_recovery_refs": [],
+        "semantic_card_recovery_refs": [],
         # A reassessment may establish that an ordinary semantic corpus adds
         # nothing beyond already verified evidence.  This is deliberately
         # separate from discovery: the corpus was still searched and assessed.
@@ -755,6 +757,16 @@ def compile_material_plan(
 
     selector_failed = bool(plan.get("selector_failure"))
     selected: list[tuple[tuple[Any, ...], dict[str, Any]]] = []
+    source_order = {
+        str(source.get("source_id") or ""): position
+        for position, source in enumerate(contract.get("source_requirements") or ())
+        if isinstance(source, Mapping) and str(source.get("source_id") or "")
+    }
+    source_deep_read_limits = {
+        source_id: max(0, int((requirement.get("budget") or {}).get("deep_reads")))
+        for source_id, requirement in requirements.items()
+        if (requirement.get("budget") or {}).get("deep_reads") is not None
+    }
     for ref, candidate in candidate_map.items():
         assessment = assessment_map.get(ref)
         exact_target = str(candidate.get("origin") or "") == "exact_target"
@@ -848,12 +860,37 @@ def compile_material_plan(
                 "parent": dict(candidate.get("parent")) if isinstance(candidate.get("parent"), Mapping) else None,
             },
         }
+        catalog_positions = [
+            (
+                source_order.get(source_id, 1_000_000),
+                int(membership.get("position") or 0),
+            )
+            for membership in candidate.get("catalog_window_memberships") or ()
+            if isinstance(membership, Mapping)
+            for source_id in [str(membership.get("source_requirement_id") or "")]
+            if str(requirements.get(source_id, {}).get("discovery_mode") or "")
+            == "catalog_window"
+            and int(membership.get("position") or 0) > 0
+        ]
+        ordered_observation = min(catalog_positions) if catalog_positions else None
         priority = (
-            0 if exact_target else 1 if relevance == "direct" and required_source else 2 if relevance == "direct" else 3,
+            0
+            if exact_target
+            else 1
+            if ordered_observation is not None
+            else 2
+            if relevance == "direct" and required_source
+            else 3
+            if relevance == "direct"
+            else 4,
+            ordered_observation[0] if ordered_observation is not None else 1_000_000,
+            ordered_observation[1] if ordered_observation is not None else 1_000_000,
             int(candidate.get("inclusion_priority") or 50),
             -float(assessment.get("confidence") or 0.0),
             ref,
         )
+        if ordered_observation is not None:
+            queue_item["ordered_observation_priority"] = True
         selected.append((priority, queue_item))
 
     selected.sort(key=lambda item: item[0])
@@ -879,8 +916,10 @@ def compile_material_plan(
     omitted = list(plan.get("omitted_ids") or ())
     used_full = 0
     used_cards = 0
+    source_deep_reads_used = {source_id: 0 for source_id in source_deep_read_limits}
     for _priority, item in selected:
         fidelity = str(item["effective_fidelity"])
+        read_budget_source_id = ""
         if fidelity == "semantic_card":
             estimate = int(item["estimated_chars"] or 0)
         else:
@@ -895,11 +934,39 @@ def compile_material_plan(
             )
             item["estimated_chars"] = estimate
         reason = ""
-        if len(queue) >= max(0, int(max_objects)):
+        if fidelity != "semantic_card":
+            bounded_source_ids = sorted(
+                (
+                    source_id
+                    for source_id in item.get("source_requirement_ids") or ()
+                    if source_id in source_deep_read_limits
+                ),
+                key=lambda source_id: (source_order.get(source_id, 1_000_000), source_id),
+            )
+            unbounded_source_ids = [
+                source_id
+                for source_id in item.get("source_requirement_ids") or ()
+                if source_id not in source_deep_read_limits
+            ]
+            if bounded_source_ids and not unbounded_source_ids:
+                read_budget_source_id = next(
+                    (
+                        source_id
+                        for source_id in bounded_source_ids
+                        if source_deep_reads_used[source_id]
+                        < source_deep_read_limits[source_id]
+                    ),
+                    "",
+                )
+                if not read_budget_source_id:
+                    reason = "source_deep_read_budget"
+            if read_budget_source_id:
+                item["read_budget_source_id"] = read_budget_source_id
+        if not reason and len(queue) >= max(0, int(max_objects)):
             reason = "object_budget"
-        elif fidelity == "semantic_card" and used_cards + estimate > max(0, int(max_card_chars)):
+        elif not reason and fidelity == "semantic_card" and used_cards + estimate > max(0, int(max_card_chars)):
             reason = "card_char_budget"
-        elif fidelity != "semantic_card" and used_full + estimate > max(0, int(max_full_text_chars)):
+        elif not reason and fidelity != "semantic_card" and used_full + estimate > max(0, int(max_full_text_chars)):
             reason = "full_text_char_budget"
         if reason:
             omitted.append(str(item["ref"]))
@@ -919,6 +986,8 @@ def compile_material_plan(
             used_cards += estimate
         else:
             used_full += estimate
+            if read_budget_source_id:
+                source_deep_reads_used[read_budget_source_id] += 1
 
     card_ids = [item["ref"] for item in queue if item["effective_fidelity"] == "semantic_card"]
     full_ids = [item["ref"] for item in queue if item["effective_fidelity"] != "semantic_card"]
@@ -985,6 +1054,32 @@ def next_full_read_batch(plan: Mapping[str, Any], *, size: int = FULL_READ_BATCH
     return [ref for ref in _unique(ordered) if ref in pending][: max(1, min(size, 3))]
 
 
+def _is_decision_input_task(contract: Mapping[str, Any]) -> bool:
+    profile = str(contract.get("task_profile") or "")
+    answer_shape = contract.get("answer_shape") or {}
+    finite_inventory = (
+        isinstance(answer_shape, Mapping)
+        and str(answer_shape.get("kind") or "") == "inventory"
+        and type(answer_shape.get("expected_member_count")) is int
+        and int(answer_shape["expected_member_count"]) > 0
+    )
+    if finite_inventory:
+        return False
+    if profile == "recommendation":
+        return True
+    if any(
+        isinstance(source, Mapping)
+        and str(source.get("discovery_mode") or "") == "catalog_window"
+        for source in contract.get("source_requirements") or ()
+    ):
+        return True
+    return (
+        profile == "workspace_synthesis"
+        and isinstance(answer_shape, Mapping)
+        and str(answer_shape.get("kind") or "") == "inventory"
+    )
+
+
 def schedule_matched_evidence_recall_probes(
     plan: Mapping[str, Any],
     *,
@@ -995,7 +1090,13 @@ def schedule_matched_evidence_recall_probes(
     """Use spare read budget to verify bounded query-conditioned false negatives."""
 
     result = {**empty_material_plan(), **dict(plan)}
-    if deep_reads_remaining <= 0 or result.get("matched_evidence_recall_refs"):
+    if (
+        deep_reads_remaining <= 0
+        or result.get("matched_evidence_recall_refs")
+        or result.get("finite_source_recovery_refs")
+        or result.get("finite_topical_recall_refs")
+        or result.get("semantic_card_recovery_refs")
+    ):
         return result
     positive_refs = {
         canonical_candidate_ref(str(item.get("ref") or ""))
@@ -1011,7 +1112,14 @@ def schedule_matched_evidence_recall_probes(
             )
         )
     ) & positive_refs
-    if len(selected_full_refs) <= 1:
+    answer_shape = contract.get("answer_shape") or {}
+    finite_inventory = (
+        isinstance(answer_shape, Mapping)
+        and str(answer_shape.get("kind") or "") == "inventory"
+        and type(answer_shape.get("expected_member_count")) is int
+        and int(answer_shape["expected_member_count"]) > 0
+    )
+    if not selected_full_refs:
         return result
     required_sources = {
         str(item.get("source_id") or "")
@@ -1022,6 +1130,11 @@ def schedule_matched_evidence_recall_probes(
             or bool(item.get("required"))
         )
     }
+    disposition_by_source = {
+        str(item.get("source_id") or ""): str(item.get("status") or "")
+        for item in result.get("source_dispositions") or ()
+        if isinstance(item, Mapping) and item.get("source_id")
+    }
     unavailable = {
         canonical_candidate_ref(str(ref))
         for ref in (
@@ -1031,17 +1144,262 @@ def schedule_matched_evidence_recall_probes(
         )
         if str(ref)
     }
-    ranked: list[dict[str, Any]] = []
-    for candidate in result.get("candidates") or ():
-        if not isinstance(candidate, Mapping):
+    pending_count = len(
+        {
+            canonical_candidate_ref(str(ref))
+            for ref in result.get("pending_full_text_ids") or ()
+        if str(ref)
+        }
+    )
+    decision_profile = _is_decision_input_task(contract)
+    raw_answer_requirements = [
+        item
+        for item in contract.get("evidence_requirements") or ()
+        if isinstance(item, Mapping)
+    ]
+    if not raw_answer_requirements:
+        raw_answer_requirements = [
+            item
+            for source in contract.get("source_requirements") or ()
+            if isinstance(source, Mapping)
+            for item in source.get("evidence_requirements") or ()
+            if isinstance(item, Mapping)
+        ]
+    answer_requirement_ids = {
+        str(item.get("requirement_id") or "")
+        for item in raw_answer_requirements
+        if str(item.get("requirement_id") or "")
+    }
+    answer_shape = contract.get("answer_shape") or {}
+    finite_topical_profile = (
+        str(contract.get("task_profile") or "") == "topical_answer"
+        and not (
+            isinstance(answer_shape, Mapping)
+            and str(answer_shape.get("kind") or "") == "inventory"
+        )
+        and len(answer_requirement_ids) > 1
+    )
+    available_reads = max(0, deep_reads_remaining - pending_count)
+    capacity = available_reads if decision_profile else min(size, available_reads)
+    if capacity <= 0:
+        return result
+
+    assessment_by_ref = {
+        canonical_candidate_ref(str(item.get("ref") or "")): dict(item)
+        for item in result.get("assessments") or ()
+        if isinstance(item, Mapping) and item.get("ref")
+    }
+    candidates = [
+        dict(candidate)
+        for candidate in result.get("candidates") or ()
+        if isinstance(candidate, Mapping)
+        and canonical_candidate_ref(str(candidate.get("ref") or "")).startswith(
+            ("note:", "post:")
+        )
+        and "full_text" in set(candidate.get("available_fidelity") or ())
+    ]
+
+    # A finite topical comparison can expose an unranked catalog card whose
+    # lossy projection is insufficient but whose query-conditioned chunk is a
+    # strong navigation hit. Spend only spare global reads on a bounded pair of
+    # those rows, then let full-text reassessment decide final inclusion.
+    finite_topical_recovery_refs: list[str] = []
+    if finite_topical_profile and capacity > 0 and len(selected_full_refs) > 1:
+        topical_rows: list[tuple[int, float, int, str]] = []
+        for candidate_position, candidate in enumerate(candidates):
+            ref = canonical_candidate_ref(str(candidate.get("ref") or ""))
+            assessment = assessment_by_ref.get(ref, {})
+            if (
+                ref in unavailable
+                or str(candidate.get("origin") or "") != "authoritative_catalog"
+                or str(assessment.get("relevance") or "") != "irrelevant"
+                or str(assessment.get("reason_code") or "") != "search_more"
+                or candidate.get("matched_evidence_rank") is None
+            ):
+                continue
+            topical_rows.append(
+                (
+                    int(candidate.get("inclusion_priority") or 50),
+                    -float(candidate.get("semantic_rank_score") or 0.0),
+                    candidate_position,
+                    ref,
+                )
+            )
+        topical_rows.sort()
+        finite_topical_recovery_refs = _unique(
+            row[-1] for row in topical_rows[: min(2, capacity)]
+        )
+        capacity -= len(finite_topical_recovery_refs)
+        unavailable.update(finite_topical_recovery_refs)
+
+    # A complete decision-source catalog that fits its own typed read budget
+    # is a bounded false-negative cohort. Use only otherwise spare global reads
+    # to let the existing batched reassessment compare its rejected cards in
+    # full; opening a row never selects it for final context.
+    finite_recovery_rows: list[tuple[int, int, int, int, float, str]] = []
+    for source_position, requirement in enumerate(
+        contract.get("source_requirements") or ()
+    ):
+        if not isinstance(requirement, Mapping):
             continue
+        source_id = str(requirement.get("source_id") or "")
+        raw_source_limit = (requirement.get("budget") or {}).get("deep_reads")
+        evidence_required = (
+            str(requirement.get("evidence_obligation") or "") == "required"
+            or bool(requirement.get("required"))
+        )
+        bounded_catalog_window = (
+            str(requirement.get("discovery_mode") or "") == "catalog_window"
+            and disposition_by_source.get(source_id) in {"selected", "search_more"}
+        )
+        requested_window_reassessment = (
+            bounded_catalog_window
+            and disposition_by_source.get(source_id) == "search_more"
+        )
+        selected_window_reassessment = (
+            bounded_catalog_window
+            and disposition_by_source.get(source_id) == "selected"
+        )
+        requested_semantic_reassessment = (
+            str(requirement.get("discovery_mode") or "")
+            == "semantic_relevance"
+            and any(
+                str(assessment_by_ref.get(ref, {}).get("reason_code") or "")
+                == "search_more"
+                for ref in {
+                    canonical_candidate_ref(str(candidate.get("ref") or ""))
+                    for candidate in candidates
+                    if source_id in _candidate_source_ids(candidate)
+                }
+            )
+        )
+        if (
+            not decision_profile
+            or not source_id
+            or not evidence_required
+            or (
+                str(requirement.get("coverage") or "") != "complete"
+                and not bounded_catalog_window
+                and not requested_semantic_reassessment
+            )
+            or raw_source_limit is None
+        ):
+            continue
+        try:
+            source_limit = max(0, int(raw_source_limit))
+        except (TypeError, ValueError):
+            continue
+        source_candidates = [
+            candidate
+            for candidate in candidates
+            if source_id in _candidate_source_ids(candidate)
+        ]
+        source_refs = {
+            canonical_candidate_ref(str(candidate.get("ref") or ""))
+            for candidate in source_candidates
+        }
+        source_selected_count = len(source_refs & selected_full_refs)
+        source_spare = max(0, source_limit - source_selected_count)
+        if requested_semantic_reassessment:
+            source_spare = min(source_spare, 1)
+        if (
+            not source_candidates
+            or (
+                not requested_semantic_reassessment
+                and len(source_candidates) > source_limit
+            )
+            or (
+                not (source_refs & selected_full_refs)
+                and not requested_window_reassessment
+            )
+            or source_spare <= 0
+        ):
+            continue
+        source_recovery_rows: list[tuple[int, int, int, int, float, str]] = []
+        for candidate in source_candidates:
+            ref = canonical_candidate_ref(str(candidate.get("ref") or ""))
+            if (
+                ref in unavailable
+                or str(assessment_by_ref.get(ref, {}).get("relevance") or "")
+                != "irrelevant"
+                or (
+                    (
+                        requested_window_reassessment
+                        or requested_semantic_reassessment
+                        or (
+                            bounded_catalog_window
+                            and not selected_window_reassessment
+                            and str(requirement.get("coverage") or "")
+                            != "complete"
+                        )
+                    )
+                    and str(
+                        assessment_by_ref.get(ref, {}).get("reason_code") or ""
+                    )
+                    != "search_more"
+                )
+            ):
+                continue
+            catalog_positions = [
+                int(item.get("position") or 0)
+                for item in candidate.get("catalog_window_memberships") or ()
+                if isinstance(item, Mapping)
+                and str(item.get("source_requirement_id") or "") == source_id
+                and int(item.get("position") or 0) > 0
+            ]
+            source_recovery_rows.append(
+                (
+                    source_position,
+                    min(catalog_positions) if catalog_positions else 1_000_000,
+                    int(candidate.get("matched_evidence_rank") or 1_000_000),
+                    int(candidate.get("inclusion_priority") or 50),
+                    -float(candidate.get("semantic_rank_score") or 0.0),
+                    ref,
+                )
+            )
+        source_recovery_rows.sort()
+        finite_recovery_rows.extend(source_recovery_rows[:source_spare])
+    finite_recovery_rows.sort()
+    finite_recovery_refs = _unique(
+        row[-1] for row in finite_recovery_rows[:capacity]
+    )
+    capacity -= len(finite_recovery_refs)
+    unavailable.update(finite_recovery_refs)
+
+    unresolved_decision_sources = {
+        source_id
+        for source_id in required_sources
+        if disposition_by_source.get(source_id)
+        in {"no_relevant_candidate", "search_more", "ambiguous"}
+        and not any(
+            source_id in _candidate_source_ids(candidate)
+            and canonical_candidate_ref(str(candidate.get("ref") or ""))
+            in selected_full_refs
+            for candidate in candidates
+        )
+    }
+    selected_source_ids = {
+        source_id
+        for candidate in candidates
+        if canonical_candidate_ref(str(candidate.get("ref") or ""))
+        in selected_full_refs
+        for source_id in _candidate_source_ids(candidate)
+    }
+
+    ranked: list[dict[str, Any]] = []
+    for candidate in candidates:
         ref = canonical_candidate_ref(str(candidate.get("ref") or ""))
+        candidate_source_ids = set(_candidate_source_ids(candidate))
         if (
             not ref.startswith(("note:", "post:"))
             or ref in unavailable
             or candidate.get("matched_evidence_rank") is None
             or "full_text" not in set(candidate.get("available_fidelity") or ())
-            or not (required_sources & set(_candidate_source_ids(candidate)))
+            or not (required_sources & candidate_source_ids)
+            or (
+                finite_inventory
+                and not (selected_source_ids & candidate_source_ids)
+            )
         ):
             continue
         ranked.append(dict(candidate))
@@ -1053,31 +1411,81 @@ def schedule_matched_evidence_recall_probes(
             str(item.get("ref") or ""),
         )
     )
-    pending_selected_count = len(
-        selected_full_refs
-        & {canonical_candidate_ref(str(ref)) for ref in result.get("pending_full_text_ids") or ()}
+    probe_refs = (
+        _unique(
+            canonical_candidate_ref(str(candidate.get("ref") or ""))
+            for candidate in ranked[:capacity]
+        )
+        if (finite_inventory or not unresolved_decision_sources)
+        and (len(selected_full_refs) > 1 or finite_inventory)
+        else []
     )
-    capacity = min(size, max(0, deep_reads_remaining - pending_selected_count))
-    probe_refs = _unique(
-        canonical_candidate_ref(str(candidate.get("ref") or ""))
-        for candidate in ranked[:capacity]
+    capacity -= len(probe_refs)
+    unavailable.update(probe_refs)
+
+    # Full-text verification can overturn a card-level false positive only for
+    # rows that were opened. When several primary selections leave spare read
+    # budget, admit one strongest rejected semantic card into that same batched
+    # reassessment. Opening is not selection: the reasoner still has to prove
+    # the row from full text, and a single primary selection never expands.
+    semantic_recovery_rows: list[tuple[int, float, str]] = []
+    if capacity > 0 and len(selected_full_refs) > 1:
+        for candidate in candidates:
+            ref = canonical_candidate_ref(str(candidate.get("ref") or ""))
+            semantic_score = candidate.get("semantic_rank_score")
+            if semantic_score is None:
+                semantic_score = candidate.get("semantic_score")
+            if (
+                ref in unavailable
+                or str(assessment_by_ref.get(ref, {}).get("relevance") or "")
+                != "irrelevant"
+                or (
+                    candidate.get("matched_evidence_rank") is None
+                    and semantic_score is None
+                )
+            ):
+                continue
+            semantic_recovery_rows.append(
+                (
+                    int(candidate.get("matched_evidence_rank") or 1_000_000),
+                    -float(semantic_score or 0.0),
+                    ref,
+                )
+            )
+    semantic_recovery_rows.sort()
+    semantic_card_recovery_refs = _unique(
+        row[-1] for row in semantic_recovery_rows[: min(1, capacity)]
     )
-    if not probe_refs:
+    scheduled_refs = _unique(
+        (
+            *finite_topical_recovery_refs,
+            *finite_recovery_refs,
+            *probe_refs,
+            *semantic_card_recovery_refs,
+        )
+    )
+    if not scheduled_refs:
         return result
+    result["finite_source_recovery_refs"] = finite_recovery_refs
+    result["finite_topical_recall_refs"] = finite_topical_recovery_refs
     result["matched_evidence_recall_refs"] = probe_refs
+    result["semantic_card_recovery_refs"] = semantic_card_recovery_refs
     result["optional_full_text_ids"] = _unique(
-        (*result.get("optional_full_text_ids", ()), *probe_refs)
+        (*result.get("optional_full_text_ids", ()), *scheduled_refs)
     )
     result["pending_full_text_ids"] = _unique(
-        (*result.get("pending_full_text_ids", ()), *probe_refs)
+        (*result.get("pending_full_text_ids", ()), *scheduled_refs)
     )
     result["context_selection_done"] = False
     result["runtime_trace"] = [
         *list(result.get("runtime_trace") or ()),
         {
             "kind": "matched_evidence_recall_scheduled",
-            "refs": probe_refs,
+            "refs": scheduled_refs,
             "selected_refs": sorted(selected_full_refs),
+            "finite_source_recovery_refs": finite_recovery_refs,
+            "matched_evidence_recall_refs": probe_refs,
+            "semantic_card_recovery_refs": semantic_card_recovery_refs,
         },
     ]
     return result
@@ -1101,10 +1509,19 @@ def schedule_evidence_escalation(
     result = {**empty_material_plan(), **dict(plan)}
     if deep_reads_remaining <= 0 or planner_calls_remaining <= 0:
         return result, []
-    # Full text already selected by the reasoner is stronger evidence than a
-    # negative-source probe. Let that read complete before scheduling fallback
-    # candidates from another corpus.
-    if result.get("pending_full_text_ids"):
+    decision_input_mode = _is_decision_input_task(contract)
+    pending_full_text_count = len(
+        {
+            canonical_candidate_ref(str(ref))
+            for ref in result.get("pending_full_text_ids") or ()
+            if str(ref)
+        }
+    )
+    # Ordinary factual retrieval should finish selected full text before
+    # probing another corpus. A decision-input task instead needs one joint
+    # read batch so the single reassessment can compare selected premises with
+    # reasoner-requested rows from every unresolved required source.
+    if pending_full_text_count and not decision_input_mode:
         return result, []
     requirements = {
         str(item.get("source_id") or ""): dict(item)
@@ -1121,10 +1538,36 @@ def schedule_evidence_escalation(
         for item in result.get("source_dispositions") or ()
         if isinstance(item, Mapping) and item.get("source_id")
     }
+    assessment_by_ref = {
+        canonical_candidate_ref(str(item.get("ref") or "")): dict(item)
+        for item in result.get("assessments") or ()
+        if isinstance(item, Mapping) and item.get("ref")
+    }
+    candidate_by_ref = {
+        canonical_candidate_ref(str(item.get("ref") or "")): dict(item)
+        for item in result.get("candidates") or ()
+        if isinstance(item, Mapping) and item.get("ref")
+    }
+    positive_source_ids = {
+        source_id
+        for candidate in result.get("candidates") or ()
+        if isinstance(candidate, Mapping)
+        and str(
+            assessment_by_ref.get(
+                canonical_candidate_ref(str(candidate.get("ref") or "")), {}
+            ).get("relevance")
+            or ""
+        )
+        in {"direct", "supporting"}
+        for source_id in _candidate_source_ids(candidate)
+    }
     unresolved_sources = [
         source_id
         for source_id, status in disposition_by_source.items()
-        if status in {"no_relevant_candidate", "search_more", "ambiguous"}
+        if (
+            status in {"no_relevant_candidate", "search_more", "ambiguous"}
+            or (status == "selected" and source_id not in positive_source_ids)
+        )
         and (
             str(requirements.get(source_id, {}).get("evidence_obligation") or "")
             == "required"
@@ -1138,14 +1581,70 @@ def schedule_evidence_escalation(
     unresolved_sources = [
         source_id for source_id in _unique(unresolved_sources) if source_id not in attempted_sources
     ]
-    if not unresolved_sources:
+    source_read_limits = {
+        source_id: max(0, int((requirement.get("budget") or {}).get("deep_reads")))
+        for source_id, requirement in requirements.items()
+        if (requirement.get("budget") or {}).get("deep_reads") is not None
+    }
+    source_reads_reserved = {source_id: 0 for source_id in source_read_limits}
+    selected_input_refs: list[str] = []
+    if decision_input_mode:
+        ordered_positive_refs = _unique(
+            (
+                *(
+                    canonical_candidate_ref(str(item.get("ref") or ""))
+                    for item in result.get("queue") or ()
+                    if isinstance(item, Mapping) and item.get("ref")
+                ),
+                *(
+                    canonical_candidate_ref(str(item.get("ref") or ""))
+                    for item in result.get("candidates") or ()
+                    if isinstance(item, Mapping) and item.get("ref")
+                ),
+            )
+        )
+        opened_or_failed = {
+            canonical_candidate_ref(str(ref))
+            for ref in (
+                *result.get("opened_full_text_ids", ()),
+                *result.get("failed_full_text_ids", ()),
+            )
+            if str(ref)
+        }
+        for ref in ordered_positive_refs:
+            candidate = candidate_by_ref.get(ref, {})
+            if (
+                len(selected_input_refs) >= deep_reads_remaining
+                or ref in opened_or_failed
+                or not ref.startswith(("note:", "post:"))
+                or "full_text" not in set(candidate.get("available_fidelity") or ())
+                or str(assessment_by_ref.get(ref, {}).get("relevance") or "")
+                not in {"direct", "supporting"}
+            ):
+                continue
+            bounded_sources = [
+                source_id
+                for source_id in _candidate_source_ids(candidate)
+                if source_id in source_read_limits
+            ]
+            reserved_source = next(
+                (
+                    source_id
+                    for source_id in bounded_sources
+                    if source_reads_reserved[source_id] < source_read_limits[source_id]
+                ),
+                "",
+            )
+            if bounded_sources and not reserved_source:
+                continue
+            selected_input_refs.append(ref)
+            if reserved_source:
+                source_reads_reserved[reserved_source] += 1
+
+    available_reads = max(0, deep_reads_remaining - len(selected_input_refs))
+    if not unresolved_sources and not selected_input_refs:
         return result, []
 
-    assessment_by_ref = {
-        canonical_candidate_ref(str(item.get("ref") or "")): dict(item)
-        for item in result.get("assessments") or ()
-        if isinstance(item, Mapping) and item.get("ref")
-    }
     unavailable = set(
         _unique(
             (
@@ -1185,18 +1684,28 @@ def schedule_evidence_escalation(
         for position, item in enumerate(contract.get("source_requirements") or ())
         if isinstance(item, Mapping) and item.get("source_id")
     }
-    decision_input_mode = (
-        str(contract.get("task_profile") or "")
-        in {"workspace_synthesis", "recommendation"}
-    )
-
-    requested_window_rows: list[tuple[dict[str, Any], str, int]] = []
+    decision_input_rows: list[tuple[dict[str, Any], str, int]] = []
+    used_source_probe = False
     if decision_input_mode:
         for source_id in unresolved_sources:
-            requested_for_source: list[tuple[dict[str, Any], str, int]] = []
+            ranked_for_source: list[tuple[dict[str, Any], str, int]] = []
+            requested_refs = {
+                canonical_candidate_ref(str(candidate.get("ref") or ""))
+                for candidate in queues.get(source_id, ())
+                if str(
+                    assessment_by_ref.get(
+                        canonical_candidate_ref(str(candidate.get("ref") or "")),
+                        {},
+                    ).get("reason_code")
+                    or ""
+                )
+                == "search_more"
+            }
+            if not requested_refs:
+                used_source_probe = True
             for candidate in queues.get(source_id, ()):
                 ref = canonical_candidate_ref(str(candidate.get("ref") or ""))
-                if str(assessment_by_ref.get(ref, {}).get("reason_code") or "") != "search_more":
+                if requested_refs and ref not in requested_refs:
                     continue
                 positions = [
                     int(item.get("position") or 0)
@@ -1205,14 +1714,14 @@ def schedule_evidence_escalation(
                     and str(item.get("source_requirement_id") or "") == source_id
                     and int(item.get("position") or 0) > 0
                 ]
-                requested_for_source.append(
+                ranked_for_source.append(
                     (
                         dict(candidate),
                         source_id,
                         min(positions) if positions else 1_000_000,
                     )
                 )
-            requested_for_source.sort(
+            ranked_for_source.sort(
                 key=lambda item: (
                     item[2],
                     int(item[0].get("matched_evidence_rank") or 1_000_000),
@@ -1229,14 +1738,19 @@ def schedule_evidence_escalation(
                 if raw_source_limit is not None
                 else deep_reads_remaining
             )
-            requested_window_rows.extend(requested_for_source[:source_limit])
+            source_limit = max(
+                0,
+                source_limit - source_reads_reserved.get(source_id, 0),
+            )
+            decision_input_rows.extend(ranked_for_source[:source_limit])
 
-    if requested_window_rows:
-        # search_more is the reasoner's explicit request for stronger evidence.
+    if decision_input_rows:
         # Preserve typed-source order, each source's own read budget and any
-        # source-local window order;
-        # the single opened-evidence reassessment remains the semantic selector.
-        requested_window_rows.sort(
+        # source-local window order. search_more rows take precedence within a
+        # source; an all-negative card pass still needs one bounded source-local
+        # evidence batch before absence is verified. The single opened-evidence
+        # reassessment remains the semantic selector.
+        decision_input_rows.sort(
             key=lambda item: (
                 source_order.get(item[1], 1_000_000),
                 item[2],
@@ -1244,9 +1758,13 @@ def schedule_evidence_escalation(
                 str(item[0].get("ref") or ""),
             )
         )
-        ranked = [(candidate, source_id) for candidate, source_id, _ in requested_window_rows]
-        target_count = min(deep_reads_remaining, len(ranked))
-        escalation_strategy = "reasoner_requested_decision_input_evidence"
+        ranked = [(candidate, source_id) for candidate, source_id, _ in decision_input_rows]
+        target_count = min(available_reads, len(ranked))
+        escalation_strategy = (
+            "bounded_per_source_decision_input_evidence"
+            if used_source_probe
+            else "reasoner_requested_decision_input_evidence"
+        )
     else:
         # An all-negative card pass is not verified absence. Open one bounded
         # global batch so the existing reassessment call can compare full candidates.
@@ -1264,18 +1782,24 @@ def schedule_evidence_escalation(
                 str(item[0].get("ref") or ""),
             )
         )
-        target_count = min(size, deep_reads_remaining)
-        escalation_strategy = "ranked_negative_evidence"
-    selected: list[str] = []
+        target_count = min(size, available_reads)
+        escalation_strategy = (
+            "selected_decision_input_evidence"
+            if selected_input_refs and not ranked
+            else "ranked_negative_evidence"
+        )
+    selected: list[str] = list(selected_input_refs)
     selected_sources: list[str] = []
+    recovery_count = 0
     for candidate, source_id in ranked:
+        if recovery_count >= target_count:
+            break
         ref = canonical_candidate_ref(str(candidate.get("ref") or ""))
         if not ref or ref in selected:
             continue
         selected.append(ref)
         selected_sources.append(source_id)
-        if len(selected) >= target_count:
-            break
+        recovery_count += 1
     if not selected:
         return result, []
 
@@ -1295,6 +1819,7 @@ def schedule_evidence_escalation(
         {
             "kind": "evidence_escalation_scheduled",
             "refs": selected,
+            "selected_input_refs": selected_input_refs,
             "source_ids": selected_sources,
             "strategy": escalation_strategy,
         },
@@ -1309,10 +1834,15 @@ def next_evidence_escalation_batch(
     if any(
         isinstance(item, Mapping)
         and item.get("kind") == "evidence_escalation_scheduled"
-        and item.get("strategy") == "reasoner_requested_decision_input_evidence"
+        and item.get("strategy")
+        in {
+            "reasoner_requested_decision_input_evidence",
+            "bounded_per_source_decision_input_evidence",
+            "selected_decision_input_evidence",
+        }
         for item in reversed(list(plan.get("runtime_trace") or ()))
     ):
-        return pending
+        return _unique((*plan.get("pending_full_text_ids", ()), *pending))
     return pending[: max(1, min(size, 3))]
 
 
@@ -1400,7 +1930,11 @@ def schedule_selected_evidence_reassessment(
         ref
         for ref in _unique(
             canonical_candidate_ref(str(item))
-            for item in result.get("matched_evidence_recall_refs") or ()
+            for item in (
+                *result.get("finite_source_recovery_refs", ()),
+                *result.get("matched_evidence_recall_refs", ()),
+                *result.get("semantic_card_recovery_refs", ()),
+            )
             if str(item)
         )
         if ref in opened_refs

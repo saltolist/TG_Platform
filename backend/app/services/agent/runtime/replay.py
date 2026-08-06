@@ -185,7 +185,15 @@ def capture_unified_rollout_trace(
     selector_steps = [
         item for item in planner_steps if str(item.get("schema") or "") == SELECTOR_SCHEMA_V2
     ]
-    selector = selector_steps[-1] if selector_steps else {}
+    selector = next(
+        (
+            item
+            for item in reversed(selector_steps)
+            if int(item.get("attempts") or 0) > 0
+            or str(item.get("decision_code") or "") == "SELECT_CONTEXT"
+        ),
+        selector_steps[-1] if selector_steps else {},
+    )
     precision_selector = next(
         (
             item

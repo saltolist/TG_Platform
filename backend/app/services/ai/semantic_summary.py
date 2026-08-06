@@ -8,9 +8,10 @@ from __future__ import annotations
 
 import asyncio
 import json
+import logging
 import re
 from dataclasses import dataclass
-from typing import Any, Mapping
+from typing import Any, Mapping, Sequence
 
 from app.core.config import Settings
 from app.db.models import User
@@ -20,16 +21,24 @@ from app.services.ai.providers import (
     negotiate_chat_completion_capability,
 )
 from app.services.ai.rag import build_discovery_summary
+from app.services.ai.semantic_chunking import (
+    normalize_section_starts,
+    render_numbered_paragraphs,
+    semantic_paragraphs,
+)
+
+logger = logging.getLogger(__name__)
 
 SUMMARY_SCHEMA_VERSION = 2
 DISCOVERY_SUMMARY_VERSION = SUMMARY_SCHEMA_VERSION
-SELECTOR_SUMMARY_VERSION = 12
-SELECTOR_SEMANTIC_FLAGS_VERSION = 2
+SELECTOR_SUMMARY_VERSION = 19
+SELECTOR_SEMANTIC_FLAGS_VERSION = 3
 DISCOVERY_SUMMARY_MAX_CHARS = 480
 SELECTOR_SUMMARY_MAX_CHARS = 240
 SELECTOR_SUMMARY_TARGET_MAX_CHARS = 225
 SEMANTIC_SUMMARY_GENERATION_ATTEMPTS = 5
 COMPACT_SOURCE_PRESERVATION_MAX_CHARS = 1200
+RECORD_ROLE_PRESERVATION_PREFIX_CHARS = 400
 
 _EXPLICIT_NEGATION_RE = re.compile(
     r"(?:\b(?:does|did|is|are|was|were)\s+not\b|\bdoesn't\b|\bwithout\b|"
@@ -92,10 +101,19 @@ _OBSERVATIONAL_VALUE_RE = re.compile(
     re.IGNORECASE,
 )
 
+_ORDERED_ITEM_MARKER_RE = re.compile(
+    r"(?P<label>[^\d\n]{1,48}?)\s+(?P<number>\d{1,3})\s*[.)\]:\-–—]"
+)
+
 _SUMMARY_JSON_SCHEMA: dict[str, Any] = {
     "type": "object",
     "additionalProperties": False,
-    "required": ["discovery_summary", "selector_summary"],
+    "required": [
+        "discovery_summary",
+        "selector_summary",
+        "claim_modalities",
+        "semantic_section_starts",
+    ],
     "properties": {
         "discovery_summary": {
             "type": "string",
@@ -104,6 +122,19 @@ _SUMMARY_JSON_SCHEMA: dict[str, Any] = {
         "selector_summary": {
             "type": "string",
             "minLength": 12,
+        },
+        "claim_modalities": {
+            "type": "array",
+            "minItems": 1,
+            "items": {
+                "type": "string",
+                "enum": ["descriptive", "observational", "normative"],
+            },
+        },
+        "semantic_section_starts": {
+            "type": "array",
+            "maxItems": 12,
+            "items": {"type": "integer", "minimum": 1},
         },
     },
 }
@@ -124,9 +155,16 @@ _SYSTEM = (
     "определения, классификации, перечисления, имена, связи, правила, условия и ограничения; "
     "общую рекламу и вводные формулировки опускай. Если документ содержит только один "
     "существенный факт, создай одно законченное утверждение: не дроби и не повторяй его, "
-    "не добавляй второй аспект. Если документ явно задает число типов, "
-    "видов, частей, этапов или вариантов, сохрани название категории, количество и один-два "
-    "различающих элемента: карточка ведет к чтению источника, а не заменяет его. "
+    "не добавляй второй аспект. Если документ явно задает конечный набор типов, видов, "
+    "частей, этапов, вариантов или альтернатив, в обеих проекциях сохрани общую категорию, "
+    "количество, названия или роли членов и решающие различия между ними. Если документ "
+    "явно указывает применимость, целевое использование, ограничение или результат выбора "
+    "для каждого члена, сохрани эту границу; не разрывай один сравниваемый набор на "
+    "несвязанные темы. Карточка ведет к чтению источника, а не заменяет его. "
+    "Если документ задает план, серию, очередь, roadmap, backlog или иную "
+    "упорядоченную последовательность будущих результатов, selector_summary должна "
+    "явно назвать эту роль документа, сохранить диапазон или число элементов и кратко "
+    "назвать различающие темы элементов. Не заменяй план общим описанием предметной области. "
     "Не заменяй точные роли и уровни объектов (например, корневой или вложенный), "
     "кардинальность, пороги и значения более широкой формулировкой. "
     "Всегда сохраняй явное отрицание: если документ говорит, что решение, роль, значение, "
@@ -141,7 +179,20 @@ _SYSTEM = (
     "selector_summary обязательно закончи ровно одной точкой или восклицательным знаком. "
     "Перед ответом переформулируй ее до лимита; не заполняй поле до границы. Система "
     "сохранит карточку дословно после нормализации пробелов и не будет обрезать твой ответ. "
-    "Верни только JSON: {\"discovery_summary\":\"...\",\"selector_summary\":\"...\"}."
+    "Отдельно верни claim_modalities для явно утвержденных в документе отношений: "
+    "descriptive для фактов, определений и связей; observational для наблюдений, "
+    "измерений, факта наличия, прошлых использований и существующих файлов; normative "
+    "только для явно заданной рекомендации, правила, политики, предпочтения, требования "
+    "или будущего выбора. Не выводи normative из наблюдаемых примеров. Можно вернуть "
+    "несколько значений, если документ действительно содержит разные модальности. "
+    "Текст пользователя ниже размечен стабильными ids абзацев P0, P1 и далее. "
+    "semantic_section_starts верни как возрастающий список номеров абзацев, с которых "
+    "начинается новая самостоятельная смысловая часть: меняется предмет, цель, аргумент, "
+    "вариант, этап или решаемый вопрос. Не дели связное объяснение, таблицу или список "
+    "только ради размера и не считай Markdown-разметку обязательной. P0 не возвращай; "
+    "если весь текст смыслово однороден, верни пустой список; максимум 12 границ. "
+    "Верни только JSON: {\"discovery_summary\":\"...\",\"selector_summary\":\"...\","
+    "\"claim_modalities\":[\"descriptive\"],\"semantic_section_starts\":[3]}."
 )
 
 
@@ -154,12 +205,73 @@ class SemanticSummaryProjections:
     provider_discovery_chars: int | None = None
     provider_selector_chars: int | None = None
     selector_semantic_flags: Mapping[str, Any] | None = None
+    semantic_section_starts: tuple[int, ...] = ()
 
     @property
     def selector_summary_version(self) -> int:
         if self.selector_summary and self.model_key.startswith("llm:"):
             return SELECTOR_SUMMARY_VERSION
         return 0
+
+
+@dataclass(frozen=True)
+class _OrderedSequenceSignature:
+    label: str
+    first: int
+    last: int
+    count: int
+
+
+def _ordered_sequence_signature(source: str) -> _OrderedSequenceSignature | None:
+    """Detect repeated, consecutively numbered headings without domain keywords."""
+
+    groups: dict[str, tuple[str, list[int]]] = {}
+    for line in str(source or "").splitlines():
+        candidate = line.strip().lstrip("#>*_- ").strip()
+        match = _ORDERED_ITEM_MARKER_RE.match(candidate)
+        if match is None:
+            continue
+        label = match.group("label").strip(" *_#>")
+        normalized_label = " ".join(label.casefold().split())
+        if not normalized_label:
+            continue
+        display_label, numbers = groups.setdefault(normalized_label, (label, []))
+        number = int(match.group("number"))
+        if not numbers or numbers[-1] != number:
+            numbers.append(number)
+
+    signatures: list[_OrderedSequenceSignature] = []
+    for display_label, numbers in groups.values():
+        # Three-level taxonomies are commonly summarized correctly by their
+        # cardinality alone. Longer series need explicit boundary preservation
+        # because omitting an offset such as 2-6 changes continuation semantics.
+        if len(numbers) < 4:
+            continue
+        direction = 1 if numbers[-1] > numbers[0] else -1
+        if not all(right - left == direction for left, right in zip(numbers, numbers[1:])):
+            continue
+        signatures.append(
+            _OrderedSequenceSignature(
+                label=display_label,
+                first=numbers[0],
+                last=numbers[-1],
+                count=len(numbers),
+            )
+        )
+    return max(signatures, key=lambda item: item.count, default=None)
+
+
+def _selector_card_preserves_ordered_sequence(
+    card: str,
+    signature: _OrderedSequenceSignature | None,
+) -> bool:
+    if signature is None:
+        return True
+    value = str(card or "")
+    return all(
+        re.search(rf"(?<!\d){number}(?!\d)", value)
+        for number in (signature.first, signature.last)
+    )
 
 
 def resolve_semantic_summary_llm(
@@ -231,13 +343,28 @@ def selector_card_record_marker_kinds(value: str) -> frozenset[str]:
     )
 
 
-def selector_semantic_flags(source: str) -> dict[str, Any]:
+def selector_semantic_flags(
+    source: str,
+    *,
+    claim_modalities: Sequence[str] | None = None,
+) -> dict[str, Any]:
     explicit_absence = selector_card_has_explicit_absence(source)
-    observational_value = bool(_OBSERVATIONAL_VALUE_RE.search(str(source or "")))
+    modalities = tuple(
+        dict.fromkeys(
+            str(value)
+            for value in (claim_modalities or ())
+            if str(value) in {"descriptive", "observational", "normative"}
+        )
+    )
+    observational_value = "observational" in modalities or bool(
+        _OBSERVATIONAL_VALUE_RE.search(str(source or ""))
+    )
     return {
         "v": SELECTOR_SEMANTIC_FLAGS_VERSION,
         "explicit_absence": explicit_absence,
         "observational_value": observational_value,
+        "normative_value": "normative" in modalities,
+        "claim_modalities": list(modalities),
         "record_roles": (
             []
             if explicit_absence or observational_value
@@ -276,12 +403,18 @@ def extractive_summary_projections(
 class _ProjectionParseResult:
     discovery_summary: str = ""
     selector_summary: str = ""
+    claim_modalities: tuple[str, ...] = ()
+    semantic_section_starts: tuple[int, ...] = ()
     failure: str | None = None
     discovery_chars: int | None = None
     selector_chars: int | None = None
 
 
-def _parse_projection_response(raw: str) -> _ProjectionParseResult:
+def _parse_projection_response(
+    raw: str,
+    *,
+    paragraph_count: int = 0,
+) -> _ProjectionParseResult:
     value = str(raw or "").strip()
     value = re.sub(r"^```(?:json)?\s*|\s*```$", "", value, flags=re.IGNORECASE).strip()
     try:
@@ -292,6 +425,29 @@ def _parse_projection_response(raw: str) -> _ProjectionParseResult:
         return _ProjectionParseResult(failure="invalid_shape")
     discovery = _clean_card(str(payload.get("discovery_summary") or ""))
     selector = _clean_card(str(payload.get("selector_summary") or ""))
+    raw_modalities = payload.get("claim_modalities")
+    if not isinstance(raw_modalities, list):
+        return _ProjectionParseResult(failure="missing_claim_modalities")
+    claim_modalities = tuple(
+        dict.fromkeys(
+            str(value)
+            for value in raw_modalities
+            if str(value) in {"descriptive", "observational", "normative"}
+        )
+    )
+    if not claim_modalities or len(claim_modalities) != len(raw_modalities):
+        return _ProjectionParseResult(failure="invalid_claim_modalities")
+    raw_section_starts = payload.get("semantic_section_starts", [])
+    if not isinstance(raw_section_starts, list) or any(
+        type(value) is not int or value <= 0 for value in raw_section_starts
+    ):
+        return _ProjectionParseResult(failure="invalid_semantic_section_starts")
+    semantic_section_starts = normalize_section_starts(
+        raw_section_starts,
+        paragraph_count=paragraph_count,
+    )
+    if len(semantic_section_starts) != len(raw_section_starts):
+        return _ProjectionParseResult(failure="invalid_semantic_section_starts")
     discovery_chars = len(discovery)
     selector_chars = len(selector)
     if len(discovery) < 12 or len(selector) < 12:
@@ -325,6 +481,8 @@ def _parse_projection_response(raw: str) -> _ProjectionParseResult:
     return _ProjectionParseResult(
         discovery_summary=discovery,
         selector_summary=selector,
+        claim_modalities=claim_modalities,
+        semantic_section_starts=semantic_section_starts,
         discovery_chars=discovery_chars,
         selector_chars=selector_chars,
     )
@@ -334,6 +492,7 @@ def _projection_repair_instruction(
     parsed: _ProjectionParseResult,
     *,
     next_attempt: int,
+    ordered_sequence: _OrderedSequenceSignature | None = None,
 ) -> str:
     failure = str(parsed.failure or "invalid_projection")
     target_chars = SELECTOR_SUMMARY_TARGET_MAX_CHARS
@@ -349,6 +508,12 @@ def _projection_repair_instruction(
             f" Используй не более {sentence_count} предложений, не более "
             f"{words_per_sentence} слов в каждом и не более {target_words} слов всего."
         )
+    elif failure == "selector_ordered_sequence_lost":
+        target_chars = 200
+        word_limit_instruction = (
+            " Используй одно предложение, не более 24 слов и только короткие названия "
+            "различающихся тем элементов."
+        )
 
     failure_instruction = {
         "selector_too_long": (
@@ -363,6 +528,17 @@ def _projection_repair_instruction(
         "selector_record_marker_lost": (
             "Явно сохрани каждую lifecycle-роль записи из источника: draft/proposed и "
             "final/signed/approved нельзя обобщать или опускать."
+        ),
+        "invalid_semantic_section_starts": (
+            "Верни semantic_section_starts как возрастающий список уникальных номеров "
+            "существующих абзацев P1 и далее, либо пустой список."
+        ),
+        "selector_ordered_sequence_lost": (
+            "Исходный документ содержит упорядоченный ряд однотипных элементов. "
+            "Явно назови роль этого ряда в документе, сохрани его границы "
+            f"{ordered_sequence.first if ordered_sequence else '?'}-"
+            f"{ordered_sequence.last if ordered_sequence else '?'} и кратко различи "
+            "темы элементов; не заменяй ряд общим описанием предметной области."
         ),
         "selector_incomplete": (
             "Перепиши selector_summary законченными короткими предложениями без скобок и "
@@ -428,7 +604,12 @@ async def build_semantic_summary_projections(
     spec, model, api_key = resolved
     output_capability = negotiate_chat_completion_capability(spec)
     source = str(text_value or "").strip()[: settings.rag_semantic_summary_input_chars]
-    prompt = f"Тип: {object_kind}\nЗаголовок: {title or '(без заголовка)'}\nТекст:\n{source}"
+    source_paragraphs = semantic_paragraphs(source)
+    ordered_sequence = _ordered_sequence_signature(source)
+    prompt = (
+        f"Тип: {object_kind}\nЗаголовок: {title or '(без заголовка)'}\n"
+        f"Абзацы:\n{render_numbered_paragraphs(source_paragraphs)}"
+    )
     base_messages = [
         {"role": "system", "content": _SYSTEM},
         {"role": "user", "content": prompt},
@@ -446,7 +627,7 @@ async def build_semantic_summary_projections(
                     temperature=0.0,
                     max_tokens=320,
                     output_capability=output_capability,
-                    output_schema_name="semantic_summary_projections_v12",
+                    output_schema_name="semantic_summary_projections_v19",
                     output_json_schema=(
                         _SUMMARY_JSON_SCHEMA
                         if output_capability != ChatCompletionCapability.PLAIN
@@ -455,13 +636,38 @@ async def build_semantic_summary_projections(
                 ),
                 timeout=settings.rag_semantic_summary_timeout_seconds,
             )
-        except Exception:
+        except Exception as exc:
+            logger.warning(
+                "Semantic summary provider failed: provider=%s model=%s error=%s: %s",
+                spec.name,
+                model,
+                type(exc).__name__,
+                str(exc)[:240],
+            )
             return fallback("provider_error")
-        parsed = _parse_projection_response(raw)
+        parsed = _parse_projection_response(
+            raw,
+            paragraph_count=len(source_paragraphs),
+        )
+        if (
+            not parsed.failure
+            and not _selector_card_preserves_ordered_sequence(
+                parsed.selector_summary,
+                ordered_sequence,
+            )
+        ):
+            parsed = _ProjectionParseResult(
+                failure="selector_ordered_sequence_lost",
+                discovery_chars=parsed.discovery_chars,
+                selector_chars=parsed.selector_chars,
+            )
         if (
             not parsed.failure
             and len(source) <= COMPACT_SOURCE_PRESERVATION_MAX_CHARS
-            and not _selector_card_preserves_record_markers(source, parsed.selector_summary)
+            and not _selector_card_preserves_record_markers(
+                source[:RECORD_ROLE_PRESERVATION_PREFIX_CHARS],
+                parsed.selector_summary,
+            )
         ):
             parsed = _ProjectionParseResult(
                 failure="selector_record_marker_lost",
@@ -470,13 +676,17 @@ async def build_semantic_summary_projections(
             )
         if not parsed.failure:
             return SemanticSummaryProjections(
-                parsed.discovery_summary,
-                parsed.selector_summary,
-                model_key,
-                "llm_valid" if attempt == 0 else "llm_valid_retry",
-                parsed.discovery_chars,
-                parsed.selector_chars,
-                selector_semantic_flags(source),
+                discovery_summary=parsed.discovery_summary,
+                selector_summary=parsed.selector_summary,
+                model_key=model_key,
+                generation_status="llm_valid" if attempt == 0 else "llm_valid_retry",
+                provider_discovery_chars=parsed.discovery_chars,
+                provider_selector_chars=parsed.selector_chars,
+                selector_semantic_flags=selector_semantic_flags(
+                    source,
+                    claim_modalities=parsed.claim_modalities,
+                ),
+                semantic_section_starts=parsed.semantic_section_starts,
             )
         messages = [
             *base_messages,
@@ -485,6 +695,7 @@ async def build_semantic_summary_projections(
                 "content": _projection_repair_instruction(
                     parsed,
                     next_attempt=attempt + 2,
+                    ordered_sequence=ordered_sequence,
                 ),
             },
         ]

@@ -42,6 +42,7 @@ from app.services.ai.rag import (
     remove_file_nodes_for_parent,
     remove_note,
     remove_text_node,
+    semantic_index_chunks,
     upsert_attachment_extraction,
 )
 from app.services.ai.semantic_summary import (
@@ -582,6 +583,12 @@ async def _process_job(
                 object_status=post_status,
                 index_revision=post_revision,
                 keywords=discovery_keywords(f"{post_title} {text_value}"),
+                chunks_override=semantic_index_chunks(
+                    post_title,
+                    text_value,
+                    max_chars,
+                    semantic_section_starts=summaries.semantic_section_starts,
+                ),
             )
             await index_discovery_summary(
                 session,
@@ -651,6 +658,7 @@ async def _process_job(
             selector_summary=summaries.selector_summary,
             selector_summary_version=summaries.selector_summary_version,
             selector_semantic_flags=summaries.selector_semantic_flags,
+            semantic_section_starts=summaries.semantic_section_starts,
         )
         await _index_note_file_nodes(
             session,
@@ -705,6 +713,7 @@ async def _process_job(
             selector_summary=summaries.selector_summary,
             selector_summary_version=summaries.selector_summary_version,
             selector_semantic_flags=summaries.selector_semantic_flags,
+            semantic_section_starts=summaries.semantic_section_starts,
         )
         await _index_note_file_nodes(
             session,
@@ -768,6 +777,7 @@ async def _process_job(
                     selector_summary=summaries.selector_summary,
                     selector_summary_version=summaries.selector_summary_version,
                     selector_semantic_flags=summaries.selector_semantic_flags,
+                    semantic_section_starts=summaries.semantic_section_starts,
                 )
                 await _index_note_file_nodes(
                     session,

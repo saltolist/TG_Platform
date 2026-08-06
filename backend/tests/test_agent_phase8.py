@@ -47,6 +47,19 @@ def test_exhaustive_contract_routes_to_batch_and_flag_rolls_back() -> None:
     assert rollback["execution_mode"] != "batch"
 
 
+def test_semantic_member_inventory_does_not_bypass_the_agent() -> None:
+    from app.services.agent.runtime.turn_contract import build_turn_contract
+
+    contract = build_turn_contract(
+        user_text="Перечисли все функциональные зоны TG Platform",
+        history=[],
+        scope="global",
+    )
+
+    assert contract["task_profile"] != "exhaustive_inventory"
+    assert contract["execution_mode"] != "batch"
+
+
 def test_profile_limits_bound_db_and_llm_calls() -> None:
     from app.services.agent.runtime.profile_limits import (
         evaluate_profile_limits,

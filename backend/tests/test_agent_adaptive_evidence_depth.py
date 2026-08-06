@@ -406,6 +406,60 @@ def test_optional_assessment_routes_to_planner_before_ready_pack() -> None:
     assert route_research_verify(state) == "planner"
 
 
+def test_unassessed_required_candidates_route_to_selector_before_empty_pack() -> None:
+    state = {
+        "phase5_enabled": True,
+        "adaptive_evidence_depth_enabled": True,
+        "candidate_envelopes": [{"ref": "note:n1"}],
+        "material_plan": {
+            "context_selection_done": False,
+            "pending_full_text_ids": [],
+        },
+        "sufficiency": {"status": "exhausted"},
+    }
+
+    assert route_research_verify(state) == "planner"
+    state["material_plan"]["context_selection_done"] = True
+    assert route_research_verify(state) == "pack"
+
+
+def test_phase5_verify_respects_hard_step_budget_during_selector_repair() -> None:
+    state = {
+        "phase5_enabled": True,
+        "adaptive_evidence_depth_enabled": True,
+        "step_count": 10,
+        "max_steps": 10,
+        "candidate_envelopes": [{"ref": "note:n1"}],
+        "material_plan": {
+            "context_selection_done": False,
+            "needs_evidence_reassessment": True,
+            "pending_full_text_ids": [],
+        },
+        "sufficiency": {"status": "ready"},
+    }
+
+    assert route_research_verify(state) == "pack"
+
+
+def test_verified_partial_finish_overrides_stale_selector_repair_flag() -> None:
+    state = {
+        "phase5_enabled": True,
+        "adaptive_evidence_depth_enabled": True,
+        "step_count": 3,
+        "max_steps": 10,
+        "tool_action": {"requested_status": "partial"},
+        "candidate_envelopes": [{"ref": "note:n1"}],
+        "material_plan": {
+            "context_selection_done": False,
+            "needs_evidence_reassessment": True,
+            "pending_full_text_ids": [],
+        },
+        "sufficiency": {"status": "ready"},
+    }
+
+    assert route_research_verify(state) == "pack"
+
+
 def test_opened_escalation_routes_to_reassessment_before_pack() -> None:
     state = {
         "phase5_enabled": True,
@@ -419,6 +473,22 @@ def test_opened_escalation_routes_to_reassessment_before_pack() -> None:
     }
 
     assert route_research_verify(state) == "planner"
+
+
+def test_pending_full_read_dispatch_precedes_reassessment_route() -> None:
+    state = {
+        "phase5_enabled": True,
+        "adaptive_evidence_depth_enabled": True,
+        "candidate_envelopes": [{"ref": "note:n1"}],
+        "material_plan": {
+            "context_selection_done": False,
+            "needs_evidence_reassessment": True,
+            "pending_full_text_ids": ["note:n1"],
+        },
+        "sufficiency": {"status": "ready"},
+    }
+
+    assert route_research_verify(state) == "tool"
 
 
 def test_optional_note_is_typed_as_support_not_post_target() -> None:

@@ -57,6 +57,12 @@ from app.services.ai.llm import _HTTP_TIMEOUT
 logger = logging.getLogger(__name__)
 
 
+def is_retryable_run_exception(exc: BaseException) -> bool:
+    """Return whether Celery may transparently resume this run."""
+
+    return isinstance(exc, httpx.TransportError)
+
+
 def _planner_step_payload(data: dict[str, Any]) -> dict[str, Any] | None:
     """Extract the newest planner step from an "updates" event's data, if present.
 
@@ -664,6 +670,7 @@ async def execute_agent_run(
     user_text: str,
     runtime_context: RuntimeContext,
     configurable: dict[str, Any] | None = None,
+    defer_retryable_failures: bool = False,
 ) -> dict[str, Any]:
     started_at = time.perf_counter()
     created_at = run.created_at
@@ -985,6 +992,13 @@ async def execute_agent_run(
             AGENT_STOPPED_REASON.labels("deadline_exceeded").inc()
             raise
         except Exception as exc:
+            if defer_retryable_failures and is_retryable_run_exception(exc):
+                logger.warning(
+                    "Agent run %s hit a retryable transport failure; terminal status deferred",
+                    run.id,
+                )
+                await session.rollback()
+                raise
             logger.exception("Agent run %s failed", run.id)
             await event_service.update_run_status(
                 session,

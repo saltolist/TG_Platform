@@ -37,6 +37,77 @@ POSITION_ERRORS = {
 }
 
 
+def _agent_classifier_execution_is_valid(
+    calls: list[Mapping[str, Any]],
+) -> bool:
+    """Require one successful agent classification on every user turn."""
+
+    classifier_calls = [
+        item for item in calls if item.get("phase") == "bootstrap.classifier"
+    ]
+    return len(classifier_calls) == 1 and classifier_calls[0].get("success") is True
+
+
+def _selector_execution_is_valid(
+    *,
+    expected_retrieval: bool,
+    selector_attempts: Any,
+    primary_provider: list[Mapping[str, Any]],
+    reassessment_required: bool,
+    reassessment_provider: list[Mapping[str, Any]],
+    precision: Mapping[str, Any],
+    precision_provider: list[Mapping[str, Any]],
+) -> bool:
+    """Validate either an intentional direct finish or one clean selector pass."""
+
+    direct_finish = (
+        selector_attempts in {None, 0}
+        and not primary_provider
+        and not reassessment_required
+        and not reassessment_provider
+        and not precision.get("called")
+        and not precision_provider
+    )
+    if direct_finish:
+        return not expected_retrieval
+    return (
+        selector_attempts == 1
+        and len(primary_provider) == 1
+        and all(
+            item.get("schema_result") == "valid" and not item.get("retry")
+            for item in primary_provider
+        )
+        and (
+            (not reassessment_required and not reassessment_provider)
+            or (
+                reassessment_required
+                and len(reassessment_provider) == 1
+                and reassessment_provider[0].get("schema_result") == "valid"
+                and not reassessment_provider[0].get("retry")
+            )
+        )
+        and (
+            not precision.get("called")
+            or (
+                precision.get("schema_result") == "valid"
+                and len(precision_provider) == 1
+                and precision_provider[0].get("schema_result") == "valid"
+                and not precision_provider[0].get("retry")
+            )
+        )
+    )
+
+
+def _reasoner_model_usage_is_valid(
+    *, expected_retrieval: bool, research_models: set[str]
+) -> bool:
+    """Allow no selector model only for a direct non-retrieval finish."""
+
+    return len(research_models) == 1 or (
+        not expected_retrieval and not research_models
+    )
+
+
 def _digest(value: Any) -> str:
     return hashlib.sha256(str(value or "").encode()).hexdigest()
 
@@ -74,6 +145,7 @@ async def inspect(
             f"sequence must be between 1 and {len(manifest.get('scenarios') or ())}"
         )
     scenario = manifest["scenarios"][sequence - 1]
+    expected_retrieval = bool(scenario.get("expected_retrieval", True))
     async with async_session_factory() as session:
         runs = (
             await session.execute(select(AgentRun).order_by(AgentRun.created_at.desc()).limit(200))
@@ -114,6 +186,19 @@ async def inspect(
     candidates = (run.snapshot or {}).get("candidate_envelopes") or []
     materialized = _materialized_candidate_refs(final_items, candidates)
     provider = selector.get("provider_observability") or []
+    run_metrics = next(
+        (
+            event.payload
+            for event in reversed(events)
+            if event.event_type == "run_metrics"
+        ),
+        {},
+    )
+    runtime_calls = [
+        item
+        for item in run_metrics.get("calls") or []
+        if isinstance(item, Mapping)
+    ]
     primary_provider = [
         item
         for item in provider
@@ -123,7 +208,9 @@ async def inspect(
     precision_provider = [
         item
         for item in provider
-        if item.get("phase") == "research.selector.context_precision_confirmation"
+        if str(item.get("phase") or "").startswith(
+            "research.selector.context_precision_confirmation"
+        )
     ]
     reassessment_provider = [
         item
@@ -205,39 +292,22 @@ async def inspect(
             run.status == "completed"
             and (trace.get("lifecycle") or {}).get("status") == "completed"
         ),
+        "agent_classifier_called": _agent_classifier_execution_is_valid(
+            runtime_calls
+        ),
         "critical_recall": critical <= selected,
         "no_unexpected_selection": not (selected - expected - supporting),
         "no_frozen_irrelevant": not (selected & frozen_irrelevant),
+        "no_unwanted_materialization": expected_retrieval or not materialized,
         "critical_materialized": critical <= materialized,
-        "first_attempt_valid": (
-            selector.get("attempts") == 1
-            and len(primary_provider) == 1
-            and all(
-                item.get("schema_result") == "valid" and not item.get("retry")
-                for item in primary_provider
-            )
-            and (
-                (not reassessment_required and not reassessment_provider)
-                or (
-                    reassessment_required
-                    and len(reassessment_provider) == 1
-                    and reassessment_provider[0].get("schema_result") == "valid"
-                    and not reassessment_provider[0].get("retry")
-                )
-            )
-            and (
-                not precision.get("called")
-                or (
-                    precision.get("schema_result") == "valid"
-                    and len(precision_provider) == 1
-                    and precision_provider[0].get("schema_result") == "valid"
-                )
-            )
-            and not any(
-                item.get("phase")
-                == "research.selector.context_opened_recall_confirmation"
-                for item in provider
-            )
+        "first_attempt_valid": _selector_execution_is_valid(
+            expected_retrieval=expected_retrieval,
+            selector_attempts=selector.get("attempts"),
+            primary_provider=primary_provider,
+            reassessment_required=reassessment_required,
+            reassessment_provider=reassessment_provider,
+            precision=precision,
+            precision_provider=precision_provider,
         ),
         "no_validation_errors": not validation_errors,
         "no_position_errors": not (set(validation_errors) & POSITION_ERRORS),
@@ -257,12 +327,16 @@ async def inspect(
             == "research.selector.context_opened_recall_confirmation"
             for item in provider
         ),
-        "single_reasoner_model": len(research_models) == 1,
+        "single_reasoner_model": _reasoner_model_usage_is_valid(
+            expected_retrieval=expected_retrieval,
+            research_models=research_models,
+        ),
     }
     observability = primary_provider[0] if primary_provider else {}
     return {
         "sequence": sequence,
         "scenario_id": scenario["scenario_id"],
+        "expected_retrieval": expected_retrieval,
         "run_digest": _digest(run.id)[:16],
         "created_at": run.created_at.isoformat(),
         "candidate_count": len(candidates),

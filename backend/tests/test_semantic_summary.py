@@ -49,7 +49,8 @@ async def test_semantic_card_uses_orchestrator_and_bounds_output() -> None:
             return_value=(
                 '{"discovery_summary":"Карточка описывает пространственную систему и '
                 'навигацию по знаниям.","selector_summary":"Пространственная система '
-                'поддерживает навигацию. Поиск связывает знания с разделами."}'
+                'поддерживает навигацию. Поиск связывает знания с разделами.",'
+                '"claim_modalities":["descriptive"]}'
             ),
         ) as complete,
     ):
@@ -72,6 +73,43 @@ async def test_semantic_card_uses_orchestrator_and_bounds_output() -> None:
     assert complete.await_args.kwargs["output_json_schema"] == _SUMMARY_JSON_SCHEMA
 
 
+@pytest.mark.asyncio
+async def test_semantic_summary_returns_topic_boundary_for_plain_prose() -> None:
+    resolved = (SimpleNamespace(name="OpenAI"), "small", "secret")
+    raw = (
+        '{"discovery_summary":"Документ сравнивает два варианта поставки.",'
+        '"selector_summary":"Документ сравнивает демо и рабочий контур по применимости.",'
+        '"claim_modalities":["descriptive"],"semantic_section_starts":[2]}'
+    )
+    with (
+        patch("app.services.ai.semantic_summary.resolve_orchestrator_llm", return_value=resolved),
+        patch(
+            "app.services.ai.llm.complete_chat_completion",
+            new_callable=AsyncMock,
+            return_value=raw,
+        ) as complete,
+    ):
+        projections = await build_semantic_summary_projections(
+            user=SimpleNamespace(),
+            ai_profile={},
+            settings=Settings(rag_semantic_summaries_enabled=True),
+            object_kind="note",
+            title="Поставка",
+            text_value=(
+                "Проект открыт для изучения.\n\n"
+                "Репозиторий содержит исходный код.\n\n"
+                "Есть демонстрационный и рабочий варианты.\n\n"
+                "Рабочий вариант подключается к реальным данным."
+            ),
+        )
+
+    assert projections.semantic_section_starts == (2,)
+    kwargs = complete.await_args.kwargs
+    assert kwargs["output_schema_name"] == "semantic_summary_projections_v19"
+    assert "[P0] Проект открыт для изучения." in kwargs["messages"][1]["content"]
+    assert "[P2] Есть демонстрационный и рабочий варианты." in kwargs["messages"][1]["content"]
+
+
 def test_semantic_summary_schema_does_not_force_provider_string_truncation() -> None:
     properties = _SUMMARY_JSON_SCHEMA["properties"]
     assert "maxLength" not in properties["discovery_summary"]
@@ -90,6 +128,12 @@ def test_semantic_summary_schema_does_not_force_provider_string_truncation() -> 
     assert "не будет обрезать твой ответ" in _SYSTEM
     assert "сохранит карточку дословно" in _SYSTEM
     assert "Сохраняй lifecycle-роли записей" in _SYSTEM
+    assert "в обеих проекциях сохрани общую категорию" in _SYSTEM
+    assert "применимость, целевое использование, ограничение" in _SYSTEM
+    assert "не разрывай один сравниваемый набор" in _SYSTEM
+    assert "semantic_section_starts" in properties
+    assert "uniqueItems" not in properties["semantic_section_starts"]
+    assert "не считай Markdown-разметку обязательной" in _SYSTEM
 
 
 def test_negation_preservation_accepts_multilingual_equivalents() -> None:
@@ -123,11 +167,18 @@ def test_record_marker_preservation_is_model_independent_and_multilingual() -> N
     assert selector_semantic_flags(
         "The load test sustained 610 rps rather than an approved cap."
     ) == {
-        "v": 2,
+        "v": 3,
         "explicit_absence": False,
         "observational_value": True,
+        "normative_value": False,
+        "claim_modalities": [],
         "record_roles": [],
     }
+
+    assert selector_semantic_flags(
+        "The policy explicitly recommends PNG.",
+        claim_modalities=["normative"],
+    )["normative_value"] is True
 
 
 def test_explicit_absence_preservation_tracks_semantics_not_any_negation() -> None:
@@ -168,11 +219,11 @@ async def test_semantic_summary_regenerates_when_record_role_is_lost() -> None:
     resolved = (SimpleNamespace(name="OpenAI"), "small", "secret")
     lost = (
         '{"discovery_summary":"The policy selects a recovery region.",'
-        '"selector_summary":"The policy sets eu-central as the recovery region."}'
+        '"selector_summary":"The policy sets eu-central as the recovery region.","claim_modalities":["normative"]}'
     )
     valid = (
         '{"discovery_summary":"The signed policy selects a recovery region.",'
-        '"selector_summary":"The signed policy sets eu-central as the recovery region."}'
+        '"selector_summary":"The signed policy sets eu-central as the recovery region.","claim_modalities":["normative"]}'
     )
     with (
         patch("app.services.ai.semantic_summary.resolve_orchestrator_llm", return_value=resolved),
@@ -204,7 +255,7 @@ async def test_semantic_summary_one_call_returns_dual_bounded_projection() -> No
     resolved = (SimpleNamespace(name="OpenAI"), "small", "secret")
     raw = (
         '{"discovery_summary":"Длинная карточка продукта, ограничений и владельцев.",'
-        '"selector_summary":"Документ описывает продукт и его ограничения. В нем названы владельцы."}'
+        '"selector_summary":"Документ описывает продукт и его ограничения. В нем названы владельцы.","claim_modalities":["descriptive"]}'
     )
     with (
         patch("app.services.ai.semantic_summary.resolve_orchestrator_llm", return_value=resolved),
@@ -234,11 +285,11 @@ async def test_semantic_summary_regenerates_overlong_llm_card_without_slicing() 
     resolved = (SimpleNamespace(name="OpenAI"), "small", "secret")
     overlong = (
         '{"discovery_summary":"Полная discovery карточка.",'
-        f'"selector_summary":"{"x" * (SELECTOR_SUMMARY_MAX_CHARS + 1)}"}}'
+        f'"selector_summary":"{"x" * (SELECTOR_SUMMARY_MAX_CHARS + 1)}","claim_modalities":["descriptive"]}}'
     )
     valid = (
         '{"discovery_summary":"Полная discovery карточка.",'
-        '"selector_summary":"Перечислены пять функций: кабинет, AI и поиск. Также названы синхронизация и аналитика."}'
+        '"selector_summary":"Перечислены пять функций: кабинет, AI и поиск. Также названы синхронизация и аналитика.","claim_modalities":["descriptive"]}'
     )
     with (
         patch("app.services.ai.semantic_summary.resolve_orchestrator_llm", return_value=resolved),
@@ -274,7 +325,7 @@ async def test_semantic_summary_repair_prompts_progress_across_deterministic_fai
     resolved = (SimpleNamespace(name="OpenAI"), "small", "secret")
     overlong = (
         '{"discovery_summary":"Полная discovery карточка.",'
-        f'"selector_summary":"{"x" * (SELECTOR_SUMMARY_MAX_CHARS + 1)}"}}'
+        f'"selector_summary":"{"x" * (SELECTOR_SUMMARY_MAX_CHARS + 1)}","claim_modalities":["descriptive"]}}'
     )
     complete = AsyncMock(return_value=overlong)
     with (
@@ -313,7 +364,7 @@ async def test_semantic_summary_does_not_force_incidental_negation_into_long_car
     resolved = (SimpleNamespace(name="OpenAI"), "small", "secret")
     valid = (
         '{"discovery_summary":"The workspace joins channel operations and knowledge.",'
-        '"selector_summary":"The workspace has six functional zones for channel work."}'
+        '"selector_summary":"The workspace has six functional zones for channel work.","claim_modalities":["descriptive"]}'
     )
     source = (
         "The workspace has six functional zones for channel work. "
@@ -341,11 +392,127 @@ async def test_semantic_summary_does_not_force_incidental_negation_into_long_car
     assert projections.generation_status == "llm_valid"
     assert projections.selector_summary_version == SELECTOR_SUMMARY_VERSION
     assert projections.selector_semantic_flags == {
-        "v": 2,
+        "v": 3,
         "explicit_absence": False,
         "observational_value": False,
+        "normative_value": False,
+        "claim_modalities": ["descriptive"],
         "record_roles": ["draft_or_proposed"],
     }
+
+
+@pytest.mark.asyncio
+async def test_semantic_summary_retries_when_ordered_plan_role_is_lost() -> None:
+    resolved = (SimpleNamespace(name="OpenAI"), "small", "secret")
+    lost = (
+        '{"discovery_summary":"Документ описывает функции платформы.",'
+        '"selector_summary":"Платформа объединяет кабинет, AI, синхронизацию, аналитику и поиск.","claim_modalities":["descriptive"]}'
+    )
+    valid = (
+        '{"discovery_summary":"План задает серию из пяти публикаций.",'
+        '"selector_summary":"План задает посты 2-6: кабинет, AI, синхронизация, аналитика и точечный поиск.","claim_modalities":["normative"]}'
+    )
+    with (
+        patch("app.services.ai.semantic_summary.resolve_orchestrator_llm", return_value=resolved),
+        patch(
+            "app.services.ai.llm.complete_chat_completion",
+            new_callable=AsyncMock,
+            side_effect=[lost, valid],
+        ) as complete,
+    ):
+        projections = await build_semantic_summary_projections(
+            user=SimpleNamespace(),
+            ai_profile={},
+            settings=Settings(rag_semantic_summaries_enabled=True),
+            object_kind="note",
+            title="Серия публикаций",
+            text_value=(
+                "**Пост 2. Кабинет**\n"
+                "**Пост 3. AI**\n"
+                "**Пост 4. Синхронизация**\n"
+                "**Пост 5. Аналитика**\n"
+                "**Пост 6. Поиск**"
+            ),
+        )
+
+    assert complete.await_count == 2
+    kwargs = complete.await_args_list[0].kwargs
+    assert kwargs["output_schema_name"] == "semantic_summary_projections_v19"
+    assert "упорядоченную последовательность будущих результатов" in kwargs[
+        "messages"
+    ][0]["content"]
+    assert projections.selector_summary_version == SELECTOR_SUMMARY_VERSION
+    assert projections.selector_summary.startswith("План задает посты 2-6")
+    assert "code=selector_ordered_sequence_lost" in (
+        complete.await_args_list[1].kwargs["messages"][-1]["content"]
+    )
+    assert "границы 2-6" in complete.await_args_list[1].kwargs["messages"][-1]["content"]
+    assert "не более 24 слов" in complete.await_args_list[1].kwargs["messages"][-1]["content"]
+
+
+@pytest.mark.asyncio
+async def test_semantic_summary_accepts_cardinality_for_three_level_taxonomy() -> None:
+    resolved = (SimpleNamespace(name="OpenAI"), "small", "secret")
+    valid = (
+        '{"discovery_summary":"The architecture has three retrieval levels.",'
+        '"selector_summary":"The architecture defines three retrieval levels from routing to deep reads.","claim_modalities":["descriptive"]}'
+    )
+    with (
+        patch("app.services.ai.semantic_summary.resolve_orchestrator_llm", return_value=resolved),
+        patch(
+            "app.services.ai.llm.complete_chat_completion",
+            new_callable=AsyncMock,
+            return_value=valid,
+        ) as complete,
+    ):
+        projections = await build_semantic_summary_projections(
+            user=SimpleNamespace(),
+            ai_profile={},
+            settings=Settings(rag_semantic_summaries_enabled=True),
+            object_kind="note",
+            title="Retrieval architecture",
+            text_value=(
+                "**Level 0. Routing**\n"
+                "**Level 1. Semantic search**\n"
+                "**Level 2. Deep reads**"
+            ),
+        )
+
+    complete.assert_awaited_once()
+    assert projections.selector_summary_version == SELECTOR_SUMMARY_VERSION
+
+
+@pytest.mark.asyncio
+async def test_semantic_summary_does_not_force_late_incidental_draft_word() -> None:
+    resolved = (SimpleNamespace(name="OpenAI"), "small", "secret")
+    valid = (
+        '{"discovery_summary":"The workspace unifies authoring and analytics.",'
+        '"selector_summary":"The workspace unifies authoring, analytics and channel synchronization.","claim_modalities":["descriptive"]}'
+    )
+    source = (
+        "The workspace unifies authoring, analytics and channel synchronization. "
+        + "Operational product details. " * 18
+        + "The author no longer remembers which folder contains a draft."
+    )
+    with (
+        patch("app.services.ai.semantic_summary.resolve_orchestrator_llm", return_value=resolved),
+        patch(
+            "app.services.ai.llm.complete_chat_completion",
+            new_callable=AsyncMock,
+            return_value=valid,
+        ) as complete,
+    ):
+        projections = await build_semantic_summary_projections(
+            user=SimpleNamespace(),
+            ai_profile={},
+            settings=Settings(rag_semantic_summaries_enabled=True),
+            object_kind="post",
+            title="Unified workspace",
+            text_value=source,
+        )
+
+    complete.assert_awaited_once()
+    assert projections.selector_summary_version == SELECTOR_SUMMARY_VERSION
 
 
 @pytest.mark.asyncio
@@ -353,11 +520,11 @@ async def test_semantic_summary_regenerates_when_explicit_negation_is_lost() -> 
     resolved = (SimpleNamespace(name="OpenAI"), "small", "secret")
     lost = (
         '{"discovery_summary":"The inventory lists recovery regions.",'
-        '"selector_summary":"The inventory lists eu-central among recovery regions."}'
+        '"selector_summary":"The inventory lists eu-central among recovery regions.","claim_modalities":["observational"]}'
     )
     valid = (
         '{"discovery_summary":"The inventory lists recovery regions.",'
-        '"selector_summary":"The inventory contains no draft or signed recovery-region choice."}'
+        '"selector_summary":"The inventory contains no draft or signed recovery-region choice.","claim_modalities":["descriptive"]}'
     )
     with (
         patch("app.services.ai.semantic_summary.resolve_orchestrator_llm", return_value=resolved),
@@ -391,11 +558,11 @@ async def test_semantic_summary_accepts_lossy_card_when_matched_evidence_carries
     resolved = (SimpleNamespace(name="OpenAI"), "small", "secret")
     lost = (
         '{"discovery_summary":"The release policy defines permissions.",'
-        '"selector_summary":"The release is permitted before approval."}'
+        '"selector_summary":"The release is permitted before approval.","claim_modalities":["normative"]}'
     )
     valid = (
         '{"discovery_summary":"The release policy defines permissions.",'
-        '"selector_summary":"The release is not permitted before approval."}'
+        '"selector_summary":"The release is not permitted before approval.","claim_modalities":["normative"]}'
     )
     with (
         patch("app.services.ai.semantic_summary.resolve_orchestrator_llm", return_value=resolved),
@@ -430,7 +597,7 @@ async def test_semantic_card_uses_answer_model_when_orchestrator_is_unavailable(
             new_callable=AsyncMock,
             return_value=(
                 '{"discovery_summary":"Карточка релиза и его изменений.",'
-                '"selector_summary":"Релиз содержит ключевые изменения. Изменения влияют на продукт."}'
+                '"selector_summary":"Релиз содержит ключевые изменения. Изменения влияют на продукт.","claim_modalities":["descriptive"]}'
             ),
         ),
     ):
@@ -483,19 +650,19 @@ async def test_semantic_card_has_discovery_only_fallback_without_llm() -> None:
         '{"selector_summary":"only"}',
         (
             '{"discovery_summary":"Достаточная карточка discovery.",'
-            f'"selector_summary":"{"x" * (SELECTOR_SUMMARY_MAX_CHARS + 1)}"}}'
+            f'"selector_summary":"{"x" * (SELECTOR_SUMMARY_MAX_CHARS + 1)}","claim_modalities":["descriptive"]}}'
         ),
         (
             '{"discovery_summary":"Достаточная карточка discovery.",'
-            '"selector_summary":"Незаконченное предложение карточки"}'
+            '"selector_summary":"Незаконченное предложение карточки","claim_modalities":["descriptive"]}'
         ),
         (
             '{"discovery_summary":"Достаточная карточка discovery.",'
-            '"selector_summary":"Входящий поток и исходящий поток (п."}'
+            '"selector_summary":"Входящий поток и исходящий поток (п.","claim_modalities":["descriptive"]}'
         ),
         (
             '{"discovery_summary":"Достаточная карточка discovery.",'
-            '"selector_summary":"Завершенная мысль.!"}'
+            '"selector_summary":"Завершенная мысль.!","claim_modalities":["descriptive"]}'
         ),
     ],
 )
@@ -530,6 +697,7 @@ async def test_semantic_card_never_publishes_extractive_selector_on_generation_f
         "provider_error",
         "invalid_json",
         "missing_fields",
+        "missing_claim_modalities",
         "selector_too_long",
         "selector_incomplete",
     }

@@ -382,6 +382,34 @@ async def test_complete_tenant_inventory_uses_overlay_post_notes_not_base_posts(
     state.session.scalars.assert_not_awaited()
 
 
+@pytest.mark.asyncio
+async def test_bounded_note_catalog_probe_is_not_recorded_as_evidence() -> None:
+    state = _state(tenant_key="tenant-a")
+    with (
+        patch(
+            "app.services.ai.rag_tools.list_global_notes",
+            new_callable=AsyncMock,
+            return_value=[_note(f"n{index}") for index in range(4)],
+        ),
+        patch(
+            "app.services.overlay.tenant_notes.list_tenant_notes_with_parents",
+            new_callable=AsyncMock,
+            return_value=[],
+        ),
+    ):
+        outcome = await tool_list_all_notes(state, limit=3, record=False)
+
+    assert [item["ref"] for item in outcome.items] == [
+        "note:n0",
+        "note:n1",
+        "note:n2",
+    ]
+    assert outcome.catalog_snapshot is None
+    assert state.context_blocks == []
+    assert state.catalog_snapshots == {}
+    assert state.visited == set()
+
+
 def test_typed_ambient_candidate_has_origin_and_nullable_semantic_score() -> None:
     catalog = _current_post_note_catalog(
         {

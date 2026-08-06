@@ -51,6 +51,11 @@ from app.services.ai.semantic_summary import (
     _SYSTEM as SEMANTIC_SUMMARY_SYSTEM,
 )
 from scripts.agent_unified_phase6_report import build_report
+from scripts.agent_unified_formal_canary_inspect import (
+    _agent_classifier_execution_is_valid,
+    _reasoner_model_usage_is_valid,
+    _selector_execution_is_valid,
+)
 from scripts.agent_unified_selector_provider_replay import (
     _bind_candidates_to_planner_contract,
     _planner_resolution_trace,
@@ -67,6 +72,75 @@ HISTORICAL_V13_V14_PROMPT_SHA256 = {
     "selector_card": "2974e88cc40758eddd1ca37fd12d1b75dca325f39b90004b2b650a4db16d3ecc",
     "recall_verifier": "90a4de42dc4b6f693c0850e4d76ace7d0b368dec8f39c67a8eb137aa5f7897be",
 }
+
+
+def test_formal_inspector_accepts_direct_finish_or_clean_empty_selector() -> None:
+    assert _agent_classifier_execution_is_valid(
+        [{"phase": "bootstrap.classifier", "success": True}]
+    )
+    assert not _agent_classifier_execution_is_valid([])
+    assert not _agent_classifier_execution_is_valid(
+        [{"phase": "bootstrap.classifier", "success": False}]
+    )
+    assert _selector_execution_is_valid(
+        expected_retrieval=False,
+        selector_attempts=None,
+        primary_provider=[],
+        reassessment_required=False,
+        reassessment_provider=[],
+        precision={},
+        precision_provider=[],
+    )
+    assert _selector_execution_is_valid(
+        expected_retrieval=False,
+        selector_attempts=1,
+        primary_provider=[{"schema_result": "valid", "retry": False}],
+        reassessment_required=False,
+        reassessment_provider=[],
+        precision={},
+        precision_provider=[],
+    )
+    assert _reasoner_model_usage_is_valid(
+        expected_retrieval=False, research_models=set()
+    )
+    assert _reasoner_model_usage_is_valid(
+        expected_retrieval=False, research_models={"user-reasoner"}
+    )
+
+
+@pytest.mark.parametrize(
+    ("primary_provider", "precision", "precision_provider"),
+    [
+        ([{"schema_result": "invalid", "retry": False}], {}, []),
+        ([{"schema_result": "valid", "retry": True}], {}, []),
+        (
+            [{"schema_result": "valid", "retry": False}],
+            {"called": True, "schema_result": "valid"},
+            [{"schema_result": "valid", "retry": True}],
+        ),
+    ],
+)
+def test_formal_inspector_rejects_invalid_or_retried_empty_selector(
+    primary_provider: list[dict],
+    precision: dict,
+    precision_provider: list[dict],
+) -> None:
+    assert not _selector_execution_is_valid(
+        expected_retrieval=False,
+        selector_attempts=1,
+        primary_provider=primary_provider,
+        reassessment_required=False,
+        reassessment_provider=[],
+        precision=precision,
+        precision_provider=precision_provider,
+    )
+
+
+def test_formal_inspector_rejects_multiple_reasoner_models() -> None:
+    assert not _reasoner_model_usage_is_valid(
+        expected_retrieval=False,
+        research_models={"user-reasoner-a", "user-reasoner-b"},
+    )
 
 
 def _contract(*, complete: bool = True) -> dict:
@@ -1699,6 +1773,67 @@ def test_selector_scope_guard_rejects_observed_value_only_for_normative_bound() 
     )
     assert mixed_plural.demoted_refs == ("note:n0",)
 
+
+def test_selector_scope_guard_uses_typed_modality_without_query_language_rules() -> None:
+    candidates = _candidates(2)
+    candidates[0]["selector_summary"] = (
+        "The workspace contains two attached image files."
+    )
+    candidates[0]["selector_semantic_flags"] = {
+        "v": 3,
+        "explicit_absence": False,
+        "observational_value": True,
+        "normative_value": False,
+        "claim_modalities": ["observational"],
+        "record_roles": [],
+    }
+    candidates[1]["selector_summary"] = (
+        "The publishing policy explicitly recommends PNG for diagrams."
+    )
+    candidates[1]["selector_semantic_flags"] = {
+        "v": 3,
+        "explicit_absence": False,
+        "observational_value": False,
+        "normative_value": True,
+        "claim_modalities": ["normative"],
+        "record_roles": [],
+    }
+    contract = _contract(complete=False)
+    contract["source_requirements"][0]["claim_modality"] = "normative"
+    transport = encode_selector_transport(
+        question="Quel choix faut-il faire?",
+        dialog_context="",
+        contract=contract,
+        candidates=candidates,
+    )
+    decoded = decode_selector_transport_result(
+        json.dumps(
+            {
+                "v": 2,
+                "n": 2,
+                "r": transport.mapping.registry_nonce,
+                "a": ["de9", "de9"],
+                "done": True,
+            }
+        ),
+        mapping=transport.mapping,
+    )
+    assert decoded.decision is not None
+
+    guarded = apply_selector_question_scope_guard(
+        decoded.decision,
+        question="Quel choix faut-il faire?",
+        candidates=candidates,
+        mapping=transport.mapping,
+        contract=contract,
+    )
+
+    assert guarded.demoted_refs == ("note:n0",)
+    assert [
+        item.ref
+        for item in guarded.decision.assessments
+        if item.relevance.value != "irrelevant"
+    ] == ["note:n1"]
 
 def test_selector_scope_guard_keeps_cross_record_side_with_compatible_negation() -> None:
     candidates = _candidates(1)

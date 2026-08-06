@@ -60,8 +60,8 @@ def records_from_agent_state(agent_state) -> dict[str, EvidenceRecord]:
     ``/note/global/n1/``) — the same identifier the planner sees in the pack,
     cites in FinishRetrieval, and the answer model renders. No hash indirection,
     so a planner-returned id can never dangle against the record map
-    (agent-runtime-sprints §1.2). First occurrence of a path wins, matching the
-    pack's dedup-by-path behaviour.
+    (agent-runtime-sprints §1.2). Later occurrences win because tools append
+    higher-fidelity reads after discovery previews at the same path.
     """
     from app.services.ai.note_citations import NoteCite
 
@@ -70,7 +70,7 @@ def records_from_agent_state(agent_state) -> dict[str, EvidenceRecord]:
         if not isinstance(cite, NoteCite):
             continue
         path = str(cite.path or "")
-        if not path or path in records:
+        if not path:
             continue
         kind: EvidenceKind = "note_chunk"
         # Listing paths (§1.4 tail) must be classified before the "/post/" rule:

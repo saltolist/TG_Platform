@@ -247,6 +247,162 @@ async def test_seed_executes_source_scoped_discovery_instead_of_mixed_l1() -> No
     assert result["search_ledger"][-1]["state"] == "satisfied"
 
 
+def _decision_note_contract(*, candidate_limit: int = 3) -> dict:
+    return {
+        "version": 3,
+        "target_contract": {"revision": 4, "targets": []},
+        "task_profile": "recommendation",
+        "answer_shape": {"kind": "freeform", "expected_member_count": None},
+        "source_requirements": [
+            {
+                "source_id": "workspace-notes",
+                "kind": "notes",
+                "role": "context",
+                "query_goal": "Find premises that can constrain the next decision.",
+                "discovery_obligation": "required",
+                "evidence_obligation": "required",
+                "selection_cardinality": {"min": 0, "max": candidate_limit},
+                "coverage": "relevant",
+                "discovery_mode": "semantic_relevance",
+                "order_by": None,
+                "order_direction": None,
+                "predicate_kind": "semantic",
+                "required_fidelity": "semantic_card",
+                "evidence_requirements": [],
+                "scope": {
+                    "mode": "corpus",
+                    "corpus": "workspace",
+                    "owner": "current_user",
+                    "target_ids": [],
+                    "statuses": [],
+                },
+                "budget": {
+                    "search_calls": 1,
+                    "rewrite_calls": 0,
+                    "candidate_limit": candidate_limit,
+                    "deep_reads": 2,
+                },
+            }
+        ],
+    }
+
+
+def _note_card(note_id: str) -> dict:
+    return {
+        "ref": f"note:{note_id}",
+        "label": f"note:{note_id}",
+        "origin": "authoritative_catalog",
+        "node_type": "note_summary",
+        "summary_only": True,
+        "index_revision": 1,
+        "source_revision": 1,
+        "selector_summary": f"Decision premise {note_id}.",
+        "selector_summary_version": 13,
+        "selector_semantic_flags": {"v": 2},
+        "title": f"Note {note_id}",
+        "status": "active",
+        "source_requirement_id": "workspace-notes",
+    }
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    ("catalog_size", "expected_refs", "loads_finite_cards"),
+    [
+        (3, {"note:n1", "note:n2", "note:n3"}, True),
+        (4, {"note:n1", "note:n2", "note:n3", "note:n4"}, True),
+        (11, {"note:n1"}, False),
+    ],
+)
+async def test_seed_adds_only_a_finite_decision_note_catalog(
+    catalog_size: int,
+    expected_refs: set[str],
+    loads_finite_cards: bool,
+) -> None:
+    from app.services.agent.research.graph import research_seed_node
+
+    ctx = _ctx()
+    ctx.settings = Settings(
+        agent_unified_catalog_v1_enabled=True,
+        agent_typed_requirements_v1_enabled=True,
+        agent_unified_selector_v1_enabled=True,
+        agent_verified_pack_boundary_v1_enabled=True,
+        agent_planner_policy_v1_enabled=True,
+    )
+    contract = _decision_note_contract(candidate_limit=3)
+    members = tuple(
+        {
+            "kind": "note",
+            "id": f"n{index}",
+            "title": f"Note n{index}",
+            "status": "active",
+            "revision": 1,
+        }
+        for index in range(1, catalog_size + 1)
+    )
+    cards = [_note_card(str(item["id"])) for item in members]
+    semantic_hit = _note_card("n1") | {
+        "origin": "semantic_search",
+        "similarity": 0.9,
+    }
+    state = {
+        "user_text": "What should be produced next?",
+        "search_query": "What should be produced next?",
+        "research_transcript": [],
+        "search_ledger": [],
+        "turn_contract": contract,
+    }
+    with (
+        patch(
+            "app.services.agent.research.graph._workspace_inventory",
+            new=AsyncMock(return_value=""),
+        ),
+        patch(
+            "app.services.agent.research.graph.tool_list_all_notes",
+            new=AsyncMock(
+                return_value=ToolOutcome(
+                    summary="bounded probe",
+                    items=members,
+                    result_count=len(members),
+                )
+            ),
+        ) as probe,
+        patch(
+            "app.services.agent.research.graph._catalog_member_candidates",
+            new=AsyncMock(return_value=(cards, len(cards))),
+        ) as load_cards,
+        patch(
+            "app.services.agent.research.graph._execute_tool",
+            new=AsyncMock(
+                return_value=ToolOutcome(
+                    summary="one semantic result",
+                    hits=(semantic_hit,),
+                )
+            ),
+        ),
+    ):
+        result = await research_seed_node(
+            state,
+            {
+                "configurable": {
+                    "runtime_context": ctx,
+                    "turn_contract": contract,
+                    "dialog_ledger": (),
+                }
+            },
+        )
+
+    assert probe.await_count == 1
+    assert probe.await_args.kwargs == {
+        "source_requirement_id": "workspace-notes",
+        "limit": 11,
+        "record": False,
+    }
+    assert load_cards.await_count == int(loads_finite_cards)
+    assert {item["ref"] for item in result["candidate_envelopes"]} == expected_refs
+    assert not result["material_plan"].get("required_full_text_ids")
+
+
 @pytest.mark.asyncio
 async def test_second_finish_becomes_validator_event() -> None:
     ctx = _ctx()

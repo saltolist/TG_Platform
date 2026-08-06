@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import logging
 import asyncio
+import json
 import uuid
 from typing import Any, Literal, Mapping
 
@@ -28,6 +29,7 @@ from app.services.agent.research.graph import (
     route_research_verify,
 )
 from app.services.agent.research.evidence_pack import EVIDENCE_PACK_SCHEMA
+from app.services.agent.research.catalog import NOTE_PROPERTIES, POST_PROPERTIES
 from app.services.agent.research.material_plan import empty_material_plan
 from app.services.agent.research.trust import UNTRUSTED_SYSTEM_NOTE, wrap_untrusted_block
 from app.services.agent.runtime.answer_stream import extract_complete_answer, extract_partial_answer
@@ -58,7 +60,9 @@ from app.services.agent.runtime.state import AgentGraphState
 from app.services.agent.runtime.turn_contract import (
     EVIDENCE_REQUIREMENT_SCHEMA,
     render_turn_contract,
+    source_discovery_required,
     source_evidence_required,
+    source_selection_cardinality,
 )
 
 logger = logging.getLogger(__name__)
@@ -66,7 +70,7 @@ _compiled_graphs: dict[int, tuple[object, Any]] = {}
 
 WORKSPACE_SYSTEM = """Ты единственный WorkspaceAgent платформы.
 Верни один JSON tool call:
-- {"type":"read","requires_evidence":true,"answer_shape":{"kind":"freeform|scalar|record|inventory","expected_member_count":null},"required_sources":["notes|posts|analytics|comments|attachments|images|channel"],"source_requirements":[{"kind":"posts","query_goal":"самостоятельная цель этого источника","coverage":"relevant|complete","discovery_mode":"semantic_relevance|catalog_window","statuses":["draft|scheduled|published"],"order_by":"position|created_at","order_direction":"asc|desc","candidate_limit":4,"evidence_granularity":"catalog|semantic_card|full_text"}]} — ответ невозможен без фактов workspace;
+- {"type":"read","task_profile":"topical_answer|recommendation|workspace_synthesis|comparison|exhaustive_inventory","requires_evidence":true,"answer_shape":{"kind":"freeform|scalar|record|inventory","expected_member_count":null},"required_sources":["notes|posts|analytics|comments|attachments|images|channel"],"source_requirements":[{"kind":"posts","query_goal":"самостоятельная цель этого источника","claim_modality":"descriptive|normative","coverage":"relevant|complete","discovery_mode":"semantic_relevance|catalog_window","order_dependency":"irrelevant|required","statuses":["draft|scheduled|published"],"order_by":"position|created_at","order_direction":"asc|desc","candidate_limit":4,"evidence_granularity":"catalog|semantic_card|full_text","evidence_requirements":[{"subject":"posts","property":"самостоятельный проверяемый аспект ответа","operator":"exists","scope":"source"}]}]} — ответ невозможен без фактов workspace;
 - {"type":"finish","requires_evidence":false,"required_sources":[]} — на сообщение можно полноценно ответить по его тексту, диалогу и общим знаниям;
 - {"type":"reuse_context","context_refs":["note:ID|post:ID"]} — нужны детали уже использованных материалов; открывай только эти проверенные refs по ID;
 - {"type":"post_proposal","command":"create_post|edit_post|schedule_post|publish_post|cancel_schedule|delete_post|restore_post","payload":{...}} — только когда передан блок "Текущий пост";
@@ -75,19 +79,153 @@ WORKSPACE_SYSTEM = """Ты единственный WorkspaceAgent платфо�
 Не предлагай функций, которых нет в перечисленных tools. В частности, в платформе
 нет действия «связать заметку с постами или файлами»; заметки и файлы уже являются
 частью workspace и доступны AI после сохранения.
-Ходы, на которые можно полноценно ответить без новых фактов workspace, завершаются без поиска. Для factual "read" required_sources — это источники, без которых grounded-ответ будет неполным; включи туда КАЖДЫЙ такой источник. Выбирай "read", когда пользователь просит найти, перечислить, посчитать, проверить или описать свои объекты/метрики. Косвенная, условная или подразумеваемая формулировка все равно является factual "read", если истинность ответа зависит от значения, причины, роли, ограничения или состояния объекта workspace. Совет, оценка, продолжение или правка предыдущего ответа без новых фактов — "finish".
-Для каждого обязательного источника заполни source_requirements. Кроме kind верни predicate_kind="structural|semantic|mixed", coverage="relevant|complete", discovery_mode="semantic_relevance|catalog_window", evidence_granularity="catalog|semantic_card|full_text" и evidence_requirements. Каждый evidence_requirement имеет property (какое фактическое свойство нужно доказать), operator="exists|count|filter|equals|contains" и scope="source|target|member|corpus|aggregate". structural означает, что ответ определяется каталогом/метаданными без толкования текста; semantic требует понимания содержания; mixed требует и полного структурного охвата, и смыслового отбора. coverage="relevant" означает, что достаточно относящегося к вопросу подмножества; coverage="complete" означает, что ответ должен охватить каждый объект указанного корпуса. Выбирай complete для полного перечня, подсчёта по всей категории, описания каждого объекта и других задач, где пропуск хотя бы одного объекта делает ответ неверным. evidence_granularity="catalog" достаточно для количества, названий, статусов и наличия; "semantic_card" — для общей темы или назначения каждого объекта; "full_text" — для точных деталей, сравнений, цитат и редактирования. Не подменяй complete семантическим top-k.
-Для read всегда верни answer_shape. kind="inventory" означает, что ответ должен перечислить членов одной запрошенной категории; если пользователь явно задал точное число членов цифрами или словами на любом языке, запиши это число в expected_member_count, иначе null. Не выводи число из количества найденных источников, candidate_limit или предположений. Для одиночного значения используй scalar, для одного объекта с несколькими полями record, иначе freeform; у них expected_member_count всегда null.
-discovery_mode="semantic_relevance" означает смысловой top-k по query_goal. discovery_mode="catalog_window" означает ограниченное упорядоченное окно каталога posts без смыслового ранжирования; для него обязательно верни statuses, order_by, order_direction и candidate_limit от 1 до 12, а coverage оставь "relevant". Сам реши, когда нужна недавняя или иная ограниченная часть истории и какого размера достаточно. Не используй catalog_window для требования обо всей истории и не запрашивай полный корпус, если решение зависит только от ограниченной актуальной части.
-Для рекомендации, планирования, приоритизации или выбора следующего результата не считай ход независимым от workspace только потому, что пользователь не перечислил источники. Сам выведи необходимые предпосылки: планы, серии, ограничения или незавершённые заготовки обычно живут в notes; уже созданные результаты и их история — в posts; фактическая оптимизация по результату требует analytics. Сделай обязательным только тот источник, без которого рекомендация могла бы противоречить текущей работе, повторить уже сделанное или пропустить явный план. Каждую независимую предпосылку оформи отдельным source_requirement с самостоятельным query_goal. Источники должны затем сопоставляться по смыслу: например, история результатов полезна лишь в той мере, в какой она подтверждает выполнение, продолжение или конфликт с найденным планом. Если пропуск любого члена плана, очереди или backlog может изменить выбор, для соответствующего источника ставь coverage="complete": это требует полного обнаружения и смысловой оценки его каталога, но не выбора и не полного чтения каждого объекта. Для истории завершённых результатов выбери минимально достаточную стратегию сам: обычно это catalog_window по posts со statuses=["published"] и явными order/limit, а не complete по всей истории. Косвенный источник делай обязательным только когда он даёт незаменимую предпосылку решения; тематический фон и дубли создают шум. Это семантическое выявление зависимостей, а не keyword routing: если рекомендация действительно не зависит от данных workspace, выбери finish. Для каждого source_requirement верни query_goal без предполагаемого ответа и без ключевых слов вместо вопроса.
+Ходы, на которые можно полноценно ответить без новых фактов workspace, завершаются без поиска. Для factual "read" required_sources — это источники, без которых grounded-ответ будет неполным; включи туда КАЖДЫЙ такой источник. Выбирай "read", когда пользователь просит найти, перечислить, посчитать, проверить или описать свои объекты/метрики. Косвенная, условная или подразумеваемая формулировка все равно является factual "read", если истинность ответа зависит от значения, причины, роли, ограничения или состояния объекта workspace. Совет, оценка, продолжение или правка предыдущего ответа без новых фактов — "finish". Общий совет, выбор формата, best practice или рекомендация не становятся workspace-зависимыми только потому, что в workspace существуют объекты этого вида. Наличие, расширение файла, прошлое использование, частота или другие наблюдаемые примеры не доказывают норму, предпочтение, лучший вариант или будущий выбор, если пользователь не просил вывести решение именно из своих материалов, истории или метрик. В таком независимом случае выбери finish.
+Для каждого обязательного источника заполни source_requirements. Кроме kind верни predicate_kind="structural|semantic|mixed", coverage="relevant|complete", discovery_mode="semantic_relevance|catalog_window", evidence_granularity="catalog|semantic_card|full_text" и evidence_requirements. Каждый evidence_requirement имеет property (какое фактическое свойство нужно доказать), operator="exists|count|filter|equals|contains" и scope="source|target|member|corpus|aggregate". Для semantic и mixed источника разбей query_goal на минимальные независимо проверяемые аспекты точного ответа и верни по одному evidence_requirement на каждый аспект. Один requirement должен выражать одну фальсифицируемую часть ответа: если значение, выбор, отличие, причина, ограничение или другая часть может оказаться неверной независимо от соседней части, раздели их, даже когда они ожидаются в одном источнике. Не объединяй удаляемо-независимые части в одну широкую property; формулировка с несколькими частями вопроса должна дать несколько requirements, когда потеря любой части делает точный ответ неполным. Не используй безликие property вроде grounded_evidence, relevant_context или наличие источника: property должна называть требуемое отношение, состояние, этап, ограничение или другую фактическую часть ответа. Не добавляй аспекты ради подробности; если удаление аспекта не делает точный ответ неполным, он не является требованием. structural означает, что ответ определяется каталогом/метаданными без толкования текста; semantic требует понимания содержания; mixed требует и полного структурного охвата, и смыслового отбора. Обязательный context-источник рекомендации или синтеза нельзя объявлять structural только потому, что у его объектов есть названия: если на решение способны повлиять тема, смысл, содержание, последовательность или связь с другой предпосылкой, выбери semantic или mixed и разреши смысловой отбор объектов. coverage="relevant" означает, что достаточно относящегося к вопросу подмножества; coverage="complete" означает, что ответ должен охватить каждый объект указанного корпуса. Выбирай complete для полного перечня, подсчёта по всей категории, описания каждого объекта и других задач, где пропуск хотя бы одного объекта делает ответ неверным. evidence_granularity="catalog" достаточно для количества, названий, статусов и наличия; "semantic_card" — для общей темы или назначения каждого объекта; "full_text" — для точных деталей, сравнений, цитат и редактирования. Не подменяй complete семантическим top-k.
+Для каждого source_requirement обязательно верни claim_modality. descriptive означает, что нужны явно зафиксированные факты, состояния, наблюдения или связи. normative означает, что ответ требует явно зафиксированной рекомендации, нормы, правила, политики, предпочтения, обязательного формата или будущего выбора. Наблюдаемый пример, существующий файл или прошлое использование не удовлетворяют normative. Если сам вопрос просит рекомендацию, но она не должна быть зафиксирована в workspace, выбери finish; не создавай фиктивное normative-требование ради персонализации общего совета.
+Для read всегда верни task_profile и answer_shape. Используй task_profile="topical_answer" для сопоставления уже заданного конечного набора альтернатив, записей или состояний по запрошенному критерию, включая вопрос, какой из этих вариантов подходит и почему другой не подходит. Выбирай topical_answer даже при оценочном выводе, если ответ должен установить значения и различия именно этих уже упомянутых альтернатив. task_profile="recommendation" означает открытый выбор, совет или решение о следующем результате, где множество возможных действий не исчерпывается уже заданными альтернативами. Несколько частей одного сравнения не превращают его в workspace_synthesis: несколько записей могут оказаться нужны как доказательства, но task_profile описывает операцию ответа, а не заранее угаданное количество источников. kind="inventory" означает перечисление членов уже существующей фактической категории, а не список предлагаемых идей, вариантов или рекомендаций. Если пользователь явно задал точное число членов цифрами или словами на любом языке, запиши это число в expected_member_count, иначе null. Не выводи число из количества найденных источников, candidate_limit или предположений. Для одиночного значения используй scalar, для одного объекта с несколькими полями record, иначе freeform; у них expected_member_count всегда null.
+Используй task_profile="workspace_synthesis", когда нужно собрать единый ответ, процесс или объяснение из нескольких независимых фактических предпосылок workspace (например, связать план с выполненными результатами или описать сквозной workflow). Это отличается от topical_answer: topical_answer подходит для одного факта, свойства или прямого описания, которое может быть доказано одной сильной записью. Несколько частей, полей или придаточных в вопросе не делают его синтезом, если одна связная запись способна прямо и самодостаточно ответить на них все; тогда используй topical_answer и вырази части отдельными evidence_requirements. Наличие нескольких видов источников в доступном workspace само по себе не делает задачу синтезом: выбирай workspace_synthesis только если ожидаются разные записи или объекты, каждый даёт незаменимую предпосылку, и только их межобъектная связь образует точный ответ. Для открытого синтеза используй answer_shape.kind="freeform"; не превращай его в inventory только потому, что ответ можно оформить списком шагов.
+discovery_mode="semantic_relevance" означает смысловой top-k по query_goal. Для semantic и mixed источника верни order_dependency="required" только когда изменение порядка, позиции, lifecycle-состояния или границы недавней истории способно изменить точный ответ; во всех остальных случаях верни "irrelevant". discovery_mode="catalog_window" допустим только при order_dependency="required" и хотя бы одном evidence_requirement со scope="member|corpus|aggregate": упорядоченная история является отношением между членами окна, а не свойством одного источника. Для окна обязательно верни statuses, order_by, order_direction и candidate_limit от 1 до 12, а coverage оставь "relevant". Тематическая близость, описание рабочего процесса или наличие нескольких постов сами по себе не создают зависимости от порядка. Сам реши, когда нужна недавняя или иная ограниченная часть истории и какого размера достаточно. Окно — только граница дешёвого сравнения semantic cards, а не список для автоматического полного чтения или ответа. Не используй catalog_window для требования обо всей истории и не запрашивай полный корпус, если решение зависит только от ограниченной актуальной части.
+Для рекомендации, планирования, приоритизации или выбора следующего результата не считай ход независимым от workspace только потому, что пользователь не перечислил источники. Сам выведи необходимые предпосылки и места, где они могут быть зафиксированы: например, планы, ограничения, очереди или незавершённые заготовки могут жить в разных доступных видах источников. Это примеры предпосылок, а не предписание вида источника: не делай notes, posts или analytics обязательными только из-за типа задачи. Сделай обязательным только тот источник, без которого рекомендация могла бы противоречить текущей работе, повторить уже сделанное или пропустить явную предпосылку. Каждую независимую предпосылку оформи отдельным source_requirement с самостоятельным query_goal. Источники должны затем сопоставляться по смыслу: история результатов полезна лишь в той мере, в какой она подтверждает выполнение, продолжение или конфликт с найденной предпосылкой. Если подходящих объектов в обязательном context-источнике нет, downstream должен иметь право выбрать ноль и не заполнять результат шумом. Если пропуск любого члена плана, очереди или backlog может изменить выбор, для соответствующего источника ставь coverage="complete": это требует полного обнаружения и смысловой оценки его каталога, но не выбора и не полного чтения каждого объекта. Для выбора следующего артефакта учитывай все lifecycle-состояния, в которых он может уже существовать или быть запланирован: для posts это обычно statuses=["draft", "scheduled", "published"]. Published показывает уже выполненное, draft — незавершённое, scheduled — уже принятое продолжение; не своди такой контекст к одной категории, если исходный запрос явно не ограничивает её. Используй bounded catalog_window с явными order/limit, ограниченным актуальным окном, а не полную историю. Косвенный источник делай обязательным только когда он даёт незаменимую предпосылку решения; тематический фон и дубли создают шум. Это семантическое выявление зависимостей, а не keyword routing: если рекомендация действительно не зависит от данных workspace, выбери finish. Для каждого source_requirement верни query_goal без предполагаемого ответа и без ключевых слов вместо вопроса.
 Если передан блок "Диалог" — используй его, чтобы понять контекст запроса. Короткая правка твоего предыдущего ответа без новых фактических вопросов (перефразируй, покороче, на другом языке, другим тоном) — это "finish", даже если предыдущий ответ был по фактам workspace: факты уже собраны и лежат в диалоге, повторный поиск не нужен.
 Если передан блок "Текущий пост" и пользователь просит изменить его текст (убрать/добавить/переформулировать что-то в посте) — верни ровно {"type":"post_proposal","command":"edit_post","payload":{}}. Полный текст поста и его id проставляются отдельным детерминированным шагом — тебе НЕ нужно возвращать ни текст, ни id здесь, только классифицировать запрос как edit_post. Если блока "Текущий пост" нет, НЕ выбирай post_proposal: запрос на изменение серии или постов означает, что сначала нужно найти соответствующие материалы workspace, поэтому выбирай read.
 
+Перед возвратом read или finish выполни контрфактуальный route gate и добавь поле
+"workspace_dependency": {"basis":"workspace_state|dialog_or_general_knowledge", "empty_workspace":"answer_changes|answer_unchanged", "anchor":"explicit_workspace_reference|decision_prerequisite|general_advice"}.
+Ответь сначала на вопрос: если убрать все сохранённые заметки, посты, вложения и метрики,
+останется ли полноценный ответ на текущий запрос из его текста, диалога и общих знаний?
+Выбирай finish и значения dialog_or_general_knowledge/answer_unchanged, когда ответ не
+зависит от пользовательского workspace; наличие похожих объектов, примеров или расширений
+файлов само по себе не меняет ответ. Выбирай read и workspace_state/answer_changes только
+когда без фактов workspace ответ неполон или его содержание существенно изменится.
+Не делай read из желания персонализировать общий совет и не делай finish для фактического
+вопроса о состоянии, содержимом или истории workspace. Поля должны отражать именно эту
+проверку, а не повторять выбранный type.
+anchor="explicit_workspace_reference" допустим только когда запрос или диалог явно просит
+ответ по сохранённым данным, своей истории, правилам, политике либо конкретным объектам
+workspace. Не считай упоминание предметной области таким указанием: вопрос о формате постов
+не ссылается на workspace лишь потому, что в workspace есть посты или изображения.
+anchor="decision_prerequisite" используй для recommendation/synthesis, когда фактический план,
+ограничение, очередь или выполненная работа способны изменить решение. Для общего совета,
+нормы или best practice без явной workspace-опоры используй general_advice и finish.
+
 Для "read" добавь поле "search_query" — самодостаточный resolved goal для поиска и последующего Context Selector. Это должен быть один грамматический вопрос, который сохраняет точный предмет, запрошенный predicate, отрицание, условность и причинность исходного запроса; разреши в нем анафоры из диалога, но не превращай вопрос в список ключевых слов и не расширяй его соседними темами. В search_query назови только активный референт: имена объектов, явно исключенных или противопоставленных в диалоге, не упоминай даже с отрицанием. Не отвечай на вопрос внутри search_query, не добавляй гипотезы, предполагаемые факты или альтернативные predicates. Для cross-record сравнения вырази обе уже запрошенные стороны как явные retrieval predicates и затем само сравнение: что указал draft/proposed record, что указал final/signed record и совпадают ли значения; не добавляй сами значения. Если анафор нет и это не сравнение, сохрани исходный вопрос, ограничившись грамматической нормализацией и явным названием уже указанного предмета. Для "finish" поле не требуется и может быть пустым. Не пытайся превратить материалы прошлого ответа в один целевой DB-объект."""
+
+
+def _apply_classifier_dependency_gate(call: Mapping[str, Any]) -> dict[str, Any]:
+    """Honor the reasoner's explicit empty-workspace counterfactual."""
+
+    result = dict(call or {})
+    if str(result.get("type") or "") not in {"read", "finish"}:
+        return result
+    dependency = result.get("workspace_dependency")
+    if not isinstance(dependency, Mapping):
+        return result
+    basis = str(dependency.get("basis") or "").strip()
+    empty_workspace = str(dependency.get("empty_workspace") or "").strip()
+    workspace_anchor = str(dependency.get("anchor") or "").strip()
+    if basis == "dialog_or_general_knowledge" and empty_workspace == "answer_unchanged":
+        return {
+            **result,
+            "type": "finish",
+            "requires_evidence": False,
+            "required_sources": [],
+            "source_requirements": [],
+            "search_query": "",
+            "workspace_dependency_gate": "finish_empty_workspace_unchanged",
+        }
+    source_modalities = [
+        str(item.get("claim_modality") or "")
+        for item in result.get("source_requirements") or ()
+        if isinstance(item, Mapping)
+    ]
+    if (
+        str(result.get("type") or "") == "read"
+        and str(result.get("task_profile") or "") == "topical_answer"
+        and bool(source_modalities)
+        and all(value == "normative" for value in source_modalities)
+        and workspace_anchor != "explicit_workspace_reference"
+    ):
+        return {
+            **result,
+            "type": "finish",
+            "requires_evidence": False,
+            "required_sources": [],
+            "source_requirements": [],
+            "search_query": "",
+            "workspace_dependency_gate": "finish_unanchored_normative_advice",
+        }
+    return result
+
+WORKSPACE_CONTRACT_REPAIR_SYSTEM = """Исправь только внутреннюю согласованность уже выбранного read-контракта.
+Верни один полный исправленный JSON tool call в том же формате, без markdown и пояснений.
+Сохрани исходный запрос, type="read" и все уже обязательные виды источников. Не добавляй источники для фона.
+Для каждого обязательного источника сохрани самостоятельный query_goal и согласуй predicate_kind,
+claim_modality, coverage, discovery_mode, statuses/order/candidate_limit, evidence_granularity и evidence_requirements.
+Обязательный context-источник означает, что его нужно исследовать, а не что из него обязательно
+нужно выбрать хотя бы один объект. Если релевантных объектов нет, downstream должен иметь право
+выбрать ноль; не заполняй результат шумом. Но если содержимое context-источника способно повлиять
+на рекомендацию или синтез, нельзя одновременно объявлять его чисто structural и запрещать выбор
+объектов через max=0: выбери semantic или mixed с положительным max. Structural допустим только
+когда независимую цель источника полностью доказывают конкретные поля каталога или метаданные."""
 
 _CLASSIFIER_SOURCE_KINDS = resource_kinds(classifier_visible=True)
 _CATALOG_WINDOW_DIRECTIONS = frozenset({"asc", "desc"})
 _CATALOG_WINDOW_MAX_CANDIDATES = 12
+_DECISION_TASK_PROFILES = frozenset({"workspace_synthesis", "recommendation"})
+_DECISION_POST_SELECTION_MAX = 5
+_CLASSIFIER_CONTRACT_REPAIR_TIMEOUT_MS = 15_000
+_CATALOG_STRUCTURAL_PROPERTIES_BY_KIND = {
+    "notes": frozenset(
+        {
+            "id",
+            "ref",
+            "title",
+            "status",
+            "revision",
+            "parent",
+            "parent_post_id",
+            "created_at",
+            "total_members",
+            "total_notes",
+            *(value.partition(".")[2] for value in NOTE_PROPERTIES),
+        }
+    ),
+    "posts": frozenset(
+        {
+            "id",
+            "ref",
+            "title",
+            "status",
+            "revision",
+            "position",
+            "created_at",
+            "total_members",
+            "total_posts",
+            *(value.partition(".")[2] for value in POST_PROPERTIES),
+        }
+    ),
+}
+
+
+def _catalog_can_prove_requirements(
+    kind: str,
+    requirements: list[dict[str, Any]],
+) -> bool:
+    supported = _CATALOG_STRUCTURAL_PROPERTIES_BY_KIND.get(kind)
+    if supported is None:
+        return True
+    return bool(requirements) and all(
+        str(item.get("property") or "") in supported for item in requirements
+    )
+_ORDERED_DECISION_HISTORY_QUERY_GOAL = (
+    "Определи, какие позиции этой ограниченной упорядоченной истории подтверждают "
+    "уже выполненное, запланированное или незавершённое продолжение, либо конфликт "
+    "с другими предпосылками текущего решения; учитывай статус каждой позиции. "
+    "Позиции могут содержать явно выраженные темы, интересы, отклики, ограничения "
+    "или иные самостоятельные сигналы, которые способны изменить решение. Выбери "
+    "ноль, если ни одна позиция не влияет на решение; одна только давность не делает "
+    "позицию релевантной."
+)
 
 
 def _classified_scope_statuses(
@@ -121,7 +259,29 @@ def _classified_discovery_strategy(
 ) -> tuple[str, str | None, str | None, int | None]:
     """Validate planner-controlled discovery against resource capabilities."""
 
-    if str(classified.get("discovery_mode") or "") != "catalog_window":
+    evidence_requirements = [
+        item
+        for item in classified.get("evidence_requirements") or ()
+        if isinstance(item, Mapping)
+        and str(item.get("property") or "").strip()
+        and str(item.get("operator") or "")
+        in {"exists", "count", "filter", "equals", "contains"}
+        and str(item.get("scope") or "")
+        in {"source", "target", "member", "corpus", "aggregate"}
+    ]
+    ordered_requirement = bool(
+        classified.get("_runtime_order_dependency") == "decision_history"
+        or any(
+            str(item.get("scope") or "") in {"member", "corpus", "aggregate"}
+            or str(item.get("operator") or "") in {"count", "filter"}
+            for item in evidence_requirements
+        )
+    )
+    if (
+        str(classified.get("discovery_mode") or "") != "catalog_window"
+        or str(classified.get("order_dependency") or "") != "required"
+        or not ordered_requirement
+    ):
         return "semantic_relevance", None, None, None
     order_by = str(classified.get("order_by") or "").strip().lower()
     order_direction = str(classified.get("order_direction") or "").strip().lower()
@@ -256,6 +416,25 @@ def _apply_classifier_source_policy(
         predicate_kind = str(classified.get("predicate_kind") or "")
         if predicate_kind not in {"structural", "semantic", "mixed"}:
             predicate_kind = str(source.get("predicate_kind") or "semantic")
+        classified_requirements = [
+            dict(item)
+            for item in classified.get("evidence_requirements") or ()
+            if isinstance(item, Mapping)
+            and str(item.get("property") or "").strip()
+            and str(item.get("operator") or "")
+            in {"exists", "count", "filter", "equals", "contains"}
+            and str(item.get("scope") or "")
+            in {"source", "target", "member", "corpus", "aggregate"}
+        ]
+        if predicate_kind == "structural" and not _catalog_can_prove_requirements(
+            kind, classified_requirements
+        ):
+            predicate_kind = "semantic"
+            if granularity in {"", "catalog"}:
+                granularity = "semantic_card"
+        claim_modality = str(classified.get("claim_modality") or "")
+        if claim_modality in {"descriptive", "normative"}:
+            source["claim_modality"] = claim_modality
         discovery_mode, order_by, order_direction, window_limit = (
             _classified_discovery_strategy(
                 kind,
@@ -311,6 +490,8 @@ def _apply_classifier_source_policy(
             cardinality["max"] = (
                 0
                 if predicate_kind == "structural"
+                else max(int(cardinality.get("min") or 0), window_limit)
+                if window_limit is not None
                 else max(
                     int(cardinality.get("min") or 0),
                     int(
@@ -327,16 +508,6 @@ def _apply_classifier_source_policy(
                 source["coverage"] = "relevant"
             if predicate_kind == "structural":
                 source["required_fidelity"] = "catalog"
-            classified_requirements = [
-                dict(item)
-                for item in classified.get("evidence_requirements") or ()
-                if isinstance(item, Mapping)
-                and str(item.get("property") or "").strip()
-                and str(item.get("operator") or "")
-                in {"exists", "count", "filter", "equals", "contains"}
-                and str(item.get("scope") or "")
-                in {"source", "target", "member", "corpus", "aggregate"}
-            ]
             if classified_requirements:
                 source_id = str(source.get("source_id") or f"workspace-{kind}")
                 source["evidence_requirements"] = [
@@ -348,6 +519,9 @@ def _apply_classifier_source_policy(
                         "property": str(item["property"]),
                         "operator": str(item["operator"]),
                         "scope": str(item["scope"]),
+                        "claim_modality": str(
+                            item.get("claim_modality") or claim_modality
+                        ),
                     }
                     for item in classified_requirements
                 ]
@@ -382,6 +556,9 @@ def _apply_classifier_source_policy(
         )
         if classified_predicate not in {"structural", "semantic", "mixed"}:
             classified_predicate = "semantic"
+        classified_claim_modality = str(
+            classified_by_kind.get(kind, {}).get("claim_modality") or ""
+        )
         discovery_mode, order_by, order_direction, window_limit = (
             _classified_discovery_strategy(
                 kind,
@@ -449,6 +626,11 @@ def _apply_classifier_source_policy(
                     "order_by": order_by,
                     "order_direction": order_direction,
                     "predicate_kind": classified_predicate,
+                    **(
+                        {"claim_modality": classified_claim_modality}
+                        if classified_claim_modality in {"descriptive", "normative"}
+                        else {}
+                    ),
                     "required_fidelity": (
                         "catalog"
                         if classified_predicate == "structural"
@@ -463,6 +645,7 @@ def _apply_classifier_source_policy(
                             "property": "grounded_evidence",
                             "operator": "exists",
                             "scope": "source",
+                            "claim_modality": classified_claim_modality,
                         }
                     ],
                 }
@@ -535,6 +718,424 @@ def _apply_classifier_answer_shape(
     }
 
 
+def _apply_decision_context_policy(contract: dict[str, Any]) -> dict[str, Any]:
+    """Separate a bounded observation window from final decision context."""
+
+    if (
+        int(contract.get("version") or 0) < 3
+        or str(contract.get("task_profile") or "") not in _DECISION_TASK_PROFILES
+        or (
+            str(contract.get("task_profile") or "") == "workspace_synthesis"
+            and str((contract.get("answer_shape") or {}).get("kind") or "") == "inventory"
+        )
+    ):
+        return contract
+    changed = False
+    sources: list[dict[str, Any]] = []
+    for raw_source in contract.get("source_requirements") or ():
+        source = dict(raw_source)
+        predicate_kind = str(source.get("predicate_kind") or "semantic")
+        if predicate_kind in {"semantic", "mixed"}:
+            cardinality = dict(source.get("selection_cardinality") or {})
+            minimum = 0
+            maximum = max(minimum, int(cardinality.get("max") or 0))
+            bounded_maximum = (
+                min(maximum, _DECISION_POST_SELECTION_MAX)
+                if str(source.get("kind") or "") == "posts"
+                else maximum
+            )
+            if (
+                int(cardinality.get("min") or 0) != minimum
+                or bounded_maximum != maximum
+            ):
+                source["selection_cardinality"] = {
+                    **cardinality,
+                    "min": minimum,
+                    "max": bounded_maximum,
+                }
+                changed = True
+            if (
+                str(source.get("kind") or "") == "posts"
+                and source_discovery_required(source)
+                and source_evidence_required(source)
+            ):
+                budget = dict(source.get("budget") or {})
+                candidate_limit = max(
+                    0,
+                    int(
+                        budget.get("candidate_limit")
+                        or cardinality.get("max")
+                        or 0
+                    ),
+                )
+                desired_deep_reads = min(
+                    candidate_limit,
+                    _DECISION_POST_SELECTION_MAX,
+                )
+                if int(budget.get("deep_reads") or 0) < desired_deep_reads:
+                    source["budget"] = {
+                        **budget,
+                        "deep_reads": desired_deep_reads,
+                    }
+                    changed = True
+        sources.append(source)
+    return {**contract, "source_requirements": sources} if changed else contract
+
+
+def _recover_explicit_ordered_decision_history(
+    contract: dict[str, Any],
+    classified_sources: list[dict[str, Any]],
+) -> dict[str, Any]:
+    """Normalize decision-state history into a bounded semantic window."""
+
+    if str(contract.get("task_profile") or "") not in _DECISION_TASK_PROFILES:
+        return contract
+    classified_by_kind = {
+        str(item.get("kind") or ""): dict(item)
+        for item in classified_sources
+        if isinstance(item, Mapping) and str(item.get("kind") or "")
+    }
+    required_source_count = sum(
+        1
+        for source in contract.get("source_requirements") or ()
+        if isinstance(source, Mapping)
+        and source_discovery_required(source)
+        and source_evidence_required(source)
+    )
+    changed = False
+    sources: list[dict[str, Any]] = []
+    for raw_source in contract.get("source_requirements") or ():
+        source = dict(raw_source)
+        classified = classified_by_kind.get(str(source.get("kind") or "")) or {}
+        explicit_ordered_history = (
+            str(classified.get("discovery_mode") or "") == "semantic_relevance"
+            and classified.get("order_by") is not None
+            and classified.get("order_direction") is not None
+            and classified.get("candidate_limit") is not None
+            and str(source.get("predicate_kind") or "") == "semantic"
+        )
+        typed_decision_history = (
+            str(contract.get("task_profile") or "") == "recommendation"
+            and required_source_count > 1
+            and str(source.get("kind") or "") == "posts"
+            and bool(tuple((source.get("scope") or {}).get("statuses") or ()))
+        )
+        implicit_completed_history = (
+            typed_decision_history
+            and str(
+                classified.get("discovery_mode")
+                or source.get("discovery_mode")
+                or ""
+            )
+            == "semantic_relevance"
+        )
+        existing_completed_history_window = (
+            typed_decision_history
+            and str(classified.get("discovery_mode") or "") == "catalog_window"
+            and str(source.get("discovery_mode") or "") == "catalog_window"
+        )
+        if (
+            (
+                explicit_ordered_history
+                or implicit_completed_history
+                or existing_completed_history_window
+            )
+            and str((source.get("scope") or {}).get("mode") or "") == "corpus"
+            and source_discovery_required(source)
+            and source_evidence_required(source)
+        ):
+            normalized_classified = dict(classified)
+            if implicit_completed_history and not explicit_ordered_history:
+                budget = dict(source.get("budget") or {})
+                cardinality = dict(source.get("selection_cardinality") or {})
+                window_limit = int(
+                    classified.get("candidate_limit")
+                    or budget.get("candidate_limit")
+                    or cardinality.get("max")
+                    or _DECISION_POST_SELECTION_MAX
+                )
+                normalized_classified.update(
+                    {
+                        "discovery_mode": "catalog_window",
+                        "order_dependency": "required",
+                        "_runtime_order_dependency": "decision_history",
+                        "predicate_kind": "semantic",
+                        "statuses": list(
+                            (source.get("scope") or {}).get("statuses") or ()
+                        ),
+                        "order_by": "created_at",
+                        "order_direction": "desc",
+                        "candidate_limit": min(
+                            _CATALOG_WINDOW_MAX_CANDIDATES,
+                            max(1, window_limit),
+                        ),
+                    }
+                )
+            else:
+                normalized_classified["discovery_mode"] = "catalog_window"
+                normalized_classified["order_dependency"] = "required"
+                normalized_classified["_runtime_order_dependency"] = (
+                    "decision_history"
+                )
+            discovery_mode, order_by, order_direction, window_limit = (
+                _classified_discovery_strategy(
+                    str(source.get("kind") or ""),
+                    normalized_classified,
+                    predicate_kind="semantic",
+                )
+            )
+            if discovery_mode == "catalog_window" and window_limit is not None:
+                budget = dict(source.get("budget") or {})
+                cardinality = dict(source.get("selection_cardinality") or {})
+                source.update(
+                    {
+                        "coverage": "relevant",
+                        "query_goal": _ORDERED_DECISION_HISTORY_QUERY_GOAL,
+                        "predicate_kind": "semantic",
+                        "required_fidelity": "semantic_card",
+                        "discovery_mode": discovery_mode,
+                        "order_by": order_by,
+                        "order_direction": order_direction,
+                        "scope": dict(source.get("scope") or {}),
+                        "budget": {**budget, "candidate_limit": window_limit},
+                        "selection_cardinality": {
+                            **cardinality,
+                            "min": 0,
+                            "max": window_limit,
+                        },
+                    }
+                )
+                changed = True
+        sources.append(source)
+    return {**contract, "source_requirements": sources} if changed else contract
+
+
+def _materialize_classifier_turn_contract(
+    contract: dict[str, Any],
+    call: Mapping[str, Any],
+    *,
+    classified_type: str,
+) -> dict[str, Any]:
+    """Build the typed retrieval contract from one classifier decision."""
+
+    raw_required_sources = call.get("required_sources")
+    required_sources = (
+        [str(item) for item in raw_required_sources]
+        if isinstance(raw_required_sources, list)
+        else []
+    )
+    deterministic_required = any(
+        source_evidence_required(item)
+        for item in contract.get("source_requirements") or ()
+        if isinstance(item, dict)
+    )
+    explicit_requires_evidence = call.get("requires_evidence")
+    if isinstance(explicit_requires_evidence, bool):
+        semantic_required = explicit_requires_evidence
+    elif int(contract.get("version") or 0) >= 2:
+        semantic_required = bool(required_sources)
+    else:
+        semantic_required = classified_type == "read"
+    classified_source_requirements = [
+        dict(item)
+        for item in (call.get("source_requirements") or ())
+        if isinstance(item, dict)
+    ]
+    result = _apply_classifier_source_policy(
+        contract,
+        required_sources=required_sources,
+        classifier_requires_evidence=deterministic_required or semantic_required,
+        classified_source_requirements=classified_source_requirements,
+        query_goal=str(call.get("search_query") or ""),
+    )
+    result = _apply_classifier_answer_shape(
+        result,
+        call.get("answer_shape") if isinstance(call.get("answer_shape"), Mapping) else None,
+    )
+    classified_profile = str(call.get("task_profile") or "").strip()
+    if (
+        classified_profile in _DECISION_TASK_PROFILES
+        and str(result.get("task_profile") or "")
+        in {"topical_answer", *_DECISION_TASK_PROFILES}
+    ):
+        result["task_profile"] = classified_profile
+    if any(
+        source_evidence_required(item)
+        and item.get("coverage") == "complete"
+        and item.get("predicate_kind") in {"semantic", "mixed"}
+        for item in result.get("source_requirements") or ()
+        if isinstance(item, dict)
+    ) and result.get("task_profile") == "topical_answer":
+        result["task_profile"] = "workspace_synthesis"
+    result = _normalize_workspace_synthesis_coverage(result)
+    if (
+        classified_profile == "topical_answer"
+        and result.get("task_profile") == "workspace_synthesis"
+        and not any(
+            source_evidence_required(item)
+            and item.get("coverage") == "complete"
+            and item.get("predicate_kind") in {"semantic", "mixed"}
+            for item in result.get("source_requirements") or ()
+            if isinstance(item, Mapping)
+        )
+    ):
+        # The complete->synthesis promotion above is provisional. When typed
+        # normalization proves that the classifier requested relevance rather
+        # than exhaustive corpus coverage, retain its finite comparison route.
+        result["task_profile"] = "topical_answer"
+    if classified_profile in _DECISION_TASK_PROFILES:
+        result = _recover_explicit_ordered_decision_history(
+            result,
+            classified_source_requirements,
+        )
+        # A classifier may omit the per-source descriptor or return it without
+        # a usable discovery mode. Re-run the same typed repair against the
+        # materialized contract so validated lifecycle scopes still establish
+        # the bounded history boundary.
+        result = _recover_explicit_ordered_decision_history(result, ())
+    result = _enforce_materialized_order_dependency(
+        result,
+        classified_source_requirements,
+    )
+    return _apply_decision_context_policy(result)
+
+
+def _enforce_materialized_order_dependency(
+    contract: dict[str, Any],
+    classified_sources: list[dict[str, Any]],
+) -> dict[str, Any]:
+    """Reject an ordered window that has no set-wide typed evidence premise."""
+
+    if str(contract.get("task_profile") or "") == "recommendation":
+        return contract
+    classified_by_kind = {
+        str(item.get("kind") or ""): dict(item)
+        for item in classified_sources
+        if isinstance(item, Mapping) and str(item.get("kind") or "")
+    }
+    changed = False
+    sources: list[dict[str, Any]] = []
+    for raw_source in contract.get("source_requirements") or ():
+        source = dict(raw_source)
+        if str(source.get("discovery_mode") or "") != "catalog_window":
+            sources.append(source)
+            continue
+        requirements = [
+            item
+            for item in source.get("evidence_requirements") or ()
+            if isinstance(item, Mapping)
+        ]
+        ordered_requirement = any(
+            str(item.get("scope") or "") in {"member", "corpus", "aggregate"}
+            or str(item.get("operator") or "") in {"count", "filter"}
+            for item in requirements
+        )
+        if ordered_requirement:
+            sources.append(source)
+            continue
+        classified = classified_by_kind.get(str(source.get("kind") or "")) or {}
+        original_goal = str(classified.get("query_goal") or "").strip()
+        original_fidelity = str(classified.get("evidence_granularity") or "")
+        source.update(
+            {
+                "discovery_mode": "semantic_relevance",
+                "order_by": None,
+                "order_direction": None,
+                **({"query_goal": original_goal} if original_goal else {}),
+                **(
+                    {"required_fidelity": original_fidelity}
+                    if original_fidelity
+                    in {"catalog", "semantic_card", "full_text"}
+                    else {}
+                ),
+            }
+        )
+        changed = True
+        sources.append(source)
+    return {**contract, "source_requirements": sources} if changed else contract
+
+
+def _normalize_workspace_synthesis_coverage(
+    contract: dict[str, Any],
+) -> dict[str, Any]:
+    """Keep complete semantic coverage for genuinely exhaustive obligations.
+
+    A freeform synthesis can need several relevant records without needing every
+    workspace object. Complete semantic coverage is justified only when the
+    typed evidence contract addresses members/the corpus/an aggregate, or uses
+    a set-wide count/filter operation. Target/source facts remain a relevance
+    problem; treating them as complete exhausts bounded reads before selection.
+    """
+
+    if (
+        int(contract.get("version") or 0) < 3
+        or str(contract.get("task_profile") or "") != "workspace_synthesis"
+        or str((contract.get("answer_shape") or {}).get("kind") or "")
+        == "inventory"
+    ):
+        return contract
+    changed = False
+    sources: list[dict[str, Any]] = []
+    for raw_source in contract.get("source_requirements") or ():
+        source = dict(raw_source)
+        requirements = [
+            item
+            for item in source.get("evidence_requirements") or ()
+            if isinstance(item, Mapping)
+        ]
+        exhaustive_obligation = any(
+            str(item.get("scope") or "") in {"member", "corpus", "aggregate"}
+            or str(item.get("operator") or "") in {"count", "filter"}
+            for item in requirements
+        )
+        if (
+            source.get("coverage") == "complete"
+            and str(source.get("predicate_kind") or "") in {"semantic", "mixed"}
+            and str(source.get("discovery_mode") or "") == "semantic_relevance"
+            and not exhaustive_obligation
+        ):
+            source["coverage"] = "relevant"
+            if source.get("predicate_kind") == "mixed":
+                source["predicate_kind"] = "semantic"
+            changed = True
+        sources.append(source)
+    return {**contract, "source_requirements": sources} if changed else contract
+
+
+def _classifier_contract_coherence_errors(
+    contract: Mapping[str, Any],
+) -> tuple[str, ...]:
+    """Return typed contradictions that require semantic classifier repair."""
+
+    if int(contract.get("version") or 0) < 3:
+        return ()
+    errors: list[str] = []
+    decision_profile = str(contract.get("task_profile") or "") in _DECISION_TASK_PROFILES
+    for source in contract.get("source_requirements") or ():
+        if not isinstance(source, Mapping):
+            continue
+        source_id = str(source.get("source_id") or source.get("kind") or "unknown")
+        if (
+            source_evidence_required(source)
+            and str(source.get("predicate_kind") or "") in {"semantic", "mixed"}
+            and str(source.get("claim_modality") or "")
+            not in {"descriptive", "normative"}
+        ):
+            errors.append("missing_claim_modality:" + source_id)
+        if (
+            not decision_profile
+            or str(source.get("role") or "") != "context"
+            or str((source.get("scope") or {}).get("mode") or "") != "corpus"
+            or not source_discovery_required(source)
+            or not source_evidence_required(source)
+            or str(source.get("predicate_kind") or "") != "structural"
+            or source_selection_cardinality(source)[1] != 0
+        ):
+            continue
+        errors.append("decision_context_structural_zero_max:" + source_id)
+    return tuple(errors)
+
+
 async def bootstrap_node(state: AgentGraphState, config: RunnableConfig) -> dict[str, Any]:
     ctx: RuntimeContext = config["configurable"]["runtime_context"]
     contract = dict(state.get("turn_contract") or ctx.turn_contract or {})
@@ -570,6 +1171,10 @@ async def workspace_agent_node(
         or ctx.turn_contract
         or {}
     )
+    user_text = str(state.get("user_text") or "")
+    user_content = user_text
+    budgets = dict(deterministic_contract.get("budgets") or {})
+    bootstrap_deadline_ms = int(budgets.get("bootstrap_deadline_ms") or 10_000)
     dialog_context = str((config["configurable"] or {}).get("dialog_context") or "")
     runtime_settings = getattr(ctx, "settings", None)
     legacy_resolver = bool(
@@ -601,7 +1206,6 @@ async def workspace_agent_node(
             or ctx.turn_contract
             or {}
         )
-        user_text = str(state.get("user_text") or "")
         content_parts: list[str] = []
         if dialog_context.strip():
             content_parts.append(f"Диалог:\n{dialog_context.strip()}")
@@ -639,8 +1243,6 @@ async def workspace_agent_node(
             )
         content_parts.append(f"Текущий запрос:\n{user_text}" if content_parts else user_text)
         user_content = "\n\n".join(content_parts)
-        budgets = dict(deterministic_contract.get("budgets") or {})
-        bootstrap_deadline_ms = int(budgets.get("bootstrap_deadline_ms") or 10_000)
         try:
             raw = await call_llm_with_deadline(
                 ctx,
@@ -687,6 +1289,7 @@ async def workspace_agent_node(
         or ctx.turn_contract
         or {}
     )
+    call = _apply_classifier_dependency_gate(call)
     classified_type = str(call.get("type") or "read")
     if classified_type == "reuse_context":
         allowed_refs = {
@@ -720,7 +1323,7 @@ async def workspace_agent_node(
             "requested_command": requested_command,
         }
         classified_type = "read"
-    user_text = str(state.get("user_text") or "").strip()
+    user_text = user_text.strip()
     if (
         classified_type == "read"
         and not dialog_context.strip()
@@ -730,50 +1333,116 @@ async def workspace_agent_node(
         # already grammatical question so the model cannot add hypotheses or
         # alternate predicates while still letting it choose route/sources.
         call = {**call, "search_query": user_text}
-    raw_required_sources = call.get("required_sources")
-    required_sources = (
-        [str(item) for item in raw_required_sources]
-        if isinstance(raw_required_sources, list)
-        else []
-    )
-    deterministic_required = any(
-        source_evidence_required(item)
-        for item in turn_contract.get("source_requirements") or ()
-        if isinstance(item, dict)
-    )
-    explicit_requires_evidence = call.get("requires_evidence")
-    if isinstance(explicit_requires_evidence, bool):
-        semantic_required = explicit_requires_evidence
-    elif int(turn_contract.get("version") or 0) >= 2:
-        # V2 always performs discovery, so `read` is not itself proof that an
-        # answer must be refused on an empty pack. Structured source promotion
-        # is the backwards-compatible factual signal when the new boolean is
-        # omitted by a model.
-        semantic_required = bool(required_sources)
-    else:
-        semantic_required = classified_type == "read"
-    classifier_requires_evidence = deterministic_required or semantic_required
-    turn_contract = _apply_classifier_source_policy(
+    turn_contract = _materialize_classifier_turn_contract(
         turn_contract,
-        required_sources=required_sources,
-        classifier_requires_evidence=classifier_requires_evidence,
-        classified_source_requirements=[
-            dict(item)
-            for item in (call.get("source_requirements") or ())
-            if isinstance(item, dict)
-        ],
-        query_goal=str(call.get("search_query") or ""),
+        call,
+        classified_type=classified_type,
     )
-    turn_contract = _apply_classifier_answer_shape(
-        turn_contract,
-        call.get("answer_shape") if isinstance(call.get("answer_shape"), Mapping) else None,
-    )
-    if any(
-        source_evidence_required(item) and item.get("coverage") == "complete"
-        for item in turn_contract.get("source_requirements") or ()
-        if isinstance(item, dict)
-    ) and turn_contract.get("task_profile") == "topical_answer":
-        turn_contract["task_profile"] = "workspace_synthesis"
+    coherence_errors = _classifier_contract_coherence_errors(turn_contract)
+    if (
+        coherence_errors
+        and classified_type == "read"
+        and planner_spec
+        and planner_model
+        and planner_api_key
+    ):
+        malformed_required_kinds = {
+            str(item).strip().lower()
+            for item in call.get("required_sources") or ()
+            if str(item).strip().lower() in _CLASSIFIER_SOURCE_KINDS
+        }
+        malformed_required_kinds.update(
+            str(item.get("kind") or "").strip().lower()
+            for item in call.get("source_requirements") or ()
+            if isinstance(item, Mapping)
+            and str(item.get("kind") or "").strip().lower() in _CLASSIFIER_SOURCE_KINDS
+        )
+        repair_content = (
+            f"Исходный контекст:\n{user_content}\n\n"
+            "Несогласованный tool call:\n"
+            + json.dumps(dict(call), ensure_ascii=False, sort_keys=True)
+            + "\n\nМатериализованный typed-контракт:\n"
+            + json.dumps(
+                {
+                    "task_profile": turn_contract.get("task_profile"),
+                    "source_requirements": turn_contract.get("source_requirements") or [],
+                },
+                ensure_ascii=False,
+                sort_keys=True,
+            )
+            + "\n\nОшибки согласованности:\n"
+            + json.dumps(coherence_errors, ensure_ascii=False)
+        )
+        try:
+            repair_timeout_ms = min(
+                int(budgets.get("soft_deadline_ms") or 30_000),
+                max(
+                    bootstrap_deadline_ms,
+                    _CLASSIFIER_CONTRACT_REPAIR_TIMEOUT_MS,
+                ),
+            )
+            repaired_raw = await call_llm_with_deadline(
+                ctx,
+                phase="bootstrap.classifier_contract_repair",
+                phase_timeout_s=repair_timeout_ms / 1000,
+                telemetry={
+                    "model_role": "reasoner",
+                    "retry": True,
+                    "semantic_attempt": "contract_repair",
+                    "schema_result": "repair_requested",
+                    "validation_error_codes": coherence_errors,
+                },
+                messages=[
+                    {
+                        "role": "system",
+                        "content": WORKSPACE_SYSTEM + "\n\n" + WORKSPACE_CONTRACT_REPAIR_SYSTEM,
+                    },
+                    {"role": "user", "content": repair_content},
+                ],
+                spec=planner_spec,
+                model=planner_model,
+                api_key=planner_api_key,
+                temperature=0.0,
+                max_tokens=800,
+            )
+            repaired_call = extract_json_object(repaired_raw) or {}
+            repaired_required_kinds = {
+                str(item).strip().lower()
+                for item in repaired_call.get("required_sources") or ()
+                if str(item).strip().lower() in _CLASSIFIER_SOURCE_KINDS
+            }
+            repaired_required_kinds.update(
+                str(item.get("kind") or "").strip().lower()
+                for item in repaired_call.get("source_requirements") or ()
+                if isinstance(item, Mapping)
+                and str(item.get("kind") or "").strip().lower() in _CLASSIFIER_SOURCE_KINDS
+            )
+            if (
+                str(repaired_call.get("type") or "") == "read"
+                and repaired_required_kinds == malformed_required_kinds
+            ):
+                if not dialog_context.strip() and user_text.endswith("?"):
+                    repaired_call = {**repaired_call, "search_query": user_text}
+                repaired_contract = _materialize_classifier_turn_contract(
+                    deterministic_contract,
+                    repaired_call,
+                    classified_type="read",
+                )
+                repaired_errors = _classifier_contract_coherence_errors(repaired_contract)
+                if not repaired_errors:
+                    call = {**repaired_call, "bootstrap_contract_repaired": True}
+                    turn_contract = repaired_contract
+                    coherence_errors = ()
+        except PhaseDeadlineExceeded:
+            call = {
+                **call,
+                "bootstrap_contract_repair_fallback": "phase_deadline",
+            }
+    if coherence_errors:
+        call = {
+            **call,
+            "bootstrap_contract_coherence_errors": list(coherence_errors),
+        }
     has_required_sources = any(
         isinstance(item, dict) and source_evidence_required(item)
         for item in turn_contract.get("source_requirements") or ()

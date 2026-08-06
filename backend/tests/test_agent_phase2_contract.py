@@ -15,7 +15,7 @@ from app.services.agent.runtime.turn_contract import (
     evidence_matches_source,
     missing_required_sources,
 )
-from app.services.agent.runtime.workspace_graph import workspace_agent_node
+from app.services.agent.runtime.workspace_graph import route_workspace_call, workspace_agent_node
 from app.services.agent.runtime.workspace_graph import WORKSPACE_SYSTEM
 
 
@@ -45,6 +45,15 @@ def test_planner_prompt_omits_explicitly_excluded_referents_from_resolved_goal()
     assert "не упоминай даже с отрицанием" in WORKSPACE_SYSTEM
     assert "вырази обе уже запрошенные стороны как явные retrieval predicates" in WORKSPACE_SYSTEM
     assert "что указал draft/proposed record" in WORKSPACE_SYSTEM
+
+
+def test_planner_prompt_separates_atomic_requirements_from_cross_record_synthesis() -> None:
+    assert "одну фальсифицируемую часть ответа" in WORKSPACE_SYSTEM
+    assert "раздели их, даже когда они ожидаются в одном источнике" in WORKSPACE_SYSTEM
+    assert "не делают его синтезом, если одна связная запись" in WORKSPACE_SYSTEM
+    assert "вырази части отдельными evidence_requirements" in WORKSPACE_SYSTEM
+    assert 'task_profile="topical_answer" для сопоставления' in WORKSPACE_SYSTEM
+    assert "Несколько частей одного сравнения не превращают его" in WORKSPACE_SYSTEM
 
 
 def test_open_post_is_a_target_with_open_object_provenance() -> None:
@@ -564,7 +573,7 @@ async def test_classifier_phase_deadline_falls_back_to_typed_workspace_sources()
             {"configurable": {"runtime_context": ctx, "turn_contract": contract}},
         )
 
-    assert classifier.await_args.kwargs["phase_timeout_s"] == 10.0
+    assert classifier.await_args.kwargs["phase_timeout_s"] == 20.0
     assert result["tool_call"]["type"] == "read"
     assert result["tool_call"]["bootstrap_fallback"] == "phase_deadline"
     assert result["search_query"] == question
@@ -575,8 +584,128 @@ async def test_classifier_phase_deadline_falls_back_to_typed_workspace_sources()
 
 
 @pytest.mark.asyncio
-async def test_classifier_finish_skips_optional_workspace_enrichment() -> None:
-    contract = build_turn_contract(user_text="Идти тестировать?", history=[], scope="global")
+async def test_incoherent_decision_context_source_gets_one_reasoner_repair() -> None:
+    question = "Choose the next deliverable from the current workspace."
+    contract = build_turn_contract(
+        user_text=question,
+        history=[],
+        scope="global",
+        typed_requirements_enabled=True,
+    )
+    ctx = SimpleNamespace(
+        reasoner_spec=object(),
+        reasoner_model="planner",
+        reasoner_api_key="secret",
+        turn_contract=contract,
+        scope="global",
+        post_data=None,
+        deadline_monotonic=None,
+        llm_client=None,
+        llm_metrics=[],
+    )
+    malformed = (
+        '{"type":"read","requires_evidence":true,'
+        '"required_sources":["notes","posts"],'
+        '"source_requirements":['
+        '{"kind":"notes","query_goal":"Find relevant plans and constraints.",'
+        '"predicate_kind":"semantic","coverage":"complete",'
+        '"discovery_mode":"semantic_relevance","evidence_granularity":"full_text"},'
+        '{"kind":"posts","query_goal":"Determine which prior outputs affect the choice.",'
+        '"predicate_kind":"structural","coverage":"relevant",'
+        '"discovery_mode":"semantic_relevance","evidence_granularity":"catalog",'
+        '"evidence_requirements":[{"property":"title","operator":"exists",'
+        '"scope":"source"}]}],'
+        '"search_query":"Choose the next deliverable from the current workspace."}'
+    )
+    repaired = (
+        '{"type":"read","requires_evidence":true,'
+        '"required_sources":["notes","posts"],'
+        '"source_requirements":['
+        '{"kind":"notes","query_goal":"Find relevant plans and constraints.",'
+        '"predicate_kind":"semantic","coverage":"complete",'
+        '"discovery_mode":"semantic_relevance","evidence_granularity":"full_text"},'
+        '{"kind":"posts","query_goal":"Determine which prior outputs affect the choice.",'
+        '"predicate_kind":"semantic","coverage":"relevant",'
+        '"discovery_mode":"catalog_window","statuses":["published"],'
+        '"order_by":"position","order_direction":"desc","candidate_limit":4,'
+        '"evidence_granularity":"full_text"}],'
+        '"search_query":"Choose the next deliverable from the current workspace."}'
+    )
+
+    with patch(
+        "app.services.agent.runtime.workspace_graph.call_llm_with_deadline",
+        new_callable=AsyncMock,
+        side_effect=[malformed, repaired],
+    ) as reasoner:
+        result = await workspace_agent_node(
+            {"user_text": question, "turn_contract": contract},
+            {"configurable": {"runtime_context": ctx, "turn_contract": contract}},
+        )
+
+    assert reasoner.await_count == 2
+    assert reasoner.await_args_list[1].kwargs["phase"] == "bootstrap.classifier_contract_repair"
+    assert reasoner.await_args_list[1].kwargs["phase_timeout_s"] == 15.0
+    assert result["tool_call"]["bootstrap_contract_repaired"] is True
+    sources = {item["kind"]: item for item in result["turn_contract"]["source_requirements"]}
+    assert sources["posts"]["predicate_kind"] == "semantic"
+    assert sources["posts"]["discovery_mode"] == "catalog_window"
+    assert sources["posts"]["selection_cardinality"] == {"min": 0, "max": 4}
+    assert sources["posts"]["budget"]["deep_reads"] == 4
+
+
+@pytest.mark.asyncio
+async def test_structural_catalog_fact_does_not_trigger_contract_repair() -> None:
+    question = "How many posts are in the workspace?"
+    contract = build_turn_contract(
+        user_text=question,
+        history=[],
+        scope="global",
+        typed_requirements_enabled=True,
+    )
+    ctx = SimpleNamespace(
+        reasoner_spec=object(),
+        reasoner_model="planner",
+        reasoner_api_key="secret",
+        turn_contract=contract,
+        scope="global",
+        post_data=None,
+        deadline_monotonic=None,
+        llm_client=None,
+        llm_metrics=[],
+    )
+    classified = (
+        '{"type":"read","requires_evidence":true,"required_sources":["posts"],'
+        '"source_requirements":[{"kind":"posts","query_goal":"Count workspace posts.",'
+        '"predicate_kind":"structural","coverage":"complete",'
+        '"discovery_mode":"semantic_relevance","evidence_granularity":"catalog",'
+        '"evidence_requirements":[{"property":"total_posts","operator":"count",'
+        '"scope":"aggregate"}]}],"search_query":"How many posts are in the workspace?"}'
+    )
+
+    with patch(
+        "app.services.agent.runtime.workspace_graph.call_llm_with_deadline",
+        new_callable=AsyncMock,
+        return_value=classified,
+    ) as reasoner:
+        result = await workspace_agent_node(
+            {"user_text": question, "turn_contract": contract},
+            {"configurable": {"runtime_context": ctx, "turn_contract": contract}},
+        )
+
+    reasoner.assert_awaited_once()
+    posts = next(
+        item for item in result["turn_contract"]["source_requirements"]
+        if item["kind"] == "posts"
+    )
+    assert posts["predicate_kind"] == "structural"
+    assert posts["selection_cardinality"] == {"min": 0, "max": 0}
+    assert "bootstrap_contract_repaired" not in result["tool_call"]
+
+
+@pytest.mark.asyncio
+async def test_general_advice_invokes_classifier_then_skips_workspace_retrieval() -> None:
+    question = "Какой формат изображений использовать для постов?"
+    contract = build_turn_contract(user_text=question, history=[], scope="global")
     ctx = SimpleNamespace(
         reasoner_spec=object(), reasoner_model="planner", reasoner_api_key="secret",
         turn_contract=contract, scope="global", post_data=None,
@@ -586,17 +715,26 @@ async def test_classifier_finish_skips_optional_workspace_enrichment() -> None:
         "app.services.agent.runtime.workspace_graph.call_llm_with_deadline",
         new_callable=AsyncMock,
         return_value=(
-            '{"type":"finish","required_sources":[],'
-            '"search_query":"тестирование текущего направления"}'
+            '{"type":"read","requires_evidence":true,'
+            '"required_sources":["notes","posts"],'
+            '"source_requirements":[{"kind":"notes"},{"kind":"posts"}],'
+            '"search_query":"выбор формата изображений",'
+            '"workspace_dependency":{"basis":"dialog_or_general_knowledge",'
+            '"empty_workspace":"answer_unchanged"}}'
         ),
     ) as classifier:
         result = await workspace_agent_node(
-            {"user_text": "Идти тестировать?", "turn_contract": contract},
+            {"user_text": question, "turn_contract": contract},
             {"configurable": {"runtime_context": ctx, "turn_contract": contract}},
         )
 
     assert result["tool_call"]["type"] == "finish"
+    assert (
+        result["tool_call"]["workspace_dependency_gate"]
+        == "finish_empty_workspace_unchanged"
+    )
     assert result["direct_finish"] is True
+    assert route_workspace_call(result) == "answer"
     assert result["turn_contract"]["answerability_without_evidence"] is True
     assert {
         item["kind"] for item in result["turn_contract"]["source_requirements"]

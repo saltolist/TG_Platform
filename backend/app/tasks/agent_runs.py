@@ -12,7 +12,10 @@ from app.db.models import AgentRun, User
 from app.db.session import async_session_factory
 from app.services.agent.runtime import events as event_service
 from app.services.agent.runtime.checkpoint import ensure_checkpointer_ready
-from app.services.agent.runtime.executor import execute_agent_run
+from app.services.agent.runtime.executor import (
+    execute_agent_run,
+    is_retryable_run_exception,
+)
 from app.services.agent.runtime.runs import rebuild_runtime_context_for_run
 from app.tasks.async_runtime import WorkerNotReadyError, run_async, runtime_status
 
@@ -49,7 +52,12 @@ async def _fail_unready_agent_run(run_id: uuid.UUID) -> None:
         await session.commit()
 
 
-async def _execute_agent_run(run_id: uuid.UUID, user_text: str) -> None:
+async def _execute_agent_run(
+    run_id: uuid.UUID,
+    user_text: str,
+    *,
+    defer_retryable_failures: bool = False,
+) -> None:
     await ensure_checkpointer_ready()
     async with async_session_factory() as session:
         run = await session.scalar(select(AgentRun).where(AgentRun.id == run_id))
@@ -101,6 +109,7 @@ async def _execute_agent_run(run_id: uuid.UUID, user_text: str) -> None:
             user=user,
             user_text=user_text,
             runtime_context=context,
+            defer_retryable_failures=defer_retryable_failures,
         )
 
 
@@ -115,7 +124,12 @@ def execute_agent_run_task(self, run_id: str, user_text: str) -> None:
     if status.get("status") == "warmup_failed":
         run_async(_fail_unready_agent_run(uuid.UUID(run_id)))
         raise WorkerNotReadyError("interactive worker embedding warmup failed")
-    coroutine = _execute_agent_run(uuid.UUID(run_id), user_text)
+    retries_remaining = int(self.request.retries or 0) < int(self.max_retries or 0)
+    coroutine = _execute_agent_run(
+        uuid.UUID(run_id),
+        user_text,
+        defer_retryable_failures=retries_remaining,
+    )
     try:
         run_async(coroutine)
     except Exception as exc:
@@ -127,6 +141,8 @@ def execute_agent_run_task(self, run_id: str, user_text: str) -> None:
                 "Agent run %s failed with a cross-loop programming error; retry suppressed",
                 run_id,
             )
+            raise
+        if not is_retryable_run_exception(exc) or not retries_remaining:
             raise
         raise self.retry(
             exc=exc,

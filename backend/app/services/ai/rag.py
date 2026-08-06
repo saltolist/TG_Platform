@@ -15,7 +15,7 @@ import logging
 import math
 import re
 import uuid
-from typing import Any, Mapping
+from typing import Any, Mapping, Sequence
 
 from sqlalchemy import select, text
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -23,6 +23,11 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.services.ai.attachment_text import media_meta_index_text
 from app.services.ai.embeddings import EmbeddingBackend
 from app.services.ai.note_citations import NoteCite
+from app.services.ai.semantic_chunking import (
+    markdown_heading_starts,
+    semantic_paragraphs,
+    semantic_sections,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -167,6 +172,35 @@ def _chunk_text(text: str, max_chars: int) -> list[str]:
     return [chunk for chunk in chunks if chunk] or [text[:max_chars]]
 
 
+def semantic_index_chunks(
+    title: str,
+    body: str,
+    max_chars: int,
+    *,
+    semantic_section_starts: Sequence[int] = (),
+) -> list[str]:
+    """Chunk at model-guided topic shifts, with Markdown as a structural fallback."""
+
+    paragraphs = semantic_paragraphs(body)
+    if not paragraphs:
+        return [title.strip()] if title.strip() else []
+    section_starts = {
+        *semantic_section_starts,
+        *markdown_heading_starts(paragraphs),
+    }
+    chunks: list[str] = []
+    for index, section in enumerate(semantic_sections(paragraphs, section_starts)):
+        plain = markdown_to_index_text("", section).strip()
+        clean_title = title.strip()
+        if index == 0 and clean_title:
+            first_line = plain.splitlines()[0].strip() if plain else ""
+            if first_line.casefold() != clean_title.casefold():
+                plain = f"{clean_title}\n\n{plain}" if plain else clean_title
+        if plain:
+            chunks.extend(_chunk_text(plain, max_chars))
+    return chunks or ([title.strip()] if title.strip() else [])
+
+
 _KEYWORD_RE = re.compile(r"[\w\-]{3,}", re.UNICODE)
 
 
@@ -302,6 +336,7 @@ async def index_text_node(
     selector_summary: str | None = None,
     selector_summary_version: int = 0,
     selector_semantic_flags: Mapping[str, Any] | None = None,
+    chunks_override: Sequence[str] | None = None,
 ) -> int:
     """Embed and store a text node. Returns number of chunks written."""
     if node_type not in TEXT_NODE_TYPES:
@@ -309,7 +344,18 @@ async def index_text_node(
     if not plain_text.strip():
         return 0
 
-    chunks = _chunk_text(plain_text.strip(), max_chars)
+    chunks = (
+        _chunk_text(plain_text.strip(), max_chars)
+        if chunks_override is None
+        else [
+            chunk
+            for value in chunks_override
+            if str(value or "").strip()
+            for chunk in _chunk_text(str(value).strip(), max_chars)
+        ]
+    )
+    if not chunks:
+        return 0
     is_summary = node_type in DISCOVERY_NODE_TYPES
     search_chunks = [
         chunk
@@ -436,6 +482,7 @@ async def index_note(
     selector_summary: str | None = None,
     selector_summary_version: int = 0,
     selector_semantic_flags: Mapping[str, Any] | None = None,
+    semantic_section_starts: Sequence[int] = (),
 ) -> int:
     """Embed a note and its discovery summary in the async index."""
     plain = markdown_to_index_text(title, body)
@@ -464,6 +511,12 @@ async def index_note(
         object_status=object_status,
         index_revision=effective_revision,
         keywords=discovery_keywords(summary),
+        chunks_override=semantic_index_chunks(
+            title,
+            body,
+            max_chars,
+            semantic_section_starts=semantic_section_starts,
+        ),
     )
     if index_summary:
         if summary:

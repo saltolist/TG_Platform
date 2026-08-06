@@ -6,7 +6,7 @@ import uuid
 from unittest.mock import AsyncMock, patch
 
 import pytest
-from httpx import ASGITransport, AsyncClient
+from httpx import ASGITransport, AsyncClient, ConnectError
 
 from app.db.models import GlobalChat, GlobalNote, Post
 from app.db.resolve import get_owned_post
@@ -878,6 +878,52 @@ async def test_execute_agent_run_marks_deadline_exceeded(writer_user, monkeypatc
     assert failed, "no run_failed event emitted"
     assert failed[-1].payload.get("stopped_reason") == "deadline_exceeded"
     assert run.status == "failed"
+
+
+@pytest.mark.asyncio
+async def test_execute_agent_run_defers_retryable_transport_terminal_event(
+    writer_user,
+    monkeypatch,
+) -> None:
+    from app.services.agent.runtime import events as event_service
+
+    monkeypatch.setattr("app.db.session.async_session_factory", TestSessionLocal)
+
+    async with TestSessionLocal() as session:
+        run, _ = await start_run(
+            session, user=writer_user, thread_id="transport-retry-test", scope="global"
+        )
+        runtime_context = await rebuild_runtime_context_for_run(
+            session, run, "Что там?"
+        )
+        runtime_context.reasoner_spec = ProviderSpec(
+            "OpenAI", "https://api.openai.com"
+        )
+        runtime_context.reasoner_model = "gpt-4o-mini"
+        runtime_context.reasoner_api_key = "test-key"
+
+        with patch(
+            "app.services.ai.llm.complete_chat_completion",
+            new_callable=AsyncMock,
+            side_effect=ConnectError("dns unavailable"),
+        ):
+            with pytest.raises(ConnectError, match="dns unavailable"):
+                await execute_agent_run(
+                    session,
+                    run=run,
+                    user=writer_user,
+                    user_text="Что там?",
+                    runtime_context=runtime_context,
+                    defer_retryable_failures=True,
+                )
+
+        persisted = await session.get(type(run), run.id)
+        events = await event_service.list_events(session, run_id=run.id)
+
+    assert persisted is not None
+    assert persisted.status == "running"
+    assert persisted.error is None
+    assert not [event for event in events if event.event_type == "run_failed"]
 
 
 def test_record_run_metrics_counts_empty_pack_and_reason() -> None:

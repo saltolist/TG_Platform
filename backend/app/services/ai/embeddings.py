@@ -152,7 +152,10 @@ def _get_fastembed_model(model_name: str):  # type: ignore[return]
         try:
             from fastembed import TextEmbedding  # type: ignore[import-untyped]
 
-            model = TextEmbedding(model_name=model_name)
+            # Keep ONNX arena growth bounded in prefork workers. Retrieval uses
+            # one query at a time; unbounded intra-op threads can multiply the
+            # model's transient memory several-fold without improving latency.
+            model = TextEmbedding(model_name=model_name, threads=1)
         except Exception as exc:
             logger.warning("Failed to load fastembed model %r: %s", model_name, exc)
             return None

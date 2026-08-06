@@ -18,6 +18,7 @@ from app.services.ai.rag import (
     index_text_node,
     markdown_to_index_text,
     retrieve_top_k,
+    semantic_index_chunks,
 )
 
 
@@ -137,6 +138,58 @@ class TestChunkText:
         text = f"{para}\n\n{para}\n\n{para}"
         chunks = _chunk_text(text, 150)
         assert len(chunks) > 1
+
+    def test_markdown_headings_form_independent_semantic_chunks(self):
+        body = (
+            "# Overview\n\nGeneral project background.\n\n"
+            "## Delivery options\n\n"
+            "Demo stores browser mocks. Docker uses the real database and API.\n\n"
+            "## Operations\n\nDeployment and monitoring instructions."
+        )
+
+        chunks = semantic_index_chunks("Product", body, 1200)
+
+        delivery = next(chunk for chunk in chunks if "Delivery options" in chunk)
+        assert "Demo stores browser mocks" in delivery
+        assert "General project background" not in delivery
+        assert "Deployment and monitoring" not in delivery
+        assert all(len(chunk) <= 1200 for chunk in chunks)
+
+    def test_heading_free_text_keeps_paragraph_chunking(self):
+        body = "First paragraph.\n\nSecond paragraph."
+        assert semantic_index_chunks("Title", body, 1200) == [
+            "Title\n\nFirst paragraph.\n\nSecond paragraph."
+        ]
+
+    def test_model_boundary_splits_plain_prose_at_topic_shift(self):
+        body = (
+            "The product is open source.\n\n"
+            "Its repository contains the application code.\n\n"
+            "There are two delivery options.\n\n"
+            "The demo uses browser mocks, while Docker uses real services."
+        )
+
+        chunks = semantic_index_chunks(
+            "Product",
+            body,
+            1200,
+            semantic_section_starts=[2],
+        )
+
+        assert chunks == [
+            "Product\n\nThe product is open source.\n\nIts repository contains the application code.",
+            "There are two delivery options.\n\nThe demo uses browser mocks, while Docker uses real services.",
+        ]
+
+    def test_markdown_horizontal_rules_do_not_become_index_chunks(self):
+        body = "# Intro\n\nBackground.\n\n***\n\n## Comparison\n\nTwo options."
+
+        chunks = semantic_index_chunks("Product", body, 1200)
+
+        assert chunks == [
+            "Product\n\nIntro\n\nBackground.",
+            "Comparison\n\nTwo options.",
+        ]
 
     def test_each_chunk_under_double_max(self):
         """Each chunk is at most a couple paragraphs, not the full text."""
