@@ -7,12 +7,39 @@ from uuid import uuid4
 
 import pytest
 
+from app.services.ai.rag_escalation import TierAResult, TierASignals
+from app.services.ai.rag_sufficiency import TierBResult
 from app.services.ai.rag_query import (
+    build_planner_dialog_context,
     build_rag_query_from_history,
     build_rag_rewrite_messages,
     retrieve_rag_for_reply,
     rewrite_rag_query_llm,
 )
+
+
+def test_planner_dialog_context_includes_only_used_manifest_cards() -> None:
+    context = build_planner_dialog_context(
+        "Напиши текст этого поста",
+        [
+            {"role": "user", "text": "Про что написать следующий пост?"},
+            {"role": "ai", "text": "Про каскадный обход пространства."},
+        ],
+        message_manifests=({
+            "context_refs": [
+                {"ref": "note:n1", "role": "used_context", "title": "Идеи", "summary": "Короткая карточка"},
+                {"ref": "post:p1", "role": "target", "title": "Legacy target"},
+            ],
+            "considered_context": [{"evidence_id": "internal-hit"}],
+            "artifacts": [{"ref": "artifact:sha256:answer"}],
+        },),
+    )
+
+    assert "Про каскадный обход пространства" in context
+    assert "note:n1 — Идеи — Короткая карточка" in context
+    assert "post:p1" not in context
+    assert "internal-hit" not in context
+    assert "artifact:sha256" not in context
 
 
 def test_build_rag_query_without_history_returns_current_message() -> None:
@@ -81,7 +108,7 @@ async def test_retrieve_rag_for_reply_rewrites_on_miss() -> None:
 
     with (
         patch(
-            "app.services.ai.rag_query.retrieve_top_k",
+            "app.services.ai.rag_query.retrieve_for_chat",
             new_callable=AsyncMock,
             side_effect=[empty_results, hit_results],
         ) as retrieve_mock,
@@ -133,7 +160,7 @@ async def test_retrieve_rag_for_reply_skips_rewrite_when_first_hit() -> None:
 
     with (
         patch(
-            "app.services.ai.rag_query.retrieve_top_k",
+            "app.services.ai.rag_query.retrieve_for_chat",
             new_callable=AsyncMock,
             return_value=hit_results,
         ) as retrieve_mock,
@@ -172,6 +199,174 @@ async def test_retrieve_rag_for_reply_skips_rewrite_when_first_hit() -> None:
 
 
 @pytest.mark.asyncio
+async def test_retrieve_rag_for_reply_l0_skips_without_embed() -> None:
+    embedding_backend = AsyncMock()
+    embedding_backend.model_key = "test-model"
+    embedding_backend.embed_query = AsyncMock(return_value=[0.1, 0.2])
+
+    with patch(
+        "app.services.ai.rag_query.retrieve_for_chat",
+        new_callable=AsyncMock,
+    ) as retrieve_mock:
+        context, cites = await retrieve_rag_for_reply(
+            session=AsyncMock(),
+            user_id=uuid4(),
+            scope="global",
+            user_text="привет",
+            history=None,
+            embedding_backend=embedding_backend,
+            post_data=None,
+            tenant_key=None,
+            post_id=None,
+            top_k=4,
+            min_similarity=0.38,
+            history_turns=2,
+            query_max_chars=2000,
+            rewrite_on_miss=False,
+            l0_enabled=True,
+        )
+
+    assert context == ""
+    assert cites == []
+    embedding_backend.embed_query.assert_not_awaited()
+    retrieve_mock.assert_not_awaited()
+
+
+@pytest.mark.asyncio
+async def test_retrieve_rag_for_reply_l0_kill_switch_runs_retrieval() -> None:
+    embedding_backend = AsyncMock()
+    embedding_backend.model_key = "test-model"
+    embedding_backend.embed_query = AsyncMock(return_value=[0.1, 0.2])
+
+    with (
+        patch(
+            "app.services.ai.rag_query.retrieve_for_chat",
+            new_callable=AsyncMock,
+            return_value=[],
+        ) as retrieve_mock,
+        patch(
+            "app.services.ai.rag_query.format_rag_context",
+            new_callable=AsyncMock,
+            return_value=("", []),
+        ),
+    ):
+        await retrieve_rag_for_reply(
+            session=AsyncMock(),
+            user_id=uuid4(),
+            scope="global",
+            user_text="привет",
+            history=None,
+            embedding_backend=embedding_backend,
+            post_data=None,
+            tenant_key=None,
+            post_id=None,
+            top_k=4,
+            min_similarity=0.38,
+            history_turns=2,
+            query_max_chars=2000,
+            rewrite_on_miss=False,
+            l0_enabled=False,
+        )
+
+    embedding_backend.embed_query.assert_awaited_once()
+    retrieve_mock.assert_awaited_once()
+
+
+@pytest.mark.asyncio
+async def test_retrieve_rag_for_reply_logs_tier_a_without_changing_output() -> None:
+    embedding_backend = AsyncMock()
+    embedding_backend.model_key = "test-model"
+    embedding_backend.embed_query = AsyncMock(return_value=[0.1, 0.2])
+
+    hit_results = [
+        {
+            "note_id": "n1",
+            "post_id": None,
+            "chunk_index": 0,
+            "tenant_key": "",
+            "node_type": "note_chunk",
+            "file_id": "",
+            "chunk_text": "Длинный текст чанка для Tier A сигналов и проверки.",
+            "referenced_ids": [],
+            "similarity": 0.9,
+        }
+    ]
+
+    with (
+        patch(
+            "app.services.ai.rag_query.retrieve_for_chat",
+            new_callable=AsyncMock,
+            return_value=hit_results,
+        ),
+        patch(
+            "app.services.ai.rag_query.format_rag_context",
+            new_callable=AsyncMock,
+            return_value=("--- context ---", []),
+        ) as format_mock,
+        patch(
+            "app.services.ai.rag_query.evaluate_tier_a",
+        ) as tier_a_mock,
+    ):
+        context, cites = await retrieve_rag_for_reply(
+            session=AsyncMock(),
+            user_id=uuid4(),
+            scope="global",
+            user_text="Что по дедлайнам?",
+            history=None,
+            embedding_backend=embedding_backend,
+            post_data=None,
+            tenant_key=None,
+            post_id=None,
+            top_k=4,
+            min_similarity=0.38,
+            history_turns=2,
+            query_max_chars=2000,
+            rewrite_on_miss=False,
+            escalate_min_similarity=0.72,
+            escalate_on_miss=True,
+        )
+
+    assert context == "--- context ---"
+    assert cites == []
+    tier_a_mock.assert_called_once()
+    format_mock.assert_awaited_once()
+
+
+@pytest.mark.asyncio
+async def test_retrieve_rag_for_reply_tier_a_on_empty_results_global_scope() -> None:
+    embedding_backend = AsyncMock()
+    embedding_backend.model_key = "test-model"
+    embedding_backend.embed_query = AsyncMock(return_value=[0.1, 0.2])
+
+    with patch(
+        "app.services.ai.rag_query.retrieve_for_chat",
+        new_callable=AsyncMock,
+        return_value=[],
+    ):
+        context, cites = await retrieve_rag_for_reply(
+            session=AsyncMock(),
+            user_id=uuid4(),
+            scope="global",
+            user_text="Что по дедлайнам?",
+            history=None,
+            embedding_backend=embedding_backend,
+            post_data=None,
+            tenant_key=None,
+            post_id=None,
+            top_k=4,
+            min_similarity=0.38,
+            history_turns=2,
+            query_max_chars=2000,
+            rewrite_on_miss=False,
+            escalate_min_similarity=0.72,
+            escalate_on_miss=True,
+        )
+
+    assert context == ""
+    assert cites == []
+
+
+@pytest.mark.asyncio
 async def test_rewrite_rag_query_llm_rejects_meta_reply() -> None:
     with patch(
         "app.services.ai.llm.complete_chat_completion",
@@ -186,3 +381,768 @@ async def test_rewrite_rag_query_llm_rejects_meta_reply() -> None:
             api_key="key",
         )
     assert result is None
+
+
+def _hit_results() -> list[dict]:
+    return [
+        {
+            "note_id": "n1",
+            "post_id": None,
+            "chunk_index": 0,
+            "tenant_key": "",
+            "node_type": "note_chunk",
+            "file_id": "",
+            "chunk_text": "Длинный текст чанка для Tier A/B сигналов и проверки.",
+            "referenced_ids": [],
+            "similarity": 0.9,
+        }
+    ]
+
+
+def _tier_a_no_fast_path() -> TierAResult:
+    return TierAResult(
+        fast_path=None,
+        escalate_target=None,
+        escalate_post_id=None,
+        signals=TierASignals(
+            pointer_phrase=False,
+            answer_type_mismatch=False,
+            chunk_too_short=False,
+            is_followup=False,
+        ),
+        neighbors={"notes": [], "media": [], "comments_count": 0},
+    )
+
+
+@pytest.mark.asyncio
+async def test_retrieve_rag_for_reply_tier_b_disabled_by_default() -> None:
+    embedding_backend = AsyncMock()
+    embedding_backend.model_key = "test-model"
+    embedding_backend.embed_query = AsyncMock(return_value=[0.1, 0.2])
+
+    with (
+        patch(
+            "app.services.ai.rag_query.retrieve_for_chat",
+            new_callable=AsyncMock,
+            return_value=_hit_results(),
+        ),
+        patch(
+            "app.services.ai.rag_query.format_rag_context",
+            new_callable=AsyncMock,
+            return_value=("--- context ---", []),
+        ),
+        patch(
+            "app.services.ai.rag_query.evaluate_tier_a",
+            return_value=_tier_a_no_fast_path(),
+        ),
+        patch(
+            "app.services.ai.rag_query.evaluate_tier_b",
+            new_callable=AsyncMock,
+        ) as tier_b_mock,
+    ):
+        context, cites = await retrieve_rag_for_reply(
+            session=AsyncMock(),
+            user_id=uuid4(),
+            scope="global",
+            user_text="Что по дедлайнам?",
+            history=None,
+            embedding_backend=embedding_backend,
+            post_data=None,
+            tenant_key=None,
+            post_id=None,
+            top_k=4,
+            min_similarity=0.38,
+            history_turns=2,
+            query_max_chars=2000,
+            rewrite_on_miss=False,
+            rewrite_spec=object(),  # type: ignore[arg-type]
+            rewrite_model="gpt-test",
+            rewrite_api_key="key",
+        )
+
+    assert context == "--- context ---"
+    assert cites == []
+    tier_b_mock.assert_not_awaited()
+
+
+@pytest.mark.asyncio
+async def test_retrieve_rag_for_reply_tier_b_runs_on_miss_with_hits() -> None:
+    embedding_backend = AsyncMock()
+    embedding_backend.model_key = "test-model"
+    embedding_backend.embed_query = AsyncMock(return_value=[0.1, 0.2])
+
+    with (
+        patch(
+            "app.services.ai.rag_query.retrieve_for_chat",
+            new_callable=AsyncMock,
+            return_value=_hit_results(),
+        ),
+        patch(
+            "app.services.ai.rag_query.format_rag_context",
+            new_callable=AsyncMock,
+            return_value=("", []),
+        ),
+        patch(
+            "app.services.ai.rag_query.evaluate_tier_a",
+            return_value=TierAResult(
+                fast_path="miss",
+                escalate_target=None,
+                escalate_post_id=None,
+                signals=TierASignals(False, False, False, False),
+                neighbors={},
+            ),
+        ),
+        patch(
+            "app.services.ai.rag_query.evaluate_tier_b",
+            new_callable=AsyncMock,
+            return_value=TierBResult(sufficient=False, open_next=[], error=None),
+        ) as tier_b_mock,
+        patch(
+            "app.services.ai.rag_query.run_agentic_loop",
+            new_callable=AsyncMock,
+            return_value=type(
+                "AgentResult",
+                (),
+                {"rag_context": "", "cites": [], "stopped_reason": "budget_exhausted"},
+            )(),
+        ),
+    ):
+        await retrieve_rag_for_reply(
+            session=AsyncMock(),
+            user_id=uuid4(),
+            scope="global",
+            user_text="Что по дедлайнам?",
+            history=None,
+            embedding_backend=embedding_backend,
+            post_data=None,
+            tenant_key=None,
+            post_id=None,
+            top_k=4,
+            min_similarity=0.38,
+            history_turns=2,
+            query_max_chars=2000,
+            rewrite_on_miss=False,
+            tier_b_enabled=True,
+            rag_mode="auto",
+            rewrite_spec=object(),  # type: ignore[arg-type]
+            rewrite_model="gpt-test",
+            rewrite_api_key="key",
+        )
+
+    tier_b_mock.assert_awaited_once()
+
+
+@pytest.mark.asyncio
+async def test_retrieve_rag_for_reply_tier_b_skipped_on_fast_path() -> None:
+    embedding_backend = AsyncMock()
+    embedding_backend.model_key = "test-model"
+    embedding_backend.embed_query = AsyncMock(return_value=[0.1, 0.2])
+
+    with (
+        patch(
+            "app.services.ai.rag_query.retrieve_for_chat",
+            new_callable=AsyncMock,
+            return_value=_hit_results(),
+        ),
+        patch(
+            "app.services.ai.rag_query.format_rag_context",
+            new_callable=AsyncMock,
+            return_value=("", []),
+        ),
+        patch(
+            "app.services.ai.rag_query.evaluate_tier_a",
+            return_value=TierAResult(
+                fast_path="cross_post",
+                escalate_target="post:p2",
+                escalate_post_id=None,
+                signals=TierASignals(False, False, False, False),
+                neighbors={},
+            ),
+        ),
+        patch(
+            "app.services.ai.rag_query.evaluate_tier_b",
+            new_callable=AsyncMock,
+        ) as tier_b_mock,
+        patch(
+            "app.services.ai.rag_query.run_agentic_loop",
+            new_callable=AsyncMock,
+            return_value=type(
+                "AgentResult",
+                (),
+                {"rag_context": "", "cites": [], "stopped_reason": "budget_exhausted"},
+            )(),
+        ),
+    ):
+        await retrieve_rag_for_reply(
+            session=AsyncMock(),
+            user_id=uuid4(),
+            scope="global",
+            user_text="Что по дедлайнам?",
+            history=None,
+            embedding_backend=embedding_backend,
+            post_data=None,
+            tenant_key=None,
+            post_id=None,
+            top_k=4,
+            min_similarity=0.38,
+            history_turns=2,
+            query_max_chars=2000,
+            rewrite_on_miss=False,
+            tier_b_enabled=True,
+            rag_mode="auto",
+            rewrite_spec=object(),  # type: ignore[arg-type]
+            rewrite_model="gpt-test",
+            rewrite_api_key="key",
+        )
+
+    tier_b_mock.assert_not_awaited()
+
+
+@pytest.mark.asyncio
+async def test_retrieve_rag_for_reply_tier_b_skipped_without_reasoner() -> None:
+    embedding_backend = AsyncMock()
+    embedding_backend.model_key = "test-model"
+    embedding_backend.embed_query = AsyncMock(return_value=[0.1, 0.2])
+
+    with (
+        patch(
+            "app.services.ai.rag_query.retrieve_for_chat",
+            new_callable=AsyncMock,
+            return_value=_hit_results(),
+        ),
+        patch(
+            "app.services.ai.rag_query.format_rag_context",
+            new_callable=AsyncMock,
+            return_value=("", []),
+        ),
+        patch(
+            "app.services.ai.rag_query.evaluate_tier_a",
+            return_value=_tier_a_no_fast_path(),
+        ),
+        patch(
+            "app.services.ai.rag_query.evaluate_tier_b",
+            new_callable=AsyncMock,
+        ) as tier_b_mock,
+    ):
+        await retrieve_rag_for_reply(
+            session=AsyncMock(),
+            user_id=uuid4(),
+            scope="global",
+            user_text="Что по дедлайнам?",
+            history=None,
+            embedding_backend=embedding_backend,
+            post_data=None,
+            tenant_key=None,
+            post_id=None,
+            top_k=4,
+            min_similarity=0.38,
+            history_turns=2,
+            query_max_chars=2000,
+            rewrite_on_miss=False,
+            tier_b_enabled=True,
+        )
+
+    tier_b_mock.assert_not_awaited()
+
+
+@pytest.mark.asyncio
+async def test_retrieve_rag_for_reply_tier_b_enabled_logs_without_changing_output() -> None:
+    embedding_backend = AsyncMock()
+    embedding_backend.model_key = "test-model"
+    embedding_backend.embed_query = AsyncMock(return_value=[0.1, 0.2])
+
+    with (
+        patch(
+            "app.services.ai.rag_query.retrieve_for_chat",
+            new_callable=AsyncMock,
+            return_value=_hit_results(),
+        ),
+        patch(
+            "app.services.ai.rag_query.format_rag_context",
+            new_callable=AsyncMock,
+            return_value=("--- context ---", []),
+        ) as format_mock,
+        patch(
+            "app.services.ai.rag_query.evaluate_tier_a",
+            return_value=_tier_a_no_fast_path(),
+        ),
+        patch(
+            "app.services.ai.rag_query.evaluate_tier_b",
+            new_callable=AsyncMock,
+            return_value=type("TierB", (), {"sufficient": False, "open_next": ["note:n2"], "error": None})(),
+        ) as tier_b_mock,
+    ):
+        context, cites = await retrieve_rag_for_reply(
+            session=AsyncMock(),
+            user_id=uuid4(),
+            scope="global",
+            user_text="Что по дедлайнам?",
+            history=None,
+            embedding_backend=embedding_backend,
+            post_data=None,
+            tenant_key=None,
+            post_id=None,
+            top_k=4,
+            min_similarity=0.38,
+            history_turns=2,
+            query_max_chars=2000,
+            rewrite_on_miss=False,
+            tier_b_enabled=True,
+            rewrite_spec=object(),  # type: ignore[arg-type]
+            rewrite_model="gpt-test",
+            rewrite_api_key="key",
+        )
+
+    assert context == "--- context ---"
+    assert cites == []
+    tier_b_mock.assert_awaited_once()
+    format_mock.assert_awaited_once()
+
+
+@pytest.mark.asyncio
+async def test_retrieve_rag_for_reply_rag_mode_off_skips_l2() -> None:
+    embedding_backend = AsyncMock()
+    embedding_backend.model_key = "test-model"
+    embedding_backend.embed_query = AsyncMock(return_value=[0.1, 0.2])
+
+    with (
+        patch(
+            "app.services.ai.rag_query.retrieve_for_chat",
+            new_callable=AsyncMock,
+            return_value=_hit_results(),
+        ),
+        patch(
+            "app.services.ai.rag_query.format_rag_context",
+            new_callable=AsyncMock,
+            return_value=("--- context ---", []),
+        ),
+        patch(
+            "app.services.ai.rag_query.evaluate_tier_a",
+            return_value=TierAResult(
+                fast_path="miss",
+                escalate_target=None,
+                escalate_post_id=None,
+                signals=TierASignals(False, False, False, False),
+                neighbors={},
+            ),
+        ),
+        patch(
+            "app.services.ai.rag_query.run_agentic_loop",
+            new_callable=AsyncMock,
+        ) as loop_mock,
+    ):
+        context, cites = await retrieve_rag_for_reply(
+            session=AsyncMock(),
+            user_id=uuid4(),
+            scope="global",
+            user_text="Что по дедлайнам?",
+            history=None,
+            embedding_backend=embedding_backend,
+            post_data=None,
+            tenant_key=None,
+            post_id=None,
+            top_k=4,
+            min_similarity=0.38,
+            history_turns=2,
+            query_max_chars=2000,
+            rewrite_on_miss=False,
+            rag_mode="off",
+            rewrite_spec=object(),  # type: ignore[arg-type]
+            rewrite_model="gpt-test",
+            rewrite_api_key="key",
+        )
+
+    assert context == "--- context ---"
+    loop_mock.assert_not_awaited()
+
+
+@pytest.mark.asyncio
+async def test_retrieve_rag_for_reply_rag_mode_flat_skips_l2_on_miss() -> None:
+    embedding_backend = AsyncMock()
+    embedding_backend.model_key = "test-model"
+    embedding_backend.embed_query = AsyncMock(return_value=[0.1, 0.2])
+
+    with (
+        patch(
+            "app.services.ai.rag_query.retrieve_for_chat",
+            new_callable=AsyncMock,
+            return_value=[],
+        ),
+        patch(
+            "app.services.ai.rag_query.evaluate_tier_a",
+            return_value=TierAResult(
+                fast_path="miss",
+                escalate_target=None,
+                escalate_post_id=None,
+                signals=TierASignals(False, False, False, False),
+                neighbors={},
+            ),
+        ),
+        patch(
+            "app.services.ai.rag_query.run_agentic_loop",
+            new_callable=AsyncMock,
+        ) as loop_mock,
+    ):
+        context, cites = await retrieve_rag_for_reply(
+            session=AsyncMock(),
+            user_id=uuid4(),
+            scope="global",
+            user_text="Что по дедлайнам?",
+            history=None,
+            embedding_backend=embedding_backend,
+            post_data=None,
+            tenant_key=None,
+            post_id=None,
+            top_k=4,
+            min_similarity=0.38,
+            history_turns=2,
+            query_max_chars=2000,
+            rewrite_on_miss=False,
+            rag_mode="flat",
+            rewrite_spec=object(),  # type: ignore[arg-type]
+            rewrite_model="gpt-test",
+            rewrite_api_key="key",
+        )
+
+    assert context == ""
+    assert cites == []
+    loop_mock.assert_not_awaited()
+
+
+@pytest.mark.asyncio
+async def test_retrieve_rag_for_reply_rag_mode_agentic_runs_l2() -> None:
+    embedding_backend = AsyncMock()
+    embedding_backend.model_key = "test-model"
+    embedding_backend.embed_query = AsyncMock(return_value=[0.1, 0.2])
+
+    agent_result = type(
+        "AgentResult",
+        (),
+        {
+            "rag_context": "---\n**Контекст из базы знаний:**\n[1] cite-path: /post/p1/",
+            "cites": [],
+            "stopped_reason": "sufficient",
+        },
+    )()
+
+    with (
+        patch(
+            "app.services.ai.rag_query.retrieve_for_chat",
+            new_callable=AsyncMock,
+            return_value=_hit_results(),
+        ),
+        patch(
+            "app.services.ai.rag_query.format_rag_context",
+            new_callable=AsyncMock,
+            return_value=("--- l1 ---", []),
+        ),
+        patch(
+            "app.services.ai.rag_query.evaluate_tier_a",
+            return_value=_tier_a_no_fast_path(),
+        ),
+        patch(
+            "app.services.ai.rag_query.run_agentic_loop",
+            new_callable=AsyncMock,
+            return_value=agent_result,
+        ) as loop_mock,
+    ):
+        context, cites = await retrieve_rag_for_reply(
+            session=AsyncMock(),
+            user_id=uuid4(),
+            scope="global",
+            user_text="Что по дедлайнам?",
+            history=None,
+            embedding_backend=embedding_backend,
+            post_data=None,
+            tenant_key=None,
+            post_id=None,
+            top_k=4,
+            min_similarity=0.38,
+            history_turns=2,
+            query_max_chars=2000,
+            rewrite_on_miss=False,
+            rag_mode="agentic",
+            rewrite_spec=object(),  # type: ignore[arg-type]
+            rewrite_model="gpt-test",
+            rewrite_api_key="key",
+        )
+
+    loop_mock.assert_awaited_once()
+    assert "Контекст из базы знаний" in context
+    assert "/post/p1/" in context
+    assert "--- l1 ---" not in context
+
+
+@pytest.mark.asyncio
+async def test_retrieve_rag_for_reply_l2_falls_back_to_l1_when_agent_empty() -> None:
+    embedding_backend = AsyncMock()
+    embedding_backend.model_key = "test-model"
+    embedding_backend.embed_query = AsyncMock(return_value=[0.1, 0.2])
+
+    agent_result = type(
+        "AgentResult",
+        (),
+        {"rag_context": "", "cites": [], "stopped_reason": "budget_exhausted"},
+    )()
+
+    with (
+        patch(
+            "app.services.ai.rag_query.retrieve_for_chat",
+            new_callable=AsyncMock,
+            return_value=_hit_results(),
+        ),
+        patch(
+            "app.services.ai.rag_query.format_rag_context",
+            new_callable=AsyncMock,
+            return_value=("--- l1 ---", []),
+        ) as format_mock,
+        patch(
+            "app.services.ai.rag_query.evaluate_tier_a",
+            return_value=_tier_a_no_fast_path(),
+        ),
+        patch(
+            "app.services.ai.rag_query.run_agentic_loop",
+            new_callable=AsyncMock,
+            return_value=agent_result,
+        ),
+    ):
+        context, _ = await retrieve_rag_for_reply(
+            session=AsyncMock(),
+            user_id=uuid4(),
+            scope="global",
+            user_text="Что по дедлайнам?",
+            history=None,
+            embedding_backend=embedding_backend,
+            post_data=None,
+            tenant_key=None,
+            post_id=None,
+            top_k=4,
+            min_similarity=0.38,
+            history_turns=2,
+            query_max_chars=2000,
+            rewrite_on_miss=False,
+            rag_mode="agentic",
+            rewrite_spec=object(),  # type: ignore[arg-type]
+            rewrite_model="gpt-test",
+            rewrite_api_key="key",
+        )
+
+    format_mock.assert_awaited_once()
+    assert context == "--- l1 ---"
+
+
+@pytest.mark.asyncio
+async def test_retrieve_rag_for_reply_rag_mode_auto_miss_bypasses_empty_early_return() -> None:
+    embedding_backend = AsyncMock()
+    embedding_backend.model_key = "test-model"
+    embedding_backend.embed_query = AsyncMock(return_value=[0.1, 0.2])
+
+    agent_result = type(
+        "AgentResult",
+        (),
+        {"rag_context": "--- agent ---", "cites": [], "stopped_reason": "budget_exhausted"},
+    )()
+
+    with (
+        patch(
+            "app.services.ai.rag_query.retrieve_for_chat",
+            new_callable=AsyncMock,
+            return_value=[],
+        ),
+        patch(
+            "app.services.ai.rag_query.evaluate_tier_a",
+            return_value=TierAResult(
+                fast_path="miss",
+                escalate_target=None,
+                escalate_post_id=None,
+                signals=TierASignals(False, False, False, False),
+                neighbors={},
+            ),
+        ),
+        patch(
+            "app.services.ai.rag_query.run_agentic_loop",
+            new_callable=AsyncMock,
+            return_value=agent_result,
+        ) as loop_mock,
+    ):
+        context, cites = await retrieve_rag_for_reply(
+            session=AsyncMock(),
+            user_id=uuid4(),
+            scope="global",
+            user_text="Что по дедлайнам?",
+            history=None,
+            embedding_backend=embedding_backend,
+            post_data=None,
+            tenant_key=None,
+            post_id=None,
+            top_k=4,
+            min_similarity=0.38,
+            history_turns=2,
+            query_max_chars=2000,
+            rewrite_on_miss=False,
+            rag_mode="auto",
+            rewrite_spec=object(),  # type: ignore[arg-type]
+            rewrite_model="gpt-test",
+            rewrite_api_key="key",
+        )
+
+    loop_mock.assert_awaited_once()
+    assert context == "--- agent ---"
+
+
+@pytest.mark.asyncio
+async def test_retrieve_rag_for_reply_rag_mode_auto_tier_b_insufficient_runs_l2() -> None:
+    embedding_backend = AsyncMock()
+    embedding_backend.model_key = "test-model"
+    embedding_backend.embed_query = AsyncMock(return_value=[0.1, 0.2])
+
+    tier_b_result = type(
+        "TierB",
+        (),
+        {"sufficient": False, "open_next": ["note:n2"], "error": None},
+    )()
+    agent_result = type(
+        "AgentResult",
+        (),
+        {"rag_context": "--- agent ---", "cites": [], "stopped_reason": "sufficient"},
+    )()
+
+    with (
+        patch(
+            "app.services.ai.rag_query.retrieve_for_chat",
+            new_callable=AsyncMock,
+            return_value=_hit_results(),
+        ),
+        patch(
+            "app.services.ai.rag_query.format_rag_context",
+            new_callable=AsyncMock,
+            return_value=("--- l1 ---", []),
+        ),
+        patch(
+            "app.services.ai.rag_query.evaluate_tier_a",
+            return_value=_tier_a_no_fast_path(),
+        ),
+        patch(
+            "app.services.ai.rag_query.evaluate_tier_b",
+            new_callable=AsyncMock,
+            return_value=tier_b_result,
+        ),
+        patch(
+            "app.services.ai.rag_query.run_agentic_loop",
+            new_callable=AsyncMock,
+            return_value=agent_result,
+        ) as loop_mock,
+    ):
+        context, _ = await retrieve_rag_for_reply(
+            session=AsyncMock(),
+            user_id=uuid4(),
+            scope="global",
+            user_text="Что по дедлайнам?",
+            history=None,
+            embedding_backend=embedding_backend,
+            post_data=None,
+            tenant_key=None,
+            post_id=None,
+            top_k=4,
+            min_similarity=0.38,
+            history_turns=2,
+            query_max_chars=2000,
+            rewrite_on_miss=False,
+            tier_b_enabled=True,
+            rag_mode="auto",
+            rewrite_spec=object(),  # type: ignore[arg-type]
+            rewrite_model="gpt-test",
+            rewrite_api_key="key",
+        )
+
+    loop_mock.assert_awaited_once()
+    assert context == "--- agent ---"
+    assert "--- l1 ---" not in context
+
+
+@pytest.mark.asyncio
+async def test_retrieve_rag_for_reply_rag_mode_auto_skips_l2_without_reasoner() -> None:
+    embedding_backend = AsyncMock()
+    embedding_backend.model_key = "test-model"
+    embedding_backend.embed_query = AsyncMock(return_value=[0.1, 0.2])
+
+    with (
+        patch(
+            "app.services.ai.rag_query.retrieve_for_chat",
+            new_callable=AsyncMock,
+            return_value=[],
+        ),
+        patch(
+            "app.services.ai.rag_query.evaluate_tier_a",
+            return_value=TierAResult(
+                fast_path="miss",
+                escalate_target=None,
+                escalate_post_id=None,
+                signals=TierASignals(False, False, False, False),
+                neighbors={},
+            ),
+        ),
+        patch(
+            "app.services.ai.rag_query.run_agentic_loop",
+            new_callable=AsyncMock,
+        ) as loop_mock,
+    ):
+        context, cites = await retrieve_rag_for_reply(
+            session=AsyncMock(),
+            user_id=uuid4(),
+            scope="global",
+            user_text="Что по дедлайнам?",
+            history=None,
+            embedding_backend=embedding_backend,
+            post_data=None,
+            tenant_key=None,
+            post_id=None,
+            top_k=4,
+            min_similarity=0.38,
+            history_turns=2,
+            query_max_chars=2000,
+            rewrite_on_miss=False,
+            rag_mode="auto",
+        )
+
+    assert context == ""
+    loop_mock.assert_not_awaited()
+
+
+def test_seed_and_hints_post_scope_opens_current_post() -> None:
+    from app.services.ai.rag_query import _seed_and_hints
+
+    _, seed_post_id, hints = _seed_and_hints(
+        TierAResult(None, None, None, TierASignals(False, False, False, False), {}),
+        None,
+        scope="post",
+        chat_post_id="721c63fe-draft",
+    )
+    assert seed_post_id == "721c63fe-draft"
+    assert any("721c63fe-draft" in hint for hint in hints)
+
+
+def test_seed_and_hints_post_analytics_global() -> None:
+    from app.services.ai.rag_query import _seed_and_hints
+
+    seed, seed_post_id, hints = _seed_and_hints(
+        TierAResult(None, None, None, TierASignals(False, False, False, False), {}),
+        None,
+        user_text="Сколько просмотров у поста про скидки?",
+        scope="global",
+        intent_routing_enabled=True,
+    )
+    assert seed is None
+    assert seed_post_id is None
+    assert any("GetPostAnalytics" in hint for hint in hints)
+
+
+def test_seed_and_hints_comments_hint_names_tool() -> None:
+    from app.services.ai.rag_query import _seed_and_hints
+
+    _, seed_post_id, hints = _seed_and_hints(
+        TierAResult(None, "comments", None, TierASignals(False, False, False, False), {}),
+        None,
+    )
+    assert seed_post_id is None
+    assert any("ListPostComments" in hint for hint in hints)

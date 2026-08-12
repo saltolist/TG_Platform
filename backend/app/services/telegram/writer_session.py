@@ -58,6 +58,24 @@ async def persist_writer_session_string(
         await session.commit()
 
 
+async def _resolve_writer_export_dc(
+    reader_client: Any, settings: Settings
+) -> tuple[int, str, int]:
+    """Pick a non-CDN DC different from the reader for auth export/import."""
+    from telethon.tl.functions.help import GetConfigRequest
+
+    reader_dc = int(getattr(reader_client.session, "dc_id", 0) or 0)
+    if reader_dc <= 0:
+        raise TelegramAuthError("Не удалось определить DC для writer-сессии", 502)
+
+    config = await with_timeout(reader_client(GetConfigRequest()), settings)
+    for option in config.dc_options:
+        if option.id != reader_dc and not getattr(option, "cdn", False):
+            return option.id, option.ip_address, option.port
+
+    raise TelegramAuthError("Не удалось выбрать DC для writer-сессии", 502)
+
+
 async def export_writer_session(
     reader_client: Any,
     api_id: int,
@@ -67,26 +85,51 @@ async def export_writer_session(
     """Clone reader authorization into a fresh StringSession (new auth key)."""
     from telethon.tl.functions.auth import ExportAuthorizationRequest, ImportAuthorizationRequest
 
-    dc_id = int(getattr(reader_client.session, "dc_id", 0) or 0)
-    if dc_id <= 0:
-        raise TelegramAuthError("Не удалось определить DC для writer-сессии", 502)
-
-    exported = await with_timeout(
-        reader_client(ExportAuthorizationRequest(dc_id)),
-        settings,
+    target_dc_id, target_ip, target_port = await _resolve_writer_export_dc(
+        reader_client, settings
     )
+
     writer_client = build_client(api_id, api_hash, "")
+    writer_client.session.set_dc(target_dc_id, target_ip, target_port)
     try:
         await connect_telegram_client(writer_client, settings)
+        exported = await with_timeout(
+            reader_client(ExportAuthorizationRequest(target_dc_id)),
+            settings,
+        )
         await with_timeout(
             writer_client(
                 ImportAuthorizationRequest(id=exported.id, bytes=exported.bytes)
             ),
             settings,
         )
+        await with_timeout(writer_client.get_me(), settings)
         return save_session(writer_client)
     finally:
         await disconnect_safely(writer_client)
+
+
+async def _writer_session_is_valid(
+    api_id: int, api_hash: str, session_string: str, settings: Settings
+) -> bool:
+    """Probe a cached writer session's auth key against Telegram.
+
+    Telegram can revoke a session out-of-band (password change, "terminate all
+    sessions", new login) without this backend ever hearing about it — the
+    reader session is a separate auth key and keeps working, so nothing else
+    surfaces the revocation. A stale writer session was then returned
+    unconditionally on every publish/edit/delete, permanently failing outbound
+    RPCs with AuthKeyUnregisteredError while incoming sync via the reader
+    session kept working fine (chat b0d11b7c).
+    """
+    client = build_client(api_id, api_hash, session_string)
+    try:
+        await connect_telegram_client(client, settings)
+        return bool(await with_timeout(client.is_user_authorized(), settings))
+    except Exception:
+        return False
+    finally:
+        await disconnect_safely(client)
 
 
 async def ensure_writer_session_string(
@@ -94,14 +137,21 @@ async def ensure_writer_session_string(
     user_id: UUID,
     settings: Settings | None = None,
 ) -> str:
-    """Return a writer session string, creating and persisting one when missing."""
+    """Return a writer session string, creating and persisting one when missing
+    or when the cached one was revoked by Telegram."""
     settings = settings or get_settings()
     telegram = profile.telegram or {}
     existing = decrypt_writer_session(telegram, settings)
     if existing:
-        return existing
-
-    api_id, api_hash = require_api_credentials(telegram, settings)
+        api_id, api_hash = require_api_credentials(telegram, settings)
+        if await _writer_session_is_valid(api_id, api_hash, existing, settings):
+            return existing
+        logger.warning(
+            "Cached writer session for user %s failed auth check — re-exporting",
+            user_id,
+        )
+    else:
+        api_id, api_hash = require_api_credentials(telegram, settings)
     reader_session = decrypt_field(str(telegram.get("sessionString") or ""), settings)
     if not reader_session:
         raise TelegramAuthError("Не удалось подготовить writer-сессию Telegram", 400)
@@ -142,6 +192,19 @@ async def ensure_writer_session_string(
         finally:
             if remote_active:
                 await signal_listener_resume(user_id, telegram)
+
+    # Some accounts have Export/ImportAuthorizationRequest revoked server-side
+    # (Telegram invalidates the freshly imported auth key on the very next
+    # request) — export_writer_session then "succeeds" with a session string
+    # that is already dead. Persisting and returning it would repeat the same
+    # AuthKeyUnregisteredError forever. Raise instead so the caller
+    # (open_outbound_telegram_client) falls back to the reader session, which
+    # is the already-designed degraded path for this case (chat b0d11b7c).
+    if not await _writer_session_is_valid(api_id, api_hash, writer_session, settings):
+        raise TelegramAuthError(
+            "Не удалось создать writer-сессию Telegram (ключ отозван сразу после создания)",
+            400,
+        )
 
     await persist_writer_session_string(user_id, writer_session, settings)
     return writer_session

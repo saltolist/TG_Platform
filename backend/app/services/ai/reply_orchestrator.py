@@ -25,7 +25,7 @@ from app.services.ai.chat_history import (
     linearize_for_llm,
     merge_history_stamps,
 )
-from app.services.ai.note_citations import NoteCite, prepare_note_citations_for_reply
+from app.services.ai.note_citations import NoteCite, kb_cites_to_meta, prepare_note_citations_for_reply
 from app.services.ai.web_citations import prepare_web_citations_for_reply
 from app.services.ai.context import append_user_text_to_pairs, assemble_reply_messages
 from app.services.ai.web_search import WebCite, WebSearchResult, web_cites_to_meta
@@ -39,12 +39,19 @@ from app.services.ai.context_stamp_types import (
     STAMP_MECHANICS_FLAG,
 )
 from app.services.ai.context_labels import THREAD_LABEL_STATE_KEY
+from app.services.ai.ai_context_trace_buffer import (
+    make_stored_exchange,
+    store_context_exchange,
+)
 from app.services.ai.context_log import (
+    build_llm_request_log_body,
+    build_llm_response_log_body,
     get_chat_filter,
     log_llm_request,
     log_llm_response,
     should_log_llm_context,
 )
+from app.services.ai.reply_pipeline_log import emit_reply_pipeline_trace
 from app.services.ai.context_meta import persist_chat_meta, refresh_context_meta_after_reply
 from app.services.ai.context_stamp_meta import refresh_stamp_meta_after_reply
 from app.services.ai.llm import stream_llm_sse
@@ -110,6 +117,7 @@ class ReplyContext:
     is_stub: bool = False
 
     # Logging
+    context_trace_enabled: bool = False
     log_context: bool = False
     log_labels: dict[int, str] = field(default_factory=dict)
     log_stamps: dict[int, dict[str, Any]] = field(default_factory=dict)
@@ -449,8 +457,9 @@ async def stream_reply_with_meta(ctx: ReplyContext, messages: list[dict[str, str
     from app.services.ai.web_search import execute_web_search
     from app.services.ai.sse import format_sse_data
 
-    if ctx.log_context:
-        log_llm_request(
+    if ctx.context_trace_enabled or ctx.log_context:
+        pipeline_text = emit_reply_pipeline_trace(log_stdout=ctx.log_context)
+        request_text = build_llm_request_log_body(
             scope=ctx.payload.scope,
             chat_id=ctx.payload.chat_id,
             post_id=ctx.payload.post_id,
@@ -462,6 +471,22 @@ async def stream_reply_with_meta(ctx: ReplyContext, messages: list[dict[str, str
             message_labels=ctx.log_labels if ctx.log_labels else None,
             message_stamps=ctx.log_stamps if ctx.log_stamps else None,
         )
+        if ctx.log_context:
+            log_llm_request(
+                scope=ctx.payload.scope,
+                chat_id=ctx.payload.chat_id,
+                post_id=ctx.payload.post_id,
+                post_chat_id=ctx.payload.post_chat_id,
+                provider=ctx.provider_name,
+                model=ctx.model_id,
+                history=ctx.history,
+                messages=messages,
+                message_labels=ctx.log_labels if ctx.log_labels else None,
+                message_stamps=ctx.log_stamps if ctx.log_stamps else None,
+            )
+    else:
+        pipeline_text = ""
+        request_text = ""
 
     accumulated: list[str] = []
     web_cites: list[WebCite] = []
@@ -530,11 +555,20 @@ async def stream_reply_with_meta(ctx: ReplyContext, messages: list[dict[str, str
         web_cites = list(ctx.web_cites)
 
     assistant_text = "".join(accumulated)
-    assistant_text = prepare_note_citations_for_reply(assistant_text, ctx.rag_cites)
+    assistant_text = prepare_note_citations_for_reply(
+        assistant_text,
+        ctx.rag_cites,
+        rewrite_numeric=not web_cites,
+    )
     assistant_text = prepare_web_citations_for_reply(assistant_text, web_cites)
     latency_ms = max(0, int((time.perf_counter() - started) * 1000))
     await _record_reply_usage(ctx, messages=messages, assistant_text=assistant_text, latency_ms=latency_ms)
     updated_meta = await _finalize_context_meta(ctx, assistant_text)
+    stamp_for_log = (
+        updated_meta.get("context_stamp")
+        if isinstance(updated_meta.get("context_stamp"), Mapping)
+        else None
+    )
     if ctx.log_context:
         log_llm_response(
             scope=ctx.payload.scope,
@@ -544,11 +578,36 @@ async def stream_reply_with_meta(ctx: ReplyContext, messages: list[dict[str, str
             provider=ctx.provider_name,
             model=ctx.model_id,
             assistant_text=assistant_text,
-            context_stamp=updated_meta.get("context_stamp")
-            if isinstance(updated_meta.get("context_stamp"), Mapping)
-            else None,
+            context_stamp=stamp_for_log,
+        )
+    if ctx.context_trace_enabled:
+        response_text = build_llm_response_log_body(
+            scope=ctx.payload.scope,
+            chat_id=ctx.payload.chat_id,
+            post_id=ctx.payload.post_id,
+            post_chat_id=ctx.payload.post_chat_id,
+            provider=ctx.provider_name,
+            model=ctx.model_id,
+            assistant_text=assistant_text,
+            context_stamp=stamp_for_log,
+        )
+        store_context_exchange(
+            make_stored_exchange(
+                scope=ctx.payload.scope,
+                chat_id=ctx.payload.chat_id,
+                post_id=ctx.payload.post_id,
+                post_chat_id=ctx.payload.post_chat_id,
+                user_text=ctx.payload.text,
+                provider=ctx.provider_name,
+                model=ctx.model_id,
+                pipeline=pipeline_text,
+                request=request_text,
+                response=response_text,
+            )
         )
     updated_meta["assistant_text"] = assistant_text
+    if ctx.rag_cites:
+        updated_meta["kb_cites"] = kb_cites_to_meta(ctx.rag_cites)
     if web_cites:
         updated_meta["web_cites"] = web_cites_to_meta(web_cites)
     yield format_sse_meta(updated_meta)

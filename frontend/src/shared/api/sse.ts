@@ -32,6 +32,18 @@ export function extractSseMeta(eventBlock: string): Record<string, unknown> | nu
   return null;
 }
 
+export function extractSseData(eventBlock: string): unknown {
+  for (const line of eventBlock.split("\n")) {
+    if (!line.startsWith("data: ")) continue;
+    try {
+      return JSON.parse(line.slice(6));
+    } catch {
+      return null;
+    }
+  }
+  return null;
+}
+
 /** Дать React отрисовать кадр между чанками (иначе React 18 батчит все setState в один кадр). */
 export function yieldToRenderer(): Promise<void> {
   return new Promise((resolve) => {
@@ -46,6 +58,7 @@ export function yieldToRenderer(): Promise<void> {
 export type ConsumeSseOptions = {
   paintBetweenChunks?: boolean;
   onMeta?: (meta: Record<string, unknown>) => void;
+  onData?: (data: unknown) => void;
 };
 
 export type ConsumeSseResult = {
@@ -67,6 +80,7 @@ export async function consumeSseTextStream(
 
   const flushEvents = async (events: string[]) => {
     for (const event of events) {
+      options.onData?.(extractSseData(event));
       const metaChunk = extractSseMeta(event);
       if (metaChunk) {
         meta = metaChunk;

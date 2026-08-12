@@ -633,9 +633,18 @@
 .ai-typing-indicator {
   display: inline-flex;
   align-items: center;
-  gap: 5px;
+  gap: 8px;
   padding: 10px 0;
   min-height: 28px;
+}
+.ai-typing-label {
+  color: var(--text3);
+  font-size: 13px;
+}
+.ai-typing-dots {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
 }
 .ai-typing-dot {
   width: 7px;

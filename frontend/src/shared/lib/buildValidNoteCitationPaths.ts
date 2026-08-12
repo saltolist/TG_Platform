@@ -2,7 +2,17 @@ import { routes } from "@/shared/lib/routes";
 import { normalizeNoteCitationPath } from "@/shared/lib/noteCitation";
 import type { GlobalNote, Post } from "@/shared/types";
 
-/** Paths of notes that exist in the current account (for filtering AI citation chips). */
+function postCitationTitle(post: Post): string {
+  const firstLine = post.text.trim().split("\n")[0]?.trim() ?? "";
+  if (firstLine) {
+    return firstLine.length <= 72 ? firstLine : `${firstLine.slice(0, 69)}…`;
+  }
+  const rubric = post.rubric?.trim();
+  if (rubric) return rubric;
+  return "Пост";
+}
+
+/** Paths of notes and posts that exist in the current account (for filtering AI citation chips). */
 export function buildValidNoteCitationPaths(
   globalNotes: GlobalNote[],
   posts: Post[],
@@ -10,7 +20,7 @@ export function buildValidNoteCitationPaths(
   return new Set(buildNoteCitationTitlesByPath(globalNotes, posts).keys());
 }
 
-/** Canonical note titles keyed by normalized citation path. */
+/** Canonical note/post titles keyed by normalized citation path. */
 export function buildNoteCitationTitlesByPath(
   globalNotes: GlobalNote[],
   posts: Post[],
@@ -23,9 +33,15 @@ export function buildNoteCitationTitlesByPath(
   }
 
   for (const post of posts) {
+    const path = normalizeNoteCitationPath(routes.post(post.id));
+    if (path) titles.set(path, postCitationTitle(post));
+    if (post.telegramMessageId && post.telegramMessageId !== post.id) {
+      const aliasPath = normalizeNoteCitationPath(routes.post(post.telegramMessageId));
+      if (aliasPath) titles.set(aliasPath, postCitationTitle(post));
+    }
     for (const note of post.notes ?? []) {
-      const path = normalizeNoteCitationPath(routes.notePost(post.id, note.id));
-      if (path) titles.set(path, (note.title || "Заметка").trim() || "Заметка");
+      const notePath = normalizeNoteCitationPath(routes.notePost(post.id, note.id));
+      if (notePath) titles.set(notePath, (note.title || "Заметка").trim() || "Заметка");
     }
   }
 

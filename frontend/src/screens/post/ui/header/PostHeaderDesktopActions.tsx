@@ -3,12 +3,13 @@
 import { BackButton } from "@/shared/ui/back-button";
 import { ContextMenu, type CtxMenuItem } from "@/shared/ui/context-menu";
 import type { PostMode } from "@/shared/types";
+import type { PageHeaderOverflowItem } from "@/widgets/page-header";
 
 type Props = {
   postMode: PostMode;
   showJump: boolean;
   showPostModeButtons: boolean;
-  ctxItems: CtxMenuItem[];
+  overflowItems: PageHeaderOverflowItem[];
   onScrollToPost: () => void;
   onGoToPostNotes: () => void;
   onGoToPostChats: () => void;
@@ -19,12 +20,23 @@ export default function PostHeaderDesktopActions({
   postMode,
   showJump,
   showPostModeButtons,
-  ctxItems,
+  overflowItems,
   onScrollToPost,
   onGoToPostNotes,
   onGoToPostChats,
   onBack,
 }: Props) {
+  const menuItems: CtxMenuItem[] = overflowItems
+    .filter((item) => !item.hidden)
+    .map((item) => ({
+      label: item.label,
+      icon: item.icon,
+      danger: item.danger,
+      disabled: item.disabled,
+      active: item.active,
+      onClick: item.onClick,
+    }));
+
   return (
     <>
       <button
@@ -59,7 +71,7 @@ export default function PostHeaderDesktopActions({
       <BackButton onClick={onBack} />
       {showPostModeButtons ? (
         <ContextMenu
-          items={ctxItems}
+          items={menuItems}
           portal
           align="right"
           dropdownClassName="ctx-dropdown--page-header-control"

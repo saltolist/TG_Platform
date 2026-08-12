@@ -479,3 +479,37 @@ def active_thread_key(history: list[Mapping[str, Any]]) -> str:
 
     walk(history, "")
     return ",".join(parts)
+
+
+def extract_last_proposed_edit(history: list[Mapping[str, Any]]) -> str | None:
+    """HTML body of the most recent proposed (approved, rejected, or pending)
+    edit_post action in `history`, or None if there is none.
+
+    linearize_for_llm/message_to_llm_role_content reduce an AI turn to its
+    display text ("Предложенное действие отклонено."), dropping the `proposal`
+    payload entirely — so a follow-up that refers back to what was proposed
+    ("сделай ЕЁ через пробел") has nothing to resolve against and the edit
+    silently vanishes (chat 2b9447dd). This walks the visible history
+    separately to recover that payload for threading into the edit prompt.
+    """
+    for item in reversed(flatten_visible_with_paths(history)):
+        message = item["message"]
+        if not isinstance(message, Mapping) or message.get("role") != "ai":
+            continue
+        proposal = message.get("proposal")
+        if not isinstance(proposal, Mapping) or proposal.get("command") != "edit_post":
+            continue
+        # `payload` holds the pending shape; a resolved (approved/rejected) turn
+        # keeps only `preview` with the same patch shape — check both.
+        for container_key in ("payload", "preview"):
+            container = proposal.get(container_key)
+            if not isinstance(container, Mapping):
+                continue
+            patch = container.get("patch")
+            if not isinstance(patch, Mapping):
+                continue
+            html = patch.get("textHtml") or patch.get("text")
+            if isinstance(html, str) and html.strip():
+                return html.strip()
+        return None
+    return None

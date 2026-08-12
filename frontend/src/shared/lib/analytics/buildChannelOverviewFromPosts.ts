@@ -1,5 +1,9 @@
 import { parseViewsMetric } from "@/shared/data/analytics-seed";
-import type { ChannelAnalyticsOverview } from "@/shared/api/schemas/channelAnalytics";
+import type {
+  ChannelAnalyticsReactions,
+  ChannelAnalyticsSummary,
+  ChannelAnalyticsTrend,
+} from "@/shared/api/schemas/channelAnalytics";
 import type { Post } from "@/shared/types";
 
 import { buildAnalyticsTopPostsFromPosts } from "./buildTopPostsFromPosts";
@@ -89,12 +93,7 @@ function aggregateReactions(posts: Post[]) {
     .sort((a, b) => b.count - a.count);
 }
 
-/** Demo/MSW-only client aggregator — real accounts get overview from the API. */
-export function buildChannelOverviewFromPosts(
-  posts: Post[],
-  period: string,
-): ChannelAnalyticsOverview {
-  const published = posts.filter((post) => post.status === "published");
+function buildPeriodDays(published: Post[], period: string) {
   const windowPosts = postsInWindow(published, period);
   const daySpan = periodDaySpan(period, published);
   const today = new Date();
@@ -102,18 +101,7 @@ export function buildChannelOverviewFromPosts(
   const startDay = new Date(today);
   startDay.setDate(startDay.getDate() - (daySpan - 1));
 
-  const endTotals = totalsFromPosts(published);
-  const windowTotals = totalsFromPosts(windowPosts);
-  const startTotals = {
-    subscribers: Math.max(0, endTotals.subscribers - windowTotals.subscribers),
-    reactions: Math.max(0, endTotals.reactions - windowTotals.reactions),
-    views: Math.max(0, endTotals.views - windowTotals.views),
-    comments: Math.max(0, endTotals.comments - windowTotals.comments),
-    reposts: Math.max(0, endTotals.reposts - windowTotals.reposts),
-    er: Math.max(0, Math.round((endTotals.er - windowTotals.er) * 10) / 10),
-  };
-
-  const days = Array.from({ length: daySpan }, (_, offset) => {
+  return Array.from({ length: daySpan }, (_, offset) => {
     const day = new Date(startDay);
     day.setDate(day.getDate() + offset);
     const dayPosts = windowPosts.filter((post) => {
@@ -135,15 +123,67 @@ export function buildChannelOverviewFromPosts(
       er: dayTotals.er,
     };
   });
+}
+
+/** Demo/MSW-only client aggregator — real accounts use the split analytics API. */
+export function buildChannelSummaryFromPosts(
+  posts: Post[],
+  period: string,
+): ChannelAnalyticsSummary {
+  const published = posts.filter((post) => post.status === "published");
+  const endTotals = totalsFromPosts(published);
+  const windowTotals = totalsFromPosts(postsInWindow(published, period));
+  const startTotals = {
+    subscribers: Math.max(0, endTotals.subscribers - windowTotals.subscribers),
+    reactions: Math.max(0, endTotals.reactions - windowTotals.reactions),
+    views: Math.max(0, endTotals.views - windowTotals.views),
+    comments: Math.max(0, endTotals.comments - windowTotals.comments),
+    reposts: Math.max(0, endTotals.reposts - windowTotals.reposts),
+    er: Math.max(0, Math.round((endTotals.er - windowTotals.er) * 10) / 10),
+  };
 
   return {
-    version: 1,
-    dayCount: daySpan,
     startTotals,
     endTotals,
-    days,
-    reactions: aggregateReactions(published),
+    subscribersAvailable: true,
+    lastSnapshotAt: null,
+    dataAgeSeconds: null,
+    isStale: false,
   };
+}
+
+export function buildChannelTrendFromPosts(posts: Post[], period: string): ChannelAnalyticsTrend {
+  const published = posts.filter((post) => post.status === "published");
+  const daySpan = periodDaySpan(period, published);
+  const today = new Date();
+  today.setHours(0, 0, 0, 0);
+  const endTotals = totalsFromPosts(published);
+  const windowTotals = totalsFromPosts(postsInWindow(published, period));
+  const startTotals = {
+    subscribers: Math.max(0, endTotals.subscribers - windowTotals.subscribers),
+    reactions: Math.max(0, endTotals.reactions - windowTotals.reactions),
+    views: Math.max(0, endTotals.views - windowTotals.views),
+    comments: Math.max(0, endTotals.comments - windowTotals.comments),
+    reposts: Math.max(0, endTotals.reposts - windowTotals.reposts),
+    er: Math.max(0, Math.round((endTotals.er - windowTotals.er) * 10) / 10),
+  };
+
+  return {
+    dayCount: daySpan,
+    granularity: "day",
+    anchorDate: today.toISOString().slice(0, 10),
+    startTotals,
+    endTotals,
+    subscribersAvailable: true,
+    days: buildPeriodDays(published, period),
+    historySource: "no_history",
+    trackingSince: null,
+  };
+}
+
+export function buildChannelReactionsFromPosts(posts: Post[]): ChannelAnalyticsReactions {
+  const published = posts.filter((post) => post.status === "published");
+  return { reactions: aggregateReactions(published) };
 }
 
 export function buildChannelTopPostsFromPosts(posts: Post[], period: string) {

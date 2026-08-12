@@ -245,13 +245,43 @@ def log_llm_request(
     messages: list[dict[str, str]],
     message_labels: Mapping[int, str] | None = None,
     message_stamps: Mapping[int, Mapping[str, Any]] | None = None,
-) -> None:
+) -> str:
+    body = build_llm_request_log_body(
+        scope=scope,
+        chat_id=chat_id,
+        post_id=post_id,
+        post_chat_id=post_chat_id,
+        provider=provider,
+        model=model,
+        history=history,
+        messages=messages,
+        message_labels=message_labels,
+        message_stamps=message_stamps,
+    )
+    if body:
+        logger.info("\n%s", body)
+    return body
+
+
+def build_llm_request_log_body(
+    *,
+    scope: str,
+    chat_id: str | None,
+    post_id: str | None,
+    post_chat_id: str | None,
+    provider: str,
+    model: str,
+    history: list[Mapping[str, Any]] | None,
+    messages: list[dict[str, str]],
+    message_labels: Mapping[int, str] | None = None,
+    message_stamps: Mapping[int, Mapping[str, Any]] | None = None,
+) -> str:
     label = _chat_label(scope=scope, chat_id=chat_id, post_id=post_id, post_chat_id=post_chat_id)
     active_paths = [
         ".".join(str(part) for part in item["path"])
         for item in flatten_visible_with_paths(list(history or []))
     ]
-    body = "\n".join(
+    return "\n".join(
         [
             _BANNER,
             f"AI REQUEST  scope={scope}  {label}  model={provider}/{model}",
@@ -271,7 +301,6 @@ def log_llm_request(
             _BANNER,
         ]
     )
-    logger.info("\n%s", body)
 
 
 def log_llm_response(
@@ -284,7 +313,33 @@ def log_llm_response(
     model: str,
     assistant_text: str,
     context_stamp: Mapping[str, Any] | None = None,
-) -> None:
+) -> str:
+    body = build_llm_response_log_body(
+        scope=scope,
+        chat_id=chat_id,
+        post_id=post_id,
+        post_chat_id=post_chat_id,
+        provider=provider,
+        model=model,
+        assistant_text=assistant_text,
+        context_stamp=context_stamp,
+    )
+    if body:
+        logger.info("\n%s", body)
+    return body
+
+
+def build_llm_response_log_body(
+    *,
+    scope: str,
+    chat_id: str | None,
+    post_id: str | None,
+    post_chat_id: str | None,
+    provider: str,
+    model: str,
+    assistant_text: str,
+    context_stamp: Mapping[str, Any] | None = None,
+) -> str:
     label = _chat_label(scope=scope, chat_id=chat_id, post_id=post_id, post_chat_id=post_chat_id)
     reply = assistant_text.strip() or "(empty)"
     sections = [
@@ -313,5 +368,4 @@ def log_llm_response(
                 ]
             )
     sections.append(_BANNER)
-    body = "\n".join(sections)
-    logger.info("\n%s", body)
+    return "\n".join(sections)

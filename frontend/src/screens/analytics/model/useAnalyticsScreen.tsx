@@ -5,8 +5,11 @@ import { useCallback, useMemo, type CSSProperties } from "react";
 
 import { useNavigationStore } from "@/app/model/store";
 import {
-  useChannelAnalyticsOverview,
+  useChannelAnalyticsHeatmap,
+  useChannelAnalyticsReactions,
+  useChannelAnalyticsSummary,
   useChannelAnalyticsTopPosts,
+  useChannelAnalyticsTrend,
 } from "@/entities/analytics";
 import { useChannelConnected } from "@/entities/channel";
 import { usePosts } from "@/entities/post";
@@ -36,17 +39,28 @@ export function useAnalyticsScreen() {
   const { data: posts = [] } = usePosts();
   const { isConnected: isChannelConnected } = useChannelConnected();
   const useRealAnalytics = !shouldPersistLocally();
-  const overviewQuery = useChannelAnalyticsOverview(period, isChannelConnected);
+  const summaryQuery = useChannelAnalyticsSummary(period, isChannelConnected);
+  const trendQuery = useChannelAnalyticsTrend(period, isChannelConnected);
+  const heatmapQuery = useChannelAnalyticsHeatmap(period, isChannelConnected);
+  const reactionsQuery = useChannelAnalyticsReactions(isChannelConnected);
   const topPostsQuery = useChannelAnalyticsTopPosts(period, isChannelConnected);
 
   // Загружаем данные в channelMetricsDb синхронно во время рендера, чтобы графики
   // в этом же проходе читали свежие данные (без кадра с seed/пустыми значениями).
   const metricsRevision = useMemo(() => {
-    if (overviewQuery.data) {
-      loadChannelMetricsFromApi(overviewQuery.data);
+    if (summaryQuery.data && trendQuery.data) {
+      loadChannelMetricsFromApi({
+        version: 2,
+        dayCount: trendQuery.data.dayCount,
+        granularity: trendQuery.data.granularity,
+        subscribersAvailable: trendQuery.data.subscribersAvailable,
+        startTotals: trendQuery.data.startTotals,
+        endTotals: trendQuery.data.endTotals,
+        days: trendQuery.data.days,
+      });
     }
     return getChannelMetricsRevision();
-  }, [overviewQuery.data]);
+  }, [summaryQuery.data, trendQuery.data]);
 
   const periodIndex = analyticsPeriodToIndex(period);
 
@@ -63,13 +77,17 @@ export function useAnalyticsScreen() {
   }, [posts, topPostsQuery.data, useRealAnalytics]);
 
   const channelReactions = useMemo(() => {
-    if (useRealAnalytics && overviewQuery.data?.reactions?.length) {
-      return overviewQuery.data.reactions;
+    if (useRealAnalytics && reactionsQuery.data?.reactions?.length) {
+      return reactionsQuery.data.reactions;
     }
     return undefined;
-  }, [overviewQuery.data?.reactions, useRealAnalytics]);
+  }, [reactionsQuery.data?.reactions, useRealAnalytics]);
 
-  const channelHeatmap = useRealAnalytics ? overviewQuery.data?.heatmap : undefined;
+  const channelHeatmap = useRealAnalytics ? heatmapQuery.data : undefined;
+  const historySource = useRealAnalytics ? trendQuery.data?.historySource : undefined;
+  const trackingSince = useRealAnalytics ? trendQuery.data?.trackingSince : undefined;
+  const dataAgeSeconds = useRealAnalytics ? summaryQuery.data?.dataAgeSeconds : undefined;
+  const isStale = useRealAnalytics ? (summaryQuery.data?.isStale ?? false) : false;
 
   const topPostsDesktopGridStyle = useMemo(
     () =>
@@ -125,11 +143,15 @@ export function useAnalyticsScreen() {
       topPostsTableWrapStyle,
       channelReactions,
       channelHeatmap,
+      historySource,
+      trackingSince,
+      dataAgeSeconds,
+      isStale,
       metricsRevision,
       isLoadingAnalytics:
         useRealAnalytics &&
         isChannelConnected &&
-        (overviewQuery.isLoading || topPostsQuery.isLoading),
+        (summaryQuery.isLoading || trendQuery.isLoading || topPostsQuery.isLoading),
     },
     ui: {
       isMobile,

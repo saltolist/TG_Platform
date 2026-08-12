@@ -4,6 +4,7 @@ export function getPostSubPageLabel(postMode: PostMode): string | null {
   if (postMode === "comments") return "Комментарии";
   if (postMode === "notes") return "Заметки";
   if (postMode === "chats") return "Чаты";
+  if (postMode === "analytics") return "Аналитика";
   return null;
 }
 

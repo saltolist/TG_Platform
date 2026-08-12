@@ -140,6 +140,16 @@ def build_summary_bundle(
     return "\n\n".join(sections)
 
 
+def _telegram_context_for_fingerprint(telegram: Mapping[str, Any] | None) -> dict[str, str]:
+    """Telegram fields that affect the channel section of the AI summary bundle."""
+    if not isinstance(telegram, Mapping):
+        return {}
+    return {
+        "channelTitle": str(telegram.get("channelTitle") or "").strip(),
+        "channel": str(telegram.get("channel") or "").strip(),
+    }
+
+
 def post_content_fingerprint(post: Mapping[str, Any] | None) -> str:
     """Post-only fingerprint — local catalog versions bump on post edits, not channel changes."""
     payload = {
@@ -160,7 +170,7 @@ def bundle_fingerprint(
     """Stable hash for bundle versioning."""
     payload = {
         "channel": channel or {},
-        "telegram": telegram or {},
+        "telegram": _telegram_context_for_fingerprint(telegram),
         "post": {
             "text": (post or {}).get("text"),
             "metrics": (post or {}).get("metrics"),

@@ -5,13 +5,21 @@ from typing import Any
 from fastapi import APIRouter, HTTPException, Query
 from sqlalchemy import select
 
+from app.core.config import get_settings
 from app.core.deps import CurrentUser, DbSession
 from app.db.models import Post, Profile
-from app.services.analytics.analytics_snapshot import load_snapshots
+from app.db.resolve import get_owned_post
+from app.services.analytics.analytics_snapshot import load_post_snapshots, load_snapshots
+from app.services.analytics.post_metrics import build_post_trend
 from app.services.analytics.channel_metrics import (
+    MISSED_SNAPSHOT_MULTIPLIER,
     VALID_PERIODS,
-    build_overview_from_history,
+    aggregate_reactions,
+    build_channel_summary,
+    build_channel_trend,
+    build_heatmap,
     build_top_posts,
+    published_posts,
 )
 from app.services.analytics.platform_models import get_platform_model_analytics
 from app.services.profile_defaults import empty_ai_profile
@@ -32,19 +40,80 @@ def _validate_period(period: str) -> str:
     return period
 
 
-@router.get("/overview/")
-async def get_channel_overview(
+async def _load_channel_context(
+    session: DbSession,
+    user_id: Any,
+) -> tuple[list[Post], list, dict[str, Any] | None]:
+    posts = await _load_user_posts(session, user_id)
+    profile = await session.get(Profile, user_id)
+    telegram = profile.telegram if profile and profile.telegram else None
+    channel_snapshots = await load_snapshots(session, user_id)
+    return posts, channel_snapshots, telegram
+
+
+def _snapshot_stale_after_seconds() -> float | None:
+    settings = get_settings()
+    if settings.telegram_analytics_snapshot_seconds <= 0:
+        return None
+    return settings.telegram_analytics_snapshot_seconds * MISSED_SNAPSHOT_MULTIPLIER
+
+
+@router.get("/summary/")
+async def get_channel_summary(
     user: CurrentUser,
     session: DbSession,
     period: str = Query("30d"),
 ) -> dict[str, Any]:
-    """Channel metrics overview: snapshot history + publish-date backfill (v2)."""
+    """Channel period totals and data-freshness metadata."""
+    period = _validate_period(period)
+    posts, channel_snapshots, telegram = await _load_channel_context(
+        session, user.id
+    )
+    return build_channel_summary(
+        posts,
+        channel_snapshots,
+        period,
+        telegram,
+        snapshot_stale_after_seconds=_snapshot_stale_after_seconds(),
+    )
+
+
+@router.get("/trend/")
+async def get_channel_trend(
+    user: CurrentUser,
+    session: DbSession,
+    period: str = Query("30d"),
+) -> dict[str, Any]:
+    """Channel metric growth time series for the selected period."""
+    period = _validate_period(period)
+    posts, channel_snapshots, telegram = await _load_channel_context(
+        session, user.id
+    )
+    return build_channel_trend(
+        posts, channel_snapshots, period, telegram
+    )
+
+
+@router.get("/heatmap/")
+async def get_channel_heatmap(
+    user: CurrentUser,
+    session: DbSession,
+    period: str = Query("30d"),
+) -> dict[str, Any]:
+    """Views heatmap by weekday and publish-hour slot."""
     period = _validate_period(period)
     posts = await _load_user_posts(session, user.id)
-    profile = await session.get(Profile, user.id)
-    telegram = profile.telegram if profile and profile.telegram else None
-    snapshots = await load_snapshots(session, user.id)
-    return build_overview_from_history(posts, snapshots, period, telegram)
+    return build_heatmap(posts, period)
+
+
+@router.get("/reactions/")
+async def get_channel_reactions(
+    user: CurrentUser,
+    session: DbSession,
+) -> dict[str, Any]:
+    """Aggregated emoji reaction counts across all published posts."""
+    posts = await _load_user_posts(session, user.id)
+    return {"reactions": aggregate_reactions(published_posts(posts))}
 
 
 @router.get("/top-posts/")
@@ -57,6 +126,31 @@ async def get_top_posts(
     period = _validate_period(period)
     posts = await _load_user_posts(session, user.id)
     return {"posts": build_top_posts(posts, period)}
+
+
+@router.get("/posts/{post_id}/trend/")
+async def get_post_trend(
+    post_id: str,
+    user: CurrentUser,
+    session: DbSession,
+    period: str = Query("30d"),
+) -> dict[str, Any]:
+    """Per-post metric growth time series for the selected period."""
+    period = _validate_period(period)
+    post = await get_owned_post(session, user.id, post_id)
+    if post.data.get("status") != "published":
+        raise HTTPException(status_code=422, detail="Аналитика доступна только для опубликованных постов")
+
+    profile = await session.get(Profile, user.id)
+    telegram = profile.telegram if profile and profile.telegram else None
+    post_snapshots = await load_post_snapshots(session, user.id, post.id)
+    return build_post_trend(
+        post,
+        post_snapshots,
+        period,
+        telegram,
+        snapshot_stale_after_seconds=_snapshot_stale_after_seconds(),
+    )
 
 
 @router.get("/platform-models/")

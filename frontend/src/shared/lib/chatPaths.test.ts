@@ -5,6 +5,7 @@ import {
   firstUserFlatIndex,
   removeAssistantTurnAtPath,
   removeMessageAtPath,
+  updateAiMessageById,
   setActiveUserBranch,
   userMessageHasBranches,
 } from "@/shared/lib/chatPaths";
@@ -94,5 +95,19 @@ describe("message action guards", () => {
         userBranches: [{ text: "a", continuation: [] }, { text: "b", continuation: [] }],
       }),
     ).toBe(true);
+  });
+});
+
+describe("updateAiMessageById", () => {
+  it("updates the reserved assistant turn instead of the last visible turn", () => {
+    const history: ChatMessage[] = [
+      { role: "user", text: "one" },
+      { role: "ai", text: "first", messageId: "m1" },
+      { role: "user", text: "two" },
+      { role: "ai", text: "second", messageId: "m2" },
+    ];
+    const next = updateAiMessageById(history, "m1", (message) => ({ ...message, citedEvidence: ["e1"] }));
+    expect(next[1]?.citedEvidence).toEqual(["e1"]);
+    expect(next[3]?.citedEvidence).toBeUndefined();
   });
 });

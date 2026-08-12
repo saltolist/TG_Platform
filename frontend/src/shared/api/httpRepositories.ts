@@ -25,9 +25,13 @@ import type {
   TelegramProfileConfig,
 } from "@/shared/types";
 import {
-  channelAnalyticsOverviewSchema,
+  channelAnalyticsReactionsSchema,
+  channelAnalyticsSummarySchema,
   channelAnalyticsTopPostsSchema,
+  channelAnalyticsTrendSchema,
+  channelHeatmapSchema,
 } from "@/shared/api/schemas/channelAnalytics";
+import { postAnalyticsTrendSchema } from "@/shared/api/schemas/postAnalytics";
 import {
   platformModelAnalyticsSchema,
 } from "@/shared/api/schemas/platformAnalytics";
@@ -236,14 +240,30 @@ export function createHttpRepositories(): RepositoryBundle {
         apiRequest<unknown>(
           `${apiV1Path("analytics/platform-models")}?period=${period}&points=${points}`,
         ).then((data) => platformModelAnalyticsSchema.parse(data)),
-      getChannelOverview: (period) =>
-        apiRequest<unknown>(`${apiV1Path("analytics/overview")}?period=${period}`).then((data) =>
-          channelAnalyticsOverviewSchema.parse(data),
+      getChannelSummary: (period) =>
+        apiRequest<unknown>(`${apiV1Path("analytics/summary")}?period=${period}`).then((data) =>
+          channelAnalyticsSummarySchema.parse(data),
+        ),
+      getChannelTrend: (period) =>
+        apiRequest<unknown>(`${apiV1Path("analytics/trend")}?period=${period}`).then((data) =>
+          channelAnalyticsTrendSchema.parse(data),
+        ),
+      getChannelHeatmap: (period) =>
+        apiRequest<unknown>(`${apiV1Path("analytics/heatmap")}?period=${period}`).then((data) =>
+          channelHeatmapSchema.parse(data),
+        ),
+      getChannelReactions: () =>
+        apiRequest<unknown>(`${apiV1Path("analytics/reactions")}`).then((data) =>
+          channelAnalyticsReactionsSchema.parse(data),
         ),
       getChannelTopPosts: (period) =>
         apiRequest<unknown>(`${apiV1Path("analytics/top-posts")}?period=${period}`).then((data) =>
           channelAnalyticsTopPostsSchema.parse(data).posts,
         ),
+      getPostTrend: (postId, period) =>
+        apiRequest<unknown>(
+          `${apiV1Path(`analytics/posts/${encodeURIComponent(postId)}/trend`)}?period=${period}`,
+        ).then((data) => postAnalyticsTrendSchema.parse(data)),
     },
     telegramEmoji: {
       catalog: () => apiRequest<EmojiCatalog>(apiV1Path("telegram/emoji/catalog/")),

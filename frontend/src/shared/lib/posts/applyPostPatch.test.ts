@@ -25,4 +25,15 @@ describe("applyPostPatch", () => {
     });
     expect(next.textHtml).toBe("<em>hello</em>");
   });
+
+  it("clears media when patch sends an empty array", () => {
+    const next = applyPostPatch(
+      {
+        ...basePost(),
+        media: [{ name: "a.jpg", url: "/a.jpg", type: "image/jpeg" }],
+      },
+      { media: [] },
+    );
+    expect(next.media).toEqual([]);
+  });
 });

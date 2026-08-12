@@ -1,0 +1,42 @@
+{
+  "schema": "workspace.phase6-semantic-qualification-manifest/v1",
+  "version": "2026-07-29-semantic-qualification-v2",
+  "frozen_at": "2026-07-29T00:00:00+03:00",
+  "cohort_artifact": "qualification_selector_cohort_v2.json",
+  "cohort_sha256": "48c7df4dd42a9fa878f317a8b3689867e79f8779e1c9bdd52f271bddd2e702d1",
+  "qualification_status_before_runs": "untouched",
+  "labels_frozen_before_provider_output": true,
+  "source_head": "eeef15bb72c4acd7c8cdedbafc46e8d83b6a0693",
+  "provider": "OpenAI",
+  "planner_model": "gpt-4.1-mini",
+  "selector_model": "gpt-4.1",
+  "transport_tier": "strict_json_schema",
+  "selector_summary_version": 12,
+  "selector_summary_limit_chars": 240,
+  "recall_verifier_mode": "disabled",
+  "prompt_sha256": {
+    "planner": "053df02adbec8269ea756ce06ad5342acfe9d520649352df6525364b8c0935bd",
+    "selector": "12e4e66027bd09742dbc944e9b548cc84728ae4fbb014f38606fd4450e5261ab",
+    "selector_card": "b920f5539f488f6a07adf606f04d35a353d2ef9f6708470e2ac1e73d67c0a1b9",
+    "recall_verifier": "90a4de42dc4b6f693c0850e4d76ace7d0b368dec8f39c67a8eb137aa5f7897be"
+  },
+  "minimums": {
+    "semantic_scenarios": 20,
+    "critical_required_refs": 20,
+    "irrelevant_refs": 20,
+    "first_attempt_valid_rate": 0.95,
+    "final_valid_rate": 1.0,
+    "retry_rate_max": 0.05,
+    "critical_required_recall": 1.0,
+    "irrelevant_selection_rate": 0.0,
+    "final_pack_precision": 1.0
+  },
+  "planned_runs": [
+    "qualification_v12_240_gpt41_primary_run1.json",
+    "qualification_v12_240_gpt41_primary_run2.json"
+  ],
+  "contains_credentials": false,
+  "contains_account_identifier": false,
+  "contains_raw_provider_output": false,
+  "contains_source_or_user_content": false
+}

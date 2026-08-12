@@ -1,0 +1,21 @@
+name: tg_platform_phase6_closure
+
+services:
+  postgres:
+    image: pgvector/pgvector:pg16
+    environment:
+      POSTGRES_USER: phase6
+      POSTGRES_PASSWORD: phase6
+      POSTGRES_DB: phase6_test
+    ports:
+      - "55436:5432"
+    volumes:
+      - phase6-postgres-data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U phase6 -d phase6_test"]
+      interval: 2s
+      timeout: 3s
+      retries: 30
+
+volumes:
+  phase6-postgres-data:

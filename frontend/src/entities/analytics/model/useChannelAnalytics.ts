@@ -9,15 +9,54 @@ import { queryKeys } from "@/shared/api/queryKeys";
 import { shouldPersistLocally } from "@/shared/lib/overlay/isOverlayAccount";
 import type { AnalyticsPeriod } from "@/shared/data/analytics-seed";
 
-export function useChannelAnalyticsOverview(period: AnalyticsPeriod, enabled = true) {
+export function useChannelAnalyticsSummary(period: AnalyticsPeriod, enabled = true) {
   const { analytics } = useRepositories();
   const accountId = useQueryAccountScope();
   const authEnabled = useAuthenticatedQueryEnabled();
   const useApi = !shouldPersistLocally();
 
   return useQuery({
-    queryKey: queryKeys.analytics.channelOverview(accountId, period),
-    queryFn: () => analytics.getChannelOverview(period),
+    queryKey: queryKeys.analytics.channelSummary(accountId, period),
+    queryFn: () => analytics.getChannelSummary(period),
+    enabled: authEnabled && useApi && enabled,
+  });
+}
+
+export function useChannelAnalyticsTrend(period: AnalyticsPeriod, enabled = true) {
+  const { analytics } = useRepositories();
+  const accountId = useQueryAccountScope();
+  const authEnabled = useAuthenticatedQueryEnabled();
+  const useApi = !shouldPersistLocally();
+
+  return useQuery({
+    queryKey: queryKeys.analytics.channelTrend(accountId, period),
+    queryFn: () => analytics.getChannelTrend(period),
+    enabled: authEnabled && useApi && enabled,
+  });
+}
+
+export function useChannelAnalyticsHeatmap(period: AnalyticsPeriod, enabled = true) {
+  const { analytics } = useRepositories();
+  const accountId = useQueryAccountScope();
+  const authEnabled = useAuthenticatedQueryEnabled();
+  const useApi = !shouldPersistLocally();
+
+  return useQuery({
+    queryKey: queryKeys.analytics.channelHeatmap(accountId, period),
+    queryFn: () => analytics.getChannelHeatmap(period),
+    enabled: authEnabled && useApi && enabled,
+  });
+}
+
+export function useChannelAnalyticsReactions(enabled = true) {
+  const { analytics } = useRepositories();
+  const accountId = useQueryAccountScope();
+  const authEnabled = useAuthenticatedQueryEnabled();
+  const useApi = !shouldPersistLocally();
+
+  return useQuery({
+    queryKey: queryKeys.analytics.channelReactions(accountId),
+    queryFn: () => analytics.getChannelReactions(),
     enabled: authEnabled && useApi && enabled,
   });
 }

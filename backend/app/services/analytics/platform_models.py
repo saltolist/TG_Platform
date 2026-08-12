@@ -19,6 +19,7 @@ MODEL_LIST_FIELDS: tuple[tuple[str, str, str], ...] = (
     ("webSearchModels", "web", "Web Search"),
     ("visionModels", "vision", "Компьютерное зрение"),
     ("imageGenerationModels", "imageGeneration", "Генерация изображений"),
+    ("videoGenerationModels", "videoGeneration", "Генерация видео"),
     ("orchestratorModels", "orchestrator", "Оркестратор"),
     ("webReasonerModels", "webReasoner", "Web Reasoner"),
     ("ragReasonerModels", "ragReasoner", "RAG Reasoner"),

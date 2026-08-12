@@ -108,6 +108,7 @@ export function usePostWorkspace() {
 
   const goToPostNotes = useCallback(() => applyPostView("notes", null), [applyPostView]);
   const goToPostChats = useCallback(() => applyPostView("chats", null), [applyPostView]);
+  const goToPostAnalytics = useCallback(() => applyPostView("analytics", null), [applyPostView]);
   const openPostView = useCallback(
     () => applyPostView("chat", validatedPostChatId),
     [applyPostView, validatedPostChatId],
@@ -159,6 +160,7 @@ export function usePostWorkspace() {
     openPostView,
     goToPostNotes,
     goToPostChats,
+    goToPostAnalytics,
   });
 
   const startEdit = useCallback(() => {
@@ -179,7 +181,7 @@ export function usePostWorkspace() {
         const patch: PostPatch = {
           text: content.text,
           textHtml: content.textHtml ?? null,
-          media: media.length > 0 ? [...media] : undefined,
+          media: [...media],
         };
         await updatePost.mutateAsync({
           id: post.id,
@@ -275,6 +277,7 @@ export function usePostWorkspace() {
     actions: {
       goToPostNotes,
       goToPostChats,
+      goToPostAnalytics,
       openPostView,
       openLocalChat,
       startNewChat,

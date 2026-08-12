@@ -3,6 +3,7 @@ import {
   extractChannelMetricSeriesForChart,
   getChannelChartPeriodDaySpan,
   getChannelEndTotals,
+  getChannelStartTotals,
   getMetricTypicalPeriodGrowth,
   isChannelErMetric,
   isChannelSubscribersAvailable,
@@ -99,40 +100,53 @@ function isErMetric(metricId: string) {
   return isChannelErMetric(metricId);
 }
 
-/**
- * Индекс от состояния до начала графика (prior): 1 = база, >1 — рост.
- * Первая видимая точка уже отражает прирост за день, поэтому линии не сходятся в одну точку.
- */
-function channelPeriodIndexRatio(
-  metricId: string,
-  values: number[],
-  pointIndex: number,
-  priorCumulative = 0,
-): number {
-  if (isErMetric(metricId)) {
-    const current = (values[pointIndex] ?? 0) / 10;
-    const base =
-      priorCumulative > 0 ? priorCumulative / 10 : (values[0] ?? 0) / 10;
-    if (base <= 0) return 1;
-    return current / base;
-  }
-
-  const total = cumulativeChannelValue(values, pointIndex, priorCumulative);
-  const base =
-    priorCumulative > 0 ? priorCumulative : cumulativeChannelValue(values, 0, 0);
-  if (base <= 0) return 1;
-  return total / base;
-}
-
-/** Ось Y — индекс от старта периода (совпадает с подписью в карточке). */
+/** Ось Y — абсолютное значение метрики на каждой точке (своя шкала в мини-графике). */
 export function buildChannelTrendPlotYValues(
   metricId: string,
   values: number[],
   priorCumulative = 0,
 ): number[] {
+  if (isErMetric(metricId)) {
+    return values.map((value) => value / 10);
+  }
   return values.map((_, pointIndex) =>
-    channelPeriodIndexRatio(metricId, values, pointIndex, priorCumulative),
+    cumulativeChannelValue(values, pointIndex, priorCumulative),
   );
+}
+
+/**
+ * Прирост метрики за каждый временной слот (высота столбца).
+ * Для счётных метрик values уже являются поинтервальными приростами; для ER берём
+ * разницу уровней между соседними слотами (в процентных пунктах).
+ */
+export function buildChannelMetricGrowthBars(
+  metricId: string,
+  values: number[],
+  priorCumulative = 0,
+): number[] {
+  if (isErMetric(metricId)) {
+    return values.map((value, index) => {
+      const level = (value ?? 0) / 10;
+      const prevLevel = index > 0 ? (values[index - 1] ?? 0) / 10 : priorCumulative / 10;
+      return level - prevLevel;
+    });
+  }
+  return values.map((value) => value ?? 0);
+}
+
+/**
+ * Высота столбцов в карточке. Для счётных метрик — поинтервальный прирост;
+ * для ER — абсолютный уровень в каждом слоте (не прирост).
+ */
+export function buildChannelMetricBarSeries(
+  metricId: string,
+  values: number[],
+  priorCumulative = 0,
+): number[] {
+  if (isErMetric(metricId)) {
+    return values.map((value) => (value ?? 0) / 10);
+  }
+  return buildChannelMetricGrowthBars(metricId, values, priorCumulative);
 }
 
 export function buildChannelTrendSeries(
@@ -168,7 +182,41 @@ export function buildChannelTrendSeries(
     };
   });
 
+  rebuildErSeriesAsLevel(series);
+
   return { labels, series };
+}
+
+/**
+ * ER на момент столбца — уровень (накопленные реакции+комментарии / накопленные
+ * просмотры), а не дневная дельта. Дневная дельта давала 0 в неактивные дни и
+ * случайные всплески, хотя ER так себя не ведёт. Точки до появления данных
+ * (накопленные просмотры = 0) остаются нулевыми — «канал ещё не был подключён».
+ */
+export function rebuildErSeriesAsLevel(series: TrendSeriesRow[]): void {
+  const erRow = series.find((row) => isErMetric(row.id));
+  if (!erRow) return;
+  const views = series.find((row) => row.id === "views");
+  const reactions = series.find((row) => row.id === "reactions");
+  const comments = series.find((row) => row.id === "comments");
+  if (!views || !reactions) return;
+
+  const cumViews = views.yValues ?? [];
+  const cumReactions = reactions.yValues ?? [];
+  const cumComments = comments?.yValues ?? [];
+
+  const levelValues = erRow.values.map((_, index) => {
+    const v = cumViews[index] ?? 0;
+    if (v <= 0) return 0;
+    const r = cumReactions[index] ?? 0;
+    const c = cumComments[index] ?? 0;
+    const level = ((r + c) / v) * 100;
+    return Math.round(level * 10);
+  });
+
+  erRow.values = levelValues;
+  erRow.priorCumulative = 0;
+  erRow.yValues = buildChannelTrendPlotYValues(erRow.id, levelValues, 0);
 }
 
 export type ChannelMetricSummary = {
@@ -189,15 +237,6 @@ export type ChannelMetricSummary = {
 const CHANNEL_BAR_FILL_AVERAGE_ANCHOR_PERCENT = 50;
 const CHANNEL_BAR_FILL_MIN_PERCENT = 4;
 
-function computePeriodGrowth(metricId: string, values: number[]): number {
-  if (isErMetric(metricId)) {
-    const last = values[values.length - 1] ?? 0;
-    const first = values[0] ?? last;
-    return (last - first) / 10;
-  }
-  return values.reduce((sum, value) => sum + value, 0);
-}
-
 function formatGrowthDelta(metricId: string, growth: number) {
   if (isErMetric(metricId)) {
     const sign = growth >= 0 ? "+" : "−";
@@ -205,6 +244,15 @@ function formatGrowthDelta(metricId: string, growth: number) {
   }
   const sign = growth >= 0 ? "+" : "−";
   return `${sign}${formatNumber(Math.round(Math.abs(growth)))}`;
+}
+
+/** Заголовок карточки метрики: «Подписчики 98 (+4)». */
+export function formatChannelMetricCardHeadline(
+  label: string,
+  total: string,
+  growth: string,
+): string {
+  return `${label} ${total} (${growth})`;
 }
 
 function formatGrowthRelativeToQuantityPercent(growth: number, quantity: number) {
@@ -254,9 +302,17 @@ export function buildChannelMetricSummaries(
 
   return series.map((row) => {
     const metricId = row.id as ChannelMetricId;
-    const growth = computePeriodGrowth(row.id, row.values);
+    // Прирост за период — чистое изменение на той же базе, что и итог
+    // (endTotals − startTotals). Так прирост согласован с показанным итогом и
+    // не может его превысить (в отличие от суммы дельт снимков, которая
+    // включает удалённые посты).
+    const endQuantity = getChannelCurrentTotals()[metricId] ?? 0;
+    const startQuantity = getChannelStartTotals()[metricId] ?? 0;
+    const growth = endQuantity - startQuantity;
     const typicalPeriodGrowth = getMetricTypicalPeriodGrowth(metricId, periodDaySpan);
-    const quantity = getChannelCurrentTotals()[metricId] ?? 0;
+    // Итог — текущее значение метрики на платформе (не зависит от выбранного
+    // периода).
+    const quantity = endQuantity;
 
     return {
       id: row.id,
@@ -269,6 +325,41 @@ export function buildChannelMetricSummaries(
       displayQuantity: formatChannelPostMetricValue(row.id, quantity),
     };
   });
+}
+
+/** Человекочитаемая дата начала отслеживания метрик канала. */
+export function formatChannelTrackingSinceLabel(isoDate: string): string | null {
+  const normalized = isoDate.includes("T") ? isoDate : `${isoDate}T12:00:00`;
+  const parsed = new Date(normalized);
+  if (Number.isNaN(parsed.getTime())) return null;
+
+  const RU_MONTH_GENITIVE = [
+    "января",
+    "февраля",
+    "марта",
+    "апреля",
+    "мая",
+    "июня",
+    "июля",
+    "августа",
+    "сентября",
+    "октября",
+    "ноября",
+    "декабря",
+  ] as const;
+
+  return `${parsed.getDate()} ${RU_MONTH_GENITIVE[parsed.getMonth()]} ${parsed.getFullYear()}`;
+}
+
+/** Человекочитаемый возраст последнего снимка аналитики ("5 мин", "3 ч", "2 дн"). */
+export function formatDataAgeLabel(ageSeconds: number): string {
+  if (ageSeconds < 60) return "меньше минуты";
+  const minutes = Math.floor(ageSeconds / 60);
+  if (minutes < 60) return `${minutes} мин`;
+  const hours = Math.floor(minutes / 60);
+  if (hours < 24) return `${hours} ч`;
+  const days = Math.floor(hours / 24);
+  return `${days} дн`;
 }
 
 export function formatChannelPostMetricValue(metricId: string, value: number): string {
@@ -296,10 +387,42 @@ function formatChannelMomentCount(
   return `${formatNumber(total)} ${pluralRu(total, metric.countForms)}`;
 }
 
-function formatChannelIndexGrowthPercent(index: number): string {
-  const growth = index - 1;
-  const sign = growth >= 0 ? "+" : "−";
-  return `${sign}${Math.abs(growth * 100).toFixed(1)}%`;
+function formatPeriodGrowthPercent(
+  metricId: string,
+  values: number[],
+  pointIndex: number,
+  priorCumulative = 0,
+): string {
+  if (isErMetric(metricId)) {
+    const current = (values[pointIndex] ?? 0) / 10;
+    const periodStart =
+      priorCumulative > 0 ? priorCumulative / 10 : (values[0] ?? 0) / 10;
+    const delta = current - periodStart;
+    if (Math.abs(delta) < 0.05) return "+0.0%";
+    if (periodStart <= 0) {
+      if (current <= 0) return "+0.0%";
+      const percent = (delta / current) * 100;
+      const sign = percent >= 0 ? "+" : "−";
+      return `${sign}${Math.abs(percent).toFixed(1)}%`;
+    }
+    const percent = (delta / periodStart) * 100;
+    const sign = percent >= 0 ? "+" : "−";
+    return `${sign}${Math.abs(percent).toFixed(1)}%`;
+  }
+
+  const periodStart = priorCumulative;
+  const total = cumulativeChannelValue(values, pointIndex, priorCumulative);
+  const delta = Math.round(total - periodStart);
+  if (delta === 0) return "+0.0%";
+  if (periodStart <= 0) {
+    if (total <= 0) return "+0.0%";
+    const percent = (delta / total) * 100;
+    const sign = percent >= 0 ? "+" : "−";
+    return `${sign}${Math.abs(percent).toFixed(1)}%`;
+  }
+  const percent = (delta / periodStart) * 100;
+  const sign = percent >= 0 ? "+" : "−";
+  return `${sign}${Math.abs(percent).toFixed(1)}%`;
 }
 
 function formatChannelPointGrowthPercentInParens(
@@ -308,8 +431,7 @@ function formatChannelPointGrowthPercentInParens(
   values: number[],
   priorCumulative = 0,
 ): string {
-  const index = channelPeriodIndexRatio(metricId, values, pointIndex, priorCumulative);
-  return formatChannelIndexGrowthPercent(index);
+  return formatPeriodGrowthPercent(metricId, values, pointIndex, priorCumulative);
 }
 
 /** Числовой прирост за шаг — строка с названием метрики в тултипе. */
@@ -370,12 +492,7 @@ function formatChannelPointGrowthDelta(
     return `${sign}${Math.abs(delta).toFixed(1)}%`;
   }
 
-  const total = cumulativeChannelValue(values, pointIndex, priorCumulative);
-  const prevTotal =
-    pointIndex > 0
-      ? cumulativeChannelValue(values, pointIndex - 1, priorCumulative)
-      : priorCumulative;
-  const delta = Math.round(total - prevTotal);
+  const delta = Math.round(value ?? 0);
   const sign = delta >= 0 ? "+" : "−";
   return `${sign}${formatNumber(Math.abs(delta))}`;
 }

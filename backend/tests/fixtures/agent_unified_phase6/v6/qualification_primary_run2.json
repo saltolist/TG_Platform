@@ -1,0 +1,895 @@
+{
+  "boundary_256": {
+    "actual_total_tokens_availability": "unavailable",
+    "actual_total_tokens_p95": null,
+    "attempts": [],
+    "availability": "not_measured",
+    "candidate_count": 256,
+    "final_canonical_valid": null,
+    "gate_total_tokens_lte_22000": null,
+    "latency_p95_ms": null,
+    "maximum_dialog_context_chars": 3000,
+    "retry_count": 0
+  },
+  "cohort_role": "qualification",
+  "cohort_version": "2026-07-27-semantic-qualification-v2",
+  "contains_account_identifier": false,
+  "contains_credentials": false,
+  "estimated_cost": {
+    "availability": "unavailable",
+    "value_usd": null
+  },
+  "model": "gpt-4.1-mini",
+  "position_error_count": 0,
+  "price_snapshot": {
+    "availability": "unavailable",
+    "version": null
+  },
+  "provider": "OpenAI",
+  "provider_call_count": 21,
+  "provider_failure_count": 0,
+  "schema": "workspace.selector-provider-replay/v1",
+  "schema_results": {
+    "valid": 21
+  },
+  "semantic_sample_sufficient": true,
+  "semantic_scenario_count": 21,
+  "semantic_variant": "query_goal",
+  "summary_160_non_inferior_recall": null,
+  "transport_tier": "strict_json_schema",
+  "validation_error_counts": {},
+  "variants": {
+    "160": {
+      "critical_required_recall": 1.0,
+      "critical_selected": 20,
+      "critical_total": 20,
+      "final_pack_precision": 1.0,
+      "final_valid": 21,
+      "first_attempt_valid": 21,
+      "irrelevant_selected": 0,
+      "irrelevant_selection_rate": 0.0,
+      "irrelevant_total": 22,
+      "language_cohorts": {
+        "de": {
+          "critical_required_recall": 1.0,
+          "critical_selected": 3,
+          "critical_total": 3,
+          "final_pack_precision": 1.0,
+          "irrelevant_selected": 0,
+          "irrelevant_selection_rate": 0.0,
+          "irrelevant_total": 3,
+          "relevant_selected": 3,
+          "relevant_total": 3,
+          "required_recall": 1.0,
+          "required_selected": 3,
+          "required_total": 3,
+          "selected_total": 3
+        },
+        "en": {
+          "critical_required_recall": 1.0,
+          "critical_selected": 3,
+          "critical_total": 3,
+          "final_pack_precision": 1.0,
+          "irrelevant_selected": 0,
+          "irrelevant_selection_rate": 0.0,
+          "irrelevant_total": 5,
+          "relevant_selected": 3,
+          "relevant_total": 3,
+          "required_recall": 1.0,
+          "required_selected": 3,
+          "required_total": 3,
+          "selected_total": 3
+        },
+        "es": {
+          "critical_required_recall": 1.0,
+          "critical_selected": 3,
+          "critical_total": 3,
+          "final_pack_precision": 1.0,
+          "irrelevant_selected": 0,
+          "irrelevant_selection_rate": 0.0,
+          "irrelevant_total": 3,
+          "relevant_selected": 3,
+          "relevant_total": 3,
+          "required_recall": 1.0,
+          "required_selected": 3,
+          "required_total": 3,
+          "selected_total": 3
+        },
+        "fr": {
+          "critical_required_recall": 1.0,
+          "critical_selected": 2,
+          "critical_total": 2,
+          "final_pack_precision": 1.0,
+          "irrelevant_selected": 0,
+          "irrelevant_selection_rate": 0.0,
+          "irrelevant_total": 2,
+          "relevant_selected": 2,
+          "relevant_total": 2,
+          "required_recall": 1.0,
+          "required_selected": 2,
+          "required_total": 2,
+          "selected_total": 2
+        },
+        "it": {
+          "critical_required_recall": 1.0,
+          "critical_selected": 2,
+          "critical_total": 2,
+          "final_pack_precision": 1.0,
+          "irrelevant_selected": 0,
+          "irrelevant_selection_rate": 0.0,
+          "irrelevant_total": 2,
+          "relevant_selected": 2,
+          "relevant_total": 2,
+          "required_recall": 1.0,
+          "required_selected": 2,
+          "required_total": 2,
+          "selected_total": 2
+        },
+        "mixed": {
+          "critical_required_recall": 1.0,
+          "critical_selected": 2,
+          "critical_total": 2,
+          "final_pack_precision": 1.0,
+          "irrelevant_selected": 0,
+          "irrelevant_selection_rate": 0.0,
+          "irrelevant_total": 2,
+          "relevant_selected": 2,
+          "relevant_total": 2,
+          "required_recall": 1.0,
+          "required_selected": 2,
+          "required_total": 2,
+          "selected_total": 2
+        },
+        "pt": {
+          "critical_required_recall": 1.0,
+          "critical_selected": 2,
+          "critical_total": 2,
+          "final_pack_precision": 1.0,
+          "irrelevant_selected": 0,
+          "irrelevant_selection_rate": 0.0,
+          "irrelevant_total": 2,
+          "relevant_selected": 2,
+          "relevant_total": 2,
+          "required_recall": 1.0,
+          "required_selected": 2,
+          "required_total": 2,
+          "selected_total": 2
+        },
+        "ru": {
+          "critical_required_recall": 1.0,
+          "critical_selected": 3,
+          "critical_total": 3,
+          "final_pack_precision": 1.0,
+          "irrelevant_selected": 0,
+          "irrelevant_selection_rate": 0.0,
+          "irrelevant_total": 5,
+          "relevant_selected": 3,
+          "relevant_total": 3,
+          "required_recall": 1.0,
+          "required_selected": 3,
+          "required_total": 3,
+          "selected_total": 3
+        }
+      },
+      "relevant_selected": 20,
+      "relevant_total": 20,
+      "required_recall": 1.0,
+      "required_selected": 20,
+      "required_total": 20,
+      "retries": 0,
+      "scenario_count": 21,
+      "scenario_rows": [
+        {
+          "attempt_count": 1,
+          "attempts": [
+            {
+              "attempt": 1,
+              "schema_result": "valid",
+              "validation_error_codes": []
+            }
+          ],
+          "attribution_boundary": "none",
+          "candidate_count": 2,
+          "expected": {
+            "critical_positions": [
+              0
+            ],
+            "irrelevant_positions": [
+              1
+            ],
+            "required_positions": [
+              0
+            ]
+          },
+          "missed_critical_refs": [],
+          "reason_codes_by_position": {
+            "0": "exact_fact",
+            "1": "search_more"
+          },
+          "scenario_id": "v2-q01",
+          "selected_irrelevant_refs": [],
+          "selected_positions": [
+            0
+          ],
+          "unassessed_critical_refs": []
+        },
+        {
+          "attempt_count": 1,
+          "attempts": [
+            {
+              "attempt": 1,
+              "schema_result": "valid",
+              "validation_error_codes": []
+            }
+          ],
+          "attribution_boundary": "none",
+          "candidate_count": 2,
+          "expected": {
+            "critical_positions": [
+              0
+            ],
+            "irrelevant_positions": [
+              1
+            ],
+            "required_positions": [
+              0
+            ]
+          },
+          "missed_critical_refs": [],
+          "reason_codes_by_position": {
+            "0": "exact_fact",
+            "1": "search_more"
+          },
+          "scenario_id": "v2-q02",
+          "selected_irrelevant_refs": [],
+          "selected_positions": [
+            0
+          ],
+          "unassessed_critical_refs": []
+        },
+        {
+          "attempt_count": 1,
+          "attempts": [
+            {
+              "attempt": 1,
+              "schema_result": "valid",
+              "validation_error_codes": []
+            }
+          ],
+          "attribution_boundary": "none",
+          "candidate_count": 2,
+          "expected": {
+            "critical_positions": [
+              0
+            ],
+            "irrelevant_positions": [
+              1
+            ],
+            "required_positions": [
+              0
+            ]
+          },
+          "missed_critical_refs": [],
+          "reason_codes_by_position": {
+            "0": "exact_fact",
+            "1": "search_more"
+          },
+          "scenario_id": "v2-q03",
+          "selected_irrelevant_refs": [],
+          "selected_positions": [
+            0
+          ],
+          "unassessed_critical_refs": []
+        },
+        {
+          "attempt_count": 1,
+          "attempts": [
+            {
+              "attempt": 1,
+              "schema_result": "valid",
+              "validation_error_codes": []
+            }
+          ],
+          "attribution_boundary": "none",
+          "candidate_count": 2,
+          "expected": {
+            "critical_positions": [
+              0
+            ],
+            "irrelevant_positions": [
+              1
+            ],
+            "required_positions": [
+              0
+            ]
+          },
+          "missed_critical_refs": [],
+          "reason_codes_by_position": {
+            "0": "exact_fact",
+            "1": "topic_only"
+          },
+          "scenario_id": "v2-q04",
+          "selected_irrelevant_refs": [],
+          "selected_positions": [
+            0
+          ],
+          "unassessed_critical_refs": []
+        },
+        {
+          "attempt_count": 1,
+          "attempts": [
+            {
+              "attempt": 1,
+              "schema_result": "valid",
+              "validation_error_codes": []
+            }
+          ],
+          "attribution_boundary": "none",
+          "candidate_count": 2,
+          "expected": {
+            "critical_positions": [
+              0
+            ],
+            "irrelevant_positions": [
+              1
+            ],
+            "required_positions": [
+              0
+            ]
+          },
+          "missed_critical_refs": [],
+          "reason_codes_by_position": {
+            "0": "exact_fact",
+            "1": "unrelated_topic"
+          },
+          "scenario_id": "v2-q05",
+          "selected_irrelevant_refs": [],
+          "selected_positions": [
+            0
+          ],
+          "unassessed_critical_refs": []
+        },
+        {
+          "attempt_count": 1,
+          "attempts": [
+            {
+              "attempt": 1,
+              "schema_result": "valid",
+              "validation_error_codes": []
+            }
+          ],
+          "attribution_boundary": "none",
+          "candidate_count": 2,
+          "expected": {
+            "critical_positions": [
+              0
+            ],
+            "irrelevant_positions": [
+              1
+            ],
+            "required_positions": [
+              0
+            ]
+          },
+          "missed_critical_refs": [],
+          "reason_codes_by_position": {
+            "0": "exact_fact",
+            "1": "search_more"
+          },
+          "scenario_id": "v2-q06",
+          "selected_irrelevant_refs": [],
+          "selected_positions": [
+            0
+          ],
+          "unassessed_critical_refs": []
+        },
+        {
+          "attempt_count": 1,
+          "attempts": [
+            {
+              "attempt": 1,
+              "schema_result": "valid",
+              "validation_error_codes": []
+            }
+          ],
+          "attribution_boundary": "none",
+          "candidate_count": 2,
+          "expected": {
+            "critical_positions": [
+              0
+            ],
+            "irrelevant_positions": [
+              1
+            ],
+            "required_positions": [
+              0
+            ]
+          },
+          "missed_critical_refs": [],
+          "reason_codes_by_position": {
+            "0": "exact_fact",
+            "1": "search_more"
+          },
+          "scenario_id": "v2-q07",
+          "selected_irrelevant_refs": [],
+          "selected_positions": [
+            0
+          ],
+          "unassessed_critical_refs": []
+        },
+        {
+          "attempt_count": 1,
+          "attempts": [
+            {
+              "attempt": 1,
+              "schema_result": "valid",
+              "validation_error_codes": []
+            }
+          ],
+          "attribution_boundary": "none",
+          "candidate_count": 2,
+          "expected": {
+            "critical_positions": [
+              1
+            ],
+            "irrelevant_positions": [
+              0
+            ],
+            "required_positions": [
+              1
+            ]
+          },
+          "missed_critical_refs": [],
+          "reason_codes_by_position": {
+            "0": "topic_only",
+            "1": "exact_fact"
+          },
+          "scenario_id": "v2-q08",
+          "selected_irrelevant_refs": [],
+          "selected_positions": [
+            1
+          ],
+          "unassessed_critical_refs": []
+        },
+        {
+          "attempt_count": 1,
+          "attempts": [
+            {
+              "attempt": 1,
+              "schema_result": "valid",
+              "validation_error_codes": []
+            }
+          ],
+          "attribution_boundary": "none",
+          "candidate_count": 2,
+          "expected": {
+            "critical_positions": [
+              0
+            ],
+            "irrelevant_positions": [
+              1
+            ],
+            "required_positions": [
+              0
+            ]
+          },
+          "missed_critical_refs": [],
+          "reason_codes_by_position": {
+            "0": "exact_fact",
+            "1": "unrelated_topic"
+          },
+          "scenario_id": "v2-q09",
+          "selected_irrelevant_refs": [],
+          "selected_positions": [
+            0
+          ],
+          "unassessed_critical_refs": []
+        },
+        {
+          "attempt_count": 1,
+          "attempts": [
+            {
+              "attempt": 1,
+              "schema_result": "valid",
+              "validation_error_codes": []
+            }
+          ],
+          "attribution_boundary": "none",
+          "candidate_count": 2,
+          "expected": {
+            "critical_positions": [
+              0
+            ],
+            "irrelevant_positions": [
+              1
+            ],
+            "required_positions": [
+              0
+            ]
+          },
+          "missed_critical_refs": [],
+          "reason_codes_by_position": {
+            "0": "exact_fact",
+            "1": "search_more"
+          },
+          "scenario_id": "v2-q10",
+          "selected_irrelevant_refs": [],
+          "selected_positions": [
+            0
+          ],
+          "unassessed_critical_refs": []
+        },
+        {
+          "attempt_count": 1,
+          "attempts": [
+            {
+              "attempt": 1,
+              "schema_result": "valid",
+              "validation_error_codes": []
+            }
+          ],
+          "attribution_boundary": "none",
+          "candidate_count": 2,
+          "expected": {
+            "critical_positions": [
+              0
+            ],
+            "irrelevant_positions": [
+              1
+            ],
+            "required_positions": [
+              0
+            ]
+          },
+          "missed_critical_refs": [],
+          "reason_codes_by_position": {
+            "0": "exact_fact",
+            "1": "search_more"
+          },
+          "scenario_id": "v2-q11",
+          "selected_irrelevant_refs": [],
+          "selected_positions": [
+            0
+          ],
+          "unassessed_critical_refs": []
+        },
+        {
+          "attempt_count": 1,
+          "attempts": [
+            {
+              "attempt": 1,
+              "schema_result": "valid",
+              "validation_error_codes": []
+            }
+          ],
+          "attribution_boundary": "none",
+          "candidate_count": 2,
+          "expected": {
+            "critical_positions": [
+              0
+            ],
+            "irrelevant_positions": [
+              1
+            ],
+            "required_positions": [
+              0
+            ]
+          },
+          "missed_critical_refs": [],
+          "reason_codes_by_position": {
+            "0": "exact_fact",
+            "1": "topic_only"
+          },
+          "scenario_id": "v2-q12",
+          "selected_irrelevant_refs": [],
+          "selected_positions": [
+            0
+          ],
+          "unassessed_critical_refs": []
+        },
+        {
+          "attempt_count": 1,
+          "attempts": [
+            {
+              "attempt": 1,
+              "schema_result": "valid",
+              "validation_error_codes": []
+            }
+          ],
+          "attribution_boundary": "none",
+          "candidate_count": 2,
+          "expected": {
+            "critical_positions": [
+              0
+            ],
+            "irrelevant_positions": [
+              1
+            ],
+            "required_positions": [
+              0
+            ]
+          },
+          "missed_critical_refs": [],
+          "reason_codes_by_position": {
+            "0": "exact_fact",
+            "1": "search_more"
+          },
+          "scenario_id": "v2-q13",
+          "selected_irrelevant_refs": [],
+          "selected_positions": [
+            0
+          ],
+          "unassessed_critical_refs": []
+        },
+        {
+          "attempt_count": 1,
+          "attempts": [
+            {
+              "attempt": 1,
+              "schema_result": "valid",
+              "validation_error_codes": []
+            }
+          ],
+          "attribution_boundary": "none",
+          "candidate_count": 2,
+          "expected": {
+            "critical_positions": [
+              0
+            ],
+            "irrelevant_positions": [
+              1
+            ],
+            "required_positions": [
+              0
+            ]
+          },
+          "missed_critical_refs": [],
+          "reason_codes_by_position": {
+            "0": "exact_fact",
+            "1": "search_more"
+          },
+          "scenario_id": "v2-q14",
+          "selected_irrelevant_refs": [],
+          "selected_positions": [
+            0
+          ],
+          "unassessed_critical_refs": []
+        },
+        {
+          "attempt_count": 1,
+          "attempts": [
+            {
+              "attempt": 1,
+              "schema_result": "valid",
+              "validation_error_codes": []
+            }
+          ],
+          "attribution_boundary": "none",
+          "candidate_count": 2,
+          "expected": {
+            "critical_positions": [
+              0
+            ],
+            "irrelevant_positions": [
+              1
+            ],
+            "required_positions": [
+              0
+            ]
+          },
+          "missed_critical_refs": [],
+          "reason_codes_by_position": {
+            "0": "exact_fact",
+            "1": "search_more"
+          },
+          "scenario_id": "v2-q15",
+          "selected_irrelevant_refs": [],
+          "selected_positions": [
+            0
+          ],
+          "unassessed_critical_refs": []
+        },
+        {
+          "attempt_count": 1,
+          "attempts": [
+            {
+              "attempt": 1,
+              "schema_result": "valid",
+              "validation_error_codes": []
+            }
+          ],
+          "attribution_boundary": "none",
+          "candidate_count": 2,
+          "expected": {
+            "critical_positions": [
+              0
+            ],
+            "irrelevant_positions": [
+              1
+            ],
+            "required_positions": [
+              0
+            ]
+          },
+          "missed_critical_refs": [],
+          "reason_codes_by_position": {
+            "0": "exact_fact",
+            "1": "search_more"
+          },
+          "scenario_id": "v2-q16",
+          "selected_irrelevant_refs": [],
+          "selected_positions": [
+            0
+          ],
+          "unassessed_critical_refs": []
+        },
+        {
+          "attempt_count": 1,
+          "attempts": [
+            {
+              "attempt": 1,
+              "schema_result": "valid",
+              "validation_error_codes": []
+            }
+          ],
+          "attribution_boundary": "none",
+          "candidate_count": 2,
+          "expected": {
+            "critical_positions": [
+              0
+            ],
+            "irrelevant_positions": [
+              1
+            ],
+            "required_positions": [
+              0
+            ]
+          },
+          "missed_critical_refs": [],
+          "reason_codes_by_position": {
+            "0": "exact_fact",
+            "1": "search_more"
+          },
+          "scenario_id": "v2-q17",
+          "selected_irrelevant_refs": [],
+          "selected_positions": [
+            0
+          ],
+          "unassessed_critical_refs": []
+        },
+        {
+          "attempt_count": 1,
+          "attempts": [
+            {
+              "attempt": 1,
+              "schema_result": "valid",
+              "validation_error_codes": []
+            }
+          ],
+          "attribution_boundary": "none",
+          "candidate_count": 2,
+          "expected": {
+            "critical_positions": [
+              0
+            ],
+            "irrelevant_positions": [
+              1
+            ],
+            "required_positions": [
+              0
+            ]
+          },
+          "missed_critical_refs": [],
+          "reason_codes_by_position": {
+            "0": "exact_fact",
+            "1": "search_more"
+          },
+          "scenario_id": "v2-q18",
+          "selected_irrelevant_refs": [],
+          "selected_positions": [
+            0
+          ],
+          "unassessed_critical_refs": []
+        },
+        {
+          "attempt_count": 1,
+          "attempts": [
+            {
+              "attempt": 1,
+              "schema_result": "valid",
+              "validation_error_codes": []
+            }
+          ],
+          "attribution_boundary": "none",
+          "candidate_count": 2,
+          "expected": {
+            "critical_positions": [
+              0
+            ],
+            "irrelevant_positions": [
+              1
+            ],
+            "required_positions": [
+              0
+            ]
+          },
+          "missed_critical_refs": [],
+          "reason_codes_by_position": {
+            "0": "exact_fact",
+            "1": "search_more"
+          },
+          "scenario_id": "v2-q19",
+          "selected_irrelevant_refs": [],
+          "selected_positions": [
+            0
+          ],
+          "unassessed_critical_refs": []
+        },
+        {
+          "attempt_count": 1,
+          "attempts": [
+            {
+              "attempt": 1,
+              "schema_result": "valid",
+              "validation_error_codes": []
+            }
+          ],
+          "attribution_boundary": "none",
+          "candidate_count": 2,
+          "expected": {
+            "critical_positions": [
+              0
+            ],
+            "irrelevant_positions": [
+              1
+            ],
+            "required_positions": [
+              0
+            ]
+          },
+          "missed_critical_refs": [],
+          "reason_codes_by_position": {
+            "0": "exact_fact",
+            "1": "search_more"
+          },
+          "scenario_id": "v2-q20",
+          "selected_irrelevant_refs": [],
+          "selected_positions": [
+            0
+          ],
+          "unassessed_critical_refs": []
+        },
+        {
+          "attempt_count": 1,
+          "attempts": [
+            {
+              "attempt": 1,
+              "schema_result": "valid",
+              "validation_error_codes": []
+            }
+          ],
+          "attribution_boundary": "none",
+          "candidate_count": 2,
+          "expected": {
+            "critical_positions": [],
+            "irrelevant_positions": [
+              0,
+              1
+            ],
+            "required_positions": []
+          },
+          "missed_critical_refs": [],
+          "reason_codes_by_position": {
+            "0": "topic_only",
+            "1": "topic_only"
+          },
+          "scenario_id": "v2-q21-empty",
+          "selected_irrelevant_refs": [],
+          "selected_positions": [],
+          "unassessed_critical_refs": []
+        }
+      ],
+      "selected_total": 20
+    }
+  }
+}

@@ -6,17 +6,66 @@ from dataclasses import dataclass
 from enum import Enum
 
 
+class ChatCompletionCapability(str, Enum):
+    """Provider-advertised structured-output transports, in preference order."""
+
+    STRICT_JSON_SCHEMA = "strict_json_schema"
+    TOOL_CALLING = "tool_calling"
+    JSON_MODE = "json_mode"
+    PLAIN = "plain"
+
+
+_CHAT_CAPABILITY_ORDER = (
+    ChatCompletionCapability.STRICT_JSON_SCHEMA,
+    ChatCompletionCapability.TOOL_CALLING,
+    ChatCompletionCapability.JSON_MODE,
+    ChatCompletionCapability.PLAIN,
+)
+
+
 @dataclass(frozen=True)
 class ProviderSpec:
     name: str
     base_url: str
+    chat_capabilities: tuple[ChatCompletionCapability, ...] = (
+        ChatCompletionCapability.PLAIN,
+    )
+
+
+def negotiate_chat_completion_capability(spec: ProviderSpec) -> ChatCompletionCapability:
+    """Choose from adapter metadata without provider/model name branches."""
+
+    advertised = set(
+        getattr(spec, "chat_capabilities", (ChatCompletionCapability.PLAIN,))
+    )
+    return next(
+        (capability for capability in _CHAT_CAPABILITY_ORDER if capability in advertised),
+        ChatCompletionCapability.PLAIN,
+    )
 
 
 # Chat/completions providers (OpenAI-compatible /v1/chat/completions)
 PROVIDER_SPECS: dict[str, ProviderSpec] = {
-    "OpenAI": ProviderSpec("OpenAI", "https://api.openai.com"),
-    "DeepSeek": ProviderSpec("DeepSeek", "https://api.deepseek.com"),
-    "Perplexity": ProviderSpec("Perplexity", "https://api.perplexity.ai"),
+    "OpenAI": ProviderSpec(
+        "OpenAI",
+        "https://api.openai.com",
+        (
+            ChatCompletionCapability.STRICT_JSON_SCHEMA,
+            ChatCompletionCapability.TOOL_CALLING,
+            ChatCompletionCapability.JSON_MODE,
+            ChatCompletionCapability.PLAIN,
+        ),
+    ),
+    "DeepSeek": ProviderSpec(
+        "DeepSeek",
+        "https://api.deepseek.com",
+        (ChatCompletionCapability.JSON_MODE, ChatCompletionCapability.PLAIN),
+    ),
+    "Perplexity": ProviderSpec(
+        "Perplexity",
+        "https://api.perplexity.ai",
+        (ChatCompletionCapability.PLAIN,),
+    ),
 }
 
 

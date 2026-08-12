@@ -1,5 +1,5 @@
 from functools import lru_cache
-from typing import Any
+from typing import Any, Literal
 
 from pydantic import field_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
@@ -23,6 +23,13 @@ class Settings(BaseSettings):
 
     # Database
     database_url: str = "postgresql+asyncpg://tg:tg@localhost:5432/tg"
+    # Per-process connection pool limits.  Each deployed process (API, Celery
+    # worker, beat, sync-worker) opens up to pool_size + max_overflow connections.
+    # Default keeps total well below postgres max_connections=100:
+    #   API(1) + celery-worker(3 procs) + beat(1) + sync-worker(1) = 6 procs
+    #   6 × (3 + 5) = 48 connections max.
+    db_pool_size: int = 3
+    db_pool_max_overflow: int = 5
 
     # Auth / JWT
     jwt_secret: str = "change-me-please"
@@ -50,6 +57,7 @@ class Settings(BaseSettings):
 
     # Object storage (Phase 2)
     s3_endpoint: str = ""
+    s3_public_endpoint: str = ""
     s3_access_key: str = ""
     s3_secret_key: str = ""
     s3_bucket: str = "tg-media"
@@ -114,9 +122,18 @@ class Settings(BaseSettings):
     telegram_metrics_poll_window: int = 20
     # Live metrics events coalesced — at most one TG batch per interval per listener.
     telegram_metrics_min_sync_seconds: float = 5.0
-    # Channel analytics snapshots: totals + real subscriber count every 30 minutes.
-    telegram_analytics_snapshot_seconds: float = 1800.0
+    # Channel analytics snapshots — two cadences:
+    # - telegram_analytics_snapshot_seconds: cheap DB-only totals capture (Celery Beat).
+    #   The chart's current bucket is always rebuilt from live post data on read
+    #   (see channel_metrics.build_channel_trend live-overlay), so this interval
+    #   controls historical resolution, not how fresh the growth chart looks.
+    # - telegram_analytics_subscriber_refresh_seconds: Telethon RPC for real
+    #   subscriber count + pre-snapshot metrics poll (throttled separately).
+    telegram_analytics_snapshot_seconds: float = 300.0
+    telegram_analytics_subscriber_refresh_seconds: float = 3600.0
     analytics_snapshot_retention_days: int = 120
+    # Pushgateway URL for analytics snapshot metrics (empty = disabled).
+    prometheus_pushgateway_url: str = ""
 
     # Window reconcile — drift correction between channel and platform DB
     telegram_reconcile_enabled: bool = True
@@ -164,13 +181,94 @@ class Settings(BaseSettings):
     # MiniLM models typically score 0.35–0.55 for relevant hits; e5 models score higher.
     rag_min_similarity: float = 0.38
     # Hard cap on note text fed to the embedder (chars); long notes are chunked
-    rag_max_note_chars: int = 4000
+    # Keep contextual chunks bounded so a ranked hit can be shown to the
+    # Selector without a second lexical interpretation layer.
+    rag_max_note_chars: int = 1200
+    # Background LLM cards used only for post/note discovery. Original source
+    # content remains mandatory evidence for factual answers.
+    rag_semantic_summaries_enabled: bool = True
+    rag_semantic_summary_timeout_seconds: float = 20.0
+    rag_semantic_summary_input_chars: int = 6000
+    # Optional canary boundary for startup-only summary/embedding backfill.
+    # Empty preserves the normal all-user startup behavior.
+    rag_startup_backfill_user_email: str = ""
     # Recent dialogue turns to prepend to the RAG embedding query (0 = current message only).
     rag_query_history_turns: int = 2
     # Max chars for the expanded RAG query sent to the embedder.
     rag_query_max_chars: int = 2000
     # When retrieval misses, rewrite the query via a short LLM call and retry once.
     rag_query_rewrite_on_miss: bool = True
+    # L0 gate: skip RAG for non-substantive replies and style/tone edit requests.
+    rag_l0_enabled: bool = True
+    # Tier A fast-path: escalate when top L1 similarity is below this threshold.
+    rag_escalate_min_similarity: float = 0.72
+    # Tier A fast-path: treat empty L1 as escalation trigger.
+    rag_escalate_on_miss: bool = True
+    # Tier B LLM sufficiency check (diagnostics until Step 1.5 consumes verdict).
+    rag_tier_b_enabled: bool = False
+    # L2 agentic loop mode: off (default) | flat | agentic | auto
+    rag_mode: Literal["off", "flat", "agentic", "auto"] = "off"
+    # 10 fits an enumerate-everything read pass (ListGlobalNotes + one OpenNote
+    # per note + ListPosts/OpenPost/ListPostNotes for post-bound notes) without
+    # the loop dying mid-scan and answering from titles alone. 4 was too tight:
+    # runs hit the cap before opening the post that actually held the evidence.
+    rag_agent_max_steps: int = 10
+    rag_agent_max_vision: int = 2
+    # Wall-clock budget for a whole agent run (agent-runtime-sprints §6). Enforced
+    # as a hard cap via asyncio.wait_for around each LLM call, not just checked
+    # between nodes, so a slow provider can't blow past it by one full call.
+    rag_agent_deadline_s: float = 120.0
+    # L2 structured planning: off | auto (heuristics) | always
+    rag_agent_planning_mode: Literal["off", "auto", "always"] = "auto"
+    # L2 plan alignment: optional LLM auditor after deterministic pre-flight gate
+    rag_agent_plan_alignment_llm: bool = False
+    rag_scope_bias: float = 0.04
+    rag_intent_routing_enabled: bool = False
+
+    # Unified agent runtime (ADR-012)
+    agent_runtime_engine: Literal["legacy", "langgraph"] = "langgraph"
+    agent_runtime_phase1_enabled: bool = True
+    # Phase-2 typed target/source bootstrap. Disable only for an explicit
+    # rollback to the phase-1 compatibility contract.
+    agent_turn_contract_v2_enabled: bool = True
+    # Phase-4 candidate-first discovery/contextual retrieval. Disable to fall
+    # back to the phase-3 single hybrid SearchNodes policy after migration.
+    agent_retrieval_phase4_enabled: bool = True
+    # Phase-5 compact planner and deterministic sufficiency. Disable for the
+    # phase-4 planner during canary rollback; persisted state remains compatible.
+    agent_planner_phase5_enabled: bool = True
+    # Phase-6 verified EvidencePack, answer-model separation and output schema.
+    agent_answer_phase6_enabled: bool = True
+    # Adaptive candidate assessment, semantic-card evidence and deterministic
+    # multi-batch full reads. Kept off until golden/held-out canary gates pass.
+    agent_adaptive_evidence_depth_v1_enabled: bool = False
+    # Reserved for the unified integrity rollout. Phase 0 defines only the
+    # rollback surface; no runtime branch may consume these flags yet.
+    agent_unified_catalog_v1_enabled: bool = False
+    agent_typed_requirements_v1_enabled: bool = False
+    agent_unified_selector_v1_enabled: bool = False
+    agent_verified_pack_boundary_v1_enabled: bool = False
+    agent_planner_policy_v1_enabled: bool = False
+    # Conditional phase-6 recall audit. Shadow records proposals without
+    # changing the material plan; active admission remains separately gated.
+    agent_recall_verifier_v1_enabled: bool = False
+    agent_recall_verifier_v1_shadow: bool = True
+    agent_unified_default_on: bool = False
+    # Durable message-level provenance and bounded semantic referent binding.
+    dialog_message_context_manifest_v1: bool = True
+    # Compact message cards are shared by the planner and final answer.
+    agent_dialog_context_v2: bool = True
+    # Roll back to the pre-simplification resolver only for a controlled canary.
+    agent_referent_resolution_legacy: bool = False
+    # Allow the classifier to finish conversational follow-ups without seed.
+    agent_finish_without_research: bool = True
+    semantic_referent_resolution_v1: bool = True
+    # Phase-8 exhaustive work is checkpointed and routed to a dedicated queue.
+    agent_batch_path_v1_enabled: bool = True
+    rag_l2_engine: Literal["legacy", "langgraph"] = "langgraph"
+    agent_actions_enabled: bool = False
+    agent_media_enabled: bool = False
+    agent_checkpoint_retention_days: int = 14
 
     # Embeddings configuration
     # Local model name for fastembed (must be in TextEmbedding.list_supported_models())
@@ -181,9 +279,37 @@ class Settings(BaseSettings):
 
     @field_validator(
         "rag_enabled",
+        "rag_semantic_summaries_enabled",
         "ai_context_log",
         "ai_context_stamps",
         "rag_query_rewrite_on_miss",
+        "rag_l0_enabled",
+        "rag_escalate_on_miss",
+        "rag_tier_b_enabled",
+        "rag_intent_routing_enabled",
+        "rag_agent_plan_alignment_llm",
+        "agent_actions_enabled",
+        "agent_media_enabled",
+        "agent_runtime_phase1_enabled",
+        "agent_turn_contract_v2_enabled",
+        "agent_retrieval_phase4_enabled",
+        "agent_planner_phase5_enabled",
+        "agent_answer_phase6_enabled",
+        "agent_adaptive_evidence_depth_v1_enabled",
+        "agent_unified_catalog_v1_enabled",
+        "agent_typed_requirements_v1_enabled",
+        "agent_unified_selector_v1_enabled",
+        "agent_verified_pack_boundary_v1_enabled",
+        "agent_planner_policy_v1_enabled",
+        "agent_recall_verifier_v1_enabled",
+        "agent_recall_verifier_v1_shadow",
+        "agent_unified_default_on",
+        "dialog_message_context_manifest_v1",
+        "agent_dialog_context_v2",
+        "agent_referent_resolution_legacy",
+        "agent_finish_without_research",
+        "semantic_referent_resolution_v1",
+        "agent_batch_path_v1_enabled",
         "cookie_secure",
         "telegram_live_sync_enabled",
         "telegram_reconcile_enabled",

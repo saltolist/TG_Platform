@@ -22,8 +22,11 @@ from app.services.ai.providers import get_provider_spec, get_web_search_spec
 from app.services.ai.web_search import call_perplexity_search
 from app.services.ai.providers import WebSearchPath
 from app.services.ai.note_citations import NoteCite
+from app.services.ai.reply_pipeline_log import begin_reply_pipeline_trace, trace_step
 from app.services.ai.rag_query import retrieve_rag_for_reply
 from app.services.ai.rag_reasoner import resolve_rag_reasoner_llm
+from app.services.ai.intent_router import classify_intent, parse_period
+from app.services.ai.rag_tools import build_post_analytics_context
 from app.services.ai.byok_profile import MASKED_VALUE, is_api_key_preview
 from app.services.ai.reply_orchestrator import (
     ReplyContext,
@@ -243,6 +246,28 @@ async def ai_reply(
     ctx.provider_name = provider_name
     ctx.is_stub = False
     ctx.log_context = log_context
+    ctx.context_trace_enabled = settings.ai_context_log
+
+    begin_reply_pipeline_trace(
+        enabled=settings.ai_context_log,
+        chat_filter=get_chat_filter(),
+        scope=payload.scope,
+        chat_id=payload.chat_id,
+        post_id=payload.post_id,
+        post_chat_id=payload.post_chat_id,
+        user_text=payload.text,
+        post_data=post_data,
+        rag_enabled=settings.rag_enabled,
+        rag_settings={
+            "rag_mode": settings.rag_mode,
+            "rag_l0_enabled": settings.rag_l0_enabled,
+            "rag_tier_b_enabled": settings.rag_tier_b_enabled,
+            "rag_top_k": settings.rag_top_k,
+            "rag_min_similarity": settings.rag_min_similarity,
+            "rag_query_rewrite_on_miss": settings.rag_query_rewrite_on_miss,
+            "ai_context_stamps": settings.ai_context_stamps,
+        },
+    )
 
     # Web search resolution (optional, from request)
     if payload.web_provider and payload.web_model:
@@ -285,6 +310,16 @@ async def ai_reply(
                         )
                         ctx.web_cites = web_cites
                         ctx.web_search_context = web_ctx
+                        trace_step(
+                            "3. web.search",
+                            [
+                                f"provider={payload.web_provider}",
+                                f"model={payload.web_model}",
+                                f"query={search_query!r}",
+                                f"context_chars={len(web_ctx)}",
+                                f"cites={len(web_cites)}",
+                            ],
+                        )
                     except Exception as exc:
                         import logging as _log
                         _log.getLogger(__name__).warning("Web search (path C) failed: %s", exc)
@@ -302,33 +337,93 @@ async def ai_reply(
     rag_cites: list[NoteCite] = []
     if settings.rag_enabled:
         try:
-            embedding_backend = resolve_embedding_backend(user, ai_profile, settings)
-            rag_reasoner_llm = resolve_rag_reasoner_llm(user, ai_profile, settings)
-            rewrite_spec = rewrite_model = rewrite_api_key = None
-            if rag_reasoner_llm is not None:
-                rewrite_spec, rewrite_model, rewrite_api_key = rag_reasoner_llm
-            rag_context, rag_cites = await retrieve_rag_for_reply(
-                session=session,
-                user_id=user.id,
-                scope=payload.scope,
-                user_text=payload.text,
-                history=history,
-                embedding_backend=embedding_backend,
-                post_data=post_data,
-                tenant_key=tenant_key,
-                post_id=payload.post_id,
-                top_k=settings.rag_top_k,
-                min_similarity=settings.rag_min_similarity,
-                history_turns=settings.rag_query_history_turns,
-                query_max_chars=settings.rag_query_max_chars,
-                rewrite_on_miss=settings.rag_query_rewrite_on_miss,
-                rewrite_spec=rewrite_spec,
-                rewrite_model=rewrite_model,
-                rewrite_api_key=rewrite_api_key,
-            )
+            analytics_shortcut = False
+            if (
+                settings.rag_intent_routing_enabled
+                and payload.scope == "post"
+                and payload.post_id
+            ):
+                intent = classify_intent(payload.text, has_post_context=True)
+                if intent == "post_analytics":
+                    period = parse_period(payload.text)
+                    trace_step("3. rag.analytics_shortcut", f"intent=post_analytics period={period}")
+                    stale_after: float | None = None
+                    if settings.telegram_analytics_snapshot_seconds > 0:
+                        from app.services.analytics.channel_metrics import (
+                            MISSED_SNAPSHOT_MULTIPLIER,
+                        )
+
+                        stale_after = (
+                            settings.telegram_analytics_snapshot_seconds
+                            * MISSED_SNAPSHOT_MULTIPLIER
+                        )
+                    rag_context, rag_cites, analytics_error = await build_post_analytics_context(
+                        session,
+                        user.id,
+                        payload.post_id,
+                        period,
+                        snapshot_stale_after_seconds=stale_after,
+                    )
+                    if analytics_error:
+                        import logging
+
+                        logging.getLogger(__name__).warning(
+                            "Post analytics shortcut failed: %s", analytics_error
+                        )
+                        rag_context, rag_cites = "", []
+                    else:
+                        analytics_shortcut = True
+                        trace_step(
+                            "8. rag.result",
+                            [
+                                "source=post_analytics_shortcut",
+                                f"context_chars={len(rag_context)}",
+                                f"cites={len(rag_cites)}",
+                            ],
+                        )
+
+            if not analytics_shortcut:
+                embedding_backend = resolve_embedding_backend(user, ai_profile, settings)
+                rag_reasoner_llm = resolve_rag_reasoner_llm(user, ai_profile, settings)
+                rewrite_spec = rewrite_model = rewrite_api_key = None
+                if rag_reasoner_llm is not None:
+                    rewrite_spec, rewrite_model, rewrite_api_key = rag_reasoner_llm
+                rag_context, rag_cites = await retrieve_rag_for_reply(
+                    session=session,
+                    user_id=user.id,
+                    scope=payload.scope,
+                    user_text=payload.text,
+                    history=history,
+                    embedding_backend=embedding_backend,
+                    post_data=post_data,
+                    tenant_key=tenant_key,
+                    post_id=payload.post_id,
+                    top_k=settings.rag_top_k,
+                    min_similarity=settings.rag_min_similarity,
+                    history_turns=settings.rag_query_history_turns,
+                    query_max_chars=settings.rag_query_max_chars,
+                    rewrite_on_miss=settings.rag_query_rewrite_on_miss,
+                    rewrite_spec=rewrite_spec,
+                    rewrite_model=rewrite_model,
+                    rewrite_api_key=rewrite_api_key,
+                    l0_enabled=settings.rag_l0_enabled,
+                    escalate_min_similarity=settings.rag_escalate_min_similarity,
+                    escalate_on_miss=settings.rag_escalate_on_miss,
+                    tier_b_enabled=settings.rag_tier_b_enabled,
+                    rag_mode=settings.rag_mode,
+                    rag_agent_max_steps=settings.rag_agent_max_steps,
+                    rag_agent_planning_mode=settings.rag_agent_planning_mode,
+                    user=user,
+                    ai_profile=ai_profile,
+                    intent_routing_enabled=settings.rag_intent_routing_enabled,
+                    scope_bias=settings.rag_scope_bias,
+                    chat_id=payload.chat_id,
+                    post_chat_id=payload.post_chat_id,
+                )
         except Exception as exc:
             import logging
             logging.getLogger(__name__).warning("RAG retrieval skipped: %s", exc)
+            trace_step("3. rag.error", f"retrieval failed: {exc}")
 
     ctx.rag_cites = rag_cites
 
@@ -347,6 +442,29 @@ async def ai_reply(
         rag_context=rag_context or None,
         web_search_context=ctx.web_search_context or None,
     )
+
+    rag_attached = any(
+        "Контекст из базы знаний" in str(message.get("content") or "")
+        for message in messages
+        if message.get("role") == "user"
+    )
+    web_attached = any(
+        "Результаты веб-поиска" in str(message.get("content") or "")
+        for message in messages
+        if message.get("role") == "user"
+    )
+    trace_step(
+        "9. prompt.assembly",
+        [
+            f"messages={len(messages)}",
+            f"rag_block_attached={rag_attached}",
+            f"web_block_attached={web_attached}",
+            f"rag_context_chars={len(rag_context or '')}",
+            f"web_context_chars={len(ctx.web_search_context or '')}",
+            f"model={provider_name}/{model_id}",
+        ],
+    )
+
     return StreamingResponse(
         stream_reply_with_meta(ctx, messages),
         media_type="text/event-stream",

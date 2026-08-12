@@ -13,6 +13,7 @@ type AiSettingsSnapshot = {
   webSearchModels: AiModelSnapshot[];
   visionModels?: AiModelSnapshot[];
   imageGenerationModels?: AiModelSnapshot[];
+  videoGenerationModels?: AiModelSnapshot[];
   orchestratorModels: AiModelSnapshot[];
   webReasonerModels: AiModelSnapshot[];
   ragReasonerModels: AiModelSnapshot[];
@@ -67,6 +68,11 @@ export function restoreAiConfigFromSnapshot(
       current.imageGenerationModels,
       saved.imageGenerationModels ?? current.imageGenerationModels.map(currentModelSnapshot),
       "image-gen",
+    ),
+    videoGenerationModels: mapModels(
+      current.videoGenerationModels,
+      saved.videoGenerationModels ?? current.videoGenerationModels.map(currentModelSnapshot),
+      "video-gen",
     ),
     orchestratorModels: normalizeExclusiveModels(
       mapModels(

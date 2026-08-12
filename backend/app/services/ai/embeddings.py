@@ -13,7 +13,10 @@ from __future__ import annotations
 import asyncio
 import functools
 import logging
+import threading
+import time
 from abc import ABC, abstractmethod
+from importlib.metadata import PackageNotFoundError, version
 from typing import Any, Mapping
 
 import httpx
@@ -27,6 +30,27 @@ logger = logging.getLogger(__name__)
 
 # Default local embedding model (must be in fastembed TextEmbedding.list_supported_models())
 DEFAULT_LOCAL_EMBEDDING_MODEL = "sentence-transformers/paraphrase-multilingual-MiniLM-L12-v2"
+_DEFAULT_LOCAL_POOLING = "mean"
+
+
+def _fastembed_runtime_version() -> str:
+    try:
+        return version("fastembed")
+    except PackageNotFoundError:
+        return "unavailable"
+
+
+FASTEMBED_RUNTIME_VERSION = _fastembed_runtime_version()
+
+
+def local_embedding_model_key(model_name: str) -> str:
+    """Fingerprint vector semantics so incompatible indexes never mix."""
+    pooling = (
+        _DEFAULT_LOCAL_POOLING
+        if model_name == DEFAULT_LOCAL_EMBEDDING_MODEL
+        else "registry"
+    )
+    return f"local:{model_name}@fastembed={FASTEMBED_RUNTIME_VERSION};pooling={pooling}"
 
 # fastembed uses "query:" / "passage:" prefixes for e5 models only
 _E5_QUERY_PREFIX = "query: "
@@ -76,15 +100,67 @@ def _uses_e5_prefixes(model_name: str) -> bool:
     return "e5" in model_name.lower()
 
 
-@functools.lru_cache(maxsize=4)
+_fastembed_models: dict[str, Any] = {}
+_fastembed_models_lock = threading.Lock()
+
+
+def reset_embedding_runtime_after_fork() -> None:
+    """Discard model objects inherited by a prefork child."""
+    with _fastembed_models_lock:
+        _fastembed_models.clear()
+
+
+async def warmup_local_embedding_runtime() -> dict[str, float | str | bool | None]:
+    """Load the local model and perform one real embedding in this process."""
+    settings = get_settings()
+    if not settings.rag_enabled:
+        return {
+            "ready": True,
+            "status": "ready_rag_disabled",
+            "first_embed_ms": 0.0,
+        }
+    model_name = settings.embedding_model_local or DEFAULT_LOCAL_EMBEDDING_MODEL
+    init_started = time.perf_counter()
+    # Constructing TextEmbedding is intentionally part of the measured child
+    # warmup, rather than an import-only probe.
+    model = await asyncio.to_thread(_get_fastembed_model, model_name)
+    init_ms = round((time.perf_counter() - init_started) * 1000, 1)
+    if model is None:
+        raise RuntimeError(f"fastembed model {model_name!r} is not available")
+    backend = LocalEmbeddingBackend(model_name)
+    first_started = time.perf_counter()
+    await backend.embed_query("workspace agent worker readiness probe")
+    return {
+        "ready": True,
+        "status": "ready",
+        "model_key": backend.model_key,
+        "embedding_init_ms": init_ms,
+        "first_embed_ms": round((time.perf_counter() - first_started) * 1000, 1),
+    }
+
+
 def _get_fastembed_model(model_name: str):  # type: ignore[return]
     """Lazy-load and cache fastembed TextEmbedding model (thread-safe singleton)."""
-    try:
-        from fastembed import TextEmbedding  # type: ignore[import-untyped]
-        return TextEmbedding(model_name=model_name)
-    except Exception as exc:
-        logger.warning("Failed to load fastembed model %r: %s", model_name, exc)
-        return None
+    cached = _fastembed_models.get(model_name)
+    if cached is not None:
+        return cached
+
+    with _fastembed_models_lock:
+        cached = _fastembed_models.get(model_name)
+        if cached is not None:
+            return cached
+        try:
+            from fastembed import TextEmbedding  # type: ignore[import-untyped]
+
+            # Keep ONNX arena growth bounded in prefork workers. Retrieval uses
+            # one query at a time; unbounded intra-op threads can multiply the
+            # model's transient memory several-fold without improving latency.
+            model = TextEmbedding(model_name=model_name, threads=1)
+        except Exception as exc:
+            logger.warning("Failed to load fastembed model %r: %s", model_name, exc)
+            return None
+        _fastembed_models[model_name] = model
+        return model
 
 
 class LocalEmbeddingBackend(EmbeddingBackend):
@@ -96,7 +172,7 @@ class LocalEmbeddingBackend(EmbeddingBackend):
 
     @property
     def model_key(self) -> str:
-        return f"local:{self._model_name}"
+        return local_embedding_model_key(self._model_name)
 
     @property
     def dim(self) -> int:

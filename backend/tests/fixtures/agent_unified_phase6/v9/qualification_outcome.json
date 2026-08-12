@@ -1,0 +1,32 @@
+{
+  "schema": "workspace.phase6-semantic-qualification-outcome/v1",
+  "version": "2026-07-29-semantic-qualification-v1",
+  "passed": false,
+  "run_count": 2,
+  "cohort_sha256": "b7948180d48c3a67d7f7cc4aedb5a66d533b54df3d77051697badba4dca41fdc",
+  "runs": [
+    {
+      "artifact": "qualification_v12_240_gpt41_primary_run1.json",
+      "selector_passed": true,
+      "planner_passed": false,
+      "planner_passed_count": 19,
+      "planner_scenario_count": 20,
+      "failed_scenario_ids": ["q4-anaphora-en"]
+    },
+    {
+      "artifact": "qualification_v12_240_gpt41_primary_run2.json",
+      "selector_passed": true,
+      "planner_passed": false,
+      "planner_passed_count": 19,
+      "planner_scenario_count": 20,
+      "failed_scenario_ids": ["q4-anaphora-en"]
+    }
+  ],
+  "failure_boundary": "planner_resolution",
+  "failure_reason_codes": ["excluded_referent_retained"],
+  "formal_canary_authorized": false,
+  "contains_credentials": false,
+  "contains_account_identifier": false,
+  "contains_raw_provider_output": false,
+  "contains_source_or_user_content": false
+}

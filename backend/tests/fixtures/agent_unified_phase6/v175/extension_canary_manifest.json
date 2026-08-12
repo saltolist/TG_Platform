@@ -1,0 +1,161 @@
+{
+  "schema": "workspace.phase6-formal-canary-manifest/v1",
+  "version": "2026-08-12-account-live-v175-extension",
+  "report_id": "unified-phase6-live-extension-v175-2026-08-12",
+  "status": "ready",
+  "provider": "OpenAI",
+  "model": "gpt-4.1-mini",
+  "labels_frozen_at": "2026-08-12T10:20:00Z",
+  "labels_frozen_before_provider_output": true,
+  "scenarios": [
+    {
+      "sequence": 1,
+      "scenario_id": "live-v175-post-only-published-context",
+      "cohort": "post_only",
+      "kind": "post_only_single_published",
+      "coverage": "relevant",
+      "query_text": "Только по моим постам, без заметок: что опубликованный пост о TG Platform говорит о том, как AI находит и загружает контекст?",
+      "query_digest": "261d93d5ec74b907caa0472c22e3a3ffc9baca26f551eb8159dbe94de16cbcb7",
+      "expected_refs": ["post:77c8aef2-d9d9-4578-8d3a-59eb5dbfbda7"],
+      "critical_refs": ["post:77c8aef2-d9d9-4578-8d3a-59eb5dbfbda7"],
+      "allowed_supporting_refs": [],
+      "irrelevant_refs": [],
+      "allowed_material_kinds": ["post"]
+    },
+    {
+      "sequence": 2,
+      "scenario_id": "live-v175-post-only-draft-interface",
+      "cohort": "post_only",
+      "kind": "post_only_single_draft",
+      "coverage": "relevant",
+      "query_text": "Только по моим постам, без заметок: какую проблему переключения между сервисами описывает черновик и какое решение предлагает?",
+      "query_digest": "6dcb6f9fce7b54519c0a53e6bab34ca250e52d687913587fcd74af03656072f6",
+      "expected_refs": ["post:1c96b290-1405-417f-a171-995dede3da35"],
+      "critical_refs": ["post:1c96b290-1405-417f-a171-995dede3da35"],
+      "allowed_supporting_refs": [],
+      "irrelevant_refs": [],
+      "allowed_material_kinds": ["post"]
+    },
+    {
+      "sequence": 3,
+      "scenario_id": "live-v175-post-only-ai-context-synthesis",
+      "cohort": "post_only",
+      "kind": "post_only_composition",
+      "coverage": "relevant",
+      "query_text": "Только по моим постам, без заметок: какие посты объясняют отличие AI TG Platform от обычного ChatGPT и что каждый из них добавляет?",
+      "query_digest": "84a6dc75bb895ec6c9807e978974766189a0dab7d79a7afd00e148eb4aa9bfa5",
+      "expected_refs": [
+        "post:77c8aef2-d9d9-4578-8d3a-59eb5dbfbda7",
+        "post:84c753d5-060c-43b3-bb48-1a0e2463dbfb"
+      ],
+      "critical_refs": [
+        "post:77c8aef2-d9d9-4578-8d3a-59eb5dbfbda7",
+        "post:84c753d5-060c-43b3-bb48-1a0e2463dbfb"
+      ],
+      "allowed_supporting_refs": ["post:1c96b290-1405-417f-a171-995dede3da35"],
+      "irrelevant_refs": [],
+      "allowed_material_kinds": ["post"]
+    },
+    {
+      "sequence": 4,
+      "scenario_id": "live-v175-post-only-draft-comparison",
+      "cohort": "post_only",
+      "kind": "post_only_comparison",
+      "coverage": "relevant",
+      "query_text": "Только по моим постам, без заметок: сравни черновик про единый интерфейс и черновик про AI, который знает канал. Какую отдельную проблему решает каждый?",
+      "query_digest": "cf5b8824178b44a6c7bddf080021fb4262c22e5a7aaeed439c19662b9506674b",
+      "expected_refs": [
+        "post:1c96b290-1405-417f-a171-995dede3da35",
+        "post:84c753d5-060c-43b3-bb48-1a0e2463dbfb"
+      ],
+      "critical_refs": [
+        "post:1c96b290-1405-417f-a171-995dede3da35",
+        "post:84c753d5-060c-43b3-bb48-1a0e2463dbfb"
+      ],
+      "allowed_supporting_refs": [],
+      "irrelevant_refs": [],
+      "allowed_material_kinds": ["post"]
+    },
+    {
+      "sequence": 5,
+      "scenario_id": "live-v175-no-material-sky",
+      "cohort": "no_material",
+      "kind": "general_knowledge_without_workspace_evidence",
+      "coverage": "relevant",
+      "expected_retrieval": false,
+      "require_workspace_search": true,
+      "query_text": "Почему небо голубое? Ответь без опоры на мои материалы.",
+      "query_digest": "5fb5753587f7b4b63249cbb148b9b95bab5bc4b8914db54838f2ec23cb8849e4",
+      "expected_refs": [],
+      "critical_refs": [],
+      "allowed_supporting_refs": [],
+      "irrelevant_refs": []
+    },
+    {
+      "sequence": 6,
+      "scenario_id": "live-v175-no-material-circle",
+      "cohort": "no_material",
+      "kind": "calculation_without_workspace_evidence",
+      "coverage": "relevant",
+      "expected_retrieval": false,
+      "require_workspace_search": true,
+      "query_text": "Как вычислить площадь круга радиуса 5 см? Ответь без опоры на мои материалы.",
+      "query_digest": "08afefbc25ad7afdd448c548243fbded37e366e7e2990188e95f132ad0fe7588",
+      "expected_refs": [],
+      "critical_refs": [],
+      "allowed_supporting_refs": [],
+      "irrelevant_refs": []
+    },
+    {
+      "sequence": 7,
+      "scenario_id": "live-v175-count-active-posts",
+      "cohort": "structural_count",
+      "kind": "active_post_count_by_status",
+      "coverage": "complete",
+      "query_text": "Сколько у меня активных постов: черновиков, запланированных и опубликованных, без удалённых?",
+      "query_digest": "06eacacc7f08ce84eb500bc34e43d786463ad2d4fc8c470ac8ab8119cf893ee8",
+      "expected_refs": [],
+      "critical_refs": [],
+      "allowed_supporting_refs": [],
+      "irrelevant_refs": [],
+      "allowed_material_kinds": ["post"],
+      "expected_answer_numbers": [0, 4, 5, 9]
+    },
+    {
+      "sequence": 8,
+      "scenario_id": "live-v175-count-spatial-notes",
+      "cohort": "semantic_count",
+      "kind": "thematic_global_note_count",
+      "coverage": "complete",
+      "query_text": "Сколько у меня глобальных заметок, основная тема которых — интерактивная пространственная система?",
+      "query_digest": "802c89c7702a647a047a4d70e6a72849d1396675145fefcdf70fbee1ff41424a",
+      "expected_refs": [
+        "note:402ac3a4-9f28-4d35-bcf0-ffdd7aceab30",
+        "note:f351d19b-4d54-426a-b653-2c6b771efc15"
+      ],
+      "critical_refs": [
+        "note:402ac3a4-9f28-4d35-bcf0-ffdd7aceab30",
+        "note:f351d19b-4d54-426a-b653-2c6b771efc15"
+      ],
+      "allowed_supporting_refs": [],
+      "irrelevant_refs": [],
+      "allowed_material_kinds": ["note"],
+      "expected_answer_numbers": [2]
+    },
+    {
+      "sequence": 9,
+      "scenario_id": "live-v175-count-note-images",
+      "cohort": "structural_count",
+      "kind": "all_note_image_count",
+      "coverage": "complete",
+      "query_text": "Сколько изображений находится во всех моих заметках, включая заметки внутри постов?",
+      "query_digest": "db9b9cef72be0bb61002e23c53e923cb127ab66a1b53113ead1496c087b99d88",
+      "expected_refs": ["post:1c96b290-1405-417f-a171-995dede3da35"],
+      "critical_refs": [],
+      "allowed_supporting_refs": [],
+      "irrelevant_refs": [],
+      "allowed_material_kinds": ["post", "note", "attachment", "image"],
+      "expected_answer_numbers": [2]
+    }
+  ]
+}

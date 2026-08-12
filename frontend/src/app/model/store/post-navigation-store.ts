@@ -3,7 +3,7 @@ import type { PostMode } from "@/shared/types";
 
 export type PostViewEntry = { mode: PostMode; chatId: string | null };
 
-const TAB_MODES: PostMode[] = ["notes", "chats", "comments"];
+const TAB_MODES: PostMode[] = ["notes", "chats", "comments", "analytics"];
 
 function resolvePostViewMode(currentMode: PostMode, nextMode: PostMode): PostMode {
   if (TAB_MODES.includes(nextMode) && currentMode === nextMode) {

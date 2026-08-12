@@ -80,7 +80,9 @@ export function useAiModelsBlock() {
   const setWebs = (webSearchModels: LlmModel[]) => update({ ...cfg, webSearchModels });
   const setVisionModels = (visionModels: LlmModel[]) => update({ ...cfg, visionModels });
   const setImageGenerationModels = (imageGenerationModels: LlmModel[]) =>
-    update({ ...cfg, imageGenerationModels });
+    update({ ...cfg, imageGenerationModels: normalizeExclusiveModels(imageGenerationModels) });
+  const setVideoGenerationModels = (videoGenerationModels: LlmModel[]) =>
+    update({ ...cfg, videoGenerationModels: normalizeExclusiveModels(videoGenerationModels) });
   const setOrchestrators = (orchestratorModels: LlmModel[]) =>
     update({ ...cfg, orchestratorModels: normalizeExclusiveModels(orchestratorModels) });
   const setWebReasoners = (webReasonerModels: LlmModel[]) =>
@@ -106,6 +108,18 @@ export function useAiModelsBlock() {
   const addImageGeneration = () =>
     setImageGenerationModels([
       ...cfg.imageGenerationModels,
+      {
+        id: randomId(),
+        provider: "",
+        model: "",
+        apiKey: "",
+        active: true,
+        includeInMulti: false,
+      },
+    ]);
+  const addVideoGeneration = () =>
+    setVideoGenerationModels([
+      ...cfg.videoGenerationModels,
       {
         id: randomId(),
         provider: "",
@@ -143,6 +157,7 @@ export function useAiModelsBlock() {
     setWebs,
     setVisionModels,
     setImageGenerationModels,
+    setVideoGenerationModels,
     setOrchestrators,
     setWebReasoners,
     setRagReasoners,
@@ -150,6 +165,7 @@ export function useAiModelsBlock() {
     addWeb,
     addVision,
     addImageGeneration,
+    addVideoGeneration,
     addOrchestrator,
     addWebReasoner,
     addRagReasoner,

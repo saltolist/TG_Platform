@@ -1,0 +1,517 @@
+"""Agent runs API — durable execution, events, resume, cancel."""
+
+from __future__ import annotations
+
+import uuid
+from typing import Any
+
+from fastapi import APIRouter, Header, HTTPException, Query
+from fastapi.responses import StreamingResponse
+from pydantic import BaseModel
+from sqlalchemy import select
+
+from app.core.config import get_settings
+from app.core.deps import CurrentUser, DbSession
+from app.db.models import ActionProposal, AgentBatchJob, MediaAsset
+from app.schemas.requests import StartAgentRunRequest
+from app.services.agent.actions.executors import execute_approved_proposal
+from app.services.agent.actions.proposals import approve_proposal
+from app.services.agent.media.jobs import cancel_media_job, get_media_job
+from app.services.agent.runtime import events as event_service
+from app.services.agent.runtime.audit import write_audit_event
+from app.services.agent.runtime.executor import resume_agent_graph
+from app.services.agent.runtime.runs import start_run
+from app.services.agent.runtime.sse_events import (
+    format_agent_sse_event,
+    parse_last_event_id,
+)
+from app.services.agent.runtime.trace import render_run_trace
+
+router = APIRouter(prefix="/ai/runs", tags=["Agent Runs"])
+
+_SSE_HEADERS = {
+    "Cache-Control": "no-cache",
+    "X-Accel-Buffering": "no",
+}
+
+
+class StartRunRequest(StartAgentRunRequest):
+    pass
+
+
+class ResumeRequest(BaseModel):
+    interrupt_id: str | None = None
+    decision: str = "approve"
+    payload_hash: str | None = None
+    proposal_id: str | None = None
+
+
+@router.get("/message-context/{message_id}/")
+async def get_message_context_by_message(
+    message_id: str,
+    user: CurrentUser,
+    session: DbSession,
+) -> dict[str, Any]:
+    from app.services.agent.runtime.message_context import load_message_context
+
+    row = await load_message_context(session, user_id=user.id, message_id=message_id)
+    if row is None:
+        raise HTTPException(status_code=404, detail="Message context not found")
+    return dict(row.manifest or {})
+
+
+@router.post("/", status_code=201)
+async def create_agent_run(
+    body: StartRunRequest,
+    user: CurrentUser,
+    session: DbSession,
+) -> dict[str, Any]:
+    settings = get_settings()
+    if settings.agent_runtime_engine != "langgraph":
+        raise HTTPException(status_code=501, detail="Agent runtime disabled")
+    run, seq = await start_run(
+        session,
+        user=user,
+        thread_id=body.thread_id,
+        scope=body.scope,
+        chat_id=body.chat_id,
+        post_id=body.post_id,
+        post_chat_id=body.post_chat_id,
+        answer_llm_id=body.llm_id,
+        timezone=body.timezone,
+    )
+    if body.user_text.strip():
+        from app.tasks.agent_runs import execute_agent_run_task
+
+        execute_agent_run_task.apply_async(
+            args=[str(run.id), body.user_text],
+            task_id=f"agent-run:{run.id}",
+        )
+    return {
+        "id": str(run.id),
+        "assistant_message_id": str(run.assistant_message_id),
+        "thread_id": run.thread_id,
+        "status": run.status,
+        "sequence": seq,
+    }
+
+
+@router.get("/{run_id}/")
+async def get_agent_run(
+    run_id: uuid.UUID,
+    user: CurrentUser,
+    session: DbSession,
+) -> dict[str, Any]:
+    run = await event_service.get_run(session, user_id=user.id, run_id=run_id)
+    if run is None:
+        raise HTTPException(status_code=404, detail="Run not found")
+    return {
+        "id": str(run.id),
+        "assistant_message_id": str(run.assistant_message_id),
+        "thread_id": run.thread_id,
+        "status": run.status,
+        "scope": run.scope,
+        "chat_id": run.chat_id,
+        "post_id": run.post_id,
+        "post_chat_id": run.post_chat_id,
+        "answer_llm_id": run.answer_llm_id,
+        "current_interrupt": run.current_interrupt,
+        "snapshot": run.snapshot,
+        "error": run.error,
+        "created_at": run.created_at.isoformat(),
+        "updated_at": run.updated_at.isoformat(),
+        "completed_at": run.completed_at.isoformat() if run.completed_at else None,
+    }
+
+
+@router.get("/{run_id}/context/")
+async def get_agent_message_context(
+    run_id: uuid.UUID,
+    user: CurrentUser,
+    session: DbSession,
+) -> dict[str, Any]:
+    """Return the owner-scoped durable message context manifest."""
+    run = await event_service.get_run(session, user_id=user.id, run_id=run_id)
+    if run is None:
+        raise HTTPException(status_code=404, detail="Run not found")
+    from app.services.agent.runtime.message_context import load_message_context
+
+    row = await load_message_context(session, user_id=user.id, run_id=run.id)
+    if row is None:
+        # Legacy runs have no exact manifest; expose the compatibility marker
+        # instead of reconstructing unsupported provenance after the fact.
+        return {
+            "schema": "workspace.message-context/v1",
+            "message_id": str(run.assistant_message_id),
+            "run_id": str(run.id),
+            "source_turn_id": str(run.id),
+            "considered_context": [],
+            "cited_evidence": [],
+            "context_refs": [],
+            "reference_sets": [],
+            "artifacts": [],
+            "stale_refs": [],
+            "provenance": "legacy",
+        }
+    return dict(row.manifest or {})
+
+
+@router.get("/{run_id}/trace/")
+async def get_agent_run_trace(
+    run_id: uuid.UUID,
+    user: CurrentUser,
+    session: DbSession,
+    limit: int = Query(default=500, ge=1, le=2000),
+) -> dict[str, Any]:
+    """Human-readable decision timeline for a run, rendered from the durable
+    agent_events chain (Спринт 5 tracing). Owner-scoped; answers "why did the
+    agent decide this" after the fact, cross-process (unlike legacy in-memory)."""
+    run = await event_service.get_run(session, user_id=user.id, run_id=run_id)
+    if run is None:
+        raise HTTPException(status_code=404, detail="Run not found")
+    events = await event_service.list_events(session, run_id=run_id, limit=limit)
+    return {
+        "run_id": str(run_id),
+        "status": run.status,
+        "event_count": len(events),
+        "trace": render_run_trace(events, run_id=str(run_id)),
+    }
+
+
+@router.get("/{run_id}/batch/")
+async def get_agent_batch(
+    run_id: uuid.UUID,
+    user: CurrentUser,
+    session: DbSession,
+) -> dict[str, Any]:
+    from app.services.agent.runtime.batch import serialize_batch_job
+
+    run = await event_service.get_run(session, user_id=user.id, run_id=run_id)
+    if run is None:
+        raise HTTPException(status_code=404, detail="Run not found")
+    job = await session.scalar(
+        select(AgentBatchJob).where(
+            AgentBatchJob.run_id == run.id,
+            AgentBatchJob.user_id == user.id,
+        )
+    )
+    if job is None:
+        raise HTTPException(status_code=404, detail="Batch job not found")
+    return serialize_batch_job(job)
+
+
+@router.get("/{run_id}/batch/items/")
+async def get_agent_batch_items(
+    run_id: uuid.UUID,
+    user: CurrentUser,
+    session: DbSession,
+    after: int = Query(default=0, ge=0),
+    limit: int = Query(default=100, ge=1, le=200),
+) -> dict[str, Any]:
+    from app.services.agent.runtime.batch import list_batch_items
+
+    run = await event_service.get_run(session, user_id=user.id, run_id=run_id)
+    if run is None:
+        raise HTTPException(status_code=404, detail="Run not found")
+    job = await session.scalar(
+        select(AgentBatchJob).where(
+            AgentBatchJob.run_id == run.id,
+            AgentBatchJob.user_id == user.id,
+        )
+    )
+    if job is None:
+        raise HTTPException(status_code=404, detail="Batch job not found")
+    rows = await list_batch_items(
+        session,
+        job_id=job.id,
+        after_sequence=after,
+        limit=limit,
+    )
+    return {
+        "job_id": str(job.id),
+        "items": [
+            {
+                "sequence": row.sequence,
+                "object_kind": row.object_kind,
+                "source_id": row.source_id,
+                "source_revision": row.source_revision,
+                "payload": row.payload,
+            }
+            for row in rows
+        ],
+        "next_after": rows[-1].sequence if rows else after,
+    }
+
+
+@router.post("/{run_id}/batch/resume/")
+async def resume_agent_batch(
+    run_id: uuid.UUID,
+    user: CurrentUser,
+    session: DbSession,
+) -> dict[str, Any]:
+    from app.services.agent.runtime.batch import resume_batch_job, serialize_batch_job
+    from app.tasks.agent_batch import execute_agent_batch_task
+
+    run = await event_service.get_run(session, user_id=user.id, run_id=run_id)
+    if run is None:
+        raise HTTPException(status_code=404, detail="Run not found")
+    job = await session.scalar(
+        select(AgentBatchJob).where(
+            AgentBatchJob.run_id == run.id,
+            AgentBatchJob.user_id == user.id,
+        )
+    )
+    if job is None:
+        raise HTTPException(status_code=404, detail="Batch job not found")
+    if job.status not in {"failed", "paused"}:
+        raise HTTPException(status_code=409, detail=f"Batch job not resumable: {job.status}")
+    await resume_batch_job(session, job)
+    run.completed_at = None
+    await event_service.update_run_status(session, run, status="running", error="")
+    await event_service.append_event(
+        session,
+        run_id=run.id,
+        event_type="batch_resumed",
+        payload={"batch_job_id": str(job.id), "cursor": dict(job.cursor or {})},
+    )
+    await session.commit()
+    result = execute_agent_batch_task.apply_async(
+        args=[str(job.id)],
+        task_id=f"agent-batch:{job.id}:resume:{(job.cursor or {}).get('page', 0)}",
+    )
+    job.celery_task_id = result.id
+    await session.commit()
+    return serialize_batch_job(job)
+
+
+@router.get("/{run_id}/events/")
+async def stream_agent_events(
+    run_id: uuid.UUID,
+    user: CurrentUser,
+    session: DbSession,
+    last_event_id: str | None = Header(default=None, alias="Last-Event-ID"),
+    after: int | None = Query(default=None, ge=0),
+) -> StreamingResponse:
+    run = await event_service.get_run(session, user_id=user.id, run_id=run_id)
+    if run is None:
+        raise HTTPException(status_code=404, detail="Run not found")
+
+    after_seq = after if after is not None else parse_last_event_id(last_event_id)
+
+    async def _gen():
+        import asyncio
+
+        from app.db.session import async_session_factory
+
+        cursor = after_seq
+        idle_rounds = 0
+        while True:
+            async with async_session_factory() as poll_session:
+                events = await event_service.list_events(
+                    poll_session,
+                    run_id=run_id,
+                    after_sequence=cursor,
+                )
+                run_row = await event_service.get_run(
+                    poll_session,
+                    user_id=user.id,
+                    run_id=run_id,
+                )
+            for evt in events:
+                cursor = evt.sequence
+                idle_rounds = 0
+                yield format_agent_sse_event(
+                    sequence=evt.sequence,
+                    event_type=evt.event_type,
+                    payload=evt.payload,
+                )
+            # "interrupted" is terminal for THIS stream: the run is paused on a
+            # HITL proposal and won't emit more events until the user resumes.
+            # The client only calls refresh() (which loads current_interrupt and
+            # renders the approval card) AFTER the stream closes — so leaving it
+            # open here means the card never appears and the user waits forever
+            # despite a valid proposal already sitting in current_interrupt
+            # (chats 2323c4e4 / d8a4b47d and every prior edit_post run). Resuming
+            # opens a fresh stream.
+            if run_row and run_row.status in {"completed", "failed", "cancelled", "interrupted"}:
+                break
+            if not events:
+                idle_rounds += 1
+                if idle_rounds % 40 == 0:
+                    yield ": keepalive\n\n"
+            # 0.2s (not 0.5s): answer_node streams partial "answer" events as
+            # tokens arrive, and this poll interval is the floor on how chunky
+            # the streamed reply looks to the user — tighter interval, smoother
+            # chunked streaming. Still one indexed SELECT per tick, cheap.
+            await asyncio.sleep(0.2)
+
+    return StreamingResponse(_gen(), media_type="text/event-stream", headers=_SSE_HEADERS)
+
+
+@router.post("/{run_id}/resume/")
+async def resume_agent_run(
+    run_id: uuid.UUID,
+    body: ResumeRequest,
+    user: CurrentUser,
+    session: DbSession,
+) -> dict[str, Any]:
+    run = await event_service.get_run(session, user_id=user.id, run_id=run_id)
+    if run is None:
+        raise HTTPException(status_code=404, detail="Run not found")
+    if run.status not in {"running", "interrupted"}:
+        raise HTTPException(status_code=409, detail=f"Run not resumable: {run.status}")
+
+    settings = get_settings()
+    result: dict[str, Any] = {"run_id": str(run.id), "decision": body.decision}
+
+    if body.proposal_id and body.payload_hash and settings.agent_actions_enabled:
+        proposal = await session.scalar(
+            select(ActionProposal).where(
+                ActionProposal.id == uuid.UUID(body.proposal_id),
+                ActionProposal.run_id == run.id,
+                ActionProposal.user_id == user.id,
+            )
+        )
+        if proposal is None:
+            raise HTTPException(status_code=404, detail="Proposal not found")
+        pending_proposal_id = str(
+            ((run.current_interrupt or {}).get("proposal") or {}).get("id") or ""
+        )
+        if pending_proposal_id and pending_proposal_id != str(proposal.id):
+            raise HTTPException(status_code=409, detail="Proposal is not the active run interrupt")
+        pending_hash = str(
+            ((run.current_interrupt or {}).get("proposal") or {}).get("payload_hash") or ""
+        )
+        if pending_hash and pending_hash != body.payload_hash:
+            raise HTTPException(status_code=409, detail="Approval hash does not match active interrupt")
+        if body.decision == "approve":
+            await approve_proposal(session, proposal=proposal, approved_hash=body.payload_hash)
+            applied = await execute_approved_proposal(session, proposal=proposal, user=user)
+            await write_audit_event(
+                session,
+                user_id=user.id,
+                run_id=run.id,
+                event_kind="proposal_applied",
+                detail={"proposal_id": str(proposal.id), "command": proposal.command},
+            )
+            result["proposal"] = {"id": str(proposal.id), "result": applied}
+        elif body.decision == "reject":
+            proposal.status = "rejected"
+            await session.flush()
+            await write_audit_event(
+                session,
+                user_id=user.id,
+                run_id=run.id,
+                event_kind="proposal_rejected",
+                detail={"proposal_id": str(proposal.id)},
+            )
+            result["proposal"] = {"id": str(proposal.id), "status": "rejected"}
+
+    if run.status == "interrupted":
+        # Carry the real execution result into the resume so action_hitl_node
+        # can report what actually happened instead of a hardcoded "выполнено"
+        # (agent-runtime-remaining.md Спринт 5). Present only on approve.
+        await resume_agent_graph(
+            session,
+            run=run,
+            resume_value={
+                "decision": body.decision,
+                "proposal_id": body.proposal_id,
+                "payload_hash": body.payload_hash,
+                "interrupt_id": body.interrupt_id,
+                "applied": (result.get("proposal") or {}).get("result"),
+            },
+        )
+    else:
+        snapshot = dict(run.snapshot or {})
+        snapshot_contract = dict(snapshot.get("turn_contract") or {})
+        snapshot_targets = dict(snapshot.get("target_contract") or {})
+        await event_service.append_event(
+            session,
+            run_id=run.id,
+            event_type="resumed",
+            payload={
+                **result,
+                "resume_state": {
+                    "contract_revision": snapshot_contract.get("revision"),
+                    "target_ids": [
+                        str(item.get("id") or "")
+                        for item in snapshot_targets.get("targets") or []
+                        if isinstance(item, dict) and item.get("id")
+                    ],
+                    "evidence_ids": [str(item) for item in snapshot.get("evidence_ids") or []],
+                },
+            },
+        )
+        await event_service.update_run_status(session, run, status="running", current_interrupt=None)
+    await session.commit()
+    return result
+
+
+@router.post("/{run_id}/cancel/")
+async def cancel_agent_run(
+    run_id: uuid.UUID,
+    user: CurrentUser,
+    session: DbSession,
+    job_id: str | None = None,
+) -> dict[str, Any]:
+    run = await event_service.get_run(session, user_id=user.id, run_id=run_id)
+    if run is None:
+        raise HTTPException(status_code=404, detail="Run not found")
+
+    if job_id and get_settings().agent_media_enabled:
+        job = await get_media_job(session, user_id=user.id, job_id=uuid.UUID(job_id))
+        if job is not None:
+            await cancel_media_job(session, job)
+
+    batch = await session.scalar(
+        select(AgentBatchJob).where(
+            AgentBatchJob.run_id == run.id,
+            AgentBatchJob.user_id == user.id,
+        )
+    )
+    if batch is not None and batch.status not in {"completed", "cancelled"}:
+        from datetime import datetime, timezone
+
+        batch.status = "cancelled"
+        batch.completed_at = datetime.now(timezone.utc)
+
+    await event_service.update_run_status(session, run, status="cancelled")
+    await event_service.append_event(
+        session,
+        run_id=run.id,
+        event_type="cancelled",
+        payload={"job_id": job_id},
+    )
+    await session.commit()
+    return {"id": str(run.id), "status": "cancelled"}
+
+
+@router.get("/{run_id}/media/{job_id}/")
+async def get_agent_media_job(
+    run_id: uuid.UUID,
+    job_id: uuid.UUID,
+    user: CurrentUser,
+    session: DbSession,
+) -> dict[str, Any]:
+    run = await event_service.get_run(session, user_id=user.id, run_id=run_id)
+    if run is None:
+        raise HTTPException(status_code=404, detail="Run not found")
+    job = await get_media_job(session, user_id=user.id, job_id=job_id)
+    if job is None or job.run_id != run.id:
+        raise HTTPException(status_code=404, detail="Media job not found")
+    preview_url = None
+    if job.asset_id:
+        asset = await session.get(MediaAsset, job.asset_id)
+        if asset is not None:
+            from app.services.agent.media.storage import MediaStorage
+
+            preview_url = MediaStorage(get_settings()).signed_preview_url(asset.object_key)
+    return {
+        "id": str(job.id),
+        "status": job.status,
+        "stage": job.stage,
+        "progress": job.progress,
+        "reserved_cost": float(job.reserved_cost) if job.reserved_cost is not None else None,
+        "preview_url": preview_url,
+    }

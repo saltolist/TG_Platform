@@ -5,10 +5,12 @@ from sqlalchemy import (
     BigInteger,
     Boolean,
     DateTime,
+    Float,
     ForeignKey,
     Integer,
     Numeric,
     String,
+    Text,
     UniqueConstraint,
     false,
     func,
@@ -121,6 +123,296 @@ class ChannelMetricSnapshot(Base):
     reposts: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
     posts_count: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
     er: Mapped[float] = mapped_column(Numeric(5, 1), nullable=False, default=0)
+
+
+class PostMetricSnapshot(Base):
+    """Per-post metrics at each 30-minute slot — source for channel growth aggregation."""
+
+    __tablename__ = "post_metric_snapshots"
+    __table_args__ = (
+        UniqueConstraint("post_id", "captured_at", name="uq_post_metric_snapshots_slot"),
+    )
+
+    id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    post_id: Mapped[uuid.UUID] = mapped_column(
+        ForeignKey("posts.id", ondelete="CASCADE"), index=True, nullable=False
+    )
+    user_id: Mapped[uuid.UUID] = mapped_column(
+        ForeignKey("users.id", ondelete="CASCADE"), index=True, nullable=False
+    )
+    captured_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+    views: Mapped[int] = mapped_column(BigInteger, nullable=False, default=0)
+    reactions: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    reposts: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    comments: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+
+
+class DialogEvidenceTurn(Base):
+    __tablename__ = "dialog_evidence_turns"
+
+    id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True)
+    user_id: Mapped[uuid.UUID] = mapped_column(
+        ForeignKey("users.id", ondelete="CASCADE"), index=True, nullable=False
+    )
+    ledger_key: Mapped[str] = mapped_column(String(512), nullable=False)
+    recorded_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+    user_text: Mapped[str] = mapped_column(Text, nullable=False, default="")
+    target_post_id: Mapped[str | None] = mapped_column(String(128), nullable=True)
+    target_evidence_gap: Mapped[str | None] = mapped_column(String(64), nullable=True)
+    entities: Mapped[list] = mapped_column(JSONB, nullable=False, default=list)
+    # Versioned phase-2 turn contract. Additive so phase-1/legacy rows remain readable.
+    turn_contract: Mapped[dict | None] = mapped_column(JSONB, nullable=True)
+
+
+class AgentRun(Base):
+    __tablename__ = "agent_runs"
+
+    id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    # Server-generated ID of the assistant message reserved for this run.  The
+    # client uses it for the streaming placeholder; manifests never rely on
+    # whichever AI message happens to be visible last.
+    assistant_message_id: Mapped[str] = mapped_column(
+        String(128), nullable=False, unique=True, default=lambda: str(uuid.uuid4())
+    )
+    user_id: Mapped[uuid.UUID] = mapped_column(
+        ForeignKey("users.id", ondelete="CASCADE"), index=True, nullable=False
+    )
+    thread_id: Mapped[str] = mapped_column(String(128), nullable=False)
+    scope: Mapped[str] = mapped_column(String(32), nullable=False, default="global")
+    chat_id: Mapped[str | None] = mapped_column(String(128), nullable=True)
+    post_id: Mapped[str | None] = mapped_column(String(128), nullable=True)
+    # Disambiguates which embedded chat within post.data["chats"] this run
+    # belongs to (mirrors AiReplyRequest.post_chat_id) — a post can host
+    # several chats, and chat_id alone doesn't identify one for scope="post"
+    # (agent-runtime-sprints §2.1 memory).
+    post_chat_id: Mapped[str | None] = mapped_column(String(128), nullable=True)
+    # Profile-owned model id selected by the composer for this durable run.
+    # Persist the id, never an API key or client-supplied provider endpoint.
+    answer_llm_id: Mapped[str | None] = mapped_column(String(128), nullable=True)
+    # IANA zone name from the browser (Intl.DateTimeFormat().resolvedOptions().
+    # timeZone), used to resolve relative schedule_post phrasing ("через
+    # полчаса") into an absolute UTC instant. None for runs created before this
+    # was threaded through — schedule resolution then falls back to UTC.
+    timezone: Mapped[str | None] = mapped_column(String(64), nullable=True)
+    status: Mapped[str] = mapped_column(String(32), nullable=False, default="running")
+    checkpoint_ns: Mapped[str | None] = mapped_column(String(256), nullable=True)
+    current_interrupt: Mapped[dict | None] = mapped_column(JSONB, nullable=True)
+    snapshot: Mapped[dict] = mapped_column(JSONB, nullable=False, default=dict)
+    error: Mapped[str | None] = mapped_column(Text, nullable=True)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now(), nullable=False
+    )
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now(), onupdate=func.now(), nullable=False
+    )
+    completed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+
+
+class DialogMessageContext(Base):
+    """Authoritative message-level provenance for an assistant answer."""
+
+    __tablename__ = "dialog_message_context"
+    __table_args__ = (
+        UniqueConstraint(
+            "user_id", "ledger_key", "message_id",
+            name="uq_dialog_message_context_owner_message",
+        ),
+        UniqueConstraint("run_id", name="uq_dialog_message_context_run"),
+    )
+
+    id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    message_id: Mapped[str] = mapped_column(String(128), nullable=False, index=True)
+    run_id: Mapped[uuid.UUID] = mapped_column(
+        ForeignKey("agent_runs.id", ondelete="CASCADE"), nullable=False, index=True
+    )
+    user_id: Mapped[uuid.UUID] = mapped_column(
+        ForeignKey("users.id", ondelete="CASCADE"), nullable=False, index=True
+    )
+    ledger_key: Mapped[str] = mapped_column(String(512), nullable=False, default="")
+    manifest_schema: Mapped[str] = mapped_column(String(128), nullable=False)
+    manifest: Mapped[dict] = mapped_column(JSONB, nullable=False, default=dict)
+    source_revision_digest: Mapped[str] = mapped_column(String(128), nullable=False, default="")
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now(), nullable=False
+    )
+
+
+class AgentBatchJob(Base):
+    """Durable exhaustive-workspace job executed outside the interactive queue."""
+
+    __tablename__ = "agent_batch_jobs"
+
+    id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    run_id: Mapped[uuid.UUID | None] = mapped_column(
+        ForeignKey("agent_runs.id", ondelete="SET NULL"), unique=True, nullable=True
+    )
+    user_id: Mapped[uuid.UUID] = mapped_column(
+        ForeignKey("users.id", ondelete="CASCADE"), nullable=False
+    )
+    tenant_key: Mapped[str] = mapped_column(Text, nullable=False, default="")
+    job_type: Mapped[str] = mapped_column(String(64), nullable=False)
+    scope: Mapped[str] = mapped_column(String(32), nullable=False, default="global")
+    query: Mapped[str] = mapped_column(Text, nullable=False, default="")
+    status: Mapped[str] = mapped_column(String(32), nullable=False, default="queued")
+    page_size: Mapped[int] = mapped_column(Integer, nullable=False, default=100)
+    max_items: Mapped[int] = mapped_column(Integer, nullable=False, default=10000)
+    max_db_calls: Mapped[int] = mapped_column(Integer, nullable=False, default=128)
+    max_llm_calls: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    cursor: Mapped[dict] = mapped_column(JSONB, nullable=False, default=dict)
+    checkpoint: Mapped[dict] = mapped_column(JSONB, nullable=False, default=dict)
+    result_summary: Mapped[dict] = mapped_column(JSONB, nullable=False, default=dict)
+    processed_items: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    total_items: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    db_calls: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    llm_calls: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    celery_task_id: Mapped[str | None] = mapped_column(String(128), nullable=True)
+    error: Mapped[str | None] = mapped_column(Text, nullable=True)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now(), nullable=False
+    )
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now(), onupdate=func.now(), nullable=False
+    )
+    completed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+
+
+class AgentBatchItem(Base):
+    """Materialized, idempotent result row produced by an AgentBatchJob."""
+
+    __tablename__ = "agent_batch_items"
+    __table_args__ = (
+        UniqueConstraint(
+            "job_id", "object_kind", "source_id", name="uq_agent_batch_items_source"
+        ),
+    )
+
+    id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    job_id: Mapped[uuid.UUID] = mapped_column(
+        ForeignKey("agent_batch_jobs.id", ondelete="CASCADE"), nullable=False
+    )
+    sequence: Mapped[int] = mapped_column(Integer, nullable=False)
+    object_kind: Mapped[str] = mapped_column(String(32), nullable=False)
+    source_id: Mapped[str] = mapped_column(Text, nullable=False)
+    source_revision: Mapped[int] = mapped_column(BigInteger, nullable=False, default=1)
+    payload: Mapped[dict] = mapped_column(JSONB, nullable=False, default=dict)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now(), nullable=False
+    )
+
+
+class AgentEvent(Base):
+    __tablename__ = "agent_events"
+    __table_args__ = (UniqueConstraint("run_id", "sequence", name="uq_agent_events_run_sequence"),)
+
+    id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    run_id: Mapped[uuid.UUID] = mapped_column(
+        ForeignKey("agent_runs.id", ondelete="CASCADE"), index=True, nullable=False
+    )
+    sequence: Mapped[int] = mapped_column(Integer, nullable=False)
+    event_type: Mapped[str] = mapped_column(String(64), nullable=False)
+    payload: Mapped[dict] = mapped_column(JSONB, nullable=False, default=dict)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now(), nullable=False
+    )
+
+
+class ActionProposal(Base):
+    __tablename__ = "action_proposals"
+    __table_args__ = (UniqueConstraint("idempotency_key", name="uq_action_proposals_idempotency"),)
+
+    id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    run_id: Mapped[uuid.UUID] = mapped_column(
+        ForeignKey("agent_runs.id", ondelete="CASCADE"), index=True, nullable=False
+    )
+    user_id: Mapped[uuid.UUID] = mapped_column(
+        ForeignKey("users.id", ondelete="CASCADE"), nullable=False
+    )
+    command: Mapped[str] = mapped_column(String(64), nullable=False)
+    payload: Mapped[dict] = mapped_column(JSONB, nullable=False)
+    payload_hash: Mapped[str] = mapped_column(String(128), nullable=False)
+    resource_version: Mapped[str | None] = mapped_column(String(128), nullable=True)
+    warnings: Mapped[list] = mapped_column(JSONB, nullable=False, default=list)
+    status: Mapped[str] = mapped_column(String(32), nullable=False, default="pending")
+    idempotency_key: Mapped[str] = mapped_column(String(128), nullable=False)
+    expires_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    approved_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    result: Mapped[dict | None] = mapped_column(JSONB, nullable=True)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now(), nullable=False
+    )
+
+
+class MediaJob(Base):
+    __tablename__ = "media_jobs"
+
+    id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    run_id: Mapped[uuid.UUID | None] = mapped_column(
+        ForeignKey("agent_runs.id", ondelete="SET NULL"), nullable=True
+    )
+    user_id: Mapped[uuid.UUID] = mapped_column(
+        ForeignKey("users.id", ondelete="CASCADE"), index=True, nullable=False
+    )
+    job_type: Mapped[str] = mapped_column(String(16), nullable=False)
+    provider: Mapped[str] = mapped_column(String(64), nullable=False)
+    model: Mapped[str] = mapped_column(String(128), nullable=False)
+    status: Mapped[str] = mapped_column(String(32), nullable=False, default="queued")
+    stage: Mapped[str | None] = mapped_column(String(64), nullable=True)
+    progress: Mapped[float] = mapped_column(Float, nullable=False, default=0.0)
+    provider_operation_id: Mapped[str | None] = mapped_column(String(256), nullable=True)
+    brief: Mapped[dict] = mapped_column(JSONB, nullable=False, default=dict)
+    reserved_cost: Mapped[float | None] = mapped_column(Numeric(12, 4), nullable=True)
+    actual_cost: Mapped[float | None] = mapped_column(Numeric(12, 4), nullable=True)
+    asset_id: Mapped[uuid.UUID | None] = mapped_column(UUID(as_uuid=True), nullable=True)
+    error: Mapped[str | None] = mapped_column(Text, nullable=True)
+    celery_task_id: Mapped[str | None] = mapped_column(String(128), nullable=True)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now(), nullable=False
+    )
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now(), onupdate=func.now(), nullable=False
+    )
+    completed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+
+
+class MediaAsset(Base):
+    __tablename__ = "media_assets"
+
+    id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    user_id: Mapped[uuid.UUID] = mapped_column(
+        ForeignKey("users.id", ondelete="CASCADE"), index=True, nullable=False
+    )
+    job_id: Mapped[uuid.UUID | None] = mapped_column(
+        ForeignKey("media_jobs.id", ondelete="SET NULL"), nullable=True
+    )
+    object_key: Mapped[str] = mapped_column(String(512), nullable=False)
+    mime_type: Mapped[str] = mapped_column(String(128), nullable=False)
+    byte_size: Mapped[int] = mapped_column(BigInteger, nullable=False, default=0)
+    checksum: Mapped[str | None] = mapped_column(String(128), nullable=True)
+    width: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    height: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    duration_sec: Mapped[float | None] = mapped_column(Float, nullable=True)
+    moderation_status: Mapped[str] = mapped_column(String(32), nullable=False, default="pending")
+    metadata_: Mapped[dict] = mapped_column("metadata", JSONB, nullable=False, default=dict)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now(), nullable=False
+    )
+
+
+class AgentAuditEvent(Base):
+    __tablename__ = "agent_audit_events"
+
+    id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    run_id: Mapped[uuid.UUID | None] = mapped_column(
+        ForeignKey("agent_runs.id", ondelete="SET NULL"), nullable=True
+    )
+    user_id: Mapped[uuid.UUID] = mapped_column(
+        ForeignKey("users.id", ondelete="CASCADE"), index=True, nullable=False
+    )
+    event_kind: Mapped[str] = mapped_column(String(64), nullable=False)
+    detail: Mapped[dict] = mapped_column(JSONB, nullable=False, default=dict)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now(), nullable=False
+    )
 
 
 class AiModelUsageEvent(Base):

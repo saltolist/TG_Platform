@@ -1,0 +1,66 @@
+{
+  "schema": "workspace-agent-retrieval/v1",
+  "thresholds": {
+    "candidate_recall_at_5": 0.95,
+    "evidence_recall_at_3_floor": 1.0,
+    "irrelevant_read_reduction": 0.30
+  },
+  "scenarios": [
+    {
+      "id": "r01-editorial-policy",
+      "relevant_ids": ["note-policy"],
+      "baseline_ranked_ids": ["note-policy", "note-tone", "post-news", "note-tools", "post-release"],
+      "vector": [["note-policy", 0.91], ["note-tone", 0.79], ["post-news", 0.70], ["note-tools", 0.63], ["post-release", 0.58]],
+      "lexical": [["note-policy", 0.88], ["post-release", 0.51], ["note-tools", 0.45]]
+    },
+    {
+      "id": "r02-launch-date",
+      "relevant_ids": ["post-launch"],
+      "baseline_ranked_ids": ["post-launch", "note-roadmap", "post-retro", "note-budget", "post-hiring"],
+      "vector": [["post-launch", 0.86], ["note-roadmap", 0.81], ["post-retro", 0.68], ["note-budget", 0.60], ["post-hiring", 0.55]],
+      "lexical": [["post-launch", 0.95], ["note-roadmap", 0.48], ["post-retro", 0.39]]
+    },
+    {
+      "id": "r03-comparison",
+      "relevant_ids": ["note-rules", "post-example"],
+      "baseline_ranked_ids": ["note-rules", "post-example", "note-draft", "post-old", "note-links"],
+      "vector": [["note-rules", 0.93], ["post-example", 0.84], ["note-draft", 0.76], ["post-old", 0.65], ["note-links", 0.57]],
+      "lexical": [["post-example", 0.91], ["note-rules", 0.83], ["post-old", 0.44]]
+    },
+    {
+      "id": "r04-rare-detail",
+      "relevant_ids": ["note-security"],
+      "baseline_ranked_ids": ["note-security", "post-api", "note-auth", "post-release", "note-ops"],
+      "vector": [["post-api", 0.83], ["note-auth", 0.79], ["note-security", 0.62], ["post-release", 0.59], ["note-ops", 0.51]],
+      "lexical": [["note-security", 0.99], ["note-auth", 0.42], ["note-ops", 0.37]]
+    },
+    {
+      "id": "r05-post-series",
+      "relevant_ids": ["post-series-2"],
+      "baseline_ranked_ids": ["post-series-2", "post-series-1", "note-series", "post-series-3", "note-calendar"],
+      "vector": [["post-series-2", 0.90], ["post-series-1", 0.86], ["post-series-3", 0.80], ["note-series", 0.74], ["note-calendar", 0.55]],
+      "lexical": [["post-series-2", 0.94], ["note-series", 0.67], ["post-series-1", 0.41]]
+    },
+    {
+      "id": "r06-audience",
+      "relevant_ids": ["note-audience", "post-survey"],
+      "baseline_ranked_ids": ["note-audience", "post-survey", "note-tone", "post-intro", "note-brand"],
+      "vector": [["note-audience", 0.89], ["post-survey", 0.82], ["note-tone", 0.75], ["post-intro", 0.63], ["note-brand", 0.57]],
+      "lexical": [["post-survey", 0.90], ["note-audience", 0.86], ["note-brand", 0.43]]
+    },
+    {
+      "id": "r07-analytics-explanation",
+      "relevant_ids": ["note-er"],
+      "baseline_ranked_ids": ["note-er", "post-metrics", "note-dashboard", "post-growth", "note-export"],
+      "vector": [["note-er", 0.88], ["post-metrics", 0.81], ["note-dashboard", 0.71], ["post-growth", 0.64], ["note-export", 0.52]],
+      "lexical": [["note-er", 0.93], ["note-dashboard", 0.56], ["post-metrics", 0.49]]
+    },
+    {
+      "id": "r08-attachment-process",
+      "relevant_ids": ["note-attachments"],
+      "baseline_ranked_ids": ["note-attachments", "note-files", "post-guide", "note-security", "post-faq"],
+      "vector": [["note-attachments", 0.85], ["note-files", 0.80], ["post-guide", 0.72], ["note-security", 0.60], ["post-faq", 0.54]],
+      "lexical": [["note-attachments", 0.97], ["note-files", 0.61], ["post-faq", 0.39]]
+    }
+  ]
+}

@@ -12,8 +12,9 @@ import { isOverlayAccount } from "@/shared/lib/overlay/isOverlayAccount";
 import { mutateOverlay } from "@/shared/lib/overlay/overlayStorage";
 import { mapMessageAtPath, clampActiveBranchIndex, updateLastVisibleAiMessage } from "@/shared/lib/chatPaths";
 import { parseWebCitesFromStreamMeta } from "@/shared/lib/webCitation";
+import { parseKbCitesFromStreamMeta } from "@/shared/lib/noteCitation";
 import type { ChatMessage, GlobalChat, LocalChat, Post } from "@/shared/types";
-import type { WebCite } from "@/shared/api/schemas/post";
+import type { KbCite, WebCite } from "@/shared/api/schemas/post";
 
 const bundleContextStampSchema = z.object({
   path: z.array(z.number()),
@@ -155,8 +156,10 @@ function splitStreamMeta(meta: Record<string, unknown>): {
   stampPayload?: ContextStampPayload;
   assistantText?: string;
   webCites?: WebCite[];
+  kbCites?: KbCite[];
 } {
   const webCites = parseWebCitesFromStreamMeta(meta);
+  const kbCites = parseKbCitesFromStreamMeta(meta);
   try {
     const parsed = streamMetaSchema.parse(meta);
     const { bundle_context_stamp, context_label_stamp, context_stamp, assistant_text, ...rest } =
@@ -168,11 +171,13 @@ function splitStreamMeta(meta: Record<string, unknown>): {
       stampPayload: context_stamp,
       assistantText: assistant_text,
       webCites: webCites.length > 0 ? webCites : undefined,
+      kbCites: kbCites.length > 0 ? kbCites : undefined,
     };
   } catch {
     return {
       chatMeta: {},
       webCites: webCites.length > 0 ? webCites : undefined,
+      kbCites: kbCites.length > 0 ? kbCites : undefined,
       assistantText: typeof meta.assistant_text === "string" ? meta.assistant_text : undefined,
     };
   }
@@ -214,6 +219,25 @@ function applyWebCitesStamp(
   });
 }
 
+function applyKbCitesStamp(
+  history: ChatMessage[],
+  kbCites: KbCite[],
+  variantKey?: string,
+): ChatMessage[] {
+  return updateLastVisibleAiMessage(history, (message) => {
+    if (message.role !== "ai") return message;
+    if (variantKey && message.variants?.length) {
+      return {
+        ...message,
+        variants: message.variants.map((variant) =>
+          variant.key === variantKey ? { ...variant, kbCites } : variant,
+        ),
+      };
+    }
+    return { ...message, kbCites };
+  });
+}
+
 function applyChatMetaPatch<T extends GlobalChat | LocalChat>(
   chat: T,
   patch: ChatContextMeta,
@@ -222,6 +246,7 @@ function applyChatMetaPatch<T extends GlobalChat | LocalChat>(
   stampPayload?: ContextStampPayload,
   assistantText?: string,
   webCites?: WebCite[],
+  kbCites?: KbCite[],
   variantKey?: string,
 ): T {
   let next = { ...chat, ...patch } as T;
@@ -239,6 +264,9 @@ function applyChatMetaPatch<T extends GlobalChat | LocalChat>(
   if (webCites && webCites.length > 0) {
     next = { ...next, history: applyWebCitesStamp(next.history, webCites, variantKey) };
   }
+  if (kbCites && kbCites.length > 0) {
+    next = { ...next, history: applyKbCitesStamp(next.history, kbCites, variantKey) };
+  }
   return next;
 }
 
@@ -249,9 +277,8 @@ export function patchGlobalChatContextMeta(
   accountId = getQueryAccountIdFromAuth(),
   variantKey?: string,
 ): void {
-  const { chatMeta, bundleStamp, labelStamp, stampPayload, assistantText, webCites } = splitStreamMeta(
-    meta as Record<string, unknown>,
-  );
+  const { chatMeta, bundleStamp, labelStamp, stampPayload, assistantText, webCites, kbCites } =
+    splitStreamMeta(meta as Record<string, unknown>);
   queryClient.setQueryData<GlobalChat[]>(queryKeys.globalChats.list(accountId), (prev) =>
     prev?.map((chat) =>
       chat.id === chatId
@@ -263,6 +290,7 @@ export function patchGlobalChatContextMeta(
             stampPayload,
             assistantText,
             webCites,
+            kbCites,
             variantKey,
           )
         : chat,
@@ -282,6 +310,7 @@ export function patchGlobalChatContextMeta(
       stampPayload,
       assistantText,
       webCites,
+      kbCites,
       variantKey,
     );
   }, accountId);
@@ -295,9 +324,8 @@ export function patchPostChatContextMeta(
   accountId = getQueryAccountIdFromAuth(),
   variantKey?: string,
 ): void {
-  const { chatMeta, bundleStamp, labelStamp, stampPayload, assistantText, webCites } = splitStreamMeta(
-    meta as Record<string, unknown>,
-  );
+  const { chatMeta, bundleStamp, labelStamp, stampPayload, assistantText, webCites, kbCites } =
+    splitStreamMeta(meta as Record<string, unknown>);
   const applyPatch = (post: Post): Post => ({
     ...post,
     chats: post.chats.map((chat) =>
@@ -310,6 +338,7 @@ export function patchPostChatContextMeta(
             stampPayload,
             assistantText,
             webCites,
+            kbCites,
             variantKey,
           )
         : chat,

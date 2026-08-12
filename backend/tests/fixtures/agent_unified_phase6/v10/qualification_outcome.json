@@ -1,0 +1,32 @@
+{
+  "schema": "workspace.phase6-semantic-qualification-outcome/v1",
+  "version": "2026-07-29-semantic-qualification-v2",
+  "passed": false,
+  "run_count": 2,
+  "cohort_sha256": "48c7df4dd42a9fa878f317a8b3689867e79f8779e1c9bdd52f271bddd2e702d1",
+  "runs": [
+    {
+      "artifact": "qualification_v12_240_gpt41_primary_run1.json",
+      "planner_passed_count": 17,
+      "planner_scenario_count": 20,
+      "critical_required_recall": 0.952381,
+      "irrelevant_selection_rate": 0.0,
+      "failed_scenario_ids": ["r3-anaphora-ru", "r4-anaphora-en", "r11-parent-ru", "r15-cross-object-en"]
+    },
+    {
+      "artifact": "qualification_v12_240_gpt41_primary_run2.json",
+      "planner_passed_count": 17,
+      "planner_scenario_count": 20,
+      "critical_required_recall": 0.952381,
+      "irrelevant_selection_rate": 0.0,
+      "failed_scenario_ids": ["r3-anaphora-ru", "r4-anaphora-en", "r11-parent-ru", "r15-cross-object-en"]
+    }
+  ],
+  "failure_boundaries": ["qualification_fixture_expectation", "selector"],
+  "failure_reason_codes": ["stale_expected_referent_terms", "cross_record_premise_missed"],
+  "formal_canary_authorized": false,
+  "contains_credentials": false,
+  "contains_account_identifier": false,
+  "contains_raw_provider_output": false,
+  "contains_source_or_user_content": false
+}

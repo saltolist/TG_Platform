@@ -1,0 +1,91 @@
+groups:
+  - name: workspace_agent_runtime
+    rules:
+      - alert: WorkspaceAgentInteractiveP95High
+        expr: histogram_quantile(0.95, sum by (le, execution_mode) (rate(agent_run_duration_by_mode_seconds_bucket{execution_mode=~"fast|compact|deep"}[10m]))) > 25
+        for: 10m
+        labels:
+          severity: warning
+        annotations:
+          summary: "Workspace Agent interactive p95 exceeds SLO"
+          description: "Interactive agent p95 is {{ $value | humanizeDuration }}; inspect the phase timing dashboard."
+
+      - alert: WorkspaceAgentInteractiveHardCap
+        expr: histogram_quantile(0.95, sum by (le, execution_mode) (rate(agent_run_duration_by_mode_seconds_bucket{execution_mode=~"fast|compact|deep"}[10m]))) > 60
+        for: 5m
+        labels:
+          severity: critical
+        annotations:
+          summary: "Workspace Agent interactive hard cap breached"
+          description: "The interactive error budget is being exhausted by runs over 60 seconds."
+
+      - alert: WorkspaceAgentTypedToolErrors
+        expr: sum(rate(agent_tool_calls_total{error_code!="none"}[10m])) > 0.05
+        for: 10m
+        labels:
+          severity: warning
+        annotations:
+          summary: "Workspace Agent typed tool errors are elevated"
+          description: "Tool errors are {{ $value }} per second; inspect next_action and the affected tool."
+
+      - alert: WorkspaceAgentColdRunTail
+        expr: histogram_quantile(0.95, sum by (le) (rate(agent_run_duration_by_mode_seconds_bucket{worker_warm="cold"}[10m]))) > 30
+        for: 10m
+        labels:
+          severity: warning
+        annotations:
+          summary: "Cold Workspace Agent runs are slow"
+          description: "Cold-run p95 exceeds 30 seconds; check worker readiness and embedding warmup."
+
+      - alert: WorkspaceAgentBatchPageSlow
+        expr: histogram_quantile(0.95, sum by (le) (rate(agent_batch_page_duration_seconds_bucket[10m]))) > 0.25
+        for: 15m
+        labels:
+          severity: warning
+        annotations:
+          summary: "Workspace Agent batch page p95 exceeds its DB budget"
+          description: "Batch page p95 is {{ $value | humanizeDuration }}; inspect DB plans and page size."
+
+      - alert: WorkspaceAgentBatchFailed
+        expr: sum(rate(agent_batch_pages_total{status="failed"}[10m])) > 0
+        for: 5m
+        labels:
+          severity: warning
+        annotations:
+          summary: "Workspace Agent batch jobs are failing"
+          description: "At least one batch page is exhausting retries or a job budget."
+
+  - name: analytics_snapshot
+    rules:
+      - alert: AnalyticsSnapshotChannelOverdue
+        expr: analytics_snapshot_lag_seconds > 1800
+        for: 5m
+        labels:
+          severity: warning
+        annotations:
+          summary: "Analytics snapshot overdue for channel {{ $labels.channel }}"
+          description: >-
+            Channel {{ $labels.channel }} has not received an analytics snapshot
+            for {{ $value | humanizeDuration }} (threshold 30m).
+
+      - alert: AnalyticsSnapshotCycleStalled
+        expr: time() - analytics_snapshot_cycle_timestamp_seconds > 1800
+        for: 5m
+        labels:
+          severity: critical
+        annotations:
+          summary: "Analytics snapshot cycle has not completed"
+          description: >-
+            No analytics snapshot cycle has completed in the last 30 minutes.
+            Check celery-beat and celery-worker.
+
+      - alert: AnalyticsSnapshotErrors
+        expr: sum(analytics_snapshot_last_cycle_errors) > 0
+        for: 0m
+        labels:
+          severity: warning
+        annotations:
+          summary: "Analytics snapshot errors in last cycle"
+          description: >-
+            One or more analytics snapshot captures failed in the last cycle.
+            Check celery-worker logs and Grafana errors-by-type panel.

@@ -1,0 +1,34 @@
+{
+  "schema": "workspace.phase6-formal-canary-result/v1",
+  "manifest_version": "2026-08-01-account-live-v39",
+  "report_id": "unified-phase6-live-canary-v39-2026-08-01",
+  "source_head": "0e87f6c45d9ed356dc9fba8f3372754b4db87634",
+  "status": "external_provider_failure",
+  "stopped_after_sequence": 1,
+  "chat_count": 1,
+  "user_message_count": 1,
+  "semantic_selector_decision_count": 0,
+  "stop_condition": "final_primary_failure",
+  "attribution_boundary": "selector_provider_error_after_retry",
+  "attribution": {
+    "scenario_id": "live-v8-q01",
+    "selector_attempts": 2,
+    "selector_schema_result": "provider_error",
+    "deadline_exhausted": true,
+    "candidate_assessments_returned": 0,
+    "materialized_candidate_count": 0,
+    "single_reasoner_model": true,
+    "provenance_verified": true
+  },
+  "passed_sequences": [],
+  "remaining_scenarios_sent": 0,
+  "can_convert_to_pass": false,
+  "privacy": {
+    "aggregate_and_ref_only": true,
+    "contains_credentials": false,
+    "contains_account_identifier": false,
+    "contains_raw_queries": false,
+    "contains_raw_provider_output": false,
+    "contains_source_or_user_content": false
+  }
+}

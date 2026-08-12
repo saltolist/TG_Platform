@@ -1,0 +1,337 @@
+{
+  "schema_version": "workspace-agent-unified-phase0/v1",
+  "captured_at": "2026-07-24T00:00:00Z",
+  "source": {
+    "kind": "synthetic_anonymized_safety_freeze",
+    "content_policy": "No user text, raw identifiers, emails, URLs, or model reasoning",
+    "runtime_behavior": "observational_only"
+  },
+  "protected_fixtures": {
+    "tests/fixtures/agent_baseline/v1/scenarios.json": "aa34f310aba033b5b0dd0e9933e6bbe53073c2b810c54f895705b4fb9f973813",
+    "tests/fixtures/agent_planner_phase5/v1/scenarios.json": "ab5276d012a5fb0d29434c2bda2382d0772c5a9a44dd89f3a98414bc8f0c5f7f"
+  },
+  "rollback": {
+    "baseline_commit": "128a96497416bc40d5d019ad3be97866ad094394",
+    "command": "git switch --detach 128a96497416bc40d5d019ad3be97866ad094394",
+    "config": "Keep every reserved unified rollout flag at 0",
+    "flags": {
+      "AGENT_UNIFIED_CATALOG_V1_ENABLED": false,
+      "AGENT_TYPED_REQUIREMENTS_V1_ENABLED": false,
+      "AGENT_UNIFIED_SELECTOR_V1_ENABLED": false,
+      "AGENT_VERIFIED_PACK_BOUNDARY_V1_ENABLED": false,
+      "AGENT_PLANNER_POLICY_V1_ENABLED": false,
+      "AGENT_UNIFIED_DEFAULT_ON": false
+    }
+  },
+  "quality_floors": {
+    "latency_ms": {"rule": "no_regression_without_approved_budget", "baseline": "report_distribution"},
+    "planner_calls": {"rule": "no_additional_call_for_existing_fast_exact_mutation_flows"},
+    "tool_calls": {"rule": "no_regression_without_approved_budget"},
+    "context_tokens": {"rule": "no_regression_when_available"},
+    "selector_relevant_precision": {"rule": "not_below_baseline_when_available"},
+    "selector_relevant_recall": {"rule": "not_below_baseline_when_available"},
+    "irrelevant_selection_rate": {"rule": "not_above_baseline"},
+    "required_source_forced_selection_rate": {"rule": "target_max", "value": 0},
+    "fallback_select_all_rate": {"rule": "target_max", "value": 0},
+    "required_evidence_recall": {"rule": "not_below_baseline_when_available"},
+    "fidelity_mismatch_rate": {"rule": "target_max", "value": 0},
+    "catalog_property_unknown_rate": {"rule": "report_only_until_typed_catalog"},
+    "structural_count_error_rate": {"rule": "target_max_on_structural_fixtures", "value": 0},
+    "final_pack_precision": {"rule": "not_below_baseline_when_available"},
+    "planner_noop_rate": {"rule": "not_above_baseline_when_available"}
+  },
+  "metric_defaults": {
+    "latency_ms": {"availability": "unavailable", "value": null, "availability_reason": "synthetic_fixture"},
+    "planner_calls": {"availability": "unavailable", "value": null, "availability_reason": "synthetic_fixture"},
+    "tool_calls": {"availability": "unavailable", "value": null, "availability_reason": "synthetic_fixture"},
+    "context_tokens": {"availability": "unavailable", "value": null, "availability_reason": "not_recorded_by_baseline_runtime"},
+    "selector_relevant_precision": {"availability": "unavailable", "value": null, "availability_reason": "no_ground_truth_assessment"},
+    "selector_relevant_recall": {"availability": "unavailable", "value": null, "availability_reason": "no_ground_truth_assessment"},
+    "irrelevant_selection_rate": {"availability": "unavailable", "value": null, "availability_reason": "no_ground_truth_assessment"},
+    "required_source_forced_selection_rate": {"availability": "unavailable", "value": null, "availability_reason": "obligations_not_typed"},
+    "fallback_select_all_rate": {"availability": "unavailable", "value": null, "availability_reason": "fallback_not_instrumented"},
+    "required_evidence_recall": {"availability": "unavailable", "value": null, "availability_reason": "no_ground_truth_assessment"},
+    "fidelity_mismatch_rate": {"availability": "unavailable", "value": null, "availability_reason": "fidelity_not_verified"},
+    "catalog_property_unknown_rate": {"availability": "unavailable", "value": null, "availability_reason": "catalog_properties_not_typed"},
+    "structural_count_error_rate": {"availability": "unavailable", "value": null, "availability_reason": "answer_membership_not_authoritative"},
+    "final_pack_precision": {"availability": "unavailable", "value": null, "availability_reason": "no_ground_truth_assessment"},
+    "planner_noop_rate": {"availability": "unavailable", "value": null, "availability_reason": "evidence_delta_not_instrumented"}
+  },
+  "scenarios": [
+    {
+      "id": "note-with-two-images",
+      "split": "golden",
+      "flow": "structural_count",
+      "status": "completed",
+      "tags": ["image_count", "near_miss"],
+      "snapshots": {
+        "turn_contract": {"schema": "workspace.turn/v2", "version": 2, "revision": 1, "task_profile": "workspace_synthesis", "execution_mode": "compact", "source_requirement_ids": ["workspace-notes"], "fingerprint": "sha256:case-001"},
+        "candidate_registry": {"schema": "workspace.candidate-registry/baseline-v1", "refs": ["note:fixture-001", "attachment:fixture-001", "attachment:fixture-002"], "total_visible": 3, "members_complete": true},
+        "selector_input": {"schema": "workspace.selector-input/baseline-v1", "invoked": false, "visible_refs": [], "input_fingerprint": "sha256:none"},
+        "material_plan": {"schema": "workspace.material-plan/v1", "required_full_text_ids": ["note:fixture-001"], "opened_full_text_ids": ["note:fixture-001"], "omitted_ids": [], "coverage": "complete"},
+        "final_pack": {"schema": "workspace.evidence-pack/v1", "evidence_refs": ["note:fixture-001"], "coverage": "complete", "property_observation": {"file_count": "unknown", "image_count": "unknown"}},
+        "sufficiency": {"status": "ready", "decision_code": "BASELINE_READY", "open_requirements": []},
+        "search_ledger": [],
+        "checkpoint": {"schema": "workspace.checkpoint/baseline-v1", "status": "completed", "turn_revision": 1, "material_plan_schema": "workspace.material-plan/v1"},
+        "trace": [{"sequence": 1, "event_type": "run_started"}, {"sequence": 2, "event_type": "tool_result", "tool": "OpenNote", "record_refs": ["note:fixture-001"]}, {"sequence": 3, "event_type": "run_completed"}]
+      },
+      "expected": {"final_evidence_refs": ["note:fixture-001"], "future_invariant": {"notes_with_images": 1, "image_files_total": 2}},
+      "known_regressions": ["structural_attachment_properties_unknown"],
+      "metrics": {"planner_calls": {"availability": "derived", "value": 1}, "tool_calls": {"availability": "derived", "value": 1}, "catalog_property_unknown_rate": {"availability": "derived", "value": 1}}
+    },
+    {
+      "id": "note-inside-post",
+      "split": "golden",
+      "flow": "structural_membership",
+      "status": "completed",
+      "tags": ["nested_note", "near_miss"],
+      "snapshots": {
+        "turn_contract": {"schema": "workspace.turn/v2", "version": 2, "revision": 1, "task_profile": "workspace_synthesis", "execution_mode": "compact", "source_requirement_ids": ["workspace-notes"], "fingerprint": "sha256:case-002"},
+        "candidate_registry": {"schema": "workspace.candidate-registry/baseline-v1", "refs": ["post:fixture-001", "note:fixture-002"], "total_visible": 2, "members_complete": true, "relations": [{"child": "note:fixture-002", "parent": "post:fixture-001"}]},
+        "selector_input": {"schema": "workspace.selector-input/baseline-v1", "invoked": true, "visible_refs": ["post:fixture-001", "note:fixture-002"], "input_fingerprint": "sha256:case-002-selector"},
+        "material_plan": {"schema": "workspace.material-plan/v1", "required_full_text_ids": ["note:fixture-002"], "opened_full_text_ids": ["note:fixture-002"], "omitted_ids": [], "coverage": "complete"},
+        "final_pack": {"schema": "workspace.evidence-pack/v1", "evidence_refs": ["note:fixture-002"], "coverage": "complete", "relation_refs": ["post:fixture-001"]},
+        "sufficiency": {"status": "ready", "decision_code": "BASELINE_READY", "open_requirements": []},
+        "search_ledger": [{"intent_key": "fixture-intent-002", "source_requirement_id": "workspace-notes", "state": "satisfied"}],
+        "checkpoint": {"schema": "workspace.checkpoint/baseline-v1", "status": "completed", "turn_revision": 1, "material_plan_schema": "workspace.material-plan/v1"},
+        "trace": [{"sequence": 1, "event_type": "run_started"}, {"sequence": 2, "event_type": "tool_result", "tool": "ListPostNotes", "record_refs": ["note:fixture-002"]}, {"sequence": 3, "event_type": "run_completed"}]
+      },
+      "expected": {"final_evidence_refs": ["note:fixture-002"], "parent_is_metadata_only": true},
+      "known_regressions": [],
+      "metrics": {"planner_calls": {"availability": "derived", "value": 1}, "tool_calls": {"availability": "derived", "value": 1}, "final_pack_precision": {"availability": "derived", "value": 1}}
+    },
+    {
+      "id": "irrelevant-ambient-note",
+      "split": "golden",
+      "flow": "semantic_selection",
+      "status": "completed",
+      "tags": ["ambient", "near_miss"],
+      "snapshots": {
+        "turn_contract": {"schema": "workspace.turn/v2", "version": 2, "revision": 1, "task_profile": "topical_answer", "execution_mode": "compact", "source_requirement_ids": ["workspace-notes"], "fingerprint": "sha256:case-003"},
+        "candidate_registry": {"schema": "workspace.candidate-registry/baseline-v1", "refs": ["note:fixture-003"], "total_visible": 1, "members_complete": true, "origins": {"note:fixture-003": "ambient_current_post"}},
+        "selector_input": {"schema": "workspace.selector-input/baseline-v1", "invoked": true, "visible_refs": ["note:fixture-003"], "input_fingerprint": "sha256:case-003-selector"},
+        "material_plan": {"schema": "workspace.material-plan/v1", "required_full_text_ids": [], "opened_full_text_ids": [], "omitted_ids": [], "coverage": "complete", "baseline_assessments": [{"ref": "note:fixture-003", "relevance": "direct"}]},
+        "final_pack": {"schema": "workspace.evidence-pack/v1", "evidence_refs": ["note:fixture-003"], "coverage": "complete"},
+        "sufficiency": {"status": "ready", "decision_code": "BASELINE_READY", "open_requirements": []},
+        "search_ledger": [],
+        "checkpoint": {"schema": "workspace.checkpoint/baseline-v1", "status": "completed", "turn_revision": 1, "material_plan_schema": "workspace.material-plan/v1"},
+        "trace": [{"sequence": 1, "event_type": "run_started"}, {"sequence": 2, "event_type": "selector_result", "selected_refs": ["note:fixture-003"]}, {"sequence": 3, "event_type": "run_completed"}]
+      },
+      "expected": {"final_evidence_refs": ["note:fixture-003"], "future_expected_refs": []},
+      "known_regressions": ["ambient_origin_encoded_as_relevance"],
+      "metrics": {"planner_calls": {"availability": "derived", "value": 1}, "tool_calls": {"availability": "derived", "value": 0}, "irrelevant_selection_rate": {"availability": "derived", "value": 1}, "final_pack_precision": {"availability": "derived", "value": 0}}
+    },
+    {
+      "id": "external-note-unrelated-parent-hit",
+      "split": "golden",
+      "flow": "semantic_selection",
+      "status": "completed",
+      "tags": ["required_hit", "parent_relation", "near_miss"],
+      "snapshots": {
+        "turn_contract": {"schema": "workspace.turn/v2", "version": 2, "revision": 1, "task_profile": "topical_answer", "execution_mode": "compact", "source_requirement_ids": ["workspace-notes", "workspace-posts"], "fingerprint": "sha256:case-004"},
+        "candidate_registry": {"schema": "workspace.candidate-registry/baseline-v1", "refs": ["note:fixture-004", "post:fixture-004"], "total_visible": 2, "members_complete": true, "relations": [{"child": "note:fixture-004", "parent": "post:fixture-004"}]},
+        "selector_input": {"schema": "workspace.selector-input/baseline-v1", "invoked": true, "visible_refs": ["note:fixture-004", "post:fixture-004"], "input_fingerprint": "sha256:case-004-selector"},
+        "material_plan": {"schema": "workspace.material-plan/v1", "required_full_text_ids": ["note:fixture-004", "post:fixture-004"], "opened_full_text_ids": ["note:fixture-004", "post:fixture-004"], "omitted_ids": [], "coverage": "complete"},
+        "final_pack": {"schema": "workspace.evidence-pack/v1", "evidence_refs": ["note:fixture-004", "post:fixture-004"], "coverage": "complete"},
+        "sufficiency": {"status": "ready", "decision_code": "BASELINE_READY", "open_requirements": []},
+        "search_ledger": [{"intent_key": "fixture-intent-004", "source_requirement_id": "workspace-notes", "state": "satisfied"}],
+        "checkpoint": {"schema": "workspace.checkpoint/baseline-v1", "status": "completed", "turn_revision": 1, "material_plan_schema": "workspace.material-plan/v1"},
+        "trace": [{"sequence": 1, "event_type": "run_started"}, {"sequence": 2, "event_type": "tool_result", "record_refs": ["note:fixture-004", "post:fixture-004"]}, {"sequence": 3, "event_type": "run_completed"}]
+      },
+      "expected": {"final_evidence_refs": ["note:fixture-004", "post:fixture-004"], "future_expected_refs": ["note:fixture-004"]},
+      "known_regressions": ["required_parent_forced_selection"],
+      "metrics": {"planner_calls": {"availability": "derived", "value": 1}, "tool_calls": {"availability": "derived", "value": 2}, "required_source_forced_selection_rate": {"availability": "derived", "value": 1}, "final_pack_precision": {"availability": "derived", "value": 0.5}}
+    },
+    {
+      "id": "invalid-selector-output",
+      "split": "golden",
+      "flow": "selector_fallback",
+      "status": "completed",
+      "tags": ["invalid_selector", "near_miss"],
+      "snapshots": {
+        "turn_contract": {"schema": "workspace.turn/v2", "version": 2, "revision": 1, "task_profile": "topical_answer", "execution_mode": "compact", "source_requirement_ids": ["workspace-notes"], "fingerprint": "sha256:case-005"},
+        "candidate_registry": {"schema": "workspace.candidate-registry/baseline-v1", "refs": ["note:fixture-005", "note:fixture-006"], "total_visible": 2, "members_complete": true},
+        "selector_input": {"schema": "workspace.selector-input/baseline-v1", "invoked": true, "visible_refs": ["note:fixture-005", "note:fixture-006"], "input_fingerprint": "sha256:case-005-selector", "result_valid": false},
+        "material_plan": {"schema": "workspace.material-plan/v1", "required_full_text_ids": ["note:fixture-005", "note:fixture-006"], "opened_full_text_ids": ["note:fixture-005", "note:fixture-006"], "omitted_ids": [], "coverage": "complete", "fallback": "select_all"},
+        "final_pack": {"schema": "workspace.evidence-pack/v1", "evidence_refs": ["note:fixture-005", "note:fixture-006"], "coverage": "complete"},
+        "sufficiency": {"status": "ready", "decision_code": "BASELINE_READY", "open_requirements": []},
+        "search_ledger": [],
+        "checkpoint": {"schema": "workspace.checkpoint/baseline-v1", "status": "completed", "turn_revision": 1, "material_plan_schema": "workspace.material-plan/v1"},
+        "trace": [{"sequence": 1, "event_type": "selector_invalid"}, {"sequence": 2, "event_type": "fallback_applied", "selected_refs": ["note:fixture-005", "note:fixture-006"]}, {"sequence": 3, "event_type": "run_completed"}]
+      },
+      "expected": {"final_evidence_refs": ["note:fixture-005", "note:fixture-006"], "future_expected_refs": []},
+      "known_regressions": ["invalid_selector_select_all"],
+      "metrics": {"planner_calls": {"availability": "derived", "value": 1}, "tool_calls": {"availability": "derived", "value": 2}, "fallback_select_all_rate": {"availability": "derived", "value": 1}}
+    },
+    {
+      "id": "catalog-nine-objects",
+      "split": "golden",
+      "flow": "catalog_paging",
+      "status": "completed",
+      "tags": ["catalog_gt_8", "near_miss"],
+      "fixture_input": {"catalog_member_refs": ["note:fixture-101", "note:fixture-102", "note:fixture-103", "note:fixture-104", "note:fixture-105", "note:fixture-106", "note:fixture-107", "note:fixture-108", "note:fixture-109"]},
+      "snapshots": {
+        "turn_contract": {"schema": "workspace.turn/v2", "version": 2, "revision": 1, "task_profile": "workspace_synthesis", "execution_mode": "compact", "source_requirement_ids": ["workspace-notes"], "fingerprint": "sha256:case-006"},
+        "candidate_registry": {"schema": "workspace.candidate-registry/baseline-v1", "refs": ["note:fixture-101", "note:fixture-102", "note:fixture-103", "note:fixture-104", "note:fixture-105", "note:fixture-106", "note:fixture-107", "note:fixture-108"], "total_visible": 8, "expected_total": 9, "members_complete": false},
+        "selector_input": {"schema": "workspace.selector-input/baseline-v1", "invoked": true, "visible_refs": ["note:fixture-101", "note:fixture-102", "note:fixture-103", "note:fixture-104", "note:fixture-105", "note:fixture-106", "note:fixture-107", "note:fixture-108"], "input_fingerprint": "sha256:case-006-selector"},
+        "material_plan": {"schema": "workspace.material-plan/v1", "required_full_text_ids": [], "opened_full_text_ids": [], "omitted_ids": ["note:fixture-109"], "coverage": "complete"},
+        "final_pack": {"schema": "workspace.evidence-pack/v1", "evidence_refs": ["catalog:fixture-006"], "coverage": "complete", "shown": 8, "total": 9},
+        "sufficiency": {"status": "ready", "decision_code": "BASELINE_READY", "open_requirements": []},
+        "search_ledger": [{"intent_key": "fixture-intent-006", "source_requirement_id": "workspace-notes", "state": "satisfied"}],
+        "checkpoint": {"schema": "workspace.checkpoint/baseline-v1", "status": "completed", "turn_revision": 1, "material_plan_schema": "workspace.material-plan/v1"},
+        "trace": [{"sequence": 1, "event_type": "tool_result", "tool": "ListGlobalNotes", "result_count": 8}, {"sequence": 2, "event_type": "run_completed"}]
+      },
+      "expected": {"final_evidence_refs": ["catalog:fixture-006"], "future_members_complete": true, "future_total": 9},
+      "known_regressions": ["catalog_display_limit_hides_member"],
+      "metrics": {"planner_calls": {"availability": "derived", "value": 1}, "tool_calls": {"availability": "derived", "value": 1}}
+    },
+    {
+      "id": "catalog-one-hundred-one-objects",
+      "split": "golden",
+      "flow": "catalog_batch",
+      "status": "completed",
+      "tags": ["catalog_gt_100", "near_miss"],
+      "fixture_input": {"catalog_member_refs": ["note:fixture-201", "note:fixture-202", "note:fixture-203", "note:fixture-204", "note:fixture-205", "note:fixture-206", "note:fixture-207", "note:fixture-208", "note:fixture-209", "note:fixture-210", "note:fixture-211", "note:fixture-212", "note:fixture-213", "note:fixture-214", "note:fixture-215", "note:fixture-216", "note:fixture-217", "note:fixture-218", "note:fixture-219", "note:fixture-220", "note:fixture-221", "note:fixture-222", "note:fixture-223", "note:fixture-224", "note:fixture-225", "note:fixture-226", "note:fixture-227", "note:fixture-228", "note:fixture-229", "note:fixture-230", "note:fixture-231", "note:fixture-232", "note:fixture-233", "note:fixture-234", "note:fixture-235", "note:fixture-236", "note:fixture-237", "note:fixture-238", "note:fixture-239", "note:fixture-240", "note:fixture-241", "note:fixture-242", "note:fixture-243", "note:fixture-244", "note:fixture-245", "note:fixture-246", "note:fixture-247", "note:fixture-248", "note:fixture-249", "note:fixture-250", "note:fixture-251", "note:fixture-252", "note:fixture-253", "note:fixture-254", "note:fixture-255", "note:fixture-256", "note:fixture-257", "note:fixture-258", "note:fixture-259", "note:fixture-260", "note:fixture-261", "note:fixture-262", "note:fixture-263", "note:fixture-264", "note:fixture-265", "note:fixture-266", "note:fixture-267", "note:fixture-268", "note:fixture-269", "note:fixture-270", "note:fixture-271", "note:fixture-272", "note:fixture-273", "note:fixture-274", "note:fixture-275", "note:fixture-276", "note:fixture-277", "note:fixture-278", "note:fixture-279", "note:fixture-280", "note:fixture-281", "note:fixture-282", "note:fixture-283", "note:fixture-284", "note:fixture-285", "note:fixture-286", "note:fixture-287", "note:fixture-288", "note:fixture-289", "note:fixture-290", "note:fixture-291", "note:fixture-292", "note:fixture-293", "note:fixture-294", "note:fixture-295", "note:fixture-296", "note:fixture-297", "note:fixture-298", "note:fixture-299", "note:fixture-300", "note:fixture-301"]},
+      "snapshots": {
+        "turn_contract": {"schema": "workspace.turn/v2", "version": 2, "revision": 1, "task_profile": "workspace_synthesis", "execution_mode": "batch", "source_requirement_ids": ["workspace-notes"], "fingerprint": "sha256:case-007"},
+        "candidate_registry": {"schema": "workspace.candidate-registry/baseline-v1", "refs": ["note:fixture-201", "note:fixture-202", "note:fixture-203", "note:fixture-204", "note:fixture-205", "note:fixture-206", "note:fixture-207", "note:fixture-208", "note:fixture-209", "note:fixture-210", "note:fixture-211", "note:fixture-212", "note:fixture-213", "note:fixture-214", "note:fixture-215", "note:fixture-216", "note:fixture-217", "note:fixture-218", "note:fixture-219", "note:fixture-220", "note:fixture-221", "note:fixture-222", "note:fixture-223", "note:fixture-224", "note:fixture-225", "note:fixture-226", "note:fixture-227", "note:fixture-228", "note:fixture-229", "note:fixture-230", "note:fixture-231", "note:fixture-232", "note:fixture-233", "note:fixture-234", "note:fixture-235", "note:fixture-236", "note:fixture-237", "note:fixture-238", "note:fixture-239", "note:fixture-240", "note:fixture-241", "note:fixture-242", "note:fixture-243", "note:fixture-244", "note:fixture-245", "note:fixture-246", "note:fixture-247", "note:fixture-248", "note:fixture-249", "note:fixture-250", "note:fixture-251", "note:fixture-252", "note:fixture-253", "note:fixture-254", "note:fixture-255", "note:fixture-256", "note:fixture-257", "note:fixture-258", "note:fixture-259", "note:fixture-260", "note:fixture-261", "note:fixture-262", "note:fixture-263", "note:fixture-264", "note:fixture-265", "note:fixture-266", "note:fixture-267", "note:fixture-268", "note:fixture-269", "note:fixture-270", "note:fixture-271", "note:fixture-272", "note:fixture-273", "note:fixture-274", "note:fixture-275", "note:fixture-276", "note:fixture-277", "note:fixture-278", "note:fixture-279", "note:fixture-280", "note:fixture-281", "note:fixture-282", "note:fixture-283", "note:fixture-284", "note:fixture-285", "note:fixture-286", "note:fixture-287", "note:fixture-288", "note:fixture-289", "note:fixture-290", "note:fixture-291", "note:fixture-292", "note:fixture-293", "note:fixture-294", "note:fixture-295", "note:fixture-296", "note:fixture-297", "note:fixture-298", "note:fixture-299", "note:fixture-300"], "total_visible": 100, "expected_total": 101, "members_complete": false, "next_cursor": "cursor:fixture-007-page-002"},
+        "selector_input": {"schema": "workspace.selector-input/baseline-v1", "invoked": false, "visible_refs": [], "input_fingerprint": "sha256:none"},
+        "material_plan": {"schema": "workspace.material-plan/v1", "required_full_text_ids": [], "opened_full_text_ids": [], "omitted_ids": ["note:fixture-301"], "coverage": "complete", "full_read_batches": []},
+        "final_pack": {"schema": "workspace.evidence-pack/v1", "evidence_refs": ["catalog:fixture-007-page-001"], "coverage": "complete", "shown": 100, "total": 101},
+        "sufficiency": {"status": "ready", "decision_code": "BASELINE_READY", "open_requirements": []},
+        "search_ledger": [{"intent_key": "fixture-intent-007", "source_requirement_id": "workspace-notes", "state": "satisfied"}],
+        "checkpoint": {"schema": "workspace.checkpoint/baseline-v1", "status": "completed", "turn_revision": 1, "material_plan_schema": "workspace.material-plan/v1", "next_cursor": "cursor:fixture-007-page-002"},
+        "trace": [{"sequence": 1, "event_type": "batch_page", "result_count": 100}, {"sequence": 2, "event_type": "run_completed"}]
+      },
+      "expected": {"final_evidence_refs": ["catalog:fixture-007-page-001"], "future_members_complete": true, "future_total": 101},
+      "known_regressions": ["catalog_batch_stops_before_last_member"],
+      "metrics": {"planner_calls": {"availability": "derived", "value": 0}, "tool_calls": {"availability": "derived", "value": 1}}
+    },
+    {
+      "id": "fast-flow",
+      "split": "golden",
+      "flow": "fast",
+      "status": "completed",
+      "tags": ["control"],
+      "snapshots": {
+        "turn_contract": {"schema": "workspace.turn/v2", "version": 2, "revision": 1, "task_profile": "exact_lookup", "execution_mode": "fast", "source_requirement_ids": [], "fingerprint": "sha256:case-008"},
+        "candidate_registry": {"schema": "workspace.candidate-registry/baseline-v1", "refs": [], "total_visible": 0, "members_complete": true},
+        "selector_input": {"schema": "workspace.selector-input/baseline-v1", "invoked": false, "visible_refs": [], "input_fingerprint": "sha256:none"},
+        "material_plan": {"schema": "workspace.material-plan/v1", "required_full_text_ids": [], "opened_full_text_ids": [], "omitted_ids": [], "coverage": "complete"},
+        "final_pack": {"schema": "workspace.evidence-pack/v1", "evidence_refs": [], "coverage": "complete"},
+        "sufficiency": {"status": "ready", "decision_code": "USE_FAST_PATH", "open_requirements": []},
+        "search_ledger": [],
+        "checkpoint": {"schema": "workspace.checkpoint/baseline-v1", "status": "completed", "turn_revision": 1, "material_plan_schema": "workspace.material-plan/v1"},
+        "trace": [{"sequence": 1, "event_type": "run_started"}, {"sequence": 2, "event_type": "run_completed"}]
+      },
+      "expected": {"final_evidence_refs": [], "planner_calls": 0},
+      "known_regressions": [],
+      "metrics": {"planner_calls": {"availability": "derived", "value": 0}, "tool_calls": {"availability": "derived", "value": 0}}
+    },
+    {
+      "id": "exact-flow",
+      "split": "golden",
+      "flow": "exact",
+      "status": "completed",
+      "tags": ["control"],
+      "snapshots": {
+        "turn_contract": {"schema": "workspace.turn/v2", "version": 2, "revision": 1, "task_profile": "exact_lookup", "execution_mode": "fast", "source_requirement_ids": ["target-note"], "fingerprint": "sha256:case-009"},
+        "candidate_registry": {"schema": "workspace.candidate-registry/baseline-v1", "refs": ["note:fixture-009"], "total_visible": 1, "members_complete": true},
+        "selector_input": {"schema": "workspace.selector-input/baseline-v1", "invoked": false, "visible_refs": [], "input_fingerprint": "sha256:none"},
+        "material_plan": {"schema": "workspace.material-plan/v1", "required_full_text_ids": ["note:fixture-009"], "opened_full_text_ids": ["note:fixture-009"], "omitted_ids": [], "coverage": "complete"},
+        "final_pack": {"schema": "workspace.evidence-pack/v1", "evidence_refs": ["note:fixture-009"], "coverage": "complete", "fidelity_by_ref": {"note:fixture-009": "full_text"}},
+        "sufficiency": {"status": "ready", "decision_code": "USE_FAST_PATH", "open_requirements": []},
+        "search_ledger": [],
+        "checkpoint": {"schema": "workspace.checkpoint/baseline-v1", "status": "completed", "turn_revision": 1, "material_plan_schema": "workspace.material-plan/v1"},
+        "trace": [{"sequence": 1, "event_type": "tool_result", "tool": "OpenNote", "record_refs": ["note:fixture-009"]}, {"sequence": 2, "event_type": "run_completed"}]
+      },
+      "expected": {"final_evidence_refs": ["note:fixture-009"], "planner_calls": 0},
+      "known_regressions": [],
+      "metrics": {"planner_calls": {"availability": "derived", "value": 0}, "tool_calls": {"availability": "derived", "value": 1}, "fidelity_mismatch_rate": {"availability": "derived", "value": 0}, "required_evidence_recall": {"availability": "derived", "value": 1}}
+    },
+    {
+      "id": "mutation-flow",
+      "split": "golden",
+      "flow": "mutation",
+      "status": "completed",
+      "tags": ["control"],
+      "snapshots": {
+        "turn_contract": {"schema": "workspace.turn/v2", "version": 2, "revision": 1, "task_profile": "exact_lookup", "execution_mode": "fast", "source_requirement_ids": ["target-post"], "fingerprint": "sha256:case-010"},
+        "candidate_registry": {"schema": "workspace.candidate-registry/baseline-v1", "refs": ["post:fixture-010"], "total_visible": 1, "members_complete": true},
+        "selector_input": {"schema": "workspace.selector-input/baseline-v1", "invoked": false, "visible_refs": [], "input_fingerprint": "sha256:none"},
+        "material_plan": {"schema": "workspace.material-plan/v1", "required_full_text_ids": ["post:fixture-010"], "opened_full_text_ids": ["post:fixture-010"], "omitted_ids": [], "coverage": "complete"},
+        "final_pack": {"schema": "workspace.evidence-pack/v1", "evidence_refs": ["post:fixture-010"], "coverage": "complete", "fidelity_by_ref": {"post:fixture-010": "full_text"}},
+        "sufficiency": {"status": "ready", "decision_code": "USE_FAST_PATH", "open_requirements": []},
+        "search_ledger": [],
+        "checkpoint": {"schema": "workspace.checkpoint/baseline-v1", "status": "completed", "turn_revision": 1, "material_plan_schema": "workspace.material-plan/v1", "approval_state": "approved"},
+        "trace": [{"sequence": 1, "event_type": "tool_result", "tool": "OpenPost", "record_refs": ["post:fixture-010"]}, {"sequence": 2, "event_type": "approval_completed"}, {"sequence": 3, "event_type": "run_completed"}]
+      },
+      "expected": {"final_evidence_refs": ["post:fixture-010"], "planner_calls": 0},
+      "known_regressions": [],
+      "metrics": {"planner_calls": {"availability": "derived", "value": 0}, "tool_calls": {"availability": "derived", "value": 1}, "fidelity_mismatch_rate": {"availability": "derived", "value": 0}}
+    },
+    {
+      "id": "checkpoint-resume",
+      "split": "held_out",
+      "flow": "resume",
+      "status": "completed",
+      "tags": ["lifecycle"],
+      "snapshots": {
+        "turn_contract": {"schema": "workspace.turn/v2", "version": 2, "revision": 2, "parent_revision": 1, "task_profile": "exact_lookup", "execution_mode": "fast", "source_requirement_ids": ["target-note"], "fingerprint": "sha256:case-011"},
+        "candidate_registry": {"schema": "workspace.candidate-registry/baseline-v1", "refs": ["note:fixture-011"], "total_visible": 1, "members_complete": true},
+        "selector_input": {"schema": "workspace.selector-input/baseline-v1", "invoked": false, "visible_refs": [], "input_fingerprint": "sha256:none"},
+        "material_plan": {"schema": "workspace.material-plan/v1", "required_full_text_ids": ["note:fixture-011"], "opened_full_text_ids": ["note:fixture-011"], "omitted_ids": [], "coverage": "complete"},
+        "final_pack": {"schema": "workspace.evidence-pack/v1", "evidence_refs": ["note:fixture-011"], "coverage": "complete"},
+        "sufficiency": {"status": "ready", "decision_code": "USE_FAST_PATH", "open_requirements": []},
+        "search_ledger": [{"intent_key": "fixture-intent-011", "source_requirement_id": "target-note", "state": "satisfied"}],
+        "checkpoint": {"schema": "workspace.checkpoint/baseline-v1", "status": "completed", "turn_revision": 2, "resumed_from_revision": 1, "material_plan_schema": "workspace.material-plan/v1"},
+        "trace": [{"sequence": 1, "event_type": "run_interrupted"}, {"sequence": 2, "event_type": "run_resumed"}, {"sequence": 3, "event_type": "run_completed"}]
+      },
+      "expected": {"final_evidence_refs": ["note:fixture-011"], "continuity_preserved": true},
+      "known_regressions": [],
+      "metrics": {"planner_calls": {"availability": "derived", "value": 0}, "tool_calls": {"availability": "derived", "value": 1}}
+    },
+    {
+      "id": "interrupted-run",
+      "split": "held_out",
+      "flow": "interrupted",
+      "status": "interrupted",
+      "tags": ["lifecycle"],
+      "snapshots": {
+        "turn_contract": {"schema": "workspace.turn/v2", "version": 2, "revision": 1, "task_profile": "exact_lookup", "execution_mode": "fast", "source_requirement_ids": ["target-post"], "fingerprint": "sha256:case-012"},
+        "candidate_registry": {"schema": "workspace.candidate-registry/baseline-v1", "refs": ["post:fixture-012"], "total_visible": 1, "members_complete": true},
+        "selector_input": {"schema": "workspace.selector-input/baseline-v1", "invoked": false, "visible_refs": [], "input_fingerprint": "sha256:none"},
+        "material_plan": {"schema": "workspace.material-plan/v1", "required_full_text_ids": ["post:fixture-012"], "opened_full_text_ids": ["post:fixture-012"], "omitted_ids": [], "coverage": "complete"},
+        "final_pack": {"schema": "workspace.evidence-pack/v1", "evidence_refs": ["post:fixture-012"], "coverage": "complete"},
+        "sufficiency": {"status": "follow_up_allowed", "decision_code": "AWAITING_APPROVAL", "open_requirements": ["approval:fixture-012"]},
+        "search_ledger": [],
+        "checkpoint": {"schema": "workspace.checkpoint/baseline-v1", "status": "interrupted", "turn_revision": 1, "material_plan_schema": "workspace.material-plan/v1", "approval_state": "pending"},
+        "trace": [{"sequence": 1, "event_type": "approval_requested"}, {"sequence": 2, "event_type": "run_interrupted"}]
+      },
+      "expected": {"final_evidence_refs": ["post:fixture-012"], "resumable": true},
+      "known_regressions": [],
+      "metrics": {"planner_calls": {"availability": "derived", "value": 0}, "tool_calls": {"availability": "derived", "value": 1}}
+    },
+    {
+      "id": "cancelled-run",
+      "split": "held_out",
+      "flow": "cancelled",
+      "status": "cancelled",
+      "tags": ["lifecycle"],
+      "snapshots": {
+        "turn_contract": {"schema": "workspace.turn/v2", "version": 2, "revision": 1, "task_profile": "workspace_synthesis", "execution_mode": "batch", "source_requirement_ids": ["workspace-notes"], "fingerprint": "sha256:case-013"},
+        "candidate_registry": {"schema": "workspace.candidate-registry/baseline-v1", "refs": ["catalog:fixture-013-page-001"], "total_visible": 50, "members_complete": false, "next_cursor": "cursor:fixture-013-page-002"},
+        "selector_input": {"schema": "workspace.selector-input/baseline-v1", "invoked": false, "visible_refs": [], "input_fingerprint": "sha256:none"},
+        "material_plan": {"schema": "workspace.material-plan/v1", "required_full_text_ids": [], "opened_full_text_ids": [], "omitted_ids": [], "coverage": "partial", "full_read_batches": []},
+        "final_pack": {"schema": "workspace.evidence-pack/v1", "evidence_refs": [], "coverage": "partial"},
+        "sufficiency": {"status": "exhausted", "decision_code": "RUN_CANCELLED", "open_requirements": ["coverage:workspace-notes"]},
+        "search_ledger": [{"intent_key": "fixture-intent-013", "source_requirement_id": "workspace-notes", "state": "running"}],
+        "checkpoint": {"schema": "workspace.checkpoint/baseline-v1", "status": "cancelled", "turn_revision": 1, "material_plan_schema": "workspace.material-plan/v1", "next_cursor": "cursor:fixture-013-page-002"},
+        "trace": [{"sequence": 1, "event_type": "batch_page", "result_count": 50}, {"sequence": 2, "event_type": "run_cancelled"}]
+      },
+      "expected": {"final_evidence_refs": [], "terminal": true},
+      "known_regressions": [],
+      "metrics": {"planner_calls": {"availability": "derived", "value": 0}, "tool_calls": {"availability": "derived", "value": 1}}
+    }
+  ]
+}

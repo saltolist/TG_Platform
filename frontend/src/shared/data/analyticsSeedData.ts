@@ -1,3 +1,5 @@
+import type { ChannelAnalyticsHeatmap } from "@/shared/api/schemas/channelAnalytics";
+
 export type AnalyticsTopPostRow = {
   id: string;
   title: string;
@@ -20,3 +22,9 @@ export const ANALYTICS_HEATMAP_ROWS = [
 ] as const;
 
 export const ANALYTICS_HEATMAP_HOURS = ["09", "12", "15", "18", "21"] as const;
+
+export const DEMO_CHANNEL_ANALYTICS_HEATMAP: ChannelAnalyticsHeatmap = {
+  hours: [...ANALYTICS_HEATMAP_HOURS],
+  rows: ANALYTICS_HEATMAP_ROWS.map((row) => ({ day: row.day, values: [...row.values] })),
+  hasData: true,
+};

@@ -1,0 +1,63 @@
+{
+  "schema": "workspace.phase6-semantic-qualification-outcome/v1",
+  "version": "2026-07-29-semantic-qualification-v6",
+  "passed": true,
+  "run_count": 2,
+  "cohort_sha256": "e0a5034928482cec06ad647bbd1ec97926f8b76337b21620077840f0959ff6c8",
+  "runs": [
+    {
+      "artifact": "qualification_universal_v14_primary_run1.json",
+      "planner_passed_count": 20,
+      "planner_scenario_count": 20,
+      "selector_first_attempt_valid": 20,
+      "selector_final_valid": 20,
+      "selector_retry_count": 0,
+      "critical_required_selected": 21,
+      "critical_required_total": 21,
+      "critical_required_recall": 1.0,
+      "irrelevant_selected": 0,
+      "irrelevant_total": 20,
+      "irrelevant_selection_rate": 0.0,
+      "final_pack_precision": 1.0,
+      "position_error_count": 0,
+      "failed_scenario_ids": []
+    },
+    {
+      "artifact": "qualification_universal_v14_primary_run2.json",
+      "planner_passed_count": 20,
+      "planner_scenario_count": 20,
+      "selector_first_attempt_valid": 20,
+      "selector_final_valid": 20,
+      "selector_retry_count": 0,
+      "critical_required_selected": 21,
+      "critical_required_total": 21,
+      "critical_required_recall": 1.0,
+      "irrelevant_selected": 0,
+      "irrelevant_total": 20,
+      "irrelevant_selection_rate": 0.0,
+      "final_pack_precision": 1.0,
+      "position_error_count": 0,
+      "failed_scenario_ids": []
+    }
+  ],
+  "selector_card_generation": {
+    "required_count": 41,
+    "llm_v12_count": 41,
+    "retry_count": 1,
+    "unrecovered_failure_count": 0,
+    "snapshot_reused_across_selector_runs": 2
+  },
+  "effective_path": "primary_only",
+  "recall_verifier_required": false,
+  "formal_canary_authorized": false,
+  "remaining_prerequisites": [
+    "final_contract_boundary_256",
+    "isolated_database_regression",
+    "live_card_migration_and_backfill",
+    "canary_manifest"
+  ],
+  "contains_credentials": false,
+  "contains_account_identifier": false,
+  "contains_raw_provider_output": false,
+  "contains_source_or_user_content": false
+}

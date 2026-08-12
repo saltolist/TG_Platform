@@ -87,3 +87,10 @@ def test_build_system_prompt_post_scope_addendum() -> None:
     prompt = build_system_prompt("Мой стиль", scope="post")
     assert POST_SCOPE_SYSTEM_ADDENDUM in prompt
     assert "Мой стиль" in prompt
+
+
+def test_build_system_prompt_includes_anti_hallucination_guidance() -> None:
+    prompt = build_system_prompt("", scope="global")
+    assert "не нашёл нужной информации" in prompt
+    post_prompt = build_system_prompt("", scope="post")
+    assert "не нашёл нужной информации" in post_prompt

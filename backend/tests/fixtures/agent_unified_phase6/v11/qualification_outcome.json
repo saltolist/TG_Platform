@@ -1,0 +1,50 @@
+{
+  "schema": "workspace.phase6-semantic-qualification-outcome/v1",
+  "version": "2026-07-29-semantic-qualification-v3",
+  "passed": true,
+  "run_count": 2,
+  "cohort_sha256": "05d1fa8bf24f94716d70d91da7697739918ce19ece2652f04b83f41acf7ee74b",
+  "runs": [
+    {
+      "artifact": "qualification_v12_240_gpt41_primary_run1.json",
+      "planner_passed_count": 20,
+      "planner_scenario_count": 20,
+      "selector_first_attempt_valid": 20,
+      "selector_final_valid": 20,
+      "selector_retry_count": 0,
+      "critical_required_selected": 21,
+      "critical_required_total": 21,
+      "critical_required_recall": 1.0,
+      "irrelevant_selected": 0,
+      "irrelevant_total": 20,
+      "irrelevant_selection_rate": 0.0,
+      "final_pack_precision": 1.0,
+      "position_error_count": 0,
+      "failed_scenario_ids": []
+    },
+    {
+      "artifact": "qualification_v12_240_gpt41_primary_run2.json",
+      "planner_passed_count": 20,
+      "planner_scenario_count": 20,
+      "selector_first_attempt_valid": 20,
+      "selector_final_valid": 20,
+      "selector_retry_count": 0,
+      "critical_required_selected": 21,
+      "critical_required_total": 21,
+      "critical_required_recall": 1.0,
+      "irrelevant_selected": 0,
+      "irrelevant_total": 20,
+      "irrelevant_selection_rate": 0.0,
+      "final_pack_precision": 1.0,
+      "position_error_count": 0,
+      "failed_scenario_ids": []
+    }
+  ],
+  "effective_path": "primary_only",
+  "recall_verifier_required": false,
+  "formal_canary_authorized": true,
+  "contains_credentials": false,
+  "contains_account_identifier": false,
+  "contains_raw_provider_output": false,
+  "contains_source_or_user_content": false
+}

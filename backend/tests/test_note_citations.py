@@ -4,6 +4,7 @@ from app.services.ai.note_citations import (
     inject_missing_note_citations,
     normalize_note_citation_markdown,
     prepare_note_citations_for_reply,
+    rewrite_numeric_rag_citations,
     strip_invalid_note_citations,
 )
 
@@ -73,3 +74,53 @@ def test_prepare_note_citations_for_reply_strips_invalid_before_inject() -> None
     assert prepare_note_citations_for_reply(text, cites) == (
         "Нужно сделать отчёт. [Работа](/note/global/1/)"
     )
+
+
+def test_normalize_post_cite_path_metadata() -> None:
+    text = "Ответ cite-path: /post/abc-123/ cite-title: Пост про RAG\nдальше."
+    assert normalize_note_citation_markdown(text) == (
+        "Ответ [Пост про RAG](/post/abc-123/)\nдальше."
+    )
+
+
+def test_detach_moves_post_citation_to_paragraph_end() -> None:
+    text = "См. [Пост](/post/abc/) для деталей."
+    assert detach_note_citations(text) == "См. для деталей. [Пост](/post/abc/)"
+
+
+def test_strip_invalid_post_citations() -> None:
+    cites = [NoteCite(path="/post/real/", title="Реальный пост")]
+    text = "Факт.[Реальный пост](/post/real/) Фейк.[Другой](/post/fake/)"
+    assert strip_invalid_note_citations(text, cites) == (
+        "Факт.[Реальный пост](/post/real/) Фейк."
+    )
+
+
+def test_rewrite_numeric_rag_citations() -> None:
+    cites = [
+        NoteCite(path="/post/3/", title="Приветствую 👋"),
+        NoteCite(path="/note/global/n1/", title="Серия постов"),
+    ]
+    text = "Пост 2 про модель. [1]\n\nПост 3 про Telegram. [2]"
+    assert rewrite_numeric_rag_citations(text, cites) == (
+        "Пост 2 про модель. [Приветствую 👋](/post/3/)\n\n"
+        "Пост 3 про Telegram. [Серия постов](/note/global/n1/)"
+    )
+
+
+def test_prepare_note_citations_rewrites_numeric_to_chips() -> None:
+    cites = [
+        NoteCite(path="/post/3/", title="Приветствую 👋"),
+        NoteCite(path="/note/global/n1/", title="Заметка"),
+    ]
+    text = "Текст про пост. [1] Ещё текст. [2]"
+    assert prepare_note_citations_for_reply(text, cites) == (
+        "Текст про пост. Ещё текст. [Приветствую 👋](/post/3/) [Заметка](/note/global/n1/)"
+    )
+
+
+def test_prepare_note_citations_skips_numeric_rewrite_when_disabled() -> None:
+    cites = [NoteCite(path="/post/3/", title="Приветствую 👋")]
+    text = "Текст. [1]"
+    assert prepare_note_citations_for_reply(text, cites, rewrite_numeric=False) == "Текст. [1]"
+

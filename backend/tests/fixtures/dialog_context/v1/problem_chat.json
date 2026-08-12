@@ -1,0 +1,31 @@
+{
+  "schema": "workspace.dialog-context-regression/v1",
+  "source_chat_id": "7a0a9cd1-4550-4016-bb53-448a2fdb840d",
+  "content_redacted": true,
+  "turns": [
+    {
+      "user_intent": "list_and_describe_complete_post_set",
+      "expected_set": ["post:p1", "post:p2", "post:p3", "post:p4", "post:p5"]
+    },
+    {
+      "user_intent": "anaphoric_all_followup",
+      "expected_selection_mode": "all",
+      "expected_targets": ["post:p1", "post:p2", "post:p3", "post:p4", "post:p5"]
+    },
+    {
+      "user_intent": "positional_subset_followup",
+      "expected_selection_mode": "explicit_subset",
+      "expected_targets": ["post:p2", "post:p4"]
+    },
+    {
+      "user_intent": "complement_followup",
+      "expected_selection_mode": "complement",
+      "expected_targets": ["post:p1", "post:p3", "post:p5"]
+    }
+  ],
+  "invariants": [
+    "target_ids_are_subset_of_candidate_envelope",
+    "semantic_search_does_not_replace_source_set",
+    "catalog_is_not_a_context_ref"
+  ]
+}

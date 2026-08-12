@@ -1,0 +1,220 @@
+{
+  "schema": "workspace.unified-phase6-account-pilot-aggregate/v1",
+  "observed_at": "2026-07-25T21:13:40Z",
+  "window": {
+    "started_at": "2026-07-25T20:00:00Z",
+    "ended_at": "2026-07-25T21:13:40Z",
+    "account": "anonymized-account-001"
+  },
+  "privacy": {
+    "aggregate_only": true,
+    "contains_credentials": false,
+    "contains_raw_user_content": false,
+    "contains_account_identifier": false,
+    "contains_run_or_thread_ids": false
+  },
+  "code_state": {
+    "base_commit": "6b84695770d0521d5eaa7d12876850da7785c009",
+    "observed_with_follow_up_worktree": true,
+    "migration_head": "027_agent_run_answer_llm"
+  },
+  "rollout_flags": {
+    "unified_catalog": true,
+    "typed_requirements": true,
+    "unified_selector": true,
+    "verified_pack_boundary": true,
+    "planner_policy": true,
+    "default_on": false
+  },
+  "traffic": {
+    "chat_count": 20,
+    "user_message_count": 46,
+    "user_messages_per_chat_min": 2,
+    "user_messages_per_chat_max": 4,
+    "chats_over_four_user_messages": 0,
+    "run_count": 46,
+    "completed_runs": 42,
+    "failed_runs": 4,
+    "cancelled_runs": 0,
+    "durable_trace_runs": 43
+  },
+  "runtime": {
+    "metrics_sample_size": 46,
+    "p95_duration_ms": 18466.8,
+    "average_duration_ms": 7154.9,
+    "p95_llm_calls_per_run": 4.0,
+    "average_llm_calls_per_run": 2.57,
+    "llm_calls_per_run_min": 0,
+    "llm_calls_per_run_max": 4
+  },
+  "selector": {
+    "run_count": 16,
+    "provider_call_count": 31,
+    "provider": "OpenAI",
+    "model": "gpt-4.1-mini",
+    "candidate_count_min": 1,
+    "candidate_count_max": 13,
+    "provider_usage_measured_calls": 31,
+    "provider_latency_measured_calls": 31,
+    "provider_cost_unavailable_calls": 31,
+    "timeout_calls": 0,
+    "retry_calls": 15,
+    "first_attempt_valid_runs": 1,
+    "canonical_valid_runs": 2,
+    "canonical_complete_valid_runs": 2,
+    "schema_results": {
+      "valid": 2,
+      "invalid_legacy": 26,
+      "invalid_transport": 2,
+      "invalid_canonical": 1
+    },
+    "p95_input_tokens": 2165.0,
+    "p95_output_tokens": 216.0,
+    "p95_total_tokens": 2381.0,
+    "p95_latency_ms": 3226.45,
+    "cohorts": {
+      "relevant": {
+        "provider_call_count": 20,
+        "p95_input_tokens": 1173.35,
+        "p95_output_tokens": 94.0,
+        "p95_total_tokens": 1214.85,
+        "p95_latency_ms": 3146.2
+      },
+      "complete_sync": {
+        "provider_call_count": 11,
+        "p95_input_tokens": 2343.0,
+        "p95_output_tokens": 216.0,
+        "p95_total_tokens": 2559.0,
+        "p95_latency_ms": 3173.5
+      },
+      "complete_boundary_256": {
+        "availability": "unavailable",
+        "provider_call_count": 0
+      }
+    }
+  },
+  "post_fix_window": {
+    "run_count": 2,
+    "candidate_count_per_run": 13,
+    "source_count_per_run": 2,
+    "provider_call_count": 4,
+    "retry_call_count": 2,
+    "valid_call_count": 1,
+    "canonical_valid_runs": 1,
+    "canonical_failed_runs": 1,
+    "visible_ref_count": 26,
+    "decoded_assessment_count": 13,
+    "complete_canonical_decisions": 1,
+    "p95_input_tokens": 2364.7,
+    "p95_output_tokens": 216.0,
+    "p95_total_tokens": 2580.7,
+    "p95_latency_ms": 3011.48,
+    "schema_results": {
+      "valid": 1,
+      "invalid_transport": 2,
+      "invalid_canonical": 1
+    }
+  },
+  "exact_structural_bypass": {
+    "eligible_trace_count": 1,
+    "selector_call_count": 0,
+    "violations": 0
+  },
+  "summary_backfill": {
+    "target_summary_rows": 13,
+    "discovery_v2_rows": 13,
+    "selector_v2_rows": 13,
+    "note_summary_rows": 7,
+    "post_summary_rows": 6,
+    "extractive_fallback_rows": 1,
+    "pending_jobs": 0,
+    "failed_jobs": 0
+  },
+  "quality_measurements": {
+    "p95_latency_ms": {
+      "availability": "measured",
+      "value": 18466.8,
+      "threshold": 119061.25,
+      "sample_size": 46,
+      "source": "latest durable run_metrics for the anonymized account pilot"
+    },
+    "llm_calls_per_run": {
+      "availability": "measured",
+      "value": 4.0,
+      "threshold": 1.0,
+      "sample_size": 46,
+      "source": "p95 latest durable run_metrics for the anonymized account pilot"
+    },
+    "semantic_selector_initial_calls_per_selector_run": {
+      "availability": "measured",
+      "value": 1.0,
+      "threshold": 1.0,
+      "sample_size": 16,
+      "source": "one initial semantic Selector call in each historical selector run; retry is measured separately"
+    },
+    "selector_p95_latency_ms": {
+      "availability": "measured",
+      "value": 3226.45,
+      "threshold": 30000.0,
+      "sample_size": 31,
+      "source": "actual provider latency across anonymized Selector calls"
+    },
+    "selector_provider_token_usage_measured": {
+      "availability": "measured",
+      "value": 1.0,
+      "sample_size": 31,
+      "source": "actual provider input/cached/output/total token telemetry"
+    },
+    "selector_relevant_p95_total_tokens": {
+      "availability": "measured",
+      "value": 1214.85,
+      "threshold": 2500.0,
+      "sample_size": 20,
+      "source": "actual relevant-cohort provider total tokens"
+    },
+    "selector_complete_sync_p95_total_tokens": {
+      "availability": "measured",
+      "value": 2559.0,
+      "threshold": 10000.0,
+      "sample_size": 11,
+      "source": "actual complete-sync provider total tokens for up to 13 candidates"
+    },
+    "selector_schema_retry_telemetry_measured": {
+      "availability": "measured",
+      "value": 1.0,
+      "sample_size": 31,
+      "source": "schema result and retry fields captured for every Selector call"
+    },
+    "selector_schema_reliability_within_budget": {
+      "availability": "inconclusive",
+      "value": null,
+      "sample_size": 16,
+      "source": "pilot observed 1 of 16 first-attempt valid and 2 of 16 canonical-valid runs; no acceptable retry-rate budget is agreed"
+    },
+    "selector_summary_backfill_coverage": {
+      "availability": "measured",
+      "value": 1.0,
+      "sample_size": 13,
+      "source": "account snapshot: 13 of 13 target summaries have fresh v2 projections"
+    },
+    "capped_canary_chat_count": {
+      "availability": "measured",
+      "value": 20,
+      "threshold": 20,
+      "sample_size": 20,
+      "source": "rollout-owner replacement risk-control gate for the capped account pilot"
+    },
+    "capped_canary_max_user_messages_per_chat": {
+      "availability": "measured",
+      "value": 4,
+      "threshold": 4,
+      "sample_size": 20,
+      "source": "rollout-owner replacement risk-control gate for the capped account pilot"
+    }
+  },
+  "cost_observability": {
+    "price_snapshot": {"availability": "unavailable", "version": null},
+    "estimated_cost": {"availability": "unavailable", "value_usd": null},
+    "mandatory_gate_replaced": true
+  }
+}

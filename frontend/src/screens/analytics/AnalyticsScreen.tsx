@@ -39,6 +39,10 @@ export function AnalyticsScreen() {
               onPeriodChange={actions.setPeriod}
               reactions={data.channelReactions}
               metricsRevision={data.metricsRevision}
+              historySource={data.historySource}
+              trackingSince={data.trackingSince}
+              isStale={data.isStale}
+              dataAgeSeconds={data.dataAgeSeconds}
             />
             <AnalyticsHeatmap heatmap={data.channelHeatmap} />
             <AnalyticsTopPostsTable

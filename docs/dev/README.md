@@ -8,6 +8,24 @@
 - [Архитектура](architecture.md) — FSD, слои, паттерны, потоки данных
 - [Режимы работы](runtime-modes.md) — презентация / демо / реальный аккаунт, ключи, overlay
 - [Сборка контекста для AI-чатов](ai-context-assembly.md) — слои промпта, bundle, rolling summary, ветки
+- [Роадмап: Agentic Graph RAG](roadmap-agentic-rag.md) — приоритеты реализации graph RAG и будущих агентных действий
+- [Каталог примеров RAG-пайплайна (ADR-011)](rag-pipeline/README.md) — golden scenarios research/actions/media
+- [Unified Agent Runtime (ADR-012)](adr/012-unified-agent-runtime.md) — LangGraph runs, HITL, media jobs
+- [Baseline metrics (pre-migration)](agent-baseline-metrics.md) — legacy L2 пороги для canary
+- [Workspace Agent phase 0 baseline](workspace-agent-phase0-baseline.md) — production traces, p50/p95/p99, graders и quality freeze
+- [Workspace Agent phase 1 runtime](workspace-agent-phase1-runtime.md) — event-loop ownership, fork-safe pools, worker warmup и queue isolation
+- [Workspace Agent phase 2 contracts](workspace-agent-phase2-contracts.md) — typed targets/sources, multi-target bootstrap, budgets и handoff
+- [Workspace Agent phase 3 search ledger](workspace-agent-phase3-search-ledger.md) — dedupe intent/read, bounded rewrites, validator finish и metrics
+- [Workspace Agent phase 4 discovery retrieval](workspace-agent-phase4-discovery-retrieval.md) — summaries, contextual chunks, rank fusion, freshness и quality gate
+- [Workspace Agent phase 5 compact planner](workspace-agent-phase5-compact-planner.md) — strict planner decisions, deterministic sufficiency, dynamic budgets и quality gate
+- [Workspace Agent phase 6 evidence pack](workspace-agent-phase6-evidence-pack.md) — verified EvidencePack, output schemas, grounded citations и model separation
+- [Workspace Agent phase 7 tools, HITL and observability](workspace-agent-phase7-tools-hitl-observability.md) — consolidated tools, persisted resume state, trace replay and SLO dashboards
+- [Workspace Agent phase 8 scale and batch](workspace-agent-phase8-scale-batch.md) — 1000+1000 corpus benchmark, PostgreSQL indexes, resumable batch path and queue isolation
+- [Workspace Agent adaptive evidence depth](workspace-agent-adaptive-evidence-depth-plan.md) — план разделения candidate assessment, semantic-card evidence и ограниченных full-text reads
+- [Workspace Agent unified integrity and counting plan](workspace-agent-unified-integrity-counting-plan.md) — единый пофазный план целостности отбора контекста, typed catalogs, deterministic aggregates и безопасного rollout
+- [Упрощение диалогового контекста и возврат к Smart RAG](smart-rag-dialog-context-simplification-plan.md) — отказ от отдельного resolver анафор, общий контекст planner/final и компактные карточки использованных материалов
+- [Workspace Agent current limitations](workspace-agent-current-limitations.md) — текущие ограничения, release blockers, фаза 3 и оставшиеся работы
+- [Сценарий: Agentic Graph RAG (legacy)](agentic-rag-scenario.md) — deprecated, legacy L2
 - [Сценарий: сводки, ветки и окно LLM](summary-branch-scenario.md) — эталонное поведение при форках и 3+ поколениях bundle
 - [Метки сводок `1-2-3`](summary-version-labels.md) — каталог версий и метки на сообщениях
 - [API-контракты](api-contracts.md) — эндпоинты, Zod-схемы, типы

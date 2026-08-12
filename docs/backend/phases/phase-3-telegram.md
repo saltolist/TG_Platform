@@ -582,10 +582,19 @@ GET /api/v1/analytics/top-posts/?period=30d
   `GetFullChannelRequest`; `full_chat.participants_count` сохраняется в
   `profile.telegram.subscriberCount`. Если Telegram скрывает число подписчиков,
   поле остаётся `null`, а API возвращает `subscribersAvailable=false`.
-- **Снимки аналитики:** `live_sync_worker` запускает `_analytics_snapshot_loop`
-  каждые `telegram_analytics_snapshot_seconds` (по умолчанию 1800 с). Снимок
-  пишет cumulative totals в `channel_metric_snapshots`, округляя `captured_at`
-  к слотам `:00` / `:30`.
+- **Снимки аналитики:** Celery Beat запускает `capture_all_channel_snapshots`
+  каждые `telegram_analytics_snapshot_seconds` (по умолчанию 300 с — раз в 5 минут).
+  Это дешёвый DB-only захват totals в `post_metric_snapshots` /
+  `channel_metric_snapshots` (округление `captured_at` к слотам `:00` / `:30`).
+  Обновление реального числа подписчиков и опрос метрик постов из Telegram
+  (`poll_recent_post_metrics`) выполняются реже — по
+  `telegram_analytics_subscriber_refresh_seconds` (по умолчанию 3600 с), только когда
+  `subscriberCountAt` устарел. Перед каждым таким Telethon-циклом метрики постов
+  принудительно подтягиваются из Telegram, что закрывает дыру для каналов в режиме
+  `publish-only` (у них нет live-sync maintenance). Если снимок не писался дольше
+  чем `3 × telegram_analytics_snapshot_seconds`, в лог уходит `WARNING`
+  «Analytics snapshot overdue». Текущий бакет графика по-прежнему пересчитывается
+  из живых данных постов на чтении (`channel_metrics.build_overview_from_history`).
 
 **Обновление в БД:**
 - `post_sync._content_unchanged` учитывает изменение `metrics` — reconcile может

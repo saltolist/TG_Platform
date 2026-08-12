@@ -10,12 +10,19 @@ import {
   rewriteNoteCitationLinkTitles,
   splitNoteCitationSegments,
   stripInvalidNoteCitations,
+  buildValidPathsFromKbCites,
+  stripSelfPostCitations,
 } from "./noteCitation";
 
 describe("resolveNoteCitationHref", () => {
   it("resolves path-based global note citation", () => {
     expect(resolveNoteCitationHref("/note/global/gn1/")).toBe("/note/global/gn1/");
     expect(resolveNoteCitationHref("/note/global/gn1")).toBe("/note/global/gn1/");
+  });
+
+  it("resolves path-based post citation", () => {
+    expect(resolveNoteCitationHref("/post/p5/")).toBe("/post/p5/");
+    expect(resolveNoteCitationHref("/post/p5")).toBe("/post/p5/");
   });
 
   it("resolves path-based post note citation", () => {
@@ -34,8 +41,9 @@ describe("resolveNoteCitationHref", () => {
 });
 
 describe("isNoteCitationHref", () => {
-  it("detects note paths and legacy protocol", () => {
+  it("detects note paths, post paths, and legacy protocol", () => {
     expect(isNoteCitationHref("/note/global/x/")).toBe(true);
+    expect(isNoteCitationHref("/post/x/")).toBe(true);
     expect(isNoteCitationHref("note:global/x")).toBe(true);
     expect(isNoteCitationHref("https://example.com")).toBe(false);
   });
@@ -77,6 +85,14 @@ describe("normalizeNoteCitationMarkdown", () => {
       ),
     ).toBe("Ответ [Работа](/note/global/1/)\nдальше.");
   });
+
+  it("converts post cite-path metadata to markdown links", () => {
+    expect(
+      normalizeNoteCitationMarkdown(
+        "Ответ cite-path: /post/3/ cite-title: Привет\nдальше.",
+      ),
+    ).toBe("Ответ [Привет](/post/3/)\nдальше.");
+  });
 });
 
 describe("splitNoteCitationSegments", () => {
@@ -85,6 +101,30 @@ describe("splitNoteCitationSegments", () => {
       { type: "text", text: "Текст." },
       { type: "cite", title: "Работа", href: "/note/global/1/" },
     ]);
+  });
+});
+
+describe("buildValidPathsFromKbCites", () => {
+  it("normalizes backend kb cite paths", () => {
+    const paths = buildValidPathsFromKbCites([
+      { path: "/post/721c63fe/", title: "Draft" },
+    ]);
+    expect(paths.has("/post/721c63fe/")).toBe(true);
+    expect(paths.has("/post/3/")).toBe(false);
+  });
+});
+
+describe("stripSelfPostCitations", () => {
+  it("removes citation to the post being edited", () => {
+    expect(
+      stripSelfPostCitations("Заголовки. [Draft](/post/uuid-1/)", ["uuid-1"]),
+    ).toBe("Заголовки.");
+  });
+
+  it("keeps citations to other posts", () => {
+    expect(
+      stripSelfPostCitations("См. [Welcome](/post/3/)", ["uuid-1"]),
+    ).toBe("См. [Welcome](/post/3/)");
   });
 });
 
@@ -148,6 +188,7 @@ describe("citationChipLabel", () => {
   });
 
   it("falls back for empty label", () => {
-    expect(citationChipLabel("")).toBe("Заметка");
+    expect(citationChipLabel("")).toBe("Источник");
+    expect(citationChipLabel("", "Пост")).toBe("Пост");
   });
 });

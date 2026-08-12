@@ -688,7 +688,8 @@
 }
 /* Кнопки «Сохранить» / «Отмена» — пост, редактирование сообщения и модалка */
 .post-edit-toolbar .post-edit-btn,
-.msg-user-edit-bar .post-edit-btn {
+.msg-user-edit-bar .post-edit-btn,
+.post-proposal__actions .post-edit-btn {
   box-sizing: border-box;
   display: inline-flex;
   align-items: center;
@@ -710,25 +711,29 @@
   opacity: 1;
 }
 .post-edit-toolbar .btn-ghost.post-edit-btn,
-.msg-user-edit-bar .btn-ghost.post-edit-btn {
+.msg-user-edit-bar .btn-ghost.post-edit-btn,
+.post-proposal__actions .btn-ghost.post-edit-btn {
   background: var(--profile-control-bg);
   color: var(--text2);
   border: 1px solid var(--profile-control-border);
 }
 .post-edit-toolbar .btn-ghost.post-edit-btn:hover,
-.msg-user-edit-bar .btn-ghost.post-edit-btn:hover {
+.msg-user-edit-bar .btn-ghost.post-edit-btn:hover,
+.post-proposal__actions .btn-ghost.post-edit-btn:hover {
   background: var(--profile-control-bg-hover);
   color: var(--text);
   border-color: var(--control-border-active);
 }
 .post-edit-toolbar .btn-primary.post-edit-btn,
-.msg-user-edit-bar .btn-primary.post-edit-btn {
+.msg-user-edit-bar .btn-primary.post-edit-btn,
+.post-proposal__actions .btn-primary.post-edit-btn {
   background: var(--profile-control-bg);
   color: var(--profile-control-fg);
   border: 1px solid var(--control-border-active);
 }
 .post-edit-toolbar .btn-primary.post-edit-btn:hover,
-.msg-user-edit-bar .btn-primary.post-edit-btn:hover {
+.msg-user-edit-bar .btn-primary.post-edit-btn:hover,
+.post-proposal__actions .btn-primary.post-edit-btn:hover {
   background: var(--profile-control-bg-hover);
   color: var(--profile-control-fg);
   border-color: var(--control-border-active);
@@ -1114,6 +1119,58 @@
   padding-top: 0;
   container-type: inline-size;
   container-name: post-subpage;
+}
+
+/* Аналитика поста — тот же контейнер и карточка, что на /analytics */
+.post-analytics-scroll .analytics-scroll-inner {
+  width: min(var(--content-w), 100%);
+  max-width: 100%;
+  flex: none;
+  padding: 14px var(--content-card-shadow-gutter) 20px;
+  box-sizing: border-box;
+}
+
+.post-analytics-scroll .analytics-scroll-inner > :last-child {
+  margin-bottom: 0;
+}
+
+.post-analytics-scroll .analytics-card::before {
+  -webkit-backdrop-filter: none;
+  backdrop-filter: none;
+  background: var(--content-card-surface);
+}
+
+.post-analytics-scroll .analytics-card {
+  box-shadow: inset 0 1px 0 var(--sidebar-glass-shine);
+  overflow: hidden;
+}
+
+.post-analytics-scroll .analytics-chart-card {
+  overflow: visible;
+}
+
+.post-analytics-scroll .analytics-chart-card .model-trend-plot,
+.post-analytics-scroll .analytics-chart-card .trend-chart-wrap {
+  overflow: visible;
+  max-width: 100%;
+}
+
+:root[data-theme="light"] .post-analytics-scroll .analytics-card {
+  box-shadow: var(--content-card-shadow);
+}
+
+@media (prefers-color-scheme: light) {
+  :root[data-theme="system"] .post-analytics-scroll .analytics-card {
+    box-shadow: var(--content-card-shadow);
+  }
+}
+
+.post-analytics-scroll .platform-analytics-section .profile-section-title,
+.post-analytics-scroll .analytics-card .profile-section-title {
+  margin-bottom: 0;
+  font-size: 17px;
+  font-weight: 600;
+  color: var(--text);
 }
 
 /* Тулбар отдельно от сетки — один отступ до карточек (как .notes-grid-page) */
@@ -1550,4 +1607,104 @@
   .post-msg-card {
     padding: 3px 12px 12px;
   }
+}
+
+/* Agent interrupts flow inside the post chat, centred like the post card */
+.post-body-inner > .agent-run-interrupts {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  width: 100%;
+}
+.post-body-inner .post-proposal,
+.post-body-inner .post-proposal-collapsed {
+  width: var(--feed-post-w, 500px);
+  max-width: 100%;
+  margin-inline: auto;
+}
+
+/* Agent action proposal rendered as a modified post card */
+.post-proposal {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+.post-proposal__head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  padding: 0 4px;
+  color: var(--text3);
+  font-size: 12px;
+}
+.post-proposal__head[role="button"] {
+  cursor: pointer;
+}
+.post-proposal__label {
+  font-weight: 500;
+}
+.post-proposal__card {
+  cursor: default;
+}
+.post-proposal__actions {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 8px;
+  padding: 0 2px;
+}
+.post-proposal__chevron {
+  width: 16px;
+  height: 16px;
+  flex-shrink: 0;
+  transition: transform 0.15s ease;
+}
+.post-proposal__chevron.is-expanded {
+  transform: rotate(180deg);
+}
+
+/* Collapsed history entry — a 50px bar showing just the post title */
+.post-proposal-collapsed {
+  box-sizing: border-box;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  width: 100%;
+  height: 50px;
+  padding: 0 14px;
+  background: var(--bg2);
+  border: 1px solid var(--border2);
+  border-radius: var(--post-card-r);
+  box-shadow: var(--content-card-shadow);
+  color: var(--text);
+  cursor: pointer;
+  text-align: left;
+  transition: background 0.12s;
+}
+.post-proposal-collapsed:hover {
+  background: var(--bg3);
+}
+.post-proposal-collapsed__dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  flex-shrink: 0;
+}
+.post-proposal-collapsed__dot--approve {
+  background: var(--green);
+}
+.post-proposal-collapsed__dot--reject {
+  background: var(--red);
+}
+.post-proposal-collapsed__title {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: 14px;
+}
+.post-proposal-collapsed .post-proposal__chevron {
+  color: var(--text3);
 }

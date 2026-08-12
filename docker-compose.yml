@@ -44,6 +44,7 @@ services:
       retries: 10
 
   backend:
+    image: tg-platform-backend:local
     build:
       context: ./backend
     environment: &backend-env
@@ -54,6 +55,7 @@ services:
       COOKIE_SAMESITE: ${COOKIE_SAMESITE:-lax}
       COOKIE_DOMAIN: ${COOKIE_DOMAIN:-}
       S3_ENDPOINT: http://minio:9000
+      S3_PUBLIC_ENDPOINT: ${S3_PUBLIC_ENDPOINT:-http://localhost:9000}
       S3_ACCESS_KEY: ${MINIO_ROOT_USER:-minioadmin}
       S3_SECRET_KEY: ${MINIO_ROOT_PASSWORD:-minioadmin}
       OPENAI_API_KEY: ${OPENAI_API_KEY:-}
@@ -62,6 +64,33 @@ services:
       PERPLEXITY_API_KEY: ${PERPLEXITY_API_KEY:-}
       BYOK_ENCRYPTION_KEY: ${BYOK_ENCRYPTION_KEY:-}
       RAG_ENABLED: ${RAG_ENABLED:-1}
+      RAG_SEMANTIC_SUMMARIES_ENABLED: ${RAG_SEMANTIC_SUMMARIES_ENABLED:-1}
+      RAG_SEMANTIC_SUMMARY_TIMEOUT_SECONDS: ${RAG_SEMANTIC_SUMMARY_TIMEOUT_SECONDS:-20}
+      RAG_SEMANTIC_SUMMARY_INPUT_CHARS: ${RAG_SEMANTIC_SUMMARY_INPUT_CHARS:-6000}
+      RAG_STARTUP_BACKFILL_USER_EMAIL: ${RAG_STARTUP_BACKFILL_USER_EMAIL:-}
+      RAG_MODE: ${RAG_MODE:-off}
+      RAG_TIER_B_ENABLED: ${RAG_TIER_B_ENABLED:-0}
+      RAG_INTENT_ROUTING_ENABLED: ${RAG_INTENT_ROUTING_ENABLED:-0}
+      RAG_AGENT_MAX_STEPS: ${RAG_AGENT_MAX_STEPS:-4}
+      AGENT_RUNTIME_ENGINE: ${AGENT_RUNTIME_ENGINE:-langgraph}
+      AGENT_RUNTIME_PHASE1_ENABLED: ${AGENT_RUNTIME_PHASE1_ENABLED:-1}
+      AGENT_UNIFIED_CATALOG_V1_ENABLED: ${AGENT_UNIFIED_CATALOG_V1_ENABLED:-0}
+      AGENT_TYPED_REQUIREMENTS_V1_ENABLED: ${AGENT_TYPED_REQUIREMENTS_V1_ENABLED:-0}
+      AGENT_UNIFIED_SELECTOR_V1_ENABLED: ${AGENT_UNIFIED_SELECTOR_V1_ENABLED:-0}
+      AGENT_VERIFIED_PACK_BOUNDARY_V1_ENABLED: ${AGENT_VERIFIED_PACK_BOUNDARY_V1_ENABLED:-0}
+      AGENT_PLANNER_POLICY_V1_ENABLED: ${AGENT_PLANNER_POLICY_V1_ENABLED:-0}
+      AGENT_UNIFIED_DEFAULT_ON: ${AGENT_UNIFIED_DEFAULT_ON:-0}
+      AGENT_TURN_CONTRACT_V2_ENABLED: ${AGENT_TURN_CONTRACT_V2_ENABLED:-1}
+      AGENT_BATCH_PATH_V1_ENABLED: ${AGENT_BATCH_PATH_V1_ENABLED:-1}
+      AGENT_ADAPTIVE_EVIDENCE_DEPTH_V1_ENABLED: ${AGENT_ADAPTIVE_EVIDENCE_DEPTH_V1_ENABLED:-1}
+      AGENT_DIALOG_CONTEXT_V2: ${AGENT_DIALOG_CONTEXT_V2:-1}
+      AGENT_REFERENT_RESOLUTION_LEGACY: ${AGENT_REFERENT_RESOLUTION_LEGACY:-0}
+      AGENT_FINISH_WITHOUT_RESEARCH: ${AGENT_FINISH_WITHOUT_RESEARCH:-1}
+      RAG_L2_ENGINE: ${RAG_L2_ENGINE:-langgraph}
+      AGENT_ACTIONS_ENABLED: ${AGENT_ACTIONS_ENABLED:-0}
+      AGENT_MEDIA_ENABLED: ${AGENT_MEDIA_ENABLED:-0}
+      FASTEMBED_CACHE_PATH: /app/.cache/fastembed
+      EMBEDDING_MODEL_LOCAL: ${EMBEDDING_MODEL_LOCAL:-sentence-transformers/paraphrase-multilingual-MiniLM-L12-v2}
       AI_CONTEXT_LOG: ${AI_CONTEXT_LOG:-0}
       AI_CONTEXT_LOG_CHAT: ${AI_CONTEXT_LOG_CHAT:-}
       AI_CONTEXT_STAMPS: ${AI_CONTEXT_STAMPS:-0}
@@ -98,8 +127,7 @@ services:
       - /etc/localtime:/etc/localtime:ro
 
   sync-worker:
-    build:
-      context: ./backend
+    image: tg-platform-backend:local
     entrypoint: ./scripts/entrypoint-sync-worker.sh
     restart: unless-stopped
     environment:
@@ -114,11 +142,177 @@ services:
       - media-data:/app/media
       - /etc/localtime:/etc/localtime:ro
 
-  celery-worker:
-    build:
-      context: ./backend
+  # Keep interactive agent runs independent from long-running analytics and
+  # Telegram maintenance jobs. Both workers use one child process so the
+  # embedding model memory footprint stays bounded.
+  celery-agent-worker:
+    image: tg-platform-backend:local
     entrypoint: ./scripts/entrypoint-celery.sh
     command: worker
+    restart: unless-stopped
+    environment:
+      <<: *backend-env
+      CELERY_WORKER_QUEUES: agent-interactive
+      CELERY_WORKER_CONCURRENCY: 1
+      PROMETHEUS_PUSHGATEWAY_URL: ${PROMETHEUS_PUSHGATEWAY_URL:-http://pushgateway:9091}
+      PROMETHEUS_MULTIPROC_DIR: /tmp/prometheus_multiproc
+      PROMETHEUS_METRICS_PORT: 9109
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      pushgateway:
+        condition: service_started
+    volumes:
+      - media-data:/app/media
+      - /etc/localtime:/etc/localtime:ro
+    healthcheck:
+      test: ["CMD", "python", "-c", "import socket,sys; from app.celery_app import celery_app; result=celery_app.control.inspect(destination=[f'celery@{socket.gethostname()}'], timeout=5).ping() or {}; sys.exit(0 if result else 1)"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 120s
+
+  celery-worker:
+    image: tg-platform-backend:local
+    entrypoint: ./scripts/entrypoint-celery.sh
+    command: worker
+    restart: unless-stopped
+    environment:
+      <<: *backend-env
+      CELERY_WORKER_QUEUES: telegram-io,analytics
+      CELERY_WORKER_CONCURRENCY: 1
+      PROMETHEUS_PUSHGATEWAY_URL: ${PROMETHEUS_PUSHGATEWAY_URL:-http://pushgateway:9091}
+      PROMETHEUS_MULTIPROC_DIR: /tmp/prometheus_multiproc
+      PROMETHEUS_METRICS_PORT: 9108
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      pushgateway:
+        condition: service_started
+    volumes:
+      - media-data:/app/media
+      - /etc/localtime:/etc/localtime:ro
+    healthcheck:
+      test: ["CMD", "python", "-c", "import socket,sys; from app.celery_app import celery_app; result=celery_app.control.inspect(destination=[f'celery@{socket.gethostname()}'], timeout=5).ping() or {}; sys.exit(0 if result else 1)"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 120s
+
+  celery-heavy-worker:
+    image: tg-platform-backend:local
+    entrypoint: ./scripts/entrypoint-celery.sh
+    command: heavy
+    restart: unless-stopped
+    environment:
+      <<: *backend-env
+      PROMETHEUS_PUSHGATEWAY_URL: ${PROMETHEUS_PUSHGATEWAY_URL:-http://pushgateway:9091}
+      PROMETHEUS_MULTIPROC_DIR: /tmp/prometheus_multiproc
+      PROMETHEUS_METRICS_PORT: 9108
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      pushgateway:
+        condition: service_started
+    volumes:
+      - media-data:/app/media
+      - /etc/localtime:/etc/localtime:ro
+    healthcheck:
+      test: ["CMD", "python", "-c", "import socket,sys; from app.celery_app import celery_app; result=celery_app.control.inspect(destination=[f'celery@{socket.gethostname()}'], timeout=5).ping() or {}; sys.exit(0 if result else 1)"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 30s
+
+  celery-batch-worker:
+    image: tg-platform-backend:local
+    entrypoint: ./scripts/entrypoint-celery.sh
+    command: batch
+    restart: unless-stopped
+    environment:
+      <<: *backend-env
+      PROMETHEUS_PUSHGATEWAY_URL: ${PROMETHEUS_PUSHGATEWAY_URL:-http://pushgateway:9091}
+      PROMETHEUS_MULTIPROC_DIR: /tmp/prometheus_multiproc
+      PROMETHEUS_METRICS_PORT: 9108
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      pushgateway:
+        condition: service_started
+    volumes:
+      - media-data:/app/media
+      - /etc/localtime:/etc/localtime:ro
+    healthcheck:
+      test: ["CMD", "python", "-c", "import socket,sys; from app.celery_app import celery_app; result=celery_app.control.inspect(destination=[f'celery@{socket.gethostname()}'], timeout=5).ping() or {}; sys.exit(0 if result else 1)"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 30s
+
+  pushgateway:
+    image: prom/pushgateway:v1.9.0
+    restart: unless-stopped
+    ports:
+      - "9091:9091"
+
+  prometheus:
+    image: prom/prometheus:v2.54.1
+    restart: unless-stopped
+    command:
+      - --config.file=/etc/prometheus/prometheus.yml
+      - --storage.tsdb.path=/prometheus
+      - --web.enable-lifecycle
+    volumes:
+      - ./ops/prometheus/prometheus.yml:/etc/prometheus/prometheus.yml:ro
+      - ./ops/prometheus/alerts.yml:/etc/prometheus/alerts.yml:ro
+      - prometheus-data:/prometheus
+    ports:
+      - "9090:9090"
+    depends_on:
+      - pushgateway
+      - alertmanager
+      - celery-worker
+      - celery-heavy-worker
+      - celery-batch-worker
+
+  alertmanager:
+    image: prom/alertmanager:v0.27.0
+    restart: unless-stopped
+    command:
+      - --config.file=/etc/alertmanager/alertmanager.yml
+    volumes:
+      - ./ops/alertmanager/alertmanager.yml:/etc/alertmanager/alertmanager.yml:ro
+    ports:
+      - "9093:9093"
+
+  grafana:
+    image: grafana/grafana:11.2.0
+    restart: unless-stopped
+    environment:
+      GF_SECURITY_ADMIN_USER: admin
+      GF_SECURITY_ADMIN_PASSWORD: ${GRAFANA_ADMIN_PASSWORD:-admin}
+      GF_USERS_ALLOW_SIGN_UP: "false"
+    volumes:
+      - grafana-data:/var/lib/grafana
+      - ./ops/grafana/provisioning:/etc/grafana/provisioning:ro
+      - ./ops/grafana/dashboards:/etc/grafana/dashboards:ro
+    ports:
+      - "3001:3000"
+    depends_on:
+      - prometheus
+
+  celery-beat:
+    image: tg-platform-backend:local
+    entrypoint: ./scripts/entrypoint-celery.sh
+    command: beat
     restart: unless-stopped
     environment: *backend-env
     depends_on:
@@ -151,3 +345,7 @@ volumes:
     name: tg_platform_media-data
   redis-data:
     name: tg_platform_redis-data
+  prometheus-data:
+    name: tg_platform_prometheus-data
+  grafana-data:
+    name: tg_platform_grafana-data

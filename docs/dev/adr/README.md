@@ -14,6 +14,10 @@
 | [005](005-assistant-repository.md) | AssistantRepository для изоляции AI-логики | ✅ Принято |
 | [006](006-global-401-handler.md) | Глобальный обработчик 401 в httpClient | ✅ Принято |
 | [007](007-runtime-modes-keys-overlay.md) | Режимы работы, резолв ключей AI и локальный overlay | 📝 Предложено |
+| [008](008-agentic-graph-rag.md) | Agentic Graph RAG — модель retrieval | 📝 Предложено |
+| [009](009-dialog-evidence-ledger.md) | Dialog Evidence Ledger — multi-turn referents | ✅ Принято (v1 + v1.5) |
+| [011](011-langgraph-rag.md) | LangGraph RAG — research subgraph | ✅ Принято |
+| [012](012-unified-agent-runtime.md) | Unified LangGraph Agent Runtime | ✅ Принято |
 
 ## Формат ADR
 

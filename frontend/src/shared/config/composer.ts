@@ -27,8 +27,11 @@ export const VISION_PROVIDER_MODELS: Record<string, string[]> = {
 
 export const IMAGE_GENERATION_PROVIDER_MODELS: Record<string, string[]> = {
   OpenAI: ["dall-e-3", "gpt-image-1"],
-  Stability: ["stable-image-ultra", "stable-image-core"],
-  Google: ["imagen-3"],
+};
+
+export const VIDEO_GENERATION_PROVIDER_MODELS: Record<string, string[]> = {
+  OpenAI: ["sora"],
+  Google: ["veo-2"],
 };
 
 export const OPENAI_WEB_SEARCH_MODEL = "responses-api-web-search";

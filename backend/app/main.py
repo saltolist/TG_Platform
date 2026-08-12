@@ -64,6 +64,15 @@ async def _check_byok_key_guard(session_factory) -> None:
 async def lifespan(app: FastAPI):
     # Schema is managed by Alembic (see scripts/entrypoint.sh and `alembic upgrade head`).
     await _check_byok_key_guard(async_session_factory)
+    if settings.agent_runtime_engine == "langgraph":
+        from app.services.agent.runtime.checkpoint import (
+            ensure_checkpointer_ready,
+            mark_checkpointer_loop_persistent,
+        )
+
+        if settings.agent_runtime_phase1_enabled:
+            mark_checkpointer_loop_persistent()
+        await ensure_checkpointer_ready()
     if settings.telegram_clock_sync_enabled:
         await log_container_clock_skew()
 
@@ -74,7 +83,9 @@ async def lifespan(app: FastAPI):
             _context_logger.info("AI context log ON → chat %s (from env)", chat_id)
         else:
             _context_logger.info(
-                "AI context log ON — set chat: ./scripts/ai-log-chat.sh <chat-id>"
+                "AI context log ON — traces buffered for all chats; "
+                "terminal filter: ./scripts/ai-log-chat.sh <chat-id>; "
+                "fetch: GET /api/v1/dev/ai-context-log/traces?chatId=…"
             )
 
     stop_event = asyncio.Event()
@@ -112,6 +123,10 @@ async def lifespan(app: FastAPI):
         await sync_events_bridge_task
     except asyncio.CancelledError:
         pass
+    if settings.agent_runtime_engine == "langgraph":
+        from app.services.agent.runtime.checkpoint import close_checkpointer
+
+        await close_checkpointer()
     await engine.dispose()
 
 

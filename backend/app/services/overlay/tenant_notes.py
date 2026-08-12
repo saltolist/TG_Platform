@@ -89,6 +89,50 @@ async def get_tenant_note(
     return dict(row.data)
 
 
+async def list_tenant_notes(
+    session: AsyncSession,
+    user_id: uuid.UUID,
+    tenant_key: str,
+    scope: str,
+) -> list[dict[str, Any]]:
+    rows = (
+        await session.execute(
+            text(
+                "SELECT data FROM tenant_overlay_notes "
+                "WHERE user_id = :uid AND tenant_key = :tk AND scope = :scope "
+                "ORDER BY updated_at"
+            ),
+            {"uid": str(user_id), "tk": tenant_key, "scope": scope},
+        )
+    ).fetchall()
+    return [dict(row.data) for row in rows]
+
+
+async def list_tenant_notes_with_parents(
+    session: AsyncSession,
+    user_id: uuid.UUID,
+    tenant_key: str,
+    scope: str,
+) -> list[dict[str, Any]]:
+    rows = (
+        await session.execute(
+            text(
+                "SELECT data, post_id FROM tenant_overlay_notes "
+                "WHERE user_id = :uid AND tenant_key = :tk AND scope = :scope "
+                "ORDER BY updated_at, note_id"
+            ),
+            {"uid": str(user_id), "tk": tenant_key, "scope": scope},
+        )
+    ).fetchall()
+    return [
+        {
+            **dict(row.data),
+            "_parent_post_id": str(row.post_id or "") or None,
+        }
+        for row in rows
+    ]
+
+
 async def sync_tenant_overlay_notes(
     session: AsyncSession,
     user_id: uuid.UUID,

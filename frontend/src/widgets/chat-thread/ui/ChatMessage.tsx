@@ -60,10 +60,13 @@ export default function ChatMessage({
   }
 
   return (
-    <ChatAiMessage
+    <div id={message.messageId ? `message-${message.messageId}` : undefined}>
+      <ChatAiMessage
       plainAi={chat.plainAi}
       modelTitle={chat.modelTitle}
       webCites={chat.webCites}
+      kbCites={chat.kbCites}
+      postId={ctx?.scope === "post" ? ctx.postId : undefined}
       ctx={ctx}
       showVariantNav={chat.aiVariantCount > 1}
       canGoVariantPrev={chat.aiVariantIdx > 0}
@@ -75,6 +78,9 @@ export default function ChatMessage({
           : undefined
       }
       isStreaming={isStreaming}
-    />
+      proposal={message.proposal}
+      proposalDecision={message.proposalDecision ?? null}
+      />
+    </div>
   );
 }

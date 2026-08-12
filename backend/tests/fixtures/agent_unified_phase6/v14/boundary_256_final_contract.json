@@ -1,0 +1,118 @@
+{
+  "boundary_256": {
+    "actual_total_tokens_availability": "measured",
+    "actual_total_tokens_p95": 20744,
+    "attempts": [
+      {
+        "attempt": 1,
+        "estimator_input_tokens": 18419,
+        "latency_ms": 13546.7,
+        "provider_error": null,
+        "provider_token_usage": {
+          "availability": "measured",
+          "cached_input_availability": "measured",
+          "cached_input_tokens": 0,
+          "input_tokens": 19950,
+          "output_tokens": 794,
+          "total_tokens": 20744
+        },
+        "retry": false,
+        "schema_result": "valid",
+        "validation_error_codes": []
+      }
+    ],
+    "availability": "measured",
+    "candidate_count": 256,
+    "final_canonical_valid": true,
+    "gate_total_tokens_lte_22000": true,
+    "latency_p95_ms": 13546.7,
+    "maximum_dialog_context_chars": 3000,
+    "retry_count": 0
+  },
+  "cohort_role": "qualification",
+  "cohort_sha256": "e0a5034928482cec06ad647bbd1ec97926f8b76337b21620077840f0959ff6c8",
+  "cohort_version": "2026-07-29-semantic-qualification-v6",
+  "contains_account_identifier": false,
+  "contains_credentials": false,
+  "contains_raw_provider_output": false,
+  "contains_source_or_user_content": false,
+  "end_to_end_qualification": {
+    "availability": "not_measured",
+    "critical_required_recall": null,
+    "effective_path": "primary_only",
+    "final_pack_precision": null,
+    "irrelevant_selection_rate": null,
+    "passed": null,
+    "planner_all_passed": null,
+    "position_error_count": 0,
+    "selector_final_valid": 0,
+    "selector_first_attempt_valid": 0,
+    "selector_retries": 0
+  },
+  "estimated_cost": {
+    "availability": "unavailable",
+    "value_usd": null
+  },
+  "evaluation_role": "qualification",
+  "excluded_scenario_ids": [],
+  "input_qualification_status": "untouched",
+  "labels_frozen_before_provider_output": true,
+  "model": "gpt-4.1",
+  "planner_model": "gpt-4.1-mini",
+  "planner_resolution": {
+    "actual_total_tokens_availability": "unavailable",
+    "actual_total_tokens_max_per_call": null,
+    "all_passed": null,
+    "contains_raw_provider_output": false,
+    "contains_source_or_user_content": false,
+    "dialog_resolution_passed_count": 0,
+    "dialog_resolution_scenario_count": 0,
+    "enabled": false,
+    "measured_count": 0,
+    "passed_count": 0,
+    "provider_call_count": 0,
+    "scenario_count": 0,
+    "selector_question_source": "fixture.query"
+  },
+  "position_error_count": 0,
+  "price_snapshot": {
+    "availability": "unavailable",
+    "version": null
+  },
+  "primary_summary_variant": null,
+  "provider": "OpenAI",
+  "provider_call_count": 1,
+  "provider_failure_count": 0,
+  "recall_verifier": {
+    "actual_total_tokens_availability": "unavailable",
+    "actual_total_tokens_max_per_call": null,
+    "actual_total_tokens_sum": null,
+    "complete_boundary_call_count": 0,
+    "contains_raw_provider_output": false,
+    "contains_source_or_user_content": false,
+    "gate_latency_p95_lte_10000": null,
+    "gate_max_tokens_per_call_lte_2500": null,
+    "latency_p95_ms": null,
+    "mode": "disabled",
+    "provider_call_count": 0,
+    "retry_count": 0,
+    "schema_results": {},
+    "validation_error_counts": {}
+  },
+  "scenario_filter_applied": false,
+  "schema": "workspace.selector-provider-replay/v1",
+  "schema_results": {
+    "valid": 1
+  },
+  "selector_card_generation": {
+    "enabled": false
+  },
+  "semantic_sample_sufficient": false,
+  "semantic_scenario_count": 0,
+  "semantic_source_scenario_count": 20,
+  "semantic_variant": "baseline",
+  "summary_160_non_inferior_recall": null,
+  "transport_tier": "strict_json_schema",
+  "validation_error_counts": {},
+  "variants": {}
+}

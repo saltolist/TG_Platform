@@ -146,3 +146,51 @@ def test_normalize_platform_text_html_rejects_mismatched_plain_text() -> None:
     assert text == "plain"
     assert html is None
     assert entities is None
+
+
+# --- stored_fields_from_platform_html: agent-authored Telegram HTML (chat 49a569c8) ---
+
+
+def test_stored_fields_from_platform_html_derives_text_and_keeps_formatting() -> None:
+    from app.services.telegram.text_formatting import stored_fields_from_platform_html
+
+    text, html = stored_fields_from_platform_html("<strong>Заголовок</strong><br>абзац")
+    assert text == "Заголовок\nабзац"
+    assert html == "<strong>Заголовок</strong><br>абзац"
+
+
+def test_stored_fields_from_platform_html_preserves_custom_emoji() -> None:
+    from app.services.telegram.text_formatting import stored_fields_from_platform_html
+
+    text, html = stored_fields_from_platform_html(
+        'Привет <tg-emoji emoji-id="5789">⭐</tg-emoji> мир'
+    )
+    assert text == "Привет ⭐ мир"
+    assert html is not None
+    assert 'tg-emoji emoji-id="5789"' in html
+
+
+def test_stored_fields_from_platform_html_drops_html_without_formatting() -> None:
+    from app.services.telegram.text_formatting import stored_fields_from_platform_html
+
+    text, html = stored_fields_from_platform_html("Просто обычный текст без тегов")
+    assert text == "Просто обычный текст без тегов"
+    assert html is None
+
+
+def test_stored_fields_from_platform_html_falls_back_on_broken_html() -> None:
+    from app.services.telegram.text_formatting import stored_fields_from_platform_html
+
+    # Unclosed tag: Telethon's parser still recovers *some* plain text (it does
+    # not raise), so the fallback path is the "no real formatting survives"
+    # branch, not the except-Exception branch — both must yield html=None.
+    text, html = stored_fields_from_platform_html("<strong>непарный тег")
+    assert html is None
+    assert "непарный тег" in text
+
+
+def test_stored_fields_from_platform_html_empty_input() -> None:
+    from app.services.telegram.text_formatting import stored_fields_from_platform_html
+
+    assert stored_fields_from_platform_html("") == ("", None)
+    assert stored_fields_from_platform_html("   ") == ("", None)

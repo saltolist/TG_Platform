@@ -38,6 +38,41 @@ class AiReplyResponse(BaseModel):
     text: str
 
 
+class PostPatchRequest(BaseModel):
+    """Allowlisted post patch — agent and REST must not mutate internal/status fields."""
+
+    model_config = ConfigDict(extra="forbid", populate_by_name=True)
+
+    text: str | None = None
+    text_html: str | None = Field(default=None, validation_alias="textHtml")
+    title: str | None = None
+    notes: list[dict[str, Any]] | None = None
+    media: list[dict[str, Any]] | None = None
+
+    def to_patch_dict(self) -> dict[str, Any]:
+        raw = self.model_dump(by_alias=True, exclude_none=True)
+        return raw
+
+
+class StartAgentRunRequest(BaseModel):
+    model_config = ConfigDict(populate_by_name=True)
+
+    thread_id: str = Field(
+        min_length=1,
+        max_length=128,
+        validation_alias="threadId",
+    )
+    scope: Literal["global", "post"] = "global"
+    chat_id: str | None = Field(default=None, validation_alias="chatId")
+    post_id: str | None = Field(default=None, validation_alias="postId")
+    post_chat_id: str | None = Field(default=None, validation_alias="postChatId")
+    user_text: str = Field(default="", validation_alias="userText")
+    llm_id: str | None = Field(default=None, max_length=128, validation_alias="llmId")
+    # IANA zone name from the browser, used to resolve relative schedule_post
+    # phrasing ("через полчаса") into an absolute UTC instant.
+    timezone: str | None = Field(default=None, validation_alias="timezone")
+
+
 class RevealAiModelApiKeyRequest(BaseModel):
     model_config = ConfigDict(populate_by_name=True)
 

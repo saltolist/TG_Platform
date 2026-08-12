@@ -1,0 +1,16 @@
+{
+  "schema": "workspace.agent-phase7/v1",
+  "thresholds": {
+    "quality_floor": 1.0,
+    "max_new_tool_errors": 0,
+    "min_tool_call_reduction": 0.20,
+    "min_latency_reduction": 0.10
+  },
+  "scenarios": [
+    {"id": "exact-note", "quality": 1.0, "baseline_tool_calls": 3, "phase7_tool_calls": 1, "baseline_latency_ms": 900, "phase7_latency_ms": 520, "targets_preserved": true, "evidence_preserved": true, "new_tool_errors": 0},
+    {"id": "comparison", "quality": 1.0, "baseline_tool_calls": 8, "phase7_tool_calls": 4, "baseline_latency_ms": 2400, "phase7_latency_ms": 1500, "targets_preserved": true, "evidence_preserved": true, "new_tool_errors": 0},
+    {"id": "multi-target-hitl", "quality": 1.0, "baseline_tool_calls": 5, "phase7_tool_calls": 3, "baseline_latency_ms": 2100, "phase7_latency_ms": 1650, "targets_preserved": true, "evidence_preserved": true, "new_tool_errors": 0},
+    {"id": "attachment-batch", "quality": 1.0, "baseline_tool_calls": 6, "phase7_tool_calls": 2, "baseline_latency_ms": 3000, "phase7_latency_ms": 1900, "targets_preserved": true, "evidence_preserved": true, "new_tool_errors": 0},
+    {"id": "analytics-batch", "quality": 1.0, "baseline_tool_calls": 4, "phase7_tool_calls": 2, "baseline_latency_ms": 1800, "phase7_latency_ms": 1250, "targets_preserved": true, "evidence_preserved": true, "new_tool_errors": 0}
+  ]
+}

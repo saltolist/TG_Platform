@@ -1,0 +1,631 @@
+{
+  "schema": "workspace.phase6-formal-canary-manifest/v1",
+  "version": "2026-08-02-account-live-v77",
+  "report_id": "unified-phase6-live-canary-v77-2026-08-02",
+  "status": "ready",
+  "source_head": "0e87f6c45d9ed356dc9fba8f3372754b4db87634",
+  "provider": "OpenAI",
+  "model": "gpt-4.1-mini",
+  "transport_tier": "strict_json_schema",
+  "cohort_version": "2026-07-31-account-live-v18",
+  "frozen_manifest_version": "2026-07-31-account-live-v18",
+  "labels_frozen_at": "2026-07-31T19:50:37Z",
+  "labels_frozen_before_provider_output": true,
+  "implementation_patch_digest": "bb2c7b716297e74cd60f0e4d24ffb6347f35e46dde550cb29085d9ec71e82cd1",
+  "prior_formal_traffic_excluded": [
+    {
+      "manifest_versions": [
+        "2026-07-27-account-live-v1",
+        "2026-07-27-account-live-v2",
+        "2026-07-27-account-live-v4",
+        "2026-07-27-account-live-v5",
+        "2026-07-27-account-live-v6",
+        "2026-07-29-account-live-v7",
+        "2026-07-29-account-live-v8",
+        "2026-07-30-account-live-v9",
+        "2026-07-30-account-live-v10",
+        "2026-07-30-account-live-v11",
+        "2026-07-30-account-live-v12",
+        "2026-07-30-account-live-v13",
+        "2026-07-30-account-live-v14",
+        "2026-07-30-account-live-v15",
+        "2026-07-30-account-live-v16",
+        "2026-07-30-account-live-v17",
+        "2026-07-31-account-live-v18",
+        "2026-07-31-account-live-v19",
+        "2026-07-31-account-live-v20",
+        "2026-07-31-account-live-v21",
+        "2026-07-31-account-live-v22",
+        "2026-07-31-account-live-v23",
+        "2026-07-31-account-live-v24",
+        "2026-07-31-account-live-v25",
+        "2026-07-31-account-live-v26",
+        "2026-07-31-account-live-v27",
+        "2026-07-31-account-live-v28",
+        "2026-07-31-account-live-v29",
+        "2026-07-31-account-live-v30",
+        "2026-07-31-account-live-v31",
+        "2026-07-31-account-live-v32",
+        "2026-08-01-account-live-v33",
+        "2026-08-01-account-live-v34",
+        "2026-08-01-account-live-v35",
+        "2026-08-01-account-live-v36",
+        "2026-08-01-account-live-v37",
+        "2026-08-01-account-live-v38",
+        "2026-08-01-account-live-v39",
+        "2026-08-01-account-live-v40",
+        "2026-08-01-account-live-v41",
+        "2026-08-01-account-live-v42",
+        "2026-08-01-account-live-v43",
+        "2026-08-01-account-live-v44",
+        "2026-08-01-account-live-v45",
+        "2026-08-01-account-live-v46",
+        "2026-08-01-account-live-v47",
+        "2026-08-01-account-live-v48",
+        "2026-08-01-account-live-v49",
+        "2026-08-01-account-live-v50",
+        "2026-08-01-account-live-v51",
+        "2026-08-01-account-live-v52",
+        "2026-08-01-account-live-v53",
+        "2026-08-01-account-live-v54",
+        "2026-08-01-account-live-v55",
+        "2026-08-01-account-live-v56",
+        "2026-08-01-account-live-v57",
+        "2026-08-01-account-live-v58",
+        "2026-08-02-account-live-v59",
+        "2026-08-02-account-live-v60",
+        "2026-08-02-account-live-v61",
+        "2026-08-02-account-live-v62",
+        "2026-08-02-account-live-v63",
+        "2026-08-02-account-live-v64",
+        "2026-08-02-account-live-v65",
+        "2026-08-02-account-live-v66",
+        "2026-08-02-account-live-v67",
+        "2026-08-02-account-live-v68",
+        "2026-08-02-account-live-v69",
+        "2026-08-02-account-live-v70",
+        "2026-08-02-account-live-v71",
+        "2026-08-02-account-live-v72",
+        "2026-08-02-account-live-v73",
+        "2026-08-02-account-live-v74",
+        "2026-08-02-account-live-v75",
+        "2026-08-02-account-live-v76"
+      ],
+      "can_convert_new_canary_to_pass": false
+    }
+  ],
+  "primary_variant": "llm_selector_cards_v12+structured_flags_no_legacy_fallback+query_time_matched_evidence+scoped_multi_chunk_matched_focus+full_source_final_materialization+matched_evidence_ranked_full_read_escalation+multi_selection_spare_budget_matched_recall_probes+single_selection_no_probe_expansion+interactive_worker_full_dependency_warm_readiness+direct_process_celery_healthcheck_no_orphan_leak+catalog_merge_evidence_provenance+bounded_evidence_escalation+source_obligation_decoupling+positive_full_read_precedes_negative_probe+bounded_global_negative_full_read_batch+verified_selected_evidence_redundant_corpus_discharge+layout_preserving_complete_verified_opened_evidence_transport+minimal_nonredundant_batched_reassessment+opened_evidence_reassessment+terminal_full_read_reassessment+failed_selected_full_read_demotion+selected_verified_evidence_baseline_integrated_into_reassessment+single_user_reasoner_binding+zero_extra_provider_calls+semantic_model_authority_no_lexical_override+no_inferred_subject_anchors+complete_precision_deferred_until_full_read+implicit_dependency_source_goals+dependency_complete_catalog_assessment+status_scoped_completed_history+reasoner_selected_bounded_catalog_window+capability_validated_ordered_history+cross_source_dependency_comparison+reassessment_lifecycle_routing+independent_precision_confirmation+independent_opened_precision_confirmation_same_reasoner+typed_entailment_precision_confirmation_v19+canonical_ref_aligned_precision_registry+runtime_inferred_proof_shape+canonicalized_value_warrant_sets+matched_evidence_structural_focus_index+semantic_answer_shape_cardinality+selected_subset_grouped_member_unit_cardinality_provenance+single_unit_exact_member_quote_provenance+format_normalized_exact_member_quotes+deterministically_inferred_proof_shape+source_grounded_semantic_category_entailment+block_structured_local_unit_warrant_schema+scoped_group_proof_shape+self_describing_evidence_registry+inventory_category_entailment_gate+evidence_only_precision_registry+provider_compatible_subset_schema+required_full_text_precision_deferral+bounded_bootstrap_classifier+typed_contract+capability_registry+exact_evidence_handles",
+  "summary_chars": 240,
+  "summary_origin": "llm_only",
+  "readiness_gate": {
+    "pending_index_jobs": 0,
+    "processing_index_jobs": 0,
+    "historical_failed_index_jobs": 9,
+    "current_backfill_failed_index_jobs": 0,
+    "active_embedding_model_key": "local:sentence-transformers/paraphrase-multilingual-MiniLM-L12-v2@fastembed=0.8.0;pooling=mean",
+    "scoped_selector_cards_total": 11,
+    "scoped_llm_v12_fresh_cards": 11,
+    "scoped_semantic_flags_v2_cards": 11
+  },
+  "staged_configuration": {
+    "catalog_v1": true,
+    "typed_requirements_v1": true,
+    "selector_v1": true,
+    "verified_pack_boundary_v1": true,
+    "planner_policy_v1": true,
+    "default_on": false
+  },
+  "traffic_limits": {
+    "maximum_chats": 21,
+    "maximum_user_messages_per_chat": 1,
+    "planned_semantic_selector_decisions": 21
+  },
+  "scenario_mix": {
+    "simple_controls": 6,
+    "agentic_complex": 14,
+    "implicit_planning": 1,
+    "multilingual": 2,
+    "complete_classification": 1
+  },
+  "replacement_policy": "external provider or DNS failure is reported separately; no replacement may exceed the chat or message ceiling",
+  "stop_conditions": [
+    "security_or_tenant_violation",
+    "critical_recall_below_one",
+    "irrelevant_selection_above_zero",
+    "final_primary_failure",
+    "position_error",
+    "evidence_or_checkpoint_loss"
+  ],
+  "rollback_sequence": [
+    "disable_default_on",
+    "disable_planner_policy",
+    "disable_verified_pack_boundary",
+    "disable_unified_selector",
+    "resume_compatibility_path"
+  ],
+  "privacy": {
+    "aggregate_and_ref_only": true,
+    "contains_credentials": false,
+    "contains_account_identifier": false,
+    "contains_raw_queries": false,
+    "contains_raw_provider_output": false,
+    "contains_source_or_user_content": false
+  },
+  "scenarios": [
+    {
+      "sequence": 1,
+      "scenario_id": "live-v8-q01",
+      "cohort": "simple_control",
+      "kind": "delivery_contours",
+      "coverage": "relevant",
+      "expected_refs": [
+        "note:41a63404-cc97-4fb8-a37e-612bcb15fd98"
+      ],
+      "critical_refs": [
+        "note:41a63404-cc97-4fb8-a37e-612bcb15fd98"
+      ],
+      "allowed_supporting_refs": [],
+      "irrelevant_refs": [
+        "note:27a2f06d-3c03-4b6e-bd65-e2ef5f55470e"
+      ],
+      "query_digest": "2274295b75adab2cadaf567499b0a11d3c4040ed62fa2f15b93ea766f2f1732c"
+    },
+    {
+      "sequence": 2,
+      "scenario_id": "live-v8-q02",
+      "cohort": "simple_control",
+      "kind": "root_object_taxonomy",
+      "coverage": "relevant",
+      "expected_refs": [
+        "note:9fd458be-d060-4a4b-b055-02d39ff2948e"
+      ],
+      "critical_refs": [
+        "note:9fd458be-d060-4a4b-b055-02d39ff2948e"
+      ],
+      "allowed_supporting_refs": [],
+      "irrelevant_refs": [
+        "note:41a63404-cc97-4fb8-a37e-612bcb15fd98"
+      ],
+      "query_digest": "c1f0593434f79717e39ac925e482afea52741700bbdbc72bde5734678e539094"
+    },
+    {
+      "sequence": 3,
+      "scenario_id": "live-v8-q03",
+      "cohort": "simple_control",
+      "kind": "interface_zone_inventory",
+      "coverage": "relevant",
+      "expected_refs": [
+        "note:402ac3a4-9f28-4d35-bcf0-ffdd7aceab30"
+      ],
+      "critical_refs": [
+        "note:402ac3a4-9f28-4d35-bcf0-ffdd7aceab30"
+      ],
+      "allowed_supporting_refs": [],
+      "irrelevant_refs": [
+        "note:41a63404-cc97-4fb8-a37e-612bcb15fd98"
+      ],
+      "query_digest": "9309af4bd137b9d16acf7c598a75d02dd795026d83611c5f312a68cac1e3ee60"
+    },
+    {
+      "sequence": 4,
+      "scenario_id": "live-v27-q04",
+      "cohort": "implicit_planning",
+      "kind": "implicit_next_artifact_planning",
+      "coverage": "relevant",
+      "expected_refs": [
+        "note:27a2f06d-3c03-4b6e-bd65-e2ef5f55470e",
+        "post:e947e5df-813c-530a-a318-824e8490aa00",
+        "post:8bf44a4d-9cfd-5294-a884-3745e4023833",
+        "post:77c8aef2-d9d9-4578-8d3a-59eb5dbfbda7",
+        "post:1c96b290-1405-417f-a171-995dede3da35"
+      ],
+      "critical_refs": [
+        "note:27a2f06d-3c03-4b6e-bd65-e2ef5f55470e",
+        "post:e947e5df-813c-530a-a318-824e8490aa00",
+        "post:8bf44a4d-9cfd-5294-a884-3745e4023833"
+      ],
+      "allowed_supporting_refs": [
+        "note:402ac3a4-9f28-4d35-bcf0-ffdd7aceab30",
+        "note:9fd458be-d060-4a4b-b055-02d39ff2948e",
+        "post:a755e8d3-0264-49b2-a1f1-ae189f99fa55",
+        "post:84c753d5-060c-43b3-bb48-1a0e2463dbfb"
+      ],
+      "irrelevant_refs": [
+        "note:41a63404-cc97-4fb8-a37e-612bcb15fd98"
+      ],
+      "query_digest": "78bb9b04efe35d11a5447d770fe746bdf04cfb138b579f29f8f8ca89a49b6f46"
+    },
+    {
+      "sequence": 5,
+      "scenario_id": "live-v8-q04",
+      "cohort": "simple_control",
+      "kind": "feature_inventory",
+      "coverage": "relevant",
+      "expected_refs": [
+        "note:27a2f06d-3c03-4b6e-bd65-e2ef5f55470e"
+      ],
+      "critical_refs": [
+        "note:27a2f06d-3c03-4b6e-bd65-e2ef5f55470e"
+      ],
+      "allowed_supporting_refs": [],
+      "irrelevant_refs": [
+        "note:9fd458be-d060-4a4b-b055-02d39ff2948e"
+      ],
+      "query_digest": "75f0a725b28de2817235d221c5100098e293a744b15082028b7a13590ce113e1"
+    },
+    {
+      "sequence": 6,
+      "scenario_id": "live-v8-q05",
+      "cohort": "simple_control",
+      "kind": "retrieval_mechanism",
+      "coverage": "relevant",
+      "expected_refs": [
+        "post:84c753d5-060c-43b3-bb48-1a0e2463dbfb"
+      ],
+      "critical_refs": [
+        "post:84c753d5-060c-43b3-bb48-1a0e2463dbfb"
+      ],
+      "allowed_supporting_refs": [
+        "note:9fd458be-d060-4a4b-b055-02d39ff2948e"
+      ],
+      "irrelevant_refs": [
+        "note:41a63404-cc97-4fb8-a37e-612bcb15fd98"
+      ],
+      "query_digest": "e7bfc1d9b243e7cdd6e773f0ed0f33a12295930ff20c649bf271d85953338b3c"
+    },
+    {
+      "sequence": 7,
+      "scenario_id": "live-v8-q06",
+      "cohort": "simple_control",
+      "kind": "system_layer_taxonomy",
+      "coverage": "relevant",
+      "expected_refs": [
+        "note:f351d19b-4d54-426a-b653-2c6b771efc15"
+      ],
+      "critical_refs": [
+        "note:f351d19b-4d54-426a-b653-2c6b771efc15"
+      ],
+      "allowed_supporting_refs": [],
+      "irrelevant_refs": [
+        "note:464344bc-38e3-4c7b-be4c-3db81d9b4a7f"
+      ],
+      "query_digest": "d7354f5cd82cb697d04ffea25c18fe68905d18d1dfff00abc6c56b97c00d05be"
+    },
+    {
+      "sequence": 8,
+      "scenario_id": "live-v8-q07",
+      "cohort": "agentic_complex",
+      "kind": "implied_workflow_synthesis",
+      "coverage": "relevant",
+      "expected_refs": [
+        "post:1c96b290-1405-417f-a171-995dede3da35",
+        "note:402ac3a4-9f28-4d35-bcf0-ffdd7aceab30",
+        "note:27a2f06d-3c03-4b6e-bd65-e2ef5f55470e"
+      ],
+      "critical_refs": [
+        "post:1c96b290-1405-417f-a171-995dede3da35",
+        "note:402ac3a4-9f28-4d35-bcf0-ffdd7aceab30"
+      ],
+      "allowed_supporting_refs": [
+        "note:27a2f06d-3c03-4b6e-bd65-e2ef5f55470e"
+      ],
+      "irrelevant_refs": [
+        "note:41a63404-cc97-4fb8-a37e-612bcb15fd98"
+      ],
+      "query_digest": "58c4d773fbdf094d48e49c3df83e1d54d94c9ca5c86ca1982fd22e4705fd0e92"
+    },
+    {
+      "sequence": 9,
+      "scenario_id": "live-v8-q08",
+      "cohort": "agentic_complex",
+      "kind": "anaphoric_contour_choice",
+      "coverage": "relevant",
+      "expected_refs": [
+        "note:41a63404-cc97-4fb8-a37e-612bcb15fd98"
+      ],
+      "critical_refs": [
+        "note:41a63404-cc97-4fb8-a37e-612bcb15fd98"
+      ],
+      "allowed_supporting_refs": [],
+      "irrelevant_refs": [
+        "note:402ac3a4-9f28-4d35-bcf0-ffdd7aceab30"
+      ],
+      "query_digest": "cca191cb15a4ec9b60f3a7a69efd455cd38fe5ec3dd7c8db37fc89f193a2e702"
+    },
+    {
+      "sequence": 10,
+      "scenario_id": "live-v8-q09",
+      "cohort": "agentic_complex",
+      "kind": "cross_object_inference",
+      "coverage": "relevant",
+      "expected_refs": [
+        "note:9fd458be-d060-4a4b-b055-02d39ff2948e",
+        "note:402ac3a4-9f28-4d35-bcf0-ffdd7aceab30",
+        "note:f351d19b-4d54-426a-b653-2c6b771efc15"
+      ],
+      "critical_refs": [
+        "note:9fd458be-d060-4a4b-b055-02d39ff2948e",
+        "note:402ac3a4-9f28-4d35-bcf0-ffdd7aceab30"
+      ],
+      "allowed_supporting_refs": [
+        "note:f351d19b-4d54-426a-b653-2c6b771efc15"
+      ],
+      "irrelevant_refs": [
+        "note:41a63404-cc97-4fb8-a37e-612bcb15fd98"
+      ],
+      "query_digest": "1c79c46aca1ca7b873a3aeaf1f56b27c673d540a308bd91cd700af3b425f9c52"
+    },
+    {
+      "sequence": 11,
+      "scenario_id": "live-v8-q10",
+      "cohort": "agentic_complex",
+      "kind": "apparent_contradiction_resolution",
+      "coverage": "relevant",
+      "expected_refs": [
+        "post:77c8aef2-d9d9-4578-8d3a-59eb5dbfbda7",
+        "post:84c753d5-060c-43b3-bb48-1a0e2463dbfb",
+        "note:9fd458be-d060-4a4b-b055-02d39ff2948e",
+        "note:f351d19b-4d54-426a-b653-2c6b771efc15"
+      ],
+      "critical_refs": [
+        "post:77c8aef2-d9d9-4578-8d3a-59eb5dbfbda7",
+        "post:84c753d5-060c-43b3-bb48-1a0e2463dbfb",
+        "note:9fd458be-d060-4a4b-b055-02d39ff2948e"
+      ],
+      "allowed_supporting_refs": [
+        "note:f351d19b-4d54-426a-b653-2c6b771efc15"
+      ],
+      "irrelevant_refs": [
+        "note:41a63404-cc97-4fb8-a37e-612bcb15fd98"
+      ],
+      "query_digest": "67bf893fa279fbe29550c2d4571d8af854b561b784faee3e914b3cc3782fae43"
+    },
+    {
+      "sequence": 12,
+      "scenario_id": "live-v8-q11",
+      "cohort": "agentic_complex",
+      "kind": "implicit_capability_evidence",
+      "coverage": "relevant",
+      "expected_refs": [
+        "post:77c8aef2-d9d9-4578-8d3a-59eb5dbfbda7",
+        "post:1c96b290-1405-417f-a171-995dede3da35",
+        "note:402ac3a4-9f28-4d35-bcf0-ffdd7aceab30"
+      ],
+      "critical_refs": [
+        "post:77c8aef2-d9d9-4578-8d3a-59eb5dbfbda7",
+        "post:1c96b290-1405-417f-a171-995dede3da35"
+      ],
+      "allowed_supporting_refs": [
+        "note:402ac3a4-9f28-4d35-bcf0-ffdd7aceab30"
+      ],
+      "irrelevant_refs": [
+        "note:41a63404-cc97-4fb8-a37e-612bcb15fd98"
+      ],
+      "query_digest": "4e2cddf3410dd9235ab879c941a7aca749938b63239a820b74ea9c8c484a99c8"
+    },
+    {
+      "sequence": 13,
+      "scenario_id": "live-v8-q12",
+      "cohort": "agentic_complex",
+      "kind": "near_topic_due_diligence",
+      "coverage": "relevant",
+      "expected_refs": [
+        "note:41a63404-cc97-4fb8-a37e-612bcb15fd98"
+      ],
+      "critical_refs": [
+        "note:41a63404-cc97-4fb8-a37e-612bcb15fd98"
+      ],
+      "allowed_supporting_refs": [],
+      "irrelevant_refs": [
+        "note:402ac3a4-9f28-4d35-bcf0-ffdd7aceab30",
+        "note:27a2f06d-3c03-4b6e-bd65-e2ef5f55470e"
+      ],
+      "query_digest": "032452d627845ccb9a18e6a226aa89a671b924e7f3072b4da4155f78ba6c069e"
+    },
+    {
+      "sequence": 14,
+      "scenario_id": "live-v8-q13",
+      "cohort": "agentic_complex",
+      "kind": "complete_product_knowledge_classification",
+      "coverage": "complete",
+      "expected_refs": [
+        "note:9fd458be-d060-4a4b-b055-02d39ff2948e",
+        "note:402ac3a4-9f28-4d35-bcf0-ffdd7aceab30",
+        "note:f351d19b-4d54-426a-b653-2c6b771efc15",
+        "note:41a63404-cc97-4fb8-a37e-612bcb15fd98",
+        "note:27a2f06d-3c03-4b6e-bd65-e2ef5f55470e"
+      ],
+      "critical_refs": [
+        "note:9fd458be-d060-4a4b-b055-02d39ff2948e",
+        "note:402ac3a4-9f28-4d35-bcf0-ffdd7aceab30",
+        "note:f351d19b-4d54-426a-b653-2c6b771efc15",
+        "note:41a63404-cc97-4fb8-a37e-612bcb15fd98",
+        "note:27a2f06d-3c03-4b6e-bd65-e2ef5f55470e"
+      ],
+      "allowed_supporting_refs": [],
+      "irrelevant_refs": [
+        "note:8b89fd00-5e46-4d0c-a7ef-ea7361791289",
+        "post:a755e8d3-0264-49b2-a1f1-ae189f99fa55"
+      ],
+      "query_digest": "ec24201a4b3882d645d64cec85b351e299791e1437fbbd42057923dacf0c1e91"
+    },
+    {
+      "sequence": 15,
+      "scenario_id": "live-v8-q14",
+      "cohort": "agentic_complex",
+      "kind": "plan_vs_published_audit",
+      "coverage": "relevant",
+      "expected_refs": [
+        "note:27a2f06d-3c03-4b6e-bd65-e2ef5f55470e",
+        "post:1c96b290-1405-417f-a171-995dede3da35",
+        "post:84c753d5-060c-43b3-bb48-1a0e2463dbfb",
+        "post:77c8aef2-d9d9-4578-8d3a-59eb5dbfbda7",
+        "note:402ac3a4-9f28-4d35-bcf0-ffdd7aceab30"
+      ],
+      "critical_refs": [
+        "note:27a2f06d-3c03-4b6e-bd65-e2ef5f55470e",
+        "post:1c96b290-1405-417f-a171-995dede3da35",
+        "post:84c753d5-060c-43b3-bb48-1a0e2463dbfb",
+        "post:77c8aef2-d9d9-4578-8d3a-59eb5dbfbda7"
+      ],
+      "allowed_supporting_refs": [
+        "note:402ac3a4-9f28-4d35-bcf0-ffdd7aceab30"
+      ],
+      "irrelevant_refs": [
+        "note:41a63404-cc97-4fb8-a37e-612bcb15fd98"
+      ],
+      "query_digest": "029a06003c1fb2ba2649f48645083ef68f80a669601ba3b912631b13026374ba"
+    },
+    {
+      "sequence": 16,
+      "scenario_id": "live-v8-q15",
+      "cohort": "agentic_complex",
+      "kind": "implied_claim_mechanism",
+      "coverage": "relevant",
+      "expected_refs": [
+        "post:84c753d5-060c-43b3-bb48-1a0e2463dbfb",
+        "note:9fd458be-d060-4a4b-b055-02d39ff2948e",
+        "note:f351d19b-4d54-426a-b653-2c6b771efc15",
+        "note:402ac3a4-9f28-4d35-bcf0-ffdd7aceab30"
+      ],
+      "critical_refs": [
+        "post:84c753d5-060c-43b3-bb48-1a0e2463dbfb"
+      ],
+      "allowed_supporting_refs": [
+        "note:9fd458be-d060-4a4b-b055-02d39ff2948e",
+        "note:f351d19b-4d54-426a-b653-2c6b771efc15",
+        "note:402ac3a4-9f28-4d35-bcf0-ffdd7aceab30"
+      ],
+      "irrelevant_refs": [
+        "note:41a63404-cc97-4fb8-a37e-612bcb15fd98"
+      ],
+      "query_digest": "e7c5e7ee6ecf4dd7d8372cf3160e98321babe07fec67b6b7396c8f881b300206"
+    },
+    {
+      "sequence": 17,
+      "scenario_id": "live-v8-q16",
+      "cohort": "agentic_complex",
+      "kind": "counterfactual_dependency_analysis",
+      "coverage": "relevant",
+      "expected_refs": [
+        "post:1c96b290-1405-417f-a171-995dede3da35",
+        "post:77c8aef2-d9d9-4578-8d3a-59eb5dbfbda7",
+        "note:402ac3a4-9f28-4d35-bcf0-ffdd7aceab30",
+        "note:27a2f06d-3c03-4b6e-bd65-e2ef5f55470e",
+        "note:f351d19b-4d54-426a-b653-2c6b771efc15"
+      ],
+      "critical_refs": [
+        "post:1c96b290-1405-417f-a171-995dede3da35",
+        "post:77c8aef2-d9d9-4578-8d3a-59eb5dbfbda7"
+      ],
+      "allowed_supporting_refs": [
+        "note:402ac3a4-9f28-4d35-bcf0-ffdd7aceab30",
+        "note:27a2f06d-3c03-4b6e-bd65-e2ef5f55470e",
+        "note:f351d19b-4d54-426a-b653-2c6b771efc15"
+      ],
+      "irrelevant_refs": [
+        "note:41a63404-cc97-4fb8-a37e-612bcb15fd98"
+      ],
+      "query_digest": "7ddc958a6cd0798a04fb8bf49d48a4195cca80382ed9f2f1df00421b6ca8e7ac"
+    },
+    {
+      "sequence": 18,
+      "scenario_id": "live-v8-q17",
+      "cohort": "agentic_complex",
+      "kind": "evidence_grounded_onboarding",
+      "coverage": "relevant",
+      "expected_refs": [
+        "note:41a63404-cc97-4fb8-a37e-612bcb15fd98",
+        "note:402ac3a4-9f28-4d35-bcf0-ffdd7aceab30",
+        "post:1c96b290-1405-417f-a171-995dede3da35",
+        "note:9fd458be-d060-4a4b-b055-02d39ff2948e"
+      ],
+      "critical_refs": [
+        "note:41a63404-cc97-4fb8-a37e-612bcb15fd98",
+        "note:402ac3a4-9f28-4d35-bcf0-ffdd7aceab30"
+      ],
+      "allowed_supporting_refs": [
+        "post:1c96b290-1405-417f-a171-995dede3da35",
+        "note:9fd458be-d060-4a4b-b055-02d39ff2948e"
+      ],
+      "irrelevant_refs": [
+        "note:8b89fd00-5e46-4d0c-a7ef-ea7361791289"
+      ],
+      "query_digest": "64c646bb1a3645a5b38201ea757753b660459f647673ee56c4d1e0d58973a9c6"
+    },
+    {
+      "sequence": 19,
+      "scenario_id": "live-v8-q18",
+      "cohort": "agentic_complex",
+      "kind": "multilingual_anaphoric_choice",
+      "coverage": "relevant",
+      "expected_refs": [
+        "note:41a63404-cc97-4fb8-a37e-612bcb15fd98"
+      ],
+      "critical_refs": [
+        "note:41a63404-cc97-4fb8-a37e-612bcb15fd98"
+      ],
+      "allowed_supporting_refs": [],
+      "irrelevant_refs": [
+        "note:402ac3a4-9f28-4d35-bcf0-ffdd7aceab30"
+      ],
+      "query_digest": "da7db64279f2bbc191d79ac1a83770da3433e74a6de65ac1e07ca270d50877f4"
+    },
+    {
+      "sequence": 20,
+      "scenario_id": "live-v8-q19",
+      "cohort": "agentic_complex",
+      "kind": "multilingual_problem_mapping",
+      "coverage": "relevant",
+      "expected_refs": [
+        "post:84c753d5-060c-43b3-bb48-1a0e2463dbfb",
+        "post:1c96b290-1405-417f-a171-995dede3da35",
+        "post:77c8aef2-d9d9-4578-8d3a-59eb5dbfbda7",
+        "note:402ac3a4-9f28-4d35-bcf0-ffdd7aceab30",
+        "note:27a2f06d-3c03-4b6e-bd65-e2ef5f55470e"
+      ],
+      "critical_refs": [
+        "post:84c753d5-060c-43b3-bb48-1a0e2463dbfb",
+        "post:1c96b290-1405-417f-a171-995dede3da35",
+        "post:77c8aef2-d9d9-4578-8d3a-59eb5dbfbda7",
+        "note:402ac3a4-9f28-4d35-bcf0-ffdd7aceab30"
+      ],
+      "allowed_supporting_refs": [
+        "note:27a2f06d-3c03-4b6e-bd65-e2ef5f55470e"
+      ],
+      "irrelevant_refs": [
+        "note:41a63404-cc97-4fb8-a37e-612bcb15fd98"
+      ],
+      "query_digest": "93c75dcf4d92aa9c080bc3a244f38efb0c9b4aed6ce62964ae634963fb754766"
+    },
+    {
+      "sequence": 21,
+      "scenario_id": "live-v8-q20",
+      "cohort": "agentic_complex",
+      "kind": "implicit_architecture_thesis",
+      "coverage": "relevant",
+      "expected_refs": [
+        "note:9fd458be-d060-4a4b-b055-02d39ff2948e",
+        "note:402ac3a4-9f28-4d35-bcf0-ffdd7aceab30",
+        "note:f351d19b-4d54-426a-b653-2c6b771efc15",
+        "post:77c8aef2-d9d9-4578-8d3a-59eb5dbfbda7",
+        "post:84c753d5-060c-43b3-bb48-1a0e2463dbfb",
+        "post:1c96b290-1405-417f-a171-995dede3da35"
+      ],
+      "critical_refs": [
+        "note:9fd458be-d060-4a4b-b055-02d39ff2948e",
+        "note:402ac3a4-9f28-4d35-bcf0-ffdd7aceab30",
+        "note:f351d19b-4d54-426a-b653-2c6b771efc15",
+        "post:77c8aef2-d9d9-4578-8d3a-59eb5dbfbda7"
+      ],
+      "allowed_supporting_refs": [
+        "post:84c753d5-060c-43b3-bb48-1a0e2463dbfb",
+        "post:1c96b290-1405-417f-a171-995dede3da35"
+      ],
+      "irrelevant_refs": [
+        "note:8b89fd00-5e46-4d0c-a7ef-ea7361791289"
+      ],
+      "query_digest": "1872f3f59874c6cf1ba01867e5b9e8a9662fb7104154da1e351a84fbc0e1d548"
+    }
+  ]
+}

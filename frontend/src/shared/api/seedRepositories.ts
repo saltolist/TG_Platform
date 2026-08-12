@@ -23,9 +23,12 @@ import type {
 import type { AiModelListField } from "@/shared/lib/profile/aiModelListField";
 import { PLATFORM_ANALYTICS_PERIODS } from "@/shared/lib/platformAnalyticsPeriods";
 import { STANDARD_UNICODE_EMOJI_COLLECTION } from "@/shared/lib/telegram/standardUnicodeEmojis";
+import { DEMO_CHANNEL_ANALYTICS_HEATMAP } from "@/shared/data/analyticsSeedData";
 import {
-  buildChannelOverviewFromPosts,
+  buildChannelReactionsFromPosts,
+  buildChannelSummaryFromPosts,
   buildChannelTopPostsFromPosts,
+  buildChannelTrendFromPosts,
 } from "@/shared/lib/analytics/buildChannelOverviewFromPosts";
 import { buildModelUsage } from "@/shared/lib/profile/platformAnalytics";
 
@@ -309,11 +312,35 @@ export function createSeedRepositories(): RepositoryBundle {
           },
         };
       },
-      async getChannelOverview(period) {
-        return buildChannelOverviewFromPosts(posts, period);
+      async getChannelSummary(period) {
+        return buildChannelSummaryFromPosts(posts, period);
+      },
+      async getChannelTrend(period) {
+        return buildChannelTrendFromPosts(posts, period);
+      },
+      async getChannelHeatmap(_period) {
+        return DEMO_CHANNEL_ANALYTICS_HEATMAP;
+      },
+      async getChannelReactions() {
+        return buildChannelReactionsFromPosts(posts);
       },
       async getChannelTopPosts(period) {
         return buildChannelTopPostsFromPosts(posts, period);
+      },
+      async getPostTrend(postId, period) {
+        const post = posts.find((item) => item.id === postId);
+        if (!post || post.status !== "published") {
+          throw new Error("Post not found");
+        }
+        const trend = buildChannelTrendFromPosts([post], period);
+        return {
+          ...trend,
+          historySource: "no_history" as const,
+          subscribersAvailable: false as const,
+          startTotals: { ...trend.startTotals, subscribers: 0 },
+          endTotals: { ...trend.endTotals, subscribers: 0 },
+          days: trend.days.map((day) => ({ ...day, subscribers: 0, posts: 0 })),
+        };
       },
     },
     telegramEmoji: {

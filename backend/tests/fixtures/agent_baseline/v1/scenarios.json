@@ -1,0 +1,7104 @@
+{
+  "schema_version": "workspace-agent-scenario/v1",
+  "captured_at": "2026-07-18T19:43:37.976017+00:00",
+  "source": {
+    "kind": "local_production_like_database",
+    "selection": "3 requested chat turns + 29 status/latency-stratified runs",
+    "content_policy": "raw text and non-requested identifiers removed"
+  },
+  "quality_floor": {
+    "description": "Formal invariants that later phases may not regress",
+    "required_graders": [
+      "valid_finish_evidence_ids",
+      "output_event_schema"
+    ],
+    "known_regressions": [
+      "no_duplicate_tool_calls",
+      "no_finish_loops"
+    ],
+    "minimum_pass_counts": {
+      "no_duplicate_tool_calls": 30,
+      "valid_finish_evidence_ids": 31,
+      "no_finish_loops": 27,
+      "output_event_schema": 32
+    },
+    "minimum_annotated_target_accuracy": 1.0
+  },
+  "scenarios": [
+    {
+      "id": "b9a1ff2d-turn-1",
+      "split": "golden",
+      "provenance": {
+        "kind": "anonymized_production_trace",
+        "source_chat_ref": "b9a1ff2d-4fae-47f3-9217-b0b9423c60be",
+        "source_run_ref": "run:28bd3c3d62fb",
+        "sample_reason": "problem_chat_turn_1",
+        "turn": 1
+      },
+      "temperature": "cold",
+      "known_failures": [
+        "cross_loop_retry",
+        "embedding_cold_start",
+        "no_finish_loops",
+        "token_telemetry_missing"
+      ],
+      "trace": [
+        {
+          "at_ms": 34,
+          "event_type": "run_started",
+          "payload": {}
+        },
+        {
+          "at_ms": 4810,
+          "event_type": "graph_started",
+          "payload": {
+            "user_text": {
+              "sha256": "27fe22e2cee5f0c7",
+              "chars": 108
+            }
+          }
+        },
+        {
+          "at_ms": 7410,
+          "event_type": "workspace_step",
+          "payload": {
+            "tool": "read"
+          }
+        },
+        {
+          "at_ms": 39803,
+          "event_type": "planner_step",
+          "payload": {
+            "gap": {
+              "sha256": "aa54ffb79b04b6f1",
+              "chars": 122
+            },
+            "args": {
+              "note_id": "note:1"
+            },
+            "plan": [
+              {
+                "id": {
+                  "sha256": "6b86b273ff34fce1",
+                  "chars": 1
+                },
+                "text": {
+                  "sha256": "88bad3155bac4c87",
+                  "chars": 96
+                },
+                "status": "open"
+              },
+              {
+                "id": {
+                  "sha256": "d4735e3a265e16ee",
+                  "chars": 1
+                },
+                "text": {
+                  "sha256": "2f3da101980595a8",
+                  "chars": 99
+                },
+                "status": "open"
+              },
+              {
+                "id": {
+                  "sha256": "4e07408562bedb8b",
+                  "chars": 1
+                },
+                "text": {
+                  "sha256": "81efcb3b5a6ba7cc",
+                  "chars": 94
+                },
+                "status": "open"
+              },
+              {
+                "id": {
+                  "sha256": "4b227777d4dd1fc6",
+                  "chars": 1
+                },
+                "text": {
+                  "sha256": "6a8e1f04bab9def5",
+                  "chars": 79
+                },
+                "status": "open"
+              }
+            ],
+            "step": 1,
+            "tool": "OpenNote",
+            "reasoning": {
+              "sha256": "1cd41c788ef1dbe6",
+              "chars": 527
+            },
+            "repair_hint": {
+              "sha256": "01726276bc2fe5dc",
+              "chars": 545
+            },
+            "observations": {
+              "sha256": "41001739bf7e76fa",
+              "chars": 535
+            },
+            "answer_requires": {
+              "sha256": "ffd9f8666d8e7d75",
+              "chars": 287
+            }
+          }
+        },
+        {
+          "at_ms": 39984,
+          "event_type": "tool_result",
+          "payload": {
+            "args": {
+              "note_id": "note:1"
+            },
+            "step": 1,
+            "tool": "OpenNote",
+            "error": {
+              "sha256": "e3b0c44298fc1c14",
+              "chars": 0
+            },
+            "summary": {
+              "sha256": "e74e0cf9084e6eb1",
+              "chars": 110
+            },
+            "signature": {
+              "sha256": "76f1cdc389c1bc47",
+              "chars": 81
+            },
+            "record_ids": [
+              "note:2"
+            ],
+            "new_record_ids": [
+              "note:2"
+            ],
+            "no_progress_count": 0
+          }
+        },
+        {
+          "at_ms": 47752,
+          "event_type": "planner_step",
+          "payload": {
+            "gap": {
+              "sha256": "92c50da9e8d88eca",
+              "chars": 215
+            },
+            "args": {
+              "note_id": "note:3"
+            },
+            "plan": [
+              {
+                "id": {
+                  "sha256": "6b86b273ff34fce1",
+                  "chars": 1
+                },
+                "text": {
+                  "sha256": "81efcb3b5a6ba7cc",
+                  "chars": 94
+                },
+                "reason": {
+                  "sha256": "ca6c506de72da132",
+                  "chars": 110
+                },
+                "status": "open"
+              },
+              {
+                "id": {
+                  "sha256": "d4735e3a265e16ee",
+                  "chars": 1
+                },
+                "text": {
+                  "sha256": "2f3da101980595a8",
+                  "chars": 99
+                },
+                "reason": {
+                  "sha256": "2526f8b2809d67b8",
+                  "chars": 93
+                },
+                "status": "open"
+              },
+              {
+                "id": {
+                  "sha256": "4e07408562bedb8b",
+                  "chars": 1
+                },
+                "text": {
+                  "sha256": "6a8e1f04bab9def5",
+                  "chars": 79
+                },
+                "reason": {
+                  "sha256": "20dffac37c0c1341",
+                  "chars": 102
+                },
+                "status": "open"
+              },
+              {
+                "id": {
+                  "sha256": "4b227777d4dd1fc6",
+                  "chars": 1
+                },
+                "text": {
+                  "sha256": "6a8e1f04bab9def5",
+                  "chars": 79
+                },
+                "status": "open"
+              }
+            ],
+            "step": 2,
+            "tool": "OpenNote",
+            "reasoning": {
+              "sha256": "ab7f05c1583e5bcd",
+              "chars": 593
+            },
+            "repair_hint": {
+              "sha256": "b8c3962fde7733b0",
+              "chars": 689
+            },
+            "observations": {
+              "sha256": "7c57cddbfe234ee2",
+              "chars": 677
+            },
+            "answer_requires": {
+              "sha256": "793b59d32e23c660",
+              "chars": 326
+            }
+          }
+        },
+        {
+          "at_ms": 47781,
+          "event_type": "tool_result",
+          "payload": {
+            "args": {
+              "note_id": "note:3"
+            },
+            "step": 2,
+            "tool": "OpenNote",
+            "error": {
+              "sha256": "e3b0c44298fc1c14",
+              "chars": 0
+            },
+            "summary": {
+              "sha256": "6a2805836fd3841b",
+              "chars": 109
+            },
+            "signature": {
+              "sha256": "bafb892cb0a12cc9",
+              "chars": 81
+            },
+            "record_ids": [
+              "note:2",
+              "note:4"
+            ],
+            "new_record_ids": [
+              "note:4"
+            ],
+            "no_progress_count": 0
+          }
+        },
+        {
+          "at_ms": 55999,
+          "event_type": "planner_step",
+          "payload": {
+            "gap": {
+              "sha256": "a738d416f4976787",
+              "chars": 141
+            },
+            "args": {
+              "post_id": "post:1"
+            },
+            "plan": [
+              {
+                "id": {
+                  "sha256": "6b86b273ff34fce1",
+                  "chars": 1
+                },
+                "text": {
+                  "sha256": "c9b7679f569975ab",
+                  "chars": 151
+                },
+                "status": "open"
+              },
+              {
+                "id": {
+                  "sha256": "d4735e3a265e16ee",
+                  "chars": 1
+                },
+                "text": {
+                  "sha256": "a08134ae77c4489e",
+                  "chars": 140
+                },
+                "status": "open"
+              },
+              {
+                "id": {
+                  "sha256": "4e07408562bedb8b",
+                  "chars": 1
+                },
+                "text": {
+                  "sha256": "102632aa7003a61f",
+                  "chars": 112
+                },
+                "status": "open"
+              },
+              {
+                "id": {
+                  "sha256": "4b227777d4dd1fc6",
+                  "chars": 1
+                },
+                "text": {
+                  "sha256": "6a8e1f04bab9def5",
+                  "chars": 79
+                },
+                "status": "open"
+              }
+            ],
+            "step": 3,
+            "tool": "OpenPost",
+            "reasoning": {
+              "sha256": "30cedab46b012d38",
+              "chars": 649
+            },
+            "repair_hint": {
+              "sha256": "897861f77ecf5843",
+              "chars": 975
+            },
+            "observations": {
+              "sha256": "f9752d9aeeab4da5",
+              "chars": 967
+            },
+            "answer_requires": {
+              "sha256": "88991ca94309ee1d",
+              "chars": 262
+            }
+          }
+        },
+        {
+          "at_ms": 56041,
+          "event_type": "tool_result",
+          "payload": {
+            "args": {
+              "post_id": "post:1"
+            },
+            "step": 3,
+            "tool": "OpenPost",
+            "error": {
+              "sha256": "e3b0c44298fc1c14",
+              "chars": 0
+            },
+            "summary": {
+              "sha256": "088408e73b7f3522",
+              "chars": 87
+            },
+            "signature": {
+              "sha256": "09a34a9c7756b47f",
+              "chars": 81
+            },
+            "record_ids": [
+              "note:2",
+              "note:4",
+              "post:2"
+            ],
+            "new_record_ids": [
+              "post:2"
+            ],
+            "no_progress_count": 0
+          }
+        },
+        {
+          "at_ms": 65618,
+          "event_type": "planner_step",
+          "payload": {
+            "gap": {
+              "sha256": "fee6890be4036be2",
+              "chars": 180
+            },
+            "args": {
+              "status": "partial",
+              "unresolved": [
+                {
+                  "sha256": "6b86b273ff34fce1",
+                  "chars": 1
+                }
+              ],
+              "evidence_ids": [
+                "note:2",
+                "note:4",
+                "post:2"
+              ]
+            },
+            "plan": [
+              {
+                "id": {
+                  "sha256": "6b86b273ff34fce1",
+                  "chars": 1
+                },
+                "text": {
+                  "sha256": "102632aa7003a61f",
+                  "chars": 112
+                },
+                "status": "open"
+              },
+              {
+                "id": {
+                  "sha256": "d4735e3a265e16ee",
+                  "chars": 1
+                },
+                "text": {
+                  "sha256": "6a8e1f04bab9def5",
+                  "chars": 79
+                },
+                "reason": {
+                  "sha256": "77762aab6ce8eaa7",
+                  "chars": 65
+                },
+                "status": "dropped"
+              },
+              {
+                "id": {
+                  "sha256": "4e07408562bedb8b",
+                  "chars": 1
+                },
+                "text": {
+                  "sha256": "102632aa7003a61f",
+                  "chars": 112
+                },
+                "status": "open"
+              },
+              {
+                "id": {
+                  "sha256": "4b227777d4dd1fc6",
+                  "chars": 1
+                },
+                "text": {
+                  "sha256": "6a8e1f04bab9def5",
+                  "chars": 79
+                },
+                "status": "open"
+              }
+            ],
+            "step": 4,
+            "tool": "FinishRetrieval",
+            "reasoning": {
+              "sha256": "a5e32b0a7cf21289",
+              "chars": 792
+            },
+            "repair_hint": {
+              "sha256": "945688117987d95e",
+              "chars": 1333
+            },
+            "observations": {
+              "sha256": "b14e77acaa7eee69",
+              "chars": 1331
+            },
+            "answer_requires": {
+              "sha256": "e61247bd03951771",
+              "chars": 240
+            }
+          }
+        },
+        {
+          "at_ms": 77424,
+          "event_type": "planner_step",
+          "payload": {
+            "gap": {
+              "sha256": "9da7cb6585759419",
+              "chars": 160
+            },
+            "args": {
+              "status": "ready",
+              "evidence_ids": [
+                "note:2",
+                "note:4",
+                "post:2"
+              ]
+            },
+            "plan": [
+              {
+                "id": {
+                  "sha256": "6b86b273ff34fce1",
+                  "chars": 1
+                },
+                "text": {
+                  "sha256": "102632aa7003a61f",
+                  "chars": 112
+                },
+                "status": "open"
+              },
+              {
+                "id": {
+                  "sha256": "d4735e3a265e16ee",
+                  "chars": 1
+                },
+                "text": {
+                  "sha256": "6a8e1f04bab9def5",
+                  "chars": 79
+                },
+                "reason": {
+                  "sha256": "77762aab6ce8eaa7",
+                  "chars": 65
+                },
+                "status": "dropped"
+              },
+              {
+                "id": {
+                  "sha256": "4e07408562bedb8b",
+                  "chars": 1
+                },
+                "text": {
+                  "sha256": "102632aa7003a61f",
+                  "chars": 112
+                },
+                "status": "open"
+              },
+              {
+                "id": {
+                  "sha256": "4b227777d4dd1fc6",
+                  "chars": 1
+                },
+                "text": {
+                  "sha256": "6a8e1f04bab9def5",
+                  "chars": 79
+                },
+                "status": "open"
+              }
+            ],
+            "step": 5,
+            "tool": "FinishRetrieval",
+            "reasoning": {
+              "sha256": "b7e0453d4ce35629",
+              "chars": 441
+            },
+            "repair_hint": {
+              "sha256": "2a82306569fb92e1",
+              "chars": 1452
+            },
+            "observations": {
+              "sha256": "233fa2e0d5ca361f",
+              "chars": 1452
+            },
+            "answer_requires": {
+              "sha256": "1c2d2bc8f23870b6",
+              "chars": 230
+            }
+          }
+        },
+        {
+          "at_ms": 87577,
+          "event_type": "planner_step",
+          "payload": {
+            "gap": {
+              "sha256": "a75fce06b398a640",
+              "chars": 128
+            },
+            "args": {
+              "status": "partial",
+              "unresolved": [
+                {
+                  "sha256": "6b86b273ff34fce1",
+                  "chars": 1
+                },
+                {
+                  "sha256": "d4735e3a265e16ee",
+                  "chars": 1
+                }
+              ],
+              "evidence_ids": [
+                "note:2",
+                "note:4",
+                "post:2"
+              ]
+            },
+            "plan": [
+              {
+                "id": {
+                  "sha256": "6b86b273ff34fce1",
+                  "chars": 1
+                },
+                "text": {
+                  "sha256": "102632aa7003a61f",
+                  "chars": 112
+                },
+                "status": "open"
+              },
+              {
+                "id": {
+                  "sha256": "d4735e3a265e16ee",
+                  "chars": 1
+                },
+                "text": {
+                  "sha256": "6a8e1f04bab9def5",
+                  "chars": 79
+                },
+                "reason": {
+                  "sha256": "77762aab6ce8eaa7",
+                  "chars": 65
+                },
+                "status": "dropped"
+              },
+              {
+                "id": {
+                  "sha256": "4e07408562bedb8b",
+                  "chars": 1
+                },
+                "text": {
+                  "sha256": "102632aa7003a61f",
+                  "chars": 112
+                },
+                "status": "open"
+              },
+              {
+                "id": {
+                  "sha256": "4b227777d4dd1fc6",
+                  "chars": 1
+                },
+                "text": {
+                  "sha256": "6a8e1f04bab9def5",
+                  "chars": 79
+                },
+                "status": "open"
+              }
+            ],
+            "step": 6,
+            "tool": "FinishRetrieval",
+            "reasoning": {
+              "sha256": "4f0676a799408bf1",
+              "chars": 668
+            },
+            "repair_hint": {
+              "sha256": "2a82306569fb92e1",
+              "chars": 1452
+            },
+            "observations": {
+              "sha256": "233fa2e0d5ca361f",
+              "chars": 1452
+            },
+            "answer_requires": {
+              "sha256": "490dd4fee0fec929",
+              "chars": 239
+            }
+          }
+        },
+        {
+          "at_ms": 97248,
+          "event_type": "planner_step",
+          "payload": {
+            "gap": {
+              "sha256": "0b7da72c2931567b",
+              "chars": 163
+            },
+            "args": {
+              "status": "ready",
+              "evidence_ids": [
+                "note:2",
+                "note:4",
+                "post:2"
+              ]
+            },
+            "plan": [
+              {
+                "id": {
+                  "sha256": "6b86b273ff34fce1",
+                  "chars": 1
+                },
+                "text": {
+                  "sha256": "102632aa7003a61f",
+                  "chars": 112
+                },
+                "status": "open"
+              },
+              {
+                "id": {
+                  "sha256": "4b227777d4dd1fc6",
+                  "chars": 1
+                },
+                "text": {
+                  "sha256": "6a8e1f04bab9def5",
+                  "chars": 79
+                },
+                "reason": {
+                  "sha256": "77762aab6ce8eaa7",
+                  "chars": 65
+                },
+                "status": "dropped"
+              },
+              {
+                "id": {
+                  "sha256": "d4735e3a265e16ee",
+                  "chars": 1
+                },
+                "text": {
+                  "sha256": "6a8e1f04bab9def5",
+                  "chars": 79
+                },
+                "reason": {
+                  "sha256": "77762aab6ce8eaa7",
+                  "chars": 65
+                },
+                "status": "dropped"
+              },
+              {
+                "id": {
+                  "sha256": "4e07408562bedb8b",
+                  "chars": 1
+                },
+                "text": {
+                  "sha256": "102632aa7003a61f",
+                  "chars": 112
+                },
+                "status": "open"
+              }
+            ],
+            "step": 7,
+            "tool": "FinishRetrieval",
+            "reasoning": {
+              "sha256": "221c98798c98f8dd",
+              "chars": 724
+            },
+            "repair_hint": {
+              "sha256": "2a82306569fb92e1",
+              "chars": 1452
+            },
+            "observations": {
+              "sha256": "233fa2e0d5ca361f",
+              "chars": 1452
+            },
+            "answer_requires": {
+              "sha256": "a377b50f5c869350",
+              "chars": 258
+            }
+          }
+        },
+        {
+          "at_ms": 98016,
+          "event_type": "answer_started",
+          "payload": {}
+        },
+        {
+          "at_ms": 102686,
+          "event_type": "answer",
+          "payload": {
+            "text": "{\"chars\": 789, \"sha256\": \"218a183b2f7be4c9\"}",
+            "claims": [
+              {
+                "text": "{\"chars\": 157, \"sha256\": \"0b62ba7632fd7730\"}",
+                "evidence_ids": [
+                  "note:2"
+                ]
+              },
+              {
+                "text": "{\"chars\": 134, \"sha256\": \"a324e5940a7f8e40\"}",
+                "evidence_ids": [
+                  "note:2"
+                ]
+              },
+              {
+                "text": "{\"chars\": 173, \"sha256\": \"ae5b50749fdd79d4\"}",
+                "evidence_ids": [
+                  "note:2"
+                ]
+              }
+            ],
+            "evidence_ids": [
+              "note:2",
+              "note:4",
+              "post:2"
+            ]
+          }
+        },
+        {
+          "at_ms": 102687,
+          "event_type": "run_completed",
+          "payload": {
+            "status": "completed"
+          }
+        }
+      ],
+      "expected": {
+        "terminal_status": "completed",
+        "target_refs": [
+          "note:2",
+          "note:4",
+          "post:2"
+        ],
+        "target_annotation": "production_review",
+        "current_grader_results": {
+          "no_duplicate_tool_calls": true,
+          "valid_finish_evidence_ids": true,
+          "no_finish_loops": false,
+          "output_event_schema": true
+        },
+        "regression_expectations": {
+          "cross_loop_retry": {
+            "current": true,
+            "desired": false
+          },
+          "embedding_cold_start": {
+            "current": true,
+            "desired": false
+          },
+          "no_finish_loops": {
+            "current": true,
+            "desired": false
+          },
+          "token_telemetry_missing": {
+            "current": true,
+            "desired": false
+          }
+        },
+        "quality_floor": {
+          "valid_finish_evidence_ids": true,
+          "output_event_schema": true
+        }
+      },
+      "metrics": {
+        "duration_ms": 102667,
+        "planner_calls": 7,
+        "tool_calls": 3,
+        "llm_calls_inferred": 9,
+        "tokens": {
+          "prompt": null,
+          "completion": null,
+          "total": null,
+          "availability": "not_recorded_by_agent_runtime"
+        },
+        "phase_ms": {
+          "startup": 4810,
+          "bootstrap": 2600,
+          "research": 90606,
+          "answer": 4671
+        },
+        "tool_trajectory": [
+          "OpenNote",
+          "OpenNote",
+          "OpenPost",
+          "FinishRetrieval",
+          "FinishRetrieval",
+          "FinishRetrieval",
+          "FinishRetrieval"
+        ]
+      }
+    },
+    {
+      "id": "b9a1ff2d-turn-2",
+      "split": "golden",
+      "provenance": {
+        "kind": "anonymized_production_trace",
+        "source_chat_ref": "b9a1ff2d-4fae-47f3-9217-b0b9423c60be",
+        "source_run_ref": "run:ec3ddb9b5e4d",
+        "sample_reason": "problem_chat_turn_2",
+        "turn": 2
+      },
+      "temperature": "warm",
+      "known_failures": [
+        "token_telemetry_missing"
+      ],
+      "trace": [
+        {
+          "at_ms": 26,
+          "event_type": "run_started",
+          "payload": {}
+        },
+        {
+          "at_ms": 206,
+          "event_type": "graph_started",
+          "payload": {
+            "user_text": {
+              "sha256": "73c7a84db50af260",
+              "chars": 30
+            }
+          }
+        },
+        {
+          "at_ms": 1541,
+          "event_type": "workspace_step",
+          "payload": {
+            "tool": "finish"
+          }
+        },
+        {
+          "at_ms": 2160,
+          "event_type": "answer_started",
+          "payload": {}
+        },
+        {
+          "at_ms": 3376,
+          "event_type": "answer",
+          "payload": {
+            "text": "{\"chars\": 437, \"sha256\": \"eecd998557cb28ad\"}",
+            "claims": [],
+            "evidence_ids": []
+          }
+        },
+        {
+          "at_ms": 3377,
+          "event_type": "run_completed",
+          "payload": {
+            "status": "completed"
+          }
+        }
+      ],
+      "expected": {
+        "terminal_status": "completed",
+        "target_refs": [],
+        "target_annotation": "not_applicable",
+        "current_grader_results": {
+          "no_duplicate_tool_calls": true,
+          "valid_finish_evidence_ids": true,
+          "no_finish_loops": true,
+          "output_event_schema": true
+        },
+        "regression_expectations": {
+          "token_telemetry_missing": {
+            "current": true,
+            "desired": false
+          }
+        },
+        "quality_floor": {
+          "valid_finish_evidence_ids": true,
+          "output_event_schema": true
+        }
+      },
+      "metrics": {
+        "duration_ms": 3372,
+        "planner_calls": 0,
+        "tool_calls": 0,
+        "llm_calls_inferred": 2,
+        "tokens": {
+          "prompt": null,
+          "completion": null,
+          "total": null,
+          "availability": "not_recorded_by_agent_runtime"
+        },
+        "phase_ms": {
+          "startup": 206,
+          "bootstrap": 1335,
+          "research": 619,
+          "answer": 1217
+        },
+        "tool_trajectory": []
+      }
+    },
+    {
+      "id": "b9a1ff2d-turn-3",
+      "split": "golden",
+      "provenance": {
+        "kind": "anonymized_production_trace",
+        "source_chat_ref": "b9a1ff2d-4fae-47f3-9217-b0b9423c60be",
+        "source_run_ref": "run:0275b9b7fcbc",
+        "sample_reason": "problem_chat_turn_3",
+        "turn": 3
+      },
+      "temperature": "warm",
+      "known_failures": [
+        "no_duplicate_tool_calls",
+        "no_finish_loops",
+        "token_telemetry_missing"
+      ],
+      "trace": [
+        {
+          "at_ms": 19,
+          "event_type": "run_started",
+          "payload": {}
+        },
+        {
+          "at_ms": 107,
+          "event_type": "graph_started",
+          "payload": {
+            "user_text": {
+              "sha256": "4645eb700ce79696",
+              "chars": 135
+            }
+          }
+        },
+        {
+          "at_ms": 1657,
+          "event_type": "workspace_step",
+          "payload": {
+            "tool": "read"
+          }
+        },
+        {
+          "at_ms": 7395,
+          "event_type": "planner_step",
+          "payload": {
+            "gap": {
+              "sha256": "19b36d46fbae8e47",
+              "chars": 91
+            },
+            "args": {
+              "note_id": "note:1"
+            },
+            "plan": [
+              {
+                "id": {
+                  "sha256": "6b86b273ff34fce1",
+                  "chars": 1
+                },
+                "text": {
+                  "sha256": "f12b98eb7dd9e714",
+                  "chars": 104
+                },
+                "reason": {
+                  "sha256": "99102b5579c2c876",
+                  "chars": 112
+                },
+                "status": "open"
+              }
+            ],
+            "step": 1,
+            "tool": "OpenNote",
+            "reasoning": {
+              "sha256": "cdada9b4e8055c65",
+              "chars": 369
+            },
+            "repair_hint": {
+              "sha256": "a238e591f26e6cb2",
+              "chars": 476
+            },
+            "observations": {
+              "sha256": "c90b05fbc84d80d8",
+              "chars": 462
+            },
+            "answer_requires": {
+              "sha256": "a086fea904793b25",
+              "chars": 237
+            }
+          }
+        },
+        {
+          "at_ms": 7441,
+          "event_type": "tool_result",
+          "payload": {
+            "args": {
+              "note_id": "note:1"
+            },
+            "step": 1,
+            "tool": "OpenNote",
+            "error": {
+              "sha256": "e3b0c44298fc1c14",
+              "chars": 0
+            },
+            "summary": {
+              "sha256": "bc59fce76328c249",
+              "chars": 270
+            },
+            "signature": {
+              "sha256": "1bffefc508c9a972",
+              "chars": 81
+            },
+            "record_ids": [
+              "note:2"
+            ],
+            "new_record_ids": [
+              "note:2"
+            ],
+            "no_progress_count": 0
+          }
+        },
+        {
+          "at_ms": 14411,
+          "event_type": "planner_step",
+          "payload": {
+            "gap": {
+              "sha256": "a9c946c04d431c8f",
+              "chars": 114
+            },
+            "args": {
+              "note_id": "note:1"
+            },
+            "plan": [
+              {
+                "id": {
+                  "sha256": "6b86b273ff34fce1",
+                  "chars": 1
+                },
+                "text": {
+                  "sha256": "e7f7b7d6e739767d",
+                  "chars": 162
+                },
+                "reason": {
+                  "sha256": "0f6ccd7c6822f835",
+                  "chars": 53
+                },
+                "status": "open"
+              }
+            ],
+            "step": 2,
+            "tool": "OpenNote",
+            "reasoning": {
+              "sha256": "8b5da3ca75baf75c",
+              "chars": 706
+            },
+            "repair_hint": {
+              "sha256": "34d3e57e9f419dff",
+              "chars": 931
+            },
+            "observations": {
+              "sha256": "3fb46e71f4763b41",
+              "chars": 919
+            },
+            "answer_requires": {
+              "sha256": "480c04cd3f0b9433",
+              "chars": 182
+            }
+          }
+        },
+        {
+          "at_ms": 14431,
+          "event_type": "tool_result",
+          "payload": {
+            "args": {
+              "note_id": "note:1"
+            },
+            "step": 2,
+            "tool": "OpenNote",
+            "error": {
+              "sha256": "e3b0c44298fc1c14",
+              "chars": 0
+            },
+            "summary": {
+              "sha256": "62be7a38f1063e66",
+              "chars": 79
+            },
+            "signature": {
+              "sha256": "1bffefc508c9a972",
+              "chars": 81
+            },
+            "record_ids": [
+              "note:2"
+            ],
+            "new_record_ids": [],
+            "no_progress_count": 1
+          }
+        },
+        {
+          "at_ms": 20520,
+          "event_type": "planner_step",
+          "payload": {
+            "gap": {
+              "sha256": "6a2e900aedcf1e52",
+              "chars": 130
+            },
+            "args": {
+              "status": "ready",
+              "evidence_ids": [
+                "note:2"
+              ]
+            },
+            "plan": [
+              {
+                "id": {
+                  "sha256": "6b86b273ff34fce1",
+                  "chars": 1
+                },
+                "text": {
+                  "sha256": "cacda41c3f94c23d",
+                  "chars": 108
+                },
+                "status": "done",
+                "evidence_id": "note:2"
+              }
+            ],
+            "step": 3,
+            "tool": "FinishRetrieval",
+            "reasoning": {
+              "sha256": "8fd0a2ba7b3b266b",
+              "chars": 477
+            },
+            "repair_hint": {
+              "sha256": "9bcbab480f55b747",
+              "chars": 879
+            },
+            "observations": {
+              "sha256": "afd6cb1cb7a544d4",
+              "chars": 867
+            },
+            "answer_requires": {
+              "sha256": "5f1f0fabbc9bd5e7",
+              "chars": 236
+            }
+          }
+        },
+        {
+          "at_ms": 26604,
+          "event_type": "planner_step",
+          "payload": {
+            "gap": {
+              "sha256": "b60abd9695cf43ea",
+              "chars": 197
+            },
+            "args": {
+              "status": "ready",
+              "evidence_ids": [
+                "note:2"
+              ]
+            },
+            "plan": [
+              {
+                "id": {
+                  "sha256": "6b86b273ff34fce1",
+                  "chars": 1
+                },
+                "text": {
+                  "sha256": "cacda41c3f94c23d",
+                  "chars": 108
+                },
+                "status": "done",
+                "evidence_id": "note:2"
+              }
+            ],
+            "step": 4,
+            "tool": "FinishRetrieval",
+            "reasoning": {
+              "sha256": "5c8883b92a48de0b",
+              "chars": 544
+            },
+            "repair_hint": {
+              "sha256": "9bcbab480f55b747",
+              "chars": 879
+            },
+            "observations": {
+              "sha256": "afd6cb1cb7a544d4",
+              "chars": 867
+            },
+            "answer_requires": {
+              "sha256": "7e133124b386ebf6",
+              "chars": 278
+            }
+          }
+        },
+        {
+          "at_ms": 27381,
+          "event_type": "answer_started",
+          "payload": {}
+        },
+        {
+          "at_ms": 34460,
+          "event_type": "answer",
+          "payload": {
+            "text": "{\"chars\": 1053, \"sha256\": \"968335b319afb936\"}",
+            "claims": [
+              {
+                "text": "{\"chars\": 257, \"sha256\": \"09135f440ae467a3\"}",
+                "evidence_ids": [
+                  "note:2"
+                ]
+              },
+              {
+                "text": "{\"chars\": 220, \"sha256\": \"b2ae4d00824fe46c\"}",
+                "evidence_ids": [
+                  "note:2"
+                ]
+              },
+              {
+                "text": "{\"chars\": 180, \"sha256\": \"aa7b08dae6a2b0d0\"}",
+                "evidence_ids": [
+                  "note:2"
+                ]
+              },
+              {
+                "text": "{\"chars\": 186, \"sha256\": \"51d8a52f4ac91836\"}",
+                "evidence_ids": [
+                  "note:2"
+                ]
+              }
+            ],
+            "evidence_ids": [
+              "note:2"
+            ]
+          }
+        },
+        {
+          "at_ms": 34461,
+          "event_type": "run_completed",
+          "payload": {
+            "status": "completed"
+          }
+        }
+      ],
+      "expected": {
+        "terminal_status": "completed",
+        "target_refs": [
+          "note:2"
+        ],
+        "target_annotation": "production_review",
+        "current_grader_results": {
+          "no_duplicate_tool_calls": false,
+          "valid_finish_evidence_ids": true,
+          "no_finish_loops": false,
+          "output_event_schema": true
+        },
+        "regression_expectations": {
+          "no_duplicate_tool_calls": {
+            "current": true,
+            "desired": false
+          },
+          "no_finish_loops": {
+            "current": true,
+            "desired": false
+          },
+          "token_telemetry_missing": {
+            "current": true,
+            "desired": false
+          }
+        },
+        "quality_floor": {
+          "valid_finish_evidence_ids": true,
+          "output_event_schema": true
+        }
+      },
+      "metrics": {
+        "duration_ms": 34456,
+        "planner_calls": 4,
+        "tool_calls": 2,
+        "llm_calls_inferred": 6,
+        "tokens": {
+          "prompt": null,
+          "completion": null,
+          "total": null,
+          "availability": "not_recorded_by_agent_runtime"
+        },
+        "phase_ms": {
+          "startup": 107,
+          "bootstrap": 1550,
+          "research": 25724,
+          "answer": 7080
+        },
+        "tool_trajectory": [
+          "OpenNote",
+          "OpenNote",
+          "FinishRetrieval",
+          "FinishRetrieval"
+        ]
+      }
+    },
+    {
+      "id": "prod-04-94a9f0067b03",
+      "split": "golden",
+      "provenance": {
+        "kind": "anonymized_production_trace",
+        "source_chat_ref": "chat:33ee57d8ff6d",
+        "source_run_ref": "run:94a9f0067b03",
+        "sample_reason": "status_failed",
+        "turn": null
+      },
+      "temperature": "unknown",
+      "known_failures": [
+        "token_telemetry_missing"
+      ],
+      "trace": [
+        {
+          "at_ms": 44,
+          "event_type": "run_started",
+          "payload": {}
+        },
+        {
+          "at_ms": 2096,
+          "event_type": "graph_started",
+          "payload": {
+            "user_text": {
+              "sha256": "132f4a52a321ac9c",
+              "chars": 28
+            }
+          }
+        },
+        {
+          "at_ms": 2222,
+          "event_type": "run_failed",
+          "payload": {
+            "error": {
+              "sha256": "fa4d527dfd48de52",
+              "chars": 75
+            }
+          }
+        },
+        {
+          "at_ms": 2243,
+          "event_type": "graph_started",
+          "payload": {
+            "user_text": {
+              "sha256": "132f4a52a321ac9c",
+              "chars": 28
+            }
+          }
+        },
+        {
+          "at_ms": 2252,
+          "event_type": "run_failed",
+          "payload": {
+            "error": {
+              "sha256": "fa4d527dfd48de52",
+              "chars": 75
+            }
+          }
+        },
+        {
+          "at_ms": 2261,
+          "event_type": "graph_started",
+          "payload": {
+            "user_text": {
+              "sha256": "132f4a52a321ac9c",
+              "chars": 28
+            }
+          }
+        },
+        {
+          "at_ms": 2267,
+          "event_type": "run_failed",
+          "payload": {
+            "error": {
+              "sha256": "fa4d527dfd48de52",
+              "chars": 75
+            }
+          }
+        },
+        {
+          "at_ms": 2275,
+          "event_type": "graph_started",
+          "payload": {
+            "user_text": {
+              "sha256": "132f4a52a321ac9c",
+              "chars": 28
+            }
+          }
+        },
+        {
+          "at_ms": 2279,
+          "event_type": "run_failed",
+          "payload": {
+            "error": {
+              "sha256": "fa4d527dfd48de52",
+              "chars": 75
+            }
+          }
+        },
+        {
+          "at_ms": 2287,
+          "event_type": "graph_started",
+          "payload": {
+            "user_text": {
+              "sha256": "132f4a52a321ac9c",
+              "chars": 28
+            }
+          }
+        },
+        {
+          "at_ms": 2292,
+          "event_type": "run_failed",
+          "payload": {
+            "error": {
+              "sha256": "fa4d527dfd48de52",
+              "chars": 75
+            }
+          }
+        }
+      ],
+      "expected": {
+        "terminal_status": "failed",
+        "target_refs": [],
+        "target_annotation": "not_annotated",
+        "current_grader_results": {
+          "no_duplicate_tool_calls": true,
+          "valid_finish_evidence_ids": true,
+          "no_finish_loops": true,
+          "output_event_schema": true
+        },
+        "regression_expectations": {
+          "token_telemetry_missing": {
+            "current": true,
+            "desired": false
+          }
+        },
+        "quality_floor": {
+          "valid_finish_evidence_ids": true,
+          "output_event_schema": true
+        }
+      },
+      "metrics": {
+        "duration_ms": 2291,
+        "planner_calls": 0,
+        "tool_calls": 0,
+        "llm_calls_inferred": 0,
+        "tokens": {
+          "prompt": null,
+          "completion": null,
+          "total": null,
+          "availability": "not_recorded_by_agent_runtime"
+        },
+        "phase_ms": {
+          "startup": 2096,
+          "bootstrap": null,
+          "research": null,
+          "answer": null
+        },
+        "tool_trajectory": []
+      }
+    },
+    {
+      "id": "prod-05-43924148022e",
+      "split": "golden",
+      "provenance": {
+        "kind": "anonymized_production_trace",
+        "source_chat_ref": "chat:873b562098a0",
+        "source_run_ref": "run:43924148022e",
+        "sample_reason": "status_failed",
+        "turn": null
+      },
+      "temperature": "unknown",
+      "known_failures": [
+        "token_telemetry_missing"
+      ],
+      "trace": [
+        {
+          "at_ms": 52,
+          "event_type": "run_started",
+          "payload": {}
+        },
+        {
+          "at_ms": 1086,
+          "event_type": "graph_started",
+          "payload": {
+            "user_text": {
+              "sha256": "132f4a52a321ac9c",
+              "chars": 28
+            }
+          }
+        },
+        {
+          "at_ms": 31228,
+          "event_type": "run_failed",
+          "payload": {
+            "error": {
+              "sha256": "e3b0c44298fc1c14",
+              "chars": 0
+            }
+          }
+        },
+        {
+          "at_ms": 31580,
+          "event_type": "graph_started",
+          "payload": {
+            "user_text": {
+              "sha256": "132f4a52a321ac9c",
+              "chars": 28
+            }
+          }
+        },
+        {
+          "at_ms": 39627,
+          "event_type": "run_failed",
+          "payload": {
+            "error": {
+              "sha256": "6c368a7bb1717e35",
+              "chars": 60
+            }
+          }
+        },
+        {
+          "at_ms": 39657,
+          "event_type": "graph_started",
+          "payload": {
+            "user_text": {
+              "sha256": "132f4a52a321ac9c",
+              "chars": 28
+            }
+          }
+        },
+        {
+          "at_ms": 41026,
+          "event_type": "run_failed",
+          "payload": {
+            "error": {
+              "sha256": "6c368a7bb1717e35",
+              "chars": 60
+            }
+          }
+        },
+        {
+          "at_ms": 41068,
+          "event_type": "graph_started",
+          "payload": {
+            "user_text": {
+              "sha256": "132f4a52a321ac9c",
+              "chars": 28
+            }
+          }
+        },
+        {
+          "at_ms": 42447,
+          "event_type": "run_failed",
+          "payload": {
+            "error": {
+              "sha256": "6c368a7bb1717e35",
+              "chars": 60
+            }
+          }
+        }
+      ],
+      "expected": {
+        "terminal_status": "failed",
+        "target_refs": [],
+        "target_annotation": "not_annotated",
+        "current_grader_results": {
+          "no_duplicate_tool_calls": true,
+          "valid_finish_evidence_ids": true,
+          "no_finish_loops": true,
+          "output_event_schema": true
+        },
+        "regression_expectations": {
+          "token_telemetry_missing": {
+            "current": true,
+            "desired": false
+          }
+        },
+        "quality_floor": {
+          "valid_finish_evidence_ids": true,
+          "output_event_schema": true
+        }
+      },
+      "metrics": {
+        "duration_ms": 42440,
+        "planner_calls": 0,
+        "tool_calls": 0,
+        "llm_calls_inferred": 0,
+        "tokens": {
+          "prompt": null,
+          "completion": null,
+          "total": null,
+          "availability": "not_recorded_by_agent_runtime"
+        },
+        "phase_ms": {
+          "startup": 1086,
+          "bootstrap": null,
+          "research": null,
+          "answer": null
+        },
+        "tool_trajectory": []
+      }
+    },
+    {
+      "id": "prod-06-1d1ae1f17f16",
+      "split": "golden",
+      "provenance": {
+        "kind": "anonymized_production_trace",
+        "source_chat_ref": "chat:4213930fcdea",
+        "source_run_ref": "run:1d1ae1f17f16",
+        "sample_reason": "status_failed",
+        "turn": null
+      },
+      "temperature": "unknown",
+      "known_failures": [
+        "token_telemetry_missing"
+      ],
+      "trace": [
+        {
+          "at_ms": 4,
+          "event_type": "run_started",
+          "payload": {}
+        },
+        {
+          "at_ms": 44,
+          "event_type": "graph_started",
+          "payload": {
+            "user_text": {
+              "sha256": "132f4a52a321ac9c",
+              "chars": 28
+            }
+          }
+        },
+        {
+          "at_ms": 30155,
+          "event_type": "run_failed",
+          "payload": {
+            "error": {
+              "sha256": "e3b0c44298fc1c14",
+              "chars": 0
+            }
+          }
+        },
+        {
+          "at_ms": 30213,
+          "event_type": "graph_started",
+          "payload": {
+            "user_text": {
+              "sha256": "132f4a52a321ac9c",
+              "chars": 28
+            }
+          }
+        },
+        {
+          "at_ms": 60491,
+          "event_type": "run_failed",
+          "payload": {
+            "error": {
+              "sha256": "e3b0c44298fc1c14",
+              "chars": 0
+            }
+          }
+        },
+        {
+          "at_ms": 60565,
+          "event_type": "graph_started",
+          "payload": {
+            "user_text": {
+              "sha256": "132f4a52a321ac9c",
+              "chars": 28
+            }
+          }
+        },
+        {
+          "at_ms": 70572,
+          "event_type": "run_failed",
+          "payload": {
+            "error": {
+              "sha256": "6c368a7bb1717e35",
+              "chars": 60
+            }
+          }
+        },
+        {
+          "at_ms": 70609,
+          "event_type": "graph_started",
+          "payload": {
+            "user_text": {
+              "sha256": "132f4a52a321ac9c",
+              "chars": 28
+            }
+          }
+        },
+        {
+          "at_ms": 71954,
+          "event_type": "run_failed",
+          "payload": {
+            "error": {
+              "sha256": "6c368a7bb1717e35",
+              "chars": 60
+            }
+          }
+        },
+        {
+          "at_ms": 71965,
+          "event_type": "graph_started",
+          "payload": {
+            "user_text": {
+              "sha256": "132f4a52a321ac9c",
+              "chars": 28
+            }
+          }
+        },
+        {
+          "at_ms": 73303,
+          "event_type": "run_failed",
+          "payload": {
+            "error": {
+              "sha256": "6c368a7bb1717e35",
+              "chars": 60
+            }
+          }
+        },
+        {
+          "at_ms": 73312,
+          "event_type": "graph_started",
+          "payload": {
+            "user_text": {
+              "sha256": "132f4a52a321ac9c",
+              "chars": 28
+            }
+          }
+        },
+        {
+          "at_ms": 103444,
+          "event_type": "run_failed",
+          "payload": {
+            "error": {
+              "sha256": "e3b0c44298fc1c14",
+              "chars": 0
+            }
+          }
+        }
+      ],
+      "expected": {
+        "terminal_status": "failed",
+        "target_refs": [],
+        "target_annotation": "not_annotated",
+        "current_grader_results": {
+          "no_duplicate_tool_calls": true,
+          "valid_finish_evidence_ids": true,
+          "no_finish_loops": true,
+          "output_event_schema": true
+        },
+        "regression_expectations": {
+          "token_telemetry_missing": {
+            "current": true,
+            "desired": false
+          }
+        },
+        "quality_floor": {
+          "valid_finish_evidence_ids": true,
+          "output_event_schema": true
+        }
+      },
+      "metrics": {
+        "duration_ms": 103408,
+        "planner_calls": 0,
+        "tool_calls": 0,
+        "llm_calls_inferred": 0,
+        "tokens": {
+          "prompt": null,
+          "completion": null,
+          "total": null,
+          "availability": "not_recorded_by_agent_runtime"
+        },
+        "phase_ms": {
+          "startup": 44,
+          "bootstrap": null,
+          "research": null,
+          "answer": null
+        },
+        "tool_trajectory": []
+      }
+    },
+    {
+      "id": "prod-07-63d28b9655e7",
+      "split": "golden",
+      "provenance": {
+        "kind": "anonymized_production_trace",
+        "source_chat_ref": "chat:adf5a968d5e6",
+        "source_run_ref": "run:63d28b9655e7",
+        "sample_reason": "status_failed",
+        "turn": null
+      },
+      "temperature": "unknown",
+      "known_failures": [
+        "token_telemetry_missing"
+      ],
+      "trace": [
+        {
+          "at_ms": 23,
+          "event_type": "run_started",
+          "payload": {}
+        },
+        {
+          "at_ms": 154,
+          "event_type": "graph_started",
+          "payload": {
+            "user_text": {
+              "sha256": "132f4a52a321ac9c",
+              "chars": 28
+            }
+          }
+        },
+        {
+          "at_ms": 30314,
+          "event_type": "run_failed",
+          "payload": {
+            "error": {
+              "sha256": "e3b0c44298fc1c14",
+              "chars": 0
+            }
+          }
+        },
+        {
+          "at_ms": 31315,
+          "event_type": "graph_started",
+          "payload": {
+            "user_text": {
+              "sha256": "132f4a52a321ac9c",
+              "chars": 28
+            }
+          }
+        },
+        {
+          "at_ms": 61410,
+          "event_type": "run_failed",
+          "payload": {
+            "error": {
+              "sha256": "e3b0c44298fc1c14",
+              "chars": 0
+            }
+          }
+        },
+        {
+          "at_ms": 61443,
+          "event_type": "graph_started",
+          "payload": {
+            "user_text": {
+              "sha256": "132f4a52a321ac9c",
+              "chars": 28
+            }
+          }
+        },
+        {
+          "at_ms": 91548,
+          "event_type": "run_failed",
+          "payload": {
+            "error": {
+              "sha256": "e3b0c44298fc1c14",
+              "chars": 0
+            }
+          }
+        },
+        {
+          "at_ms": 91623,
+          "event_type": "graph_started",
+          "payload": {
+            "user_text": {
+              "sha256": "132f4a52a321ac9c",
+              "chars": 28
+            }
+          }
+        },
+        {
+          "at_ms": 106324,
+          "event_type": "run_failed",
+          "payload": {
+            "error": {
+              "sha256": "6c368a7bb1717e35",
+              "chars": 60
+            }
+          }
+        },
+        {
+          "at_ms": 106509,
+          "event_type": "graph_started",
+          "payload": {
+            "user_text": {
+              "sha256": "132f4a52a321ac9c",
+              "chars": 28
+            }
+          }
+        },
+        {
+          "at_ms": 108054,
+          "event_type": "graph_started",
+          "payload": {
+            "user_text": {
+              "sha256": "132f4a52a321ac9c",
+              "chars": 28
+            }
+          }
+        },
+        {
+          "at_ms": 109347,
+          "event_type": "run_failed",
+          "payload": {
+            "error": {
+              "sha256": "6c368a7bb1717e35",
+              "chars": 60
+            }
+          }
+        },
+        {
+          "at_ms": 138210,
+          "event_type": "run_failed",
+          "payload": {
+            "error": {
+              "sha256": "e3b0c44298fc1c14",
+              "chars": 0
+            }
+          }
+        }
+      ],
+      "expected": {
+        "terminal_status": "failed",
+        "target_refs": [],
+        "target_annotation": "not_annotated",
+        "current_grader_results": {
+          "no_duplicate_tool_calls": true,
+          "valid_finish_evidence_ids": true,
+          "no_finish_loops": true,
+          "output_event_schema": true
+        },
+        "regression_expectations": {
+          "token_telemetry_missing": {
+            "current": true,
+            "desired": false
+          }
+        },
+        "quality_floor": {
+          "valid_finish_evidence_ids": true,
+          "output_event_schema": true
+        }
+      },
+      "metrics": {
+        "duration_ms": 138193,
+        "planner_calls": 0,
+        "tool_calls": 0,
+        "llm_calls_inferred": 0,
+        "tokens": {
+          "prompt": null,
+          "completion": null,
+          "total": null,
+          "availability": "not_recorded_by_agent_runtime"
+        },
+        "phase_ms": {
+          "startup": 154,
+          "bootstrap": null,
+          "research": null,
+          "answer": null
+        },
+        "tool_trajectory": []
+      }
+    },
+    {
+      "id": "prod-08-bdb2cf515d5a",
+      "split": "golden",
+      "provenance": {
+        "kind": "anonymized_production_trace",
+        "source_chat_ref": "chat:b4063b0e4a38",
+        "source_run_ref": "run:bdb2cf515d5a",
+        "sample_reason": "status_failed",
+        "turn": null
+      },
+      "temperature": "unknown",
+      "known_failures": [
+        "token_telemetry_missing"
+      ],
+      "trace": [
+        {
+          "at_ms": 74,
+          "event_type": "run_started",
+          "payload": {}
+        },
+        {
+          "at_ms": 4692,
+          "event_type": "graph_started",
+          "payload": {
+            "user_text": {
+              "sha256": "132f4a52a321ac9c",
+              "chars": 28
+            }
+          }
+        },
+        {
+          "at_ms": 34963,
+          "event_type": "run_failed",
+          "payload": {
+            "error": {
+              "sha256": "e3b0c44298fc1c14",
+              "chars": 0
+            }
+          }
+        },
+        {
+          "at_ms": 35480,
+          "event_type": "graph_started",
+          "payload": {
+            "user_text": {
+              "sha256": "132f4a52a321ac9c",
+              "chars": 28
+            }
+          }
+        },
+        {
+          "at_ms": 66364,
+          "event_type": "run_failed",
+          "payload": {
+            "error": {
+              "sha256": "e3b0c44298fc1c14",
+              "chars": 0
+            }
+          }
+        },
+        {
+          "at_ms": 66922,
+          "event_type": "graph_started",
+          "payload": {
+            "user_text": {
+              "sha256": "132f4a52a321ac9c",
+              "chars": 28
+            }
+          }
+        },
+        {
+          "at_ms": 75768,
+          "event_type": "run_failed",
+          "payload": {
+            "error": {
+              "sha256": "6c368a7bb1717e35",
+              "chars": 60
+            }
+          }
+        },
+        {
+          "at_ms": 76010,
+          "event_type": "graph_started",
+          "payload": {
+            "user_text": {
+              "sha256": "132f4a52a321ac9c",
+              "chars": 28
+            }
+          }
+        },
+        {
+          "at_ms": 77426,
+          "event_type": "run_failed",
+          "payload": {
+            "error": {
+              "sha256": "6c368a7bb1717e35",
+              "chars": 60
+            }
+          }
+        }
+      ],
+      "expected": {
+        "terminal_status": "failed",
+        "target_refs": [],
+        "target_annotation": "not_annotated",
+        "current_grader_results": {
+          "no_duplicate_tool_calls": true,
+          "valid_finish_evidence_ids": true,
+          "no_finish_loops": true,
+          "output_event_schema": true
+        },
+        "regression_expectations": {
+          "token_telemetry_missing": {
+            "current": true,
+            "desired": false
+          }
+        },
+        "quality_floor": {
+          "valid_finish_evidence_ids": true,
+          "output_event_schema": true
+        }
+      },
+      "metrics": {
+        "duration_ms": 77398,
+        "planner_calls": 0,
+        "tool_calls": 0,
+        "llm_calls_inferred": 0,
+        "tokens": {
+          "prompt": null,
+          "completion": null,
+          "total": null,
+          "availability": "not_recorded_by_agent_runtime"
+        },
+        "phase_ms": {
+          "startup": 4692,
+          "bootstrap": null,
+          "research": null,
+          "answer": null
+        },
+        "tool_trajectory": []
+      }
+    },
+    {
+      "id": "prod-09-914ec9a121ed",
+      "split": "golden",
+      "provenance": {
+        "kind": "anonymized_production_trace",
+        "source_chat_ref": "chat:0c8ddd6689c0",
+        "source_run_ref": "run:914ec9a121ed",
+        "sample_reason": "status_failed",
+        "turn": null
+      },
+      "temperature": "unknown",
+      "known_failures": [
+        "token_telemetry_missing"
+      ],
+      "trace": [
+        {
+          "at_ms": 185,
+          "event_type": "run_started",
+          "payload": {}
+        },
+        {
+          "at_ms": 778,
+          "event_type": "graph_started",
+          "payload": {
+            "user_text": {
+              "sha256": "132f4a52a321ac9c",
+              "chars": 28
+            }
+          }
+        },
+        {
+          "at_ms": 3240,
+          "event_type": "run_failed",
+          "payload": {
+            "error": {
+              "sha256": "6c368a7bb1717e35",
+              "chars": 60
+            }
+          }
+        },
+        {
+          "at_ms": 3287,
+          "event_type": "graph_started",
+          "payload": {
+            "user_text": {
+              "sha256": "132f4a52a321ac9c",
+              "chars": 28
+            }
+          }
+        },
+        {
+          "at_ms": 4522,
+          "event_type": "run_failed",
+          "payload": {
+            "error": {
+              "sha256": "6c368a7bb1717e35",
+              "chars": 60
+            }
+          }
+        },
+        {
+          "at_ms": 4560,
+          "event_type": "graph_started",
+          "payload": {
+            "user_text": {
+              "sha256": "132f4a52a321ac9c",
+              "chars": 28
+            }
+          }
+        },
+        {
+          "at_ms": 5779,
+          "event_type": "run_failed",
+          "payload": {
+            "error": {
+              "sha256": "6c368a7bb1717e35",
+              "chars": 60
+            }
+          }
+        },
+        {
+          "at_ms": 5854,
+          "event_type": "graph_started",
+          "payload": {
+            "user_text": {
+              "sha256": "132f4a52a321ac9c",
+              "chars": 28
+            }
+          }
+        },
+        {
+          "at_ms": 6982,
+          "event_type": "run_failed",
+          "payload": {
+            "error": {
+              "sha256": "6c368a7bb1717e35",
+              "chars": 60
+            }
+          }
+        },
+        {
+          "at_ms": 7040,
+          "event_type": "graph_started",
+          "payload": {
+            "user_text": {
+              "sha256": "132f4a52a321ac9c",
+              "chars": 28
+            }
+          }
+        },
+        {
+          "at_ms": 8217,
+          "event_type": "run_failed",
+          "payload": {
+            "error": {
+              "sha256": "6c368a7bb1717e35",
+              "chars": 60
+            }
+          }
+        },
+        {
+          "at_ms": 8238,
+          "event_type": "graph_started",
+          "payload": {
+            "user_text": {
+              "sha256": "132f4a52a321ac9c",
+              "chars": 28
+            }
+          }
+        },
+        {
+          "at_ms": 9516,
+          "event_type": "run_failed",
+          "payload": {
+            "error": {
+              "sha256": "6c368a7bb1717e35",
+              "chars": 60
+            }
+          }
+        }
+      ],
+      "expected": {
+        "terminal_status": "failed",
+        "target_refs": [],
+        "target_annotation": "not_annotated",
+        "current_grader_results": {
+          "no_duplicate_tool_calls": true,
+          "valid_finish_evidence_ids": true,
+          "no_finish_loops": true,
+          "output_event_schema": true
+        },
+        "regression_expectations": {
+          "token_telemetry_missing": {
+            "current": true,
+            "desired": false
+          }
+        },
+        "quality_floor": {
+          "valid_finish_evidence_ids": true,
+          "output_event_schema": true
+        }
+      },
+      "metrics": {
+        "duration_ms": 9501,
+        "planner_calls": 0,
+        "tool_calls": 0,
+        "llm_calls_inferred": 0,
+        "tokens": {
+          "prompt": null,
+          "completion": null,
+          "total": null,
+          "availability": "not_recorded_by_agent_runtime"
+        },
+        "phase_ms": {
+          "startup": 778,
+          "bootstrap": null,
+          "research": null,
+          "answer": null
+        },
+        "tool_trajectory": []
+      }
+    },
+    {
+      "id": "prod-10-fd1d08f18d6d",
+      "split": "golden",
+      "provenance": {
+        "kind": "anonymized_production_trace",
+        "source_chat_ref": "chat:6f5952a5aa88",
+        "source_run_ref": "run:fd1d08f18d6d",
+        "sample_reason": "status_failed",
+        "turn": null
+      },
+      "temperature": "unknown",
+      "known_failures": [
+        "token_telemetry_missing"
+      ],
+      "trace": [
+        {
+          "at_ms": 0,
+          "event_type": "graph_started",
+          "payload": {
+            "user_text": {
+              "sha256": "dd679c0b9fd408a0",
+              "chars": 6
+            }
+          }
+        },
+        {
+          "at_ms": 73,
+          "event_type": "run_started",
+          "payload": {}
+        },
+        {
+          "at_ms": 3082,
+          "event_type": "run_failed",
+          "payload": {
+            "error": {
+              "sha256": "f11f4a485a4b4a44",
+              "chars": 46
+            }
+          }
+        },
+        {
+          "at_ms": 3493,
+          "event_type": "graph_started",
+          "payload": {
+            "user_text": {
+              "sha256": "dd679c0b9fd408a0",
+              "chars": 6
+            }
+          }
+        },
+        {
+          "at_ms": 7642,
+          "event_type": "run_failed",
+          "payload": {
+            "error": {
+              "sha256": "f11f4a485a4b4a44",
+              "chars": 46
+            }
+          }
+        },
+        {
+          "at_ms": 7865,
+          "event_type": "graph_started",
+          "payload": {
+            "user_text": {
+              "sha256": "dd679c0b9fd408a0",
+              "chars": 6
+            }
+          }
+        },
+        {
+          "at_ms": 12097,
+          "event_type": "run_failed",
+          "payload": {
+            "error": {
+              "sha256": "f11f4a485a4b4a44",
+              "chars": 46
+            }
+          }
+        },
+        {
+          "at_ms": 12153,
+          "event_type": "graph_started",
+          "payload": {
+            "user_text": {
+              "sha256": "dd679c0b9fd408a0",
+              "chars": 6
+            }
+          }
+        },
+        {
+          "at_ms": 16198,
+          "event_type": "run_failed",
+          "payload": {
+            "error": {
+              "sha256": "f11f4a485a4b4a44",
+              "chars": 46
+            }
+          }
+        },
+        {
+          "at_ms": 16237,
+          "event_type": "graph_started",
+          "payload": {
+            "user_text": {
+              "sha256": "dd679c0b9fd408a0",
+              "chars": 6
+            }
+          }
+        },
+        {
+          "at_ms": 20344,
+          "event_type": "run_failed",
+          "payload": {
+            "error": {
+              "sha256": "f11f4a485a4b4a44",
+              "chars": 46
+            }
+          }
+        }
+      ],
+      "expected": {
+        "terminal_status": "failed",
+        "target_refs": [],
+        "target_annotation": "not_annotated",
+        "current_grader_results": {
+          "no_duplicate_tool_calls": true,
+          "valid_finish_evidence_ids": true,
+          "no_finish_loops": true,
+          "output_event_schema": true
+        },
+        "regression_expectations": {
+          "token_telemetry_missing": {
+            "current": true,
+            "desired": false
+          }
+        },
+        "quality_floor": {
+          "valid_finish_evidence_ids": true,
+          "output_event_schema": true
+        }
+      },
+      "metrics": {
+        "duration_ms": 20321,
+        "planner_calls": 0,
+        "tool_calls": 0,
+        "llm_calls_inferred": 0,
+        "tokens": {
+          "prompt": null,
+          "completion": null,
+          "total": null,
+          "availability": "not_recorded_by_agent_runtime"
+        },
+        "phase_ms": {
+          "startup": 0,
+          "bootstrap": null,
+          "research": null,
+          "answer": null
+        },
+        "tool_trajectory": []
+      }
+    },
+    {
+      "id": "prod-11-3de444738b91",
+      "split": "golden",
+      "provenance": {
+        "kind": "anonymized_production_trace",
+        "source_chat_ref": "chat:c37a82157c3d",
+        "source_run_ref": "run:3de444738b91",
+        "sample_reason": "status_interrupted",
+        "turn": null
+      },
+      "temperature": "unknown",
+      "known_failures": [
+        "token_telemetry_missing"
+      ],
+      "trace": [
+        {
+          "at_ms": 46,
+          "event_type": "run_started",
+          "payload": {}
+        },
+        {
+          "at_ms": 1227,
+          "event_type": "graph_started",
+          "payload": {
+            "user_text": {
+              "sha256": "6b7be404cb53fed6",
+              "chars": 33
+            }
+          }
+        },
+        {
+          "at_ms": 5596,
+          "event_type": "interrupt",
+          "payload": {
+            "type": "action_proposal",
+            "proposal": {
+              "id": {
+                "sha256": "938260cdcb79bf0c",
+                "chars": 36
+              },
+              "command": {
+                "sha256": "e9dc21c3ccbd7948",
+                "chars": 9
+              },
+              "payload": {
+                "patch": {
+                  "text": {
+                    "sha256": "8c75aedb1da765b0",
+                    "chars": 1179
+                  }
+                },
+                "post_id": "post:1"
+              },
+              "warnings": [],
+              "payload_hash": {
+                "sha256": "7a4ab22f63bbb500",
+                "chars": 64
+              },
+              "resource_version": null
+            }
+          }
+        },
+        {
+          "at_ms": 5599,
+          "event_type": "run_interrupted",
+          "payload": {
+            "status": "interrupted"
+          }
+        }
+      ],
+      "expected": {
+        "terminal_status": "interrupted",
+        "target_refs": [],
+        "target_annotation": "not_annotated",
+        "current_grader_results": {
+          "no_duplicate_tool_calls": true,
+          "valid_finish_evidence_ids": true,
+          "no_finish_loops": true,
+          "output_event_schema": true
+        },
+        "regression_expectations": {
+          "token_telemetry_missing": {
+            "current": true,
+            "desired": false
+          }
+        },
+        "quality_floor": {
+          "valid_finish_evidence_ids": true,
+          "output_event_schema": true
+        }
+      },
+      "metrics": {
+        "duration_ms": 5597,
+        "planner_calls": 0,
+        "tool_calls": 0,
+        "llm_calls_inferred": 0,
+        "tokens": {
+          "prompt": null,
+          "completion": null,
+          "total": null,
+          "availability": "not_recorded_by_agent_runtime"
+        },
+        "phase_ms": {
+          "startup": 1227,
+          "bootstrap": null,
+          "research": null,
+          "answer": null
+        },
+        "tool_trajectory": []
+      }
+    },
+    {
+      "id": "prod-12-fe9e64aeff0f",
+      "split": "golden",
+      "provenance": {
+        "kind": "anonymized_production_trace",
+        "source_chat_ref": "chat:e2baccfc8c7b",
+        "source_run_ref": "run:fe9e64aeff0f",
+        "sample_reason": "status_interrupted",
+        "turn": null
+      },
+      "temperature": "unknown",
+      "known_failures": [
+        "token_telemetry_missing"
+      ],
+      "trace": [
+        {
+          "at_ms": 74,
+          "event_type": "run_started",
+          "payload": {}
+        },
+        {
+          "at_ms": 5312,
+          "event_type": "graph_started",
+          "payload": {
+            "user_text": {
+              "sha256": "268a344de0d21af4",
+              "chars": 34
+            }
+          }
+        },
+        {
+          "at_ms": 7820,
+          "event_type": "interrupt",
+          "payload": {
+            "type": "action_proposal",
+            "proposal": {
+              "id": {
+                "sha256": "b72e614089e574db",
+                "chars": 36
+              },
+              "command": {
+                "sha256": "e9dc21c3ccbd7948",
+                "chars": 9
+              },
+              "payload": {
+                "patch": {
+                  "text": {
+                    "sha256": "3d75d3a9206c58bd",
+                    "chars": 39
+                  }
+                },
+                "post_id": "post:1"
+              },
+              "warnings": [],
+              "payload_hash": {
+                "sha256": "92df0cb446881b86",
+                "chars": 64
+              },
+              "resource_version": null
+            }
+          }
+        },
+        {
+          "at_ms": 7825,
+          "event_type": "run_interrupted",
+          "payload": {
+            "status": "interrupted"
+          }
+        }
+      ],
+      "expected": {
+        "terminal_status": "interrupted",
+        "target_refs": [],
+        "target_annotation": "not_annotated",
+        "current_grader_results": {
+          "no_duplicate_tool_calls": true,
+          "valid_finish_evidence_ids": true,
+          "no_finish_loops": true,
+          "output_event_schema": true
+        },
+        "regression_expectations": {
+          "token_telemetry_missing": {
+            "current": true,
+            "desired": false
+          }
+        },
+        "quality_floor": {
+          "valid_finish_evidence_ids": true,
+          "output_event_schema": true
+        }
+      },
+      "metrics": {
+        "duration_ms": 7821,
+        "planner_calls": 0,
+        "tool_calls": 0,
+        "llm_calls_inferred": 0,
+        "tokens": {
+          "prompt": null,
+          "completion": null,
+          "total": null,
+          "availability": "not_recorded_by_agent_runtime"
+        },
+        "phase_ms": {
+          "startup": 5312,
+          "bootstrap": null,
+          "research": null,
+          "answer": null
+        },
+        "tool_trajectory": []
+      }
+    },
+    {
+      "id": "prod-13-60255fdb223a",
+      "split": "golden",
+      "provenance": {
+        "kind": "anonymized_production_trace",
+        "source_chat_ref": "chat:b6e13dd1191b",
+        "source_run_ref": "run:60255fdb223a",
+        "sample_reason": "status_interrupted",
+        "turn": null
+      },
+      "temperature": "unknown",
+      "known_failures": [
+        "token_telemetry_missing"
+      ],
+      "trace": [
+        {
+          "at_ms": 89,
+          "event_type": "run_started",
+          "payload": {}
+        },
+        {
+          "at_ms": 3627,
+          "event_type": "graph_started",
+          "payload": {
+            "user_text": {
+              "sha256": "268a344de0d21af4",
+              "chars": 34
+            }
+          }
+        },
+        {
+          "at_ms": 7868,
+          "event_type": "interrupt",
+          "payload": {
+            "type": "action_proposal",
+            "proposal": {
+              "id": {
+                "sha256": "c914eb0c9651f3d2",
+                "chars": 36
+              },
+              "command": {
+                "sha256": "e9dc21c3ccbd7948",
+                "chars": 9
+              },
+              "payload": {},
+              "warnings": [],
+              "payload_hash": {
+                "sha256": "b8a4120408a76e33",
+                "chars": 64
+              },
+              "resource_version": null
+            }
+          }
+        },
+        {
+          "at_ms": 7871,
+          "event_type": "run_interrupted",
+          "payload": {
+            "status": "interrupted"
+          }
+        }
+      ],
+      "expected": {
+        "terminal_status": "interrupted",
+        "target_refs": [],
+        "target_annotation": "not_annotated",
+        "current_grader_results": {
+          "no_duplicate_tool_calls": true,
+          "valid_finish_evidence_ids": true,
+          "no_finish_loops": true,
+          "output_event_schema": true
+        },
+        "regression_expectations": {
+          "token_telemetry_missing": {
+            "current": true,
+            "desired": false
+          }
+        },
+        "quality_floor": {
+          "valid_finish_evidence_ids": true,
+          "output_event_schema": true
+        }
+      },
+      "metrics": {
+        "duration_ms": 7869,
+        "planner_calls": 0,
+        "tool_calls": 0,
+        "llm_calls_inferred": 0,
+        "tokens": {
+          "prompt": null,
+          "completion": null,
+          "total": null,
+          "availability": "not_recorded_by_agent_runtime"
+        },
+        "phase_ms": {
+          "startup": 3627,
+          "bootstrap": null,
+          "research": null,
+          "answer": null
+        },
+        "tool_trajectory": []
+      }
+    },
+    {
+      "id": "prod-14-3cf162e3e68b",
+      "split": "golden",
+      "provenance": {
+        "kind": "anonymized_production_trace",
+        "source_chat_ref": "chat:d1401335d4a9",
+        "source_run_ref": "run:3cf162e3e68b",
+        "sample_reason": "status_interrupted",
+        "turn": null
+      },
+      "temperature": "unknown",
+      "known_failures": [
+        "token_telemetry_missing"
+      ],
+      "trace": [
+        {
+          "at_ms": 31,
+          "event_type": "run_started",
+          "payload": {}
+        },
+        {
+          "at_ms": 3298,
+          "event_type": "graph_started",
+          "payload": {
+            "user_text": {
+              "sha256": "268a344de0d21af4",
+              "chars": 34
+            }
+          }
+        },
+        {
+          "at_ms": 7926,
+          "event_type": "interrupt",
+          "payload": {
+            "type": "action_proposal",
+            "proposal": {
+              "id": {
+                "sha256": "eb1884e507ce5936",
+                "chars": 36
+              },
+              "command": {
+                "sha256": "e9dc21c3ccbd7948",
+                "chars": 9
+              },
+              "payload": {
+                "patch": {
+                  "text": {
+                    "sha256": "cb582e2f87b273ce",
+                    "chars": 1179
+                  },
+                  "textHtml": {
+                    "sha256": "f122d41e6521fdf3",
+                    "chars": 1307
+                  }
+                },
+                "post_id": "post:1"
+              },
+              "warnings": [],
+              "payload_hash": {
+                "sha256": "167972fded7097c5",
+                "chars": 64
+              },
+              "resource_version": null
+            }
+          }
+        },
+        {
+          "at_ms": 7928,
+          "event_type": "run_interrupted",
+          "payload": {
+            "status": "interrupted"
+          }
+        }
+      ],
+      "expected": {
+        "terminal_status": "interrupted",
+        "target_refs": [],
+        "target_annotation": "not_annotated",
+        "current_grader_results": {
+          "no_duplicate_tool_calls": true,
+          "valid_finish_evidence_ids": true,
+          "no_finish_loops": true,
+          "output_event_schema": true
+        },
+        "regression_expectations": {
+          "token_telemetry_missing": {
+            "current": true,
+            "desired": false
+          }
+        },
+        "quality_floor": {
+          "valid_finish_evidence_ids": true,
+          "output_event_schema": true
+        }
+      },
+      "metrics": {
+        "duration_ms": 7927,
+        "planner_calls": 0,
+        "tool_calls": 0,
+        "llm_calls_inferred": 0,
+        "tokens": {
+          "prompt": null,
+          "completion": null,
+          "total": null,
+          "availability": "not_recorded_by_agent_runtime"
+        },
+        "phase_ms": {
+          "startup": 3298,
+          "bootstrap": null,
+          "research": null,
+          "answer": null
+        },
+        "tool_trajectory": []
+      }
+    },
+    {
+      "id": "prod-15-450165a00e5d",
+      "split": "golden",
+      "provenance": {
+        "kind": "anonymized_production_trace",
+        "source_chat_ref": "chat:b16b03fb45dc",
+        "source_run_ref": "run:450165a00e5d",
+        "sample_reason": "status_interrupted",
+        "turn": null
+      },
+      "temperature": "unknown",
+      "known_failures": [
+        "token_telemetry_missing"
+      ],
+      "trace": [
+        {
+          "at_ms": 13,
+          "event_type": "run_started",
+          "payload": {}
+        },
+        {
+          "at_ms": 418,
+          "event_type": "graph_started",
+          "payload": {
+            "user_text": {
+              "sha256": "d1a6ff071f48a099",
+              "chars": 20
+            }
+          }
+        },
+        {
+          "at_ms": 4119,
+          "event_type": "interrupt",
+          "payload": {
+            "type": "action_proposal",
+            "proposal": {
+              "id": {
+                "sha256": "20ea077c4049c20b",
+                "chars": 36
+              },
+              "command": {
+                "sha256": "69322056e3a1f19c",
+                "chars": 12
+              },
+              "payload": {
+                "post_id": "post:1"
+              },
+              "warnings": [],
+              "payload_hash": {
+                "sha256": "a3592d7f081f0cc1",
+                "chars": 64
+              },
+              "resource_version": null
+            }
+          }
+        },
+        {
+          "at_ms": 4123,
+          "event_type": "run_interrupted",
+          "payload": {
+            "status": "interrupted"
+          }
+        }
+      ],
+      "expected": {
+        "terminal_status": "interrupted",
+        "target_refs": [],
+        "target_annotation": "not_annotated",
+        "current_grader_results": {
+          "no_duplicate_tool_calls": true,
+          "valid_finish_evidence_ids": true,
+          "no_finish_loops": true,
+          "output_event_schema": true
+        },
+        "regression_expectations": {
+          "token_telemetry_missing": {
+            "current": true,
+            "desired": false
+          }
+        },
+        "quality_floor": {
+          "valid_finish_evidence_ids": true,
+          "output_event_schema": true
+        }
+      },
+      "metrics": {
+        "duration_ms": 4120,
+        "planner_calls": 0,
+        "tool_calls": 0,
+        "llm_calls_inferred": 0,
+        "tokens": {
+          "prompt": null,
+          "completion": null,
+          "total": null,
+          "availability": "not_recorded_by_agent_runtime"
+        },
+        "phase_ms": {
+          "startup": 418,
+          "bootstrap": null,
+          "research": null,
+          "answer": null
+        },
+        "tool_trajectory": []
+      }
+    },
+    {
+      "id": "prod-16-f1d99941a34b",
+      "split": "golden",
+      "provenance": {
+        "kind": "anonymized_production_trace",
+        "source_chat_ref": "chat:eec83e362bf6",
+        "source_run_ref": "run:f1d99941a34b",
+        "sample_reason": "status_interrupted",
+        "turn": null
+      },
+      "temperature": "unknown",
+      "known_failures": [
+        "token_telemetry_missing"
+      ],
+      "trace": [
+        {
+          "at_ms": 24,
+          "event_type": "run_started",
+          "payload": {}
+        },
+        {
+          "at_ms": 518,
+          "event_type": "graph_started",
+          "payload": {
+            "user_text": {
+              "sha256": "318a10b1f78e02e2",
+              "chars": 26
+            }
+          }
+        },
+        {
+          "at_ms": 3005,
+          "event_type": "interrupt",
+          "payload": {
+            "type": "action_proposal",
+            "proposal": {
+              "id": {
+                "sha256": "96b36bf3a25e97b7",
+                "chars": 36
+              },
+              "command": {
+                "sha256": "8e64ec2f9dc90ba9",
+                "chars": 13
+              },
+              "payload": {
+                "post_id": "post:1",
+                "scheduled_at": {
+                  "sha256": "12cdb6b31d31e2d3",
+                  "chars": 25
+                }
+              },
+              "warnings": [],
+              "payload_hash": {
+                "sha256": "098da3e0f6b29c4c",
+                "chars": 64
+              },
+              "resource_version": null
+            }
+          }
+        },
+        {
+          "at_ms": 3007,
+          "event_type": "run_interrupted",
+          "payload": {
+            "status": "interrupted"
+          }
+        }
+      ],
+      "expected": {
+        "terminal_status": "interrupted",
+        "target_refs": [],
+        "target_annotation": "not_annotated",
+        "current_grader_results": {
+          "no_duplicate_tool_calls": true,
+          "valid_finish_evidence_ids": true,
+          "no_finish_loops": true,
+          "output_event_schema": true
+        },
+        "regression_expectations": {
+          "token_telemetry_missing": {
+            "current": true,
+            "desired": false
+          }
+        },
+        "quality_floor": {
+          "valid_finish_evidence_ids": true,
+          "output_event_schema": true
+        }
+      },
+      "metrics": {
+        "duration_ms": 3006,
+        "planner_calls": 0,
+        "tool_calls": 0,
+        "llm_calls_inferred": 0,
+        "tokens": {
+          "prompt": null,
+          "completion": null,
+          "total": null,
+          "availability": "not_recorded_by_agent_runtime"
+        },
+        "phase_ms": {
+          "startup": 518,
+          "bootstrap": null,
+          "research": null,
+          "answer": null
+        },
+        "tool_trajectory": []
+      }
+    },
+    {
+      "id": "prod-17-4c20b42b5157",
+      "split": "golden",
+      "provenance": {
+        "kind": "anonymized_production_trace",
+        "source_chat_ref": "chat:e0ebd749a2bc",
+        "source_run_ref": "run:4c20b42b5157",
+        "sample_reason": "status_interrupted",
+        "turn": null
+      },
+      "temperature": "unknown",
+      "known_failures": [
+        "token_telemetry_missing"
+      ],
+      "trace": [
+        {
+          "at_ms": 15,
+          "event_type": "run_started",
+          "payload": {}
+        },
+        {
+          "at_ms": 454,
+          "event_type": "graph_started",
+          "payload": {
+            "user_text": {
+              "sha256": "a55fa57cb99756a1",
+              "chars": 40
+            }
+          }
+        },
+        {
+          "at_ms": 2674,
+          "event_type": "workspace_step",
+          "payload": {
+            "tool": "post_proposal"
+          }
+        },
+        {
+          "at_ms": 2768,
+          "event_type": "interrupt",
+          "payload": {
+            "type": "action_proposal",
+            "proposal": {
+              "id": {
+                "sha256": "c4a6c2234c1f24d3",
+                "chars": 36
+              },
+              "command": {
+                "sha256": "646bae49df6b57a6",
+                "chars": 11
+              },
+              "payload": {},
+              "warnings": [],
+              "payload_hash": {
+                "sha256": "b8a4120408a76e33",
+                "chars": 64
+              },
+              "resource_version": null
+            }
+          }
+        },
+        {
+          "at_ms": 2773,
+          "event_type": "run_interrupted",
+          "payload": {
+            "status": "interrupted"
+          }
+        }
+      ],
+      "expected": {
+        "terminal_status": "interrupted",
+        "target_refs": [],
+        "target_annotation": "not_annotated",
+        "current_grader_results": {
+          "no_duplicate_tool_calls": true,
+          "valid_finish_evidence_ids": true,
+          "no_finish_loops": true,
+          "output_event_schema": true
+        },
+        "regression_expectations": {
+          "token_telemetry_missing": {
+            "current": true,
+            "desired": false
+          }
+        },
+        "quality_floor": {
+          "valid_finish_evidence_ids": true,
+          "output_event_schema": true
+        }
+      },
+      "metrics": {
+        "duration_ms": 2771,
+        "planner_calls": 0,
+        "tool_calls": 0,
+        "llm_calls_inferred": 1,
+        "tokens": {
+          "prompt": null,
+          "completion": null,
+          "total": null,
+          "availability": "not_recorded_by_agent_runtime"
+        },
+        "phase_ms": {
+          "startup": 454,
+          "bootstrap": 2220,
+          "research": 99,
+          "answer": null
+        },
+        "tool_trajectory": []
+      }
+    },
+    {
+      "id": "prod-18-75bc11de353f",
+      "split": "golden",
+      "provenance": {
+        "kind": "anonymized_production_trace",
+        "source_chat_ref": "chat:e9d53324deb9",
+        "source_run_ref": "run:75bc11de353f",
+        "sample_reason": "status_cancelled",
+        "turn": null
+      },
+      "temperature": "unknown",
+      "known_failures": [
+        "token_telemetry_missing"
+      ],
+      "trace": [
+        {
+          "at_ms": 46,
+          "event_type": "run_started",
+          "payload": {}
+        },
+        {
+          "at_ms": 3211,
+          "event_type": "run_cancelled",
+          "payload": {
+            "status": "cancelled"
+          }
+        }
+      ],
+      "expected": {
+        "terminal_status": "cancelled",
+        "target_refs": [],
+        "target_annotation": "not_annotated",
+        "current_grader_results": {
+          "no_duplicate_tool_calls": true,
+          "valid_finish_evidence_ids": true,
+          "no_finish_loops": true,
+          "output_event_schema": true
+        },
+        "regression_expectations": {
+          "token_telemetry_missing": {
+            "current": true,
+            "desired": false
+          }
+        },
+        "quality_floor": {
+          "valid_finish_evidence_ids": true,
+          "output_event_schema": true
+        }
+      },
+      "metrics": {
+        "duration_ms": 3211,
+        "planner_calls": 0,
+        "tool_calls": 0,
+        "llm_calls_inferred": 0,
+        "tokens": {
+          "prompt": null,
+          "completion": null,
+          "total": null,
+          "availability": "not_recorded_by_agent_runtime"
+        },
+        "phase_ms": {
+          "startup": null,
+          "bootstrap": null,
+          "research": null,
+          "answer": null
+        },
+        "tool_trajectory": []
+      }
+    },
+    {
+      "id": "prod-19-50fffe68adde",
+      "split": "golden",
+      "provenance": {
+        "kind": "anonymized_production_trace",
+        "source_chat_ref": "chat:59a4b8bc44c6",
+        "source_run_ref": "run:50fffe68adde",
+        "sample_reason": "status_cancelled",
+        "turn": null
+      },
+      "temperature": "unknown",
+      "known_failures": [
+        "token_telemetry_missing"
+      ],
+      "trace": [
+        {
+          "at_ms": 56,
+          "event_type": "run_started",
+          "payload": {}
+        },
+        {
+          "at_ms": 26814,
+          "event_type": "run_cancelled",
+          "payload": {
+            "status": "cancelled"
+          }
+        }
+      ],
+      "expected": {
+        "terminal_status": "cancelled",
+        "target_refs": [],
+        "target_annotation": "not_annotated",
+        "current_grader_results": {
+          "no_duplicate_tool_calls": true,
+          "valid_finish_evidence_ids": true,
+          "no_finish_loops": true,
+          "output_event_schema": true
+        },
+        "regression_expectations": {
+          "token_telemetry_missing": {
+            "current": true,
+            "desired": false
+          }
+        },
+        "quality_floor": {
+          "valid_finish_evidence_ids": true,
+          "output_event_schema": true
+        }
+      },
+      "metrics": {
+        "duration_ms": 26814,
+        "planner_calls": 0,
+        "tool_calls": 0,
+        "llm_calls_inferred": 0,
+        "tokens": {
+          "prompt": null,
+          "completion": null,
+          "total": null,
+          "availability": "not_recorded_by_agent_runtime"
+        },
+        "phase_ms": {
+          "startup": null,
+          "bootstrap": null,
+          "research": null,
+          "answer": null
+        },
+        "tool_trajectory": []
+      }
+    },
+    {
+      "id": "prod-20-268a53bb2751",
+      "split": "golden",
+      "provenance": {
+        "kind": "anonymized_production_trace",
+        "source_chat_ref": "chat:251136f1888f",
+        "source_run_ref": "run:268a53bb2751",
+        "sample_reason": "status_cancelled",
+        "turn": null
+      },
+      "temperature": "unknown",
+      "known_failures": [
+        "token_telemetry_missing"
+      ],
+      "trace": [
+        {
+          "at_ms": 123,
+          "event_type": "run_started",
+          "payload": {}
+        },
+        {
+          "at_ms": 5154,
+          "event_type": "run_cancelled",
+          "payload": {
+            "status": "cancelled"
+          }
+        }
+      ],
+      "expected": {
+        "terminal_status": "cancelled",
+        "target_refs": [],
+        "target_annotation": "not_annotated",
+        "current_grader_results": {
+          "no_duplicate_tool_calls": true,
+          "valid_finish_evidence_ids": true,
+          "no_finish_loops": true,
+          "output_event_schema": true
+        },
+        "regression_expectations": {
+          "token_telemetry_missing": {
+            "current": true,
+            "desired": false
+          }
+        },
+        "quality_floor": {
+          "valid_finish_evidence_ids": true,
+          "output_event_schema": true
+        }
+      },
+      "metrics": {
+        "duration_ms": 5154,
+        "planner_calls": 0,
+        "tool_calls": 0,
+        "llm_calls_inferred": 0,
+        "tokens": {
+          "prompt": null,
+          "completion": null,
+          "total": null,
+          "availability": "not_recorded_by_agent_runtime"
+        },
+        "phase_ms": {
+          "startup": null,
+          "bootstrap": null,
+          "research": null,
+          "answer": null
+        },
+        "tool_trajectory": []
+      }
+    },
+    {
+      "id": "prod-21-079bcce81ffa",
+      "split": "golden",
+      "provenance": {
+        "kind": "anonymized_production_trace",
+        "source_chat_ref": "chat:188239223faa",
+        "source_run_ref": "run:079bcce81ffa",
+        "sample_reason": "status_running",
+        "turn": null
+      },
+      "temperature": "unknown",
+      "known_failures": [
+        "non_terminal_run",
+        "token_telemetry_missing"
+      ],
+      "trace": [
+        {
+          "at_ms": 5,
+          "event_type": "run_started",
+          "payload": {}
+        },
+        {
+          "at_ms": 260,
+          "event_type": "graph_started",
+          "payload": {
+            "user_text": {
+              "sha256": "2c2c7abf3dc87b10",
+              "chars": 26
+            }
+          }
+        },
+        {
+          "at_ms": 1819,
+          "event_type": "workspace_step",
+          "payload": {
+            "tool": "read"
+          }
+        },
+        {
+          "at_ms": 7875,
+          "event_type": "planner_step",
+          "payload": {
+            "gap": {
+              "sha256": "f53364f1acffcd0f",
+              "chars": 118
+            },
+            "args": {
+              "note_id": "note:1"
+            },
+            "plan": [
+              {
+                "id": {
+                  "sha256": "6b86b273ff34fce1",
+                  "chars": 1
+                },
+                "text": {
+                  "sha256": "b646a39e0ff1e192",
+                  "chars": 110
+                },
+                "status": "open"
+              },
+              {
+                "id": {
+                  "sha256": "d4735e3a265e16ee",
+                  "chars": 1
+                },
+                "text": {
+                  "sha256": "4c3a5a50b2c868b7",
+                  "chars": 107
+                },
+                "status": "open"
+              },
+              {
+                "id": {
+                  "sha256": "4e07408562bedb8b",
+                  "chars": 1
+                },
+                "text": {
+                  "sha256": "387595b3def9fe0a",
+                  "chars": 105
+                },
+                "status": "open"
+              }
+            ],
+            "step": 1,
+            "tool": "OpenNote",
+            "reasoning": {
+              "sha256": "f7189b57f994e5e8",
+              "chars": 301
+            },
+            "repair_hint": {
+              "sha256": "b0c0ce63a9641614",
+              "chars": 431
+            },
+            "observations": {
+              "sha256": "f8765ecffe0fe8d7",
+              "chars": 419
+            }
+          }
+        },
+        {
+          "at_ms": 7896,
+          "event_type": "tool_result",
+          "payload": {
+            "args": {
+              "note_id": "note:1"
+            },
+            "step": 1,
+            "tool": "OpenNote",
+            "error": {
+              "sha256": "e3b0c44298fc1c14",
+              "chars": 0
+            },
+            "summary": {
+              "sha256": "1c3566316d70ef78",
+              "chars": 93
+            },
+            "record_ids": [
+              "note:2"
+            ]
+          }
+        },
+        {
+          "at_ms": 12446,
+          "event_type": "planner_step",
+          "payload": {
+            "gap": {
+              "sha256": "76d75448732bef31",
+              "chars": 104
+            },
+            "args": {
+              "post_id": "post:1"
+            },
+            "plan": [
+              {
+                "id": {
+                  "sha256": "6b86b273ff34fce1",
+                  "chars": 1
+                },
+                "text": {
+                  "sha256": "b646a39e0ff1e192",
+                  "chars": 110
+                },
+                "status": "done",
+                "evidence_id": "note:2"
+              },
+              {
+                "id": {
+                  "sha256": "d4735e3a265e16ee",
+                  "chars": 1
+                },
+                "text": {
+                  "sha256": "4c3a5a50b2c868b7",
+                  "chars": 107
+                },
+                "status": "open"
+              },
+              {
+                "id": {
+                  "sha256": "4e07408562bedb8b",
+                  "chars": 1
+                },
+                "text": {
+                  "sha256": "387595b3def9fe0a",
+                  "chars": 105
+                },
+                "status": "open"
+              }
+            ],
+            "step": 2,
+            "tool": "OpenPost",
+            "reasoning": {
+              "sha256": "eab3dffe2c92d1e5",
+              "chars": 189
+            },
+            "repair_hint": {
+              "sha256": "02a1da0fa6429d7c",
+              "chars": 321
+            },
+            "observations": {
+              "sha256": "fc424130e1f9577d",
+              "chars": 501
+            }
+          }
+        },
+        {
+          "at_ms": 12471,
+          "event_type": "tool_result",
+          "payload": {
+            "args": {
+              "post_id": "post:1"
+            },
+            "step": 2,
+            "tool": "OpenPost",
+            "error": {
+              "sha256": "8bf1172df581a12c",
+              "chars": 9
+            },
+            "summary": {
+              "sha256": "cafb1f421825e6d7",
+              "chars": 22
+            },
+            "record_ids": [
+              "note:2"
+            ]
+          }
+        },
+        {
+          "at_ms": 17393,
+          "event_type": "planner_step",
+          "payload": {
+            "gap": {
+              "sha256": "d4b62c0d0c5f2ee3",
+              "chars": 103
+            },
+            "args": {
+              "post_id": "post:2"
+            },
+            "plan": [
+              {
+                "id": {
+                  "sha256": "6b86b273ff34fce1",
+                  "chars": 1
+                },
+                "text": {
+                  "sha256": "b646a39e0ff1e192",
+                  "chars": 110
+                },
+                "status": "done",
+                "evidence_id": "note:2"
+              },
+              {
+                "id": {
+                  "sha256": "d4735e3a265e16ee",
+                  "chars": 1
+                },
+                "text": {
+                  "sha256": "4c3a5a50b2c868b7",
+                  "chars": 107
+                },
+                "status": "open"
+              },
+              {
+                "id": {
+                  "sha256": "4e07408562bedb8b",
+                  "chars": 1
+                },
+                "text": {
+                  "sha256": "387595b3def9fe0a",
+                  "chars": 105
+                },
+                "status": "open"
+              }
+            ],
+            "step": 3,
+            "tool": "OpenPost",
+            "reasoning": {
+              "sha256": "0bed6a0aec269ea2",
+              "chars": 239
+            },
+            "repair_hint": {
+              "sha256": "37853492ab47f5ee",
+              "chars": 217
+            },
+            "observations": {
+              "sha256": "3cfc9232310492d7",
+              "chars": 546
+            }
+          }
+        },
+        {
+          "at_ms": 17413,
+          "event_type": "tool_result",
+          "payload": {
+            "args": {
+              "post_id": "post:2"
+            },
+            "step": 3,
+            "tool": "OpenPost",
+            "error": {
+              "sha256": "8bf1172df581a12c",
+              "chars": 9
+            },
+            "summary": {
+              "sha256": "db42373036366893",
+              "chars": 17
+            },
+            "record_ids": [
+              "note:2"
+            ]
+          }
+        },
+        {
+          "at_ms": 24853,
+          "event_type": "planner_step",
+          "payload": {
+            "gap": {
+              "sha256": "8818d1ea957e65ae",
+              "chars": 200
+            },
+            "args": {},
+            "plan": [
+              {
+                "id": {
+                  "sha256": "6b86b273ff34fce1",
+                  "chars": 1
+                },
+                "text": {
+                  "sha256": "b646a39e0ff1e192",
+                  "chars": 110
+                },
+                "status": "done",
+                "evidence_id": "note:2"
+              },
+              {
+                "id": {
+                  "sha256": "d4735e3a265e16ee",
+                  "chars": 1
+                },
+                "text": {
+                  "sha256": "4c3a5a50b2c868b7",
+                  "chars": 107
+                },
+                "reason": {
+                  "sha256": "99cebcaa63a7f618",
+                  "chars": 52
+                },
+                "status": "dropped"
+              },
+              {
+                "id": {
+                  "sha256": "4b227777d4dd1fc6",
+                  "chars": 1
+                },
+                "text": {
+                  "sha256": "4aa507e1c1cc92f1",
+                  "chars": 108
+                },
+                "status": "open"
+              },
+              {
+                "id": {
+                  "sha256": "ef2d127de37b942b",
+                  "chars": 1
+                },
+                "text": {
+                  "sha256": "4cd1c33110c17b42",
+                  "chars": 101
+                },
+                "status": "open"
+              },
+              {
+                "id": {
+                  "sha256": "4e07408562bedb8b",
+                  "chars": 1
+                },
+                "text": {
+                  "sha256": "387595b3def9fe0a",
+                  "chars": 105
+                },
+                "status": "open"
+              }
+            ],
+            "step": 4,
+            "tool": "ListGlobalNotes",
+            "reasoning": {
+              "sha256": "7b56222418c02ece",
+              "chars": 539
+            },
+            "repair_hint": {
+              "sha256": "198e7ebde717517b",
+              "chars": 241
+            },
+            "observations": {
+              "sha256": "6232b46a0e640ad3",
+              "chars": 596
+            }
+          }
+        },
+        {
+          "at_ms": 24900,
+          "event_type": "tool_result",
+          "payload": {
+            "args": {},
+            "step": 4,
+            "tool": "ListGlobalNotes",
+            "error": {
+              "sha256": "e3b0c44298fc1c14",
+              "chars": 0
+            },
+            "summary": {
+              "sha256": "3e10f775eb36f01d",
+              "chars": 347
+            },
+            "record_ids": [
+              "evidence:1",
+              "note:2"
+            ]
+          }
+        },
+        {
+          "at_ms": 33246,
+          "event_type": "planner_step",
+          "payload": {
+            "gap": {
+              "sha256": "c9e29918ef0140e2",
+              "chars": 163
+            },
+            "args": {
+              "note_id": "note:3"
+            },
+            "plan": [
+              {
+                "id": {
+                  "sha256": "6b86b273ff34fce1",
+                  "chars": 1
+                },
+                "text": {
+                  "sha256": "b646a39e0ff1e192",
+                  "chars": 110
+                },
+                "status": "done",
+                "evidence_id": "note:2"
+              },
+              {
+                "id": {
+                  "sha256": "d4735e3a265e16ee",
+                  "chars": 1
+                },
+                "text": {
+                  "sha256": "4c3a5a50b2c868b7",
+                  "chars": 107
+                },
+                "reason": {
+                  "sha256": "99cebcaa63a7f618",
+                  "chars": 52
+                },
+                "status": "dropped"
+              },
+              {
+                "id": {
+                  "sha256": "4b227777d4dd1fc6",
+                  "chars": 1
+                },
+                "text": {
+                  "sha256": "4aa507e1c1cc92f1",
+                  "chars": 108
+                },
+                "status": "done",
+                "evidence_id": "evidence:1"
+              },
+              {
+                "id": {
+                  "sha256": "ef2d127de37b942b",
+                  "chars": 1
+                },
+                "text": {
+                  "sha256": "4cd1c33110c17b42",
+                  "chars": 101
+                },
+                "status": "open"
+              },
+              {
+                "id": {
+                  "sha256": "e7f6c011776e8db7",
+                  "chars": 1
+                },
+                "text": {
+                  "sha256": "efa0882028893118",
+                  "chars": 139
+                },
+                "status": "open"
+              },
+              {
+                "id": {
+                  "sha256": "7902699be42c8a8e",
+                  "chars": 1
+                },
+                "text": {
+                  "sha256": "ca2c90400f02f681",
+                  "chars": 138
+                },
+                "status": "open"
+              },
+              {
+                "id": {
+                  "sha256": "2c624232cdd22177",
+                  "chars": 1
+                },
+                "text": {
+                  "sha256": "f0ca7a2f2e41963a",
+                  "chars": 121
+                },
+                "status": "open"
+              },
+              {
+                "id": {
+                  "sha256": "4e07408562bedb8b",
+                  "chars": 1
+                },
+                "text": {
+                  "sha256": "387595b3def9fe0a",
+                  "chars": 105
+                },
+                "status": "open"
+              }
+            ],
+            "step": 5,
+            "tool": "OpenNote",
+            "reasoning": {
+              "sha256": "3b9f2486753c8ec3",
+              "chars": 553
+            },
+            "repair_hint": {
+              "sha256": "7d6820e24a76e538",
+              "chars": 429
+            },
+            "observations": {
+              "sha256": "f830b6f80fb7a41a",
+              "chars": 821
+            }
+          }
+        },
+        {
+          "at_ms": 33290,
+          "event_type": "tool_result",
+          "payload": {
+            "args": {
+              "note_id": "note:3"
+            },
+            "step": 5,
+            "tool": "OpenNote",
+            "error": {
+              "sha256": "e3b0c44298fc1c14",
+              "chars": 0
+            },
+            "summary": {
+              "sha256": "e74e0cf9084e6eb1",
+              "chars": 110
+            },
+            "record_ids": [
+              "evidence:1",
+              "note:4",
+              "note:2"
+            ]
+          }
+        },
+        {
+          "at_ms": 42066,
+          "event_type": "planner_step",
+          "payload": {
+            "gap": {
+              "sha256": "18638e269226d1c0",
+              "chars": 212
+            },
+            "args": {},
+            "plan": [
+              {
+                "id": {
+                  "sha256": "6b86b273ff34fce1",
+                  "chars": 1
+                },
+                "text": {
+                  "sha256": "b646a39e0ff1e192",
+                  "chars": 110
+                },
+                "status": "done",
+                "evidence_id": "note:2"
+              },
+              {
+                "id": {
+                  "sha256": "d4735e3a265e16ee",
+                  "chars": 1
+                },
+                "text": {
+                  "sha256": "4c3a5a50b2c868b7",
+                  "chars": 107
+                },
+                "reason": {
+                  "sha256": "99cebcaa63a7f618",
+                  "chars": 52
+                },
+                "status": "dropped"
+              },
+              {
+                "id": {
+                  "sha256": "4b227777d4dd1fc6",
+                  "chars": 1
+                },
+                "text": {
+                  "sha256": "4aa507e1c1cc92f1",
+                  "chars": 108
+                },
+                "status": "done",
+                "evidence_id": "evidence:1"
+              },
+              {
+                "id": {
+                  "sha256": "ef2d127de37b942b",
+                  "chars": 1
+                },
+                "text": {
+                  "sha256": "4cd1c33110c17b42",
+                  "chars": 101
+                },
+                "status": "open"
+              },
+              {
+                "id": {
+                  "sha256": "e7f6c011776e8db7",
+                  "chars": 1
+                },
+                "text": {
+                  "sha256": "efa0882028893118",
+                  "chars": 139
+                },
+                "status": "done",
+                "evidence_id": "note:4"
+              },
+              {
+                "id": {
+                  "sha256": "7902699be42c8a8e",
+                  "chars": 1
+                },
+                "text": {
+                  "sha256": "ca2c90400f02f681",
+                  "chars": 138
+                },
+                "status": "open"
+              },
+              {
+                "id": {
+                  "sha256": "2c624232cdd22177",
+                  "chars": 1
+                },
+                "text": {
+                  "sha256": "f0ca7a2f2e41963a",
+                  "chars": 121
+                },
+                "status": "open"
+              },
+              {
+                "id": {
+                  "sha256": "4e07408562bedb8b",
+                  "chars": 1
+                },
+                "text": {
+                  "sha256": "387595b3def9fe0a",
+                  "chars": 105
+                },
+                "status": "open"
+              }
+            ],
+            "step": 6,
+            "tool": "ListPosts",
+            "reasoning": {
+              "sha256": "99f56a96124a5cf4",
+              "chars": 499
+            },
+            "repair_hint": {
+              "sha256": "55188f6fe305f7ed",
+              "chars": 749
+            },
+            "observations": {
+              "sha256": "a3f50314fb654fd6",
+              "chars": 1344
+            }
+          }
+        },
+        {
+          "at_ms": 42162,
+          "event_type": "tool_result",
+          "payload": {
+            "args": {},
+            "step": 6,
+            "tool": "ListPosts",
+            "error": {
+              "sha256": "e3b0c44298fc1c14",
+              "chars": 0
+            },
+            "summary": {
+              "sha256": "31c21f5de1443dca",
+              "chars": 500
+            },
+            "record_ids": [
+              "evidence:1",
+              "note:4",
+              "note:2",
+              "evidence:2"
+            ]
+          }
+        }
+      ],
+      "expected": {
+        "terminal_status": "running",
+        "target_refs": [],
+        "target_annotation": "not_annotated",
+        "current_grader_results": {
+          "no_duplicate_tool_calls": true,
+          "valid_finish_evidence_ids": true,
+          "no_finish_loops": true,
+          "output_event_schema": true
+        },
+        "regression_expectations": {
+          "non_terminal_run": {
+            "current": true,
+            "desired": false
+          },
+          "token_telemetry_missing": {
+            "current": true,
+            "desired": false
+          }
+        },
+        "quality_floor": {
+          "valid_finish_evidence_ids": true,
+          "output_event_schema": true
+        }
+      },
+      "metrics": {
+        "duration_ms": 0,
+        "planner_calls": 6,
+        "tool_calls": 6,
+        "llm_calls_inferred": 7,
+        "tokens": {
+          "prompt": null,
+          "completion": null,
+          "total": null,
+          "availability": "not_recorded_by_agent_runtime"
+        },
+        "phase_ms": {
+          "startup": 260,
+          "bootstrap": 1559,
+          "research": null,
+          "answer": null
+        },
+        "tool_trajectory": [
+          "OpenNote",
+          "OpenPost",
+          "OpenPost",
+          "ListGlobalNotes",
+          "OpenNote",
+          "ListPosts"
+        ]
+      }
+    },
+    {
+      "id": "prod-22-d6d42209a8c5",
+      "split": "golden",
+      "provenance": {
+        "kind": "anonymized_production_trace",
+        "source_chat_ref": "chat:188239223faa",
+        "source_run_ref": "run:d6d42209a8c5",
+        "sample_reason": "status_running",
+        "turn": null
+      },
+      "temperature": "unknown",
+      "known_failures": [
+        "non_terminal_run",
+        "token_telemetry_missing"
+      ],
+      "trace": [
+        {
+          "at_ms": 3,
+          "event_type": "run_started",
+          "payload": {}
+        }
+      ],
+      "expected": {
+        "terminal_status": "running",
+        "target_refs": [],
+        "target_annotation": "not_annotated",
+        "current_grader_results": {
+          "no_duplicate_tool_calls": true,
+          "valid_finish_evidence_ids": true,
+          "no_finish_loops": true,
+          "output_event_schema": true
+        },
+        "regression_expectations": {
+          "non_terminal_run": {
+            "current": true,
+            "desired": false
+          },
+          "token_telemetry_missing": {
+            "current": true,
+            "desired": false
+          }
+        },
+        "quality_floor": {
+          "valid_finish_evidence_ids": true,
+          "output_event_schema": true
+        }
+      },
+      "metrics": {
+        "duration_ms": 0,
+        "planner_calls": 0,
+        "tool_calls": 0,
+        "llm_calls_inferred": 0,
+        "tokens": {
+          "prompt": null,
+          "completion": null,
+          "total": null,
+          "availability": "not_recorded_by_agent_runtime"
+        },
+        "phase_ms": {
+          "startup": null,
+          "bootstrap": null,
+          "research": null,
+          "answer": null
+        },
+        "tool_trajectory": []
+      }
+    },
+    {
+      "id": "prod-23-e1493a3a0c74",
+      "split": "golden",
+      "provenance": {
+        "kind": "anonymized_production_trace",
+        "source_chat_ref": "chat:ea387bd4dc4b",
+        "source_run_ref": "run:e1493a3a0c74",
+        "sample_reason": "completed_latency_quantile",
+        "turn": null
+      },
+      "temperature": "unknown",
+      "known_failures": [
+        "token_telemetry_missing"
+      ],
+      "trace": [
+        {
+          "at_ms": 38,
+          "event_type": "run_started",
+          "payload": {}
+        },
+        {
+          "at_ms": 219,
+          "event_type": "graph_started",
+          "payload": {
+            "user_text": {
+              "sha256": "a7097463fcc3497c",
+              "chars": 73
+            }
+          }
+        },
+        {
+          "at_ms": 1632,
+          "event_type": "workspace_step",
+          "payload": {
+            "tool": "post_proposal"
+          }
+        },
+        {
+          "at_ms": 1656,
+          "event_type": "answer",
+          "payload": {
+            "text": "{\"chars\": 61, \"sha256\": \"c8dca800f140da27\"}",
+            "claims": [],
+            "evidence_ids": []
+          }
+        },
+        {
+          "at_ms": 1657,
+          "event_type": "run_completed",
+          "payload": {
+            "status": "completed"
+          }
+        }
+      ],
+      "expected": {
+        "terminal_status": "completed",
+        "target_refs": [],
+        "target_annotation": "not_annotated",
+        "current_grader_results": {
+          "no_duplicate_tool_calls": true,
+          "valid_finish_evidence_ids": true,
+          "no_finish_loops": true,
+          "output_event_schema": true
+        },
+        "regression_expectations": {
+          "token_telemetry_missing": {
+            "current": true,
+            "desired": false
+          }
+        },
+        "quality_floor": {
+          "valid_finish_evidence_ids": true,
+          "output_event_schema": true
+        }
+      },
+      "metrics": {
+        "duration_ms": 1654,
+        "planner_calls": 0,
+        "tool_calls": 0,
+        "llm_calls_inferred": 2,
+        "tokens": {
+          "prompt": null,
+          "completion": null,
+          "total": null,
+          "availability": "not_recorded_by_agent_runtime"
+        },
+        "phase_ms": {
+          "startup": 219,
+          "bootstrap": 1413,
+          "research": 24,
+          "answer": 1
+        },
+        "tool_trajectory": []
+      }
+    },
+    {
+      "id": "prod-24-28fb00939422",
+      "split": "golden",
+      "provenance": {
+        "kind": "anonymized_production_trace",
+        "source_chat_ref": "chat:8681bcb7a96b",
+        "source_run_ref": "run:28fb00939422",
+        "sample_reason": "completed_latency_quantile",
+        "turn": null
+      },
+      "temperature": "unknown",
+      "known_failures": [
+        "token_telemetry_missing"
+      ],
+      "trace": [
+        {
+          "at_ms": 33,
+          "event_type": "run_started",
+          "payload": {}
+        },
+        {
+          "at_ms": 81,
+          "event_type": "graph_started",
+          "payload": {
+            "user_text": {
+              "sha256": "d936116ca25b0caa",
+              "chars": 19
+            }
+          }
+        },
+        {
+          "at_ms": 2685,
+          "event_type": "interrupt",
+          "payload": {
+            "type": "action_proposal",
+            "proposal": {
+              "id": {
+                "sha256": "a51018cc2dc87800",
+                "chars": 36
+              },
+              "command": {
+                "sha256": "8e64ec2f9dc90ba9",
+                "chars": 13
+              },
+              "payload": {
+                "post_id": "post:1",
+                "scheduled_at": {
+                  "sha256": "15cad15ff51d88e5",
+                  "chars": 25
+                }
+              },
+              "warnings": [],
+              "payload_hash": {
+                "sha256": "e99d1c6396a4bc91",
+                "chars": 64
+              },
+              "resource_version": null
+            }
+          }
+        },
+        {
+          "at_ms": 2687,
+          "event_type": "run_interrupted",
+          "payload": {
+            "status": "interrupted"
+          }
+        },
+        {
+          "at_ms": 5860,
+          "event_type": "run_completed",
+          "payload": {
+            "status": "completed"
+          }
+        },
+        {
+          "at_ms": 5862,
+          "event_type": "answer",
+          "payload": {
+            "text": "{\"chars\": 32, \"sha256\": \"b9e0c141cba7fa6a\"}",
+            "claims": [],
+            "evidence_ids": []
+          }
+        }
+      ],
+      "expected": {
+        "terminal_status": "completed",
+        "target_refs": [],
+        "target_annotation": "not_annotated",
+        "current_grader_results": {
+          "no_duplicate_tool_calls": true,
+          "valid_finish_evidence_ids": true,
+          "no_finish_loops": true,
+          "output_event_schema": true
+        },
+        "regression_expectations": {
+          "token_telemetry_missing": {
+            "current": true,
+            "desired": false
+          }
+        },
+        "quality_floor": {
+          "valid_finish_evidence_ids": true,
+          "output_event_schema": true
+        }
+      },
+      "metrics": {
+        "duration_ms": 5860,
+        "planner_calls": 0,
+        "tool_calls": 0,
+        "llm_calls_inferred": 1,
+        "tokens": {
+          "prompt": null,
+          "completion": null,
+          "total": null,
+          "availability": "not_recorded_by_agent_runtime"
+        },
+        "phase_ms": {
+          "startup": 81,
+          "bootstrap": null,
+          "research": null,
+          "answer": 0
+        },
+        "tool_trajectory": []
+      }
+    },
+    {
+      "id": "prod-25-ddb7e430e8f5",
+      "split": "held_out",
+      "provenance": {
+        "kind": "anonymized_production_trace",
+        "source_chat_ref": "chat:75dba6adc785",
+        "source_run_ref": "run:ddb7e430e8f5",
+        "sample_reason": "completed_latency_quantile",
+        "turn": null
+      },
+      "temperature": "unknown",
+      "known_failures": [
+        "token_telemetry_missing"
+      ],
+      "trace": [
+        {
+          "at_ms": 20,
+          "event_type": "run_started",
+          "payload": {}
+        },
+        {
+          "at_ms": 114,
+          "event_type": "graph_started",
+          "payload": {
+            "user_text": {
+              "sha256": "5468c814b548ee70",
+              "chars": 33
+            }
+          }
+        },
+        {
+          "at_ms": 2680,
+          "event_type": "interrupt",
+          "payload": {
+            "type": "action_proposal",
+            "proposal": {
+              "id": {
+                "sha256": "98f203d7f645ef2e",
+                "chars": 36
+              },
+              "command": {
+                "sha256": "e9dc21c3ccbd7948",
+                "chars": 9
+              },
+              "payload": {
+                "patch": {
+                  "text": {
+                    "sha256": "7659d3d13cd4a381",
+                    "chars": 34
+                  },
+                  "textHtml": {
+                    "sha256": "3a80974325fdc019",
+                    "chars": 51
+                  }
+                },
+                "post_id": "post:1"
+              },
+              "warnings": [],
+              "payload_hash": {
+                "sha256": "cdb2f7ac8775ae3e",
+                "chars": 64
+              },
+              "resource_version": null
+            }
+          }
+        },
+        {
+          "at_ms": 2681,
+          "event_type": "run_interrupted",
+          "payload": {
+            "status": "interrupted"
+          }
+        },
+        {
+          "at_ms": 8544,
+          "event_type": "run_completed",
+          "payload": {
+            "status": "completed"
+          }
+        },
+        {
+          "at_ms": 8548,
+          "event_type": "answer",
+          "payload": {
+            "text": "{\"chars\": 34, \"sha256\": \"dbc67370f0978ae7\"}",
+            "claims": [],
+            "evidence_ids": []
+          }
+        }
+      ],
+      "expected": {
+        "terminal_status": "completed",
+        "target_refs": [],
+        "target_annotation": "not_annotated",
+        "current_grader_results": {
+          "no_duplicate_tool_calls": true,
+          "valid_finish_evidence_ids": true,
+          "no_finish_loops": true,
+          "output_event_schema": true
+        },
+        "regression_expectations": {
+          "token_telemetry_missing": {
+            "current": true,
+            "desired": false
+          }
+        },
+        "quality_floor": {
+          "valid_finish_evidence_ids": true,
+          "output_event_schema": true
+        }
+      },
+      "metrics": {
+        "duration_ms": 8544,
+        "planner_calls": 0,
+        "tool_calls": 0,
+        "llm_calls_inferred": 1,
+        "tokens": {
+          "prompt": null,
+          "completion": null,
+          "total": null,
+          "availability": "not_recorded_by_agent_runtime"
+        },
+        "phase_ms": {
+          "startup": 114,
+          "bootstrap": null,
+          "research": null,
+          "answer": 0
+        },
+        "tool_trajectory": []
+      }
+    },
+    {
+      "id": "prod-26-b694681e9606",
+      "split": "held_out",
+      "provenance": {
+        "kind": "anonymized_production_trace",
+        "source_chat_ref": "chat:92f7eabd859c",
+        "source_run_ref": "run:b694681e9606",
+        "sample_reason": "completed_latency_quantile",
+        "turn": null
+      },
+      "temperature": "unknown",
+      "known_failures": [
+        "no_duplicate_tool_calls",
+        "token_telemetry_missing"
+      ],
+      "trace": [
+        {
+          "at_ms": 56,
+          "event_type": "run_started",
+          "payload": {}
+        },
+        {
+          "at_ms": 726,
+          "event_type": "graph_started",
+          "payload": {
+            "user_text": {
+              "sha256": "5e5a833b971dd48a",
+              "chars": 12
+            }
+          }
+        },
+        {
+          "at_ms": 5058,
+          "event_type": "planner_step",
+          "payload": {
+            "gap": {
+              "sha256": "bb9e36a81484c848",
+              "chars": 69
+            },
+            "args": {},
+            "step": 1,
+            "tool": "ListPosts",
+            "reasoning": {
+              "sha256": "57dcc6dc7bbaff15",
+              "chars": 543
+            },
+            "observations": {
+              "sha256": "e3b0c44298fc1c14",
+              "chars": 0
+            }
+          }
+        },
+        {
+          "at_ms": 6817,
+          "event_type": "tool_result",
+          "payload": {
+            "args": {},
+            "step": 1,
+            "tool": "ListPosts",
+            "error": {
+              "sha256": "e3b0c44298fc1c14",
+              "chars": 0
+            },
+            "summary": {
+              "sha256": "189383fdd124d596",
+              "chars": 500
+            },
+            "record_ids": [
+              "evidence:1"
+            ]
+          }
+        },
+        {
+          "at_ms": 10322,
+          "event_type": "planner_step",
+          "payload": {
+            "gap": {
+              "sha256": "a7ed2390a402eea5",
+              "chars": 83
+            },
+            "args": {},
+            "step": 2,
+            "tool": "ListPosts",
+            "reasoning": {
+              "sha256": "eebd700b16e4ce5a",
+              "chars": 371
+            },
+            "repair_hint": {
+              "sha256": "8e5c6a9c3ac91894",
+              "chars": 404
+            },
+            "observations": {
+              "sha256": "aba5608334c925b3",
+              "chars": 390
+            }
+          }
+        },
+        {
+          "at_ms": 10343,
+          "event_type": "tool_result",
+          "payload": {
+            "args": {},
+            "step": 2,
+            "tool": "ListPosts",
+            "error": {
+              "sha256": "e3b0c44298fc1c14",
+              "chars": 0
+            },
+            "summary": {
+              "sha256": "d141aa793ca1660f",
+              "chars": 55
+            },
+            "record_ids": [
+              "evidence:1"
+            ]
+          }
+        },
+        {
+          "at_ms": 13879,
+          "event_type": "planner_step",
+          "payload": {
+            "gap": {
+              "sha256": "63c6ec352182c2f9",
+              "chars": 89
+            },
+            "args": {
+              "status": "ready",
+              "unresolved": [],
+              "evidence_ids": [
+                "evidence:1"
+              ]
+            },
+            "step": 3,
+            "tool": "FinishRetrieval",
+            "reasoning": {
+              "sha256": "fc4e2d4f88771b65",
+              "chars": 537
+            },
+            "repair_hint": {
+              "sha256": "e4a0d634e8c53d7c",
+              "chars": 191
+            },
+            "observations": {
+              "sha256": "9fd1f19917c67d51",
+              "chars": 173
+            }
+          }
+        },
+        {
+          "at_ms": 16553,
+          "event_type": "answer",
+          "payload": {
+            "text": "{\"chars\": 192, \"sha256\": \"b3e2a06c758db733\"}",
+            "claims": [
+              {
+                "text": "{\"chars\": 51, \"sha256\": \"ac7134d4a3c4f6d1\"}",
+                "evidence_ids": [
+                  "evidence:1"
+                ]
+              },
+              {
+                "text": "{\"chars\": 94, \"sha256\": \"b766a821125df20b\"}",
+                "evidence_ids": [
+                  "evidence:1"
+                ]
+              },
+              {
+                "text": "{\"chars\": 36, \"sha256\": \"4dc454d51603c990\"}",
+                "evidence_ids": [
+                  "evidence:1"
+                ]
+              }
+            ],
+            "evidence_ids": [
+              "evidence:1"
+            ]
+          }
+        },
+        {
+          "at_ms": 16555,
+          "event_type": "run_completed",
+          "payload": {
+            "status": "completed"
+          }
+        }
+      ],
+      "expected": {
+        "terminal_status": "completed",
+        "target_refs": [],
+        "target_annotation": "not_annotated",
+        "current_grader_results": {
+          "no_duplicate_tool_calls": false,
+          "valid_finish_evidence_ids": true,
+          "no_finish_loops": true,
+          "output_event_schema": true
+        },
+        "regression_expectations": {
+          "no_duplicate_tool_calls": {
+            "current": true,
+            "desired": false
+          },
+          "token_telemetry_missing": {
+            "current": true,
+            "desired": false
+          }
+        },
+        "quality_floor": {
+          "valid_finish_evidence_ids": true,
+          "output_event_schema": true
+        }
+      },
+      "metrics": {
+        "duration_ms": 16546,
+        "planner_calls": 3,
+        "tool_calls": 2,
+        "llm_calls_inferred": 4,
+        "tokens": {
+          "prompt": null,
+          "completion": null,
+          "total": null,
+          "availability": "not_recorded_by_agent_runtime"
+        },
+        "phase_ms": {
+          "startup": 726,
+          "bootstrap": null,
+          "research": null,
+          "answer": 2
+        },
+        "tool_trajectory": [
+          "ListPosts",
+          "ListPosts",
+          "FinishRetrieval"
+        ]
+      }
+    },
+    {
+      "id": "prod-27-82ef87abd535",
+      "split": "held_out",
+      "provenance": {
+        "kind": "anonymized_production_trace",
+        "source_chat_ref": "chat:1c2242b8b53d",
+        "source_run_ref": "run:82ef87abd535",
+        "sample_reason": "completed_latency_quantile",
+        "turn": null
+      },
+      "temperature": "unknown",
+      "known_failures": [
+        "no_finish_loops",
+        "token_telemetry_missing"
+      ],
+      "trace": [
+        {
+          "at_ms": 41,
+          "event_type": "run_started",
+          "payload": {}
+        },
+        {
+          "at_ms": 128,
+          "event_type": "graph_started",
+          "payload": {
+            "user_text": {
+              "sha256": "1544545c6ed7bd61",
+              "chars": 80
+            }
+          }
+        },
+        {
+          "at_ms": 2288,
+          "event_type": "workspace_step",
+          "payload": {
+            "tool": "read"
+          }
+        },
+        {
+          "at_ms": 20877,
+          "event_type": "planner_step",
+          "payload": {
+            "gap": {
+              "sha256": "dc7814edecbc092b",
+              "chars": 69
+            },
+            "args": {
+              "note_id": "note:1"
+            },
+            "plan": [
+              {
+                "id": {
+                  "sha256": "3fca31d094e81dc4",
+                  "chars": 16
+                },
+                "text": {
+                  "sha256": "9f68778dc32e9959",
+                  "chars": 91
+                },
+                "status": "open",
+                "evidence_id": "note:1"
+              }
+            ],
+            "step": 1,
+            "tool": "OpenNote",
+            "reasoning": {
+              "sha256": "98d4fbc5a9f86acf",
+              "chars": 597
+            },
+            "repair_hint": {
+              "sha256": "2fb562c64c891a46",
+              "chars": 536
+            },
+            "observations": {
+              "sha256": "056fb559dc4c37d3",
+              "chars": 526
+            },
+            "answer_requires": {
+              "sha256": "4d6a1d233018b18c",
+              "chars": 235
+            }
+          }
+        },
+        {
+          "at_ms": 21028,
+          "event_type": "tool_result",
+          "payload": {
+            "args": {
+              "note_id": "note:1"
+            },
+            "step": 1,
+            "tool": "OpenNote",
+            "error": {
+              "sha256": "e3b0c44298fc1c14",
+              "chars": 0
+            },
+            "summary": {
+              "sha256": "95e33e22ad89041c",
+              "chars": 92
+            },
+            "record_ids": [
+              "note:2"
+            ]
+          }
+        },
+        {
+          "at_ms": 26077,
+          "event_type": "planner_step",
+          "payload": {
+            "gap": {
+              "sha256": "6f1edd37ac7b5352",
+              "chars": 133
+            },
+            "args": {
+              "status": "ready",
+              "evidence_ids": [
+                "note:2"
+              ]
+            },
+            "plan": [
+              {
+                "id": {
+                  "sha256": "3fca31d094e81dc4",
+                  "chars": 16
+                },
+                "text": {
+                  "sha256": "9f68778dc32e9959",
+                  "chars": 91
+                },
+                "status": "done",
+                "evidence_id": "note:2"
+              }
+            ],
+            "step": 2,
+            "tool": "FinishRetrieval",
+            "reasoning": {
+              "sha256": "6ec8982ae807adc4",
+              "chars": 366
+            },
+            "repair_hint": {
+              "sha256": "af600187153a4257",
+              "chars": 243
+            },
+            "observations": {
+              "sha256": "8902453da52806c8",
+              "chars": 444
+            },
+            "answer_requires": {
+              "sha256": "bbe7562ad39a9e6c",
+              "chars": 229
+            }
+          }
+        },
+        {
+          "at_ms": 31340,
+          "event_type": "planner_step",
+          "payload": {
+            "gap": {
+              "sha256": "8fbaf5a456166d91",
+              "chars": 157
+            },
+            "args": {
+              "status": "ready",
+              "evidence_ids": [
+                "note:2"
+              ]
+            },
+            "plan": [
+              {
+                "id": {
+                  "sha256": "3fca31d094e81dc4",
+                  "chars": 16
+                },
+                "text": {
+                  "sha256": "9f68778dc32e9959",
+                  "chars": 91
+                },
+                "status": "done",
+                "evidence_id": "note:2"
+              }
+            ],
+            "step": 3,
+            "tool": "FinishRetrieval",
+            "reasoning": {
+              "sha256": "b4f393ef696979bc",
+              "chars": 408
+            },
+            "repair_hint": {
+              "sha256": "af600187153a4257",
+              "chars": 243
+            },
+            "observations": {
+              "sha256": "9aefc3b1b22919ec",
+              "chars": 420
+            },
+            "answer_requires": {
+              "sha256": "b7eaf37a784ae830",
+              "chars": 233
+            }
+          }
+        },
+        {
+          "at_ms": 31917,
+          "event_type": "answer_started",
+          "payload": {}
+        },
+        {
+          "at_ms": 34276,
+          "event_type": "answer",
+          "payload": {
+            "text": "{\"chars\": 397, \"sha256\": \"08d5d7f93793295f\"}",
+            "claims": [
+              {
+                "text": "{\"chars\": 207, \"sha256\": \"757568b0320661f1\"}",
+                "evidence_ids": [
+                  "note:2"
+                ]
+              }
+            ],
+            "evidence_ids": [
+              "note:2"
+            ]
+          }
+        },
+        {
+          "at_ms": 34280,
+          "event_type": "run_completed",
+          "payload": {
+            "status": "completed"
+          }
+        }
+      ],
+      "expected": {
+        "terminal_status": "completed",
+        "target_refs": [],
+        "target_annotation": "not_annotated",
+        "current_grader_results": {
+          "no_duplicate_tool_calls": true,
+          "valid_finish_evidence_ids": true,
+          "no_finish_loops": false,
+          "output_event_schema": true
+        },
+        "regression_expectations": {
+          "no_finish_loops": {
+            "current": true,
+            "desired": false
+          },
+          "token_telemetry_missing": {
+            "current": true,
+            "desired": false
+          }
+        },
+        "quality_floor": {
+          "valid_finish_evidence_ids": true,
+          "output_event_schema": true
+        }
+      },
+      "metrics": {
+        "duration_ms": 34255,
+        "planner_calls": 3,
+        "tool_calls": 1,
+        "llm_calls_inferred": 5,
+        "tokens": {
+          "prompt": null,
+          "completion": null,
+          "total": null,
+          "availability": "not_recorded_by_agent_runtime"
+        },
+        "phase_ms": {
+          "startup": 128,
+          "bootstrap": 2160,
+          "research": 29629,
+          "answer": 2363
+        },
+        "tool_trajectory": [
+          "OpenNote",
+          "FinishRetrieval",
+          "FinishRetrieval"
+        ]
+      }
+    },
+    {
+      "id": "prod-28-d68c032c52a6",
+      "split": "held_out",
+      "provenance": {
+        "kind": "anonymized_production_trace",
+        "source_chat_ref": "chat:188239223faa",
+        "source_run_ref": "run:d68c032c52a6",
+        "sample_reason": "completed_latency_quantile",
+        "turn": null
+      },
+      "temperature": "unknown",
+      "known_failures": [
+        "no_finish_loops",
+        "token_telemetry_missing"
+      ],
+      "trace": [
+        {
+          "at_ms": 3,
+          "event_type": "run_started",
+          "payload": {}
+        },
+        {
+          "at_ms": 11,
+          "event_type": "graph_started",
+          "payload": {
+            "user_text": {
+              "sha256": "2c2c7abf3dc87b10",
+              "chars": 26
+            }
+          }
+        },
+        {
+          "at_ms": 1273,
+          "event_type": "workspace_step",
+          "payload": {
+            "tool": "read"
+          }
+        },
+        {
+          "at_ms": 6928,
+          "event_type": "planner_step",
+          "payload": {
+            "gap": {
+              "sha256": "075249a33f8fe76f",
+              "chars": 186
+            },
+            "args": {
+              "note_id": "note:1"
+            },
+            "plan": [
+              {
+                "id": {
+                  "sha256": "6b86b273ff34fce1",
+                  "chars": 1
+                },
+                "text": {
+                  "sha256": "8677afea32244c44",
+                  "chars": 96
+                },
+                "status": "open"
+              },
+              {
+                "id": {
+                  "sha256": "d4735e3a265e16ee",
+                  "chars": 1
+                },
+                "text": {
+                  "sha256": "e190b7bccd7df1ed",
+                  "chars": 73
+                },
+                "status": "open"
+              },
+              {
+                "id": {
+                  "sha256": "4e07408562bedb8b",
+                  "chars": 1
+                },
+                "text": {
+                  "sha256": "1c1ff42abcc98387",
+                  "chars": 65
+                },
+                "status": "open"
+              }
+            ],
+            "step": 1,
+            "tool": "OpenNote",
+            "reasoning": {
+              "sha256": "d14cc7b225502ea9",
+              "chars": 478
+            },
+            "repair_hint": {
+              "sha256": "4b56d9ee28f100ce",
+              "chars": 528
+            },
+            "observations": {
+              "sha256": "4991bc9d89dda4ef",
+              "chars": 516
+            }
+          }
+        },
+        {
+          "at_ms": 6959,
+          "event_type": "tool_result",
+          "payload": {
+            "args": {
+              "note_id": "note:1"
+            },
+            "step": 1,
+            "tool": "OpenNote",
+            "error": {
+              "sha256": "e3b0c44298fc1c14",
+              "chars": 0
+            },
+            "summary": {
+              "sha256": "e74e0cf9084e6eb1",
+              "chars": 110
+            },
+            "record_ids": [
+              "note:2"
+            ]
+          }
+        },
+        {
+          "at_ms": 12904,
+          "event_type": "planner_step",
+          "payload": {
+            "gap": {
+              "sha256": "c2604e10f5dbd8f7",
+              "chars": 126
+            },
+            "args": {
+              "post_id": "post:1"
+            },
+            "plan": [
+              {
+                "id": {
+                  "sha256": "6b86b273ff34fce1",
+                  "chars": 1
+                },
+                "text": {
+                  "sha256": "e73d4912b4483b2e",
+                  "chars": 77
+                },
+                "status": "done",
+                "evidence_id": "note:2"
+              },
+              {
+                "id": {
+                  "sha256": "d4735e3a265e16ee",
+                  "chars": 1
+                },
+                "text": {
+                  "sha256": "e190b7bccd7df1ed",
+                  "chars": 73
+                },
+                "status": "open"
+              },
+              {
+                "id": {
+                  "sha256": "4e07408562bedb8b",
+                  "chars": 1
+                },
+                "text": {
+                  "sha256": "1c1ff42abcc98387",
+                  "chars": 65
+                },
+                "status": "open"
+              }
+            ],
+            "step": 2,
+            "tool": "OpenPost",
+            "reasoning": {
+              "sha256": "214ff2176041bb24",
+              "chars": 290
+            },
+            "repair_hint": {
+              "sha256": "b4b15149f662c463",
+              "chars": 556
+            },
+            "observations": {
+              "sha256": "369864e76813500f",
+              "chars": 997
+            }
+          }
+        },
+        {
+          "at_ms": 12925,
+          "event_type": "tool_result",
+          "payload": {
+            "args": {
+              "post_id": "post:1"
+            },
+            "step": 2,
+            "tool": "OpenPost",
+            "error": {
+              "sha256": "e3b0c44298fc1c14",
+              "chars": 0
+            },
+            "summary": {
+              "sha256": "088408e73b7f3522",
+              "chars": 87
+            },
+            "record_ids": [
+              "note:2",
+              "post:2"
+            ]
+          }
+        },
+        {
+          "at_ms": 19160,
+          "event_type": "planner_step",
+          "payload": {
+            "gap": {
+              "sha256": "980485bed9ba3b14",
+              "chars": 149
+            },
+            "args": {
+              "note_id": "note:3"
+            },
+            "plan": [
+              {
+                "id": {
+                  "sha256": "6b86b273ff34fce1",
+                  "chars": 1
+                },
+                "text": {
+                  "sha256": "e73d4912b4483b2e",
+                  "chars": 77
+                },
+                "status": "done",
+                "evidence_id": "note:2"
+              },
+              {
+                "id": {
+                  "sha256": "d4735e3a265e16ee",
+                  "chars": 1
+                },
+                "text": {
+                  "sha256": "e190b7bccd7df1ed",
+                  "chars": 73
+                },
+                "status": "done",
+                "evidence_id": "post:2"
+              },
+              {
+                "id": {
+                  "sha256": "4e07408562bedb8b",
+                  "chars": 1
+                },
+                "text": {
+                  "sha256": "06e4c950da183848",
+                  "chars": 88
+                },
+                "status": "open"
+              },
+              {
+                "id": {
+                  "sha256": "4b227777d4dd1fc6",
+                  "chars": 1
+                },
+                "text": {
+                  "sha256": "583fd7cbfde8ec2a",
+                  "chars": 104
+                },
+                "status": "open"
+              },
+              {
+                "id": {
+                  "sha256": "ef2d127de37b942b",
+                  "chars": 1
+                },
+                "text": {
+                  "sha256": "8cd6b99a9db113e4",
+                  "chars": 71
+                },
+                "status": "open"
+              }
+            ],
+            "step": 3,
+            "tool": "OpenNote",
+            "reasoning": {
+              "sha256": "0df726427420f0b5",
+              "chars": 342
+            },
+            "repair_hint": {
+              "sha256": "267c1a9d229d4def",
+              "chars": 527
+            },
+            "observations": {
+              "sha256": "099fce42302bfc08",
+              "chars": 856
+            }
+          }
+        },
+        {
+          "at_ms": 19223,
+          "event_type": "tool_result",
+          "payload": {
+            "args": {
+              "note_id": "note:3"
+            },
+            "step": 3,
+            "tool": "OpenNote",
+            "error": {
+              "sha256": "e3b0c44298fc1c14",
+              "chars": 0
+            },
+            "summary": {
+              "sha256": "1c3566316d70ef78",
+              "chars": 93
+            },
+            "record_ids": [
+              "note:2",
+              "note:4",
+              "post:2"
+            ]
+          }
+        },
+        {
+          "at_ms": 24905,
+          "event_type": "planner_step",
+          "payload": {
+            "gap": {
+              "sha256": "89ee1ecf1c7a5c0c",
+              "chars": 90
+            },
+            "args": {
+              "note_id": "note:5"
+            },
+            "plan": [
+              {
+                "id": {
+                  "sha256": "6b86b273ff34fce1",
+                  "chars": 1
+                },
+                "text": {
+                  "sha256": "e73d4912b4483b2e",
+                  "chars": 77
+                },
+                "status": "done",
+                "evidence_id": "note:2"
+              },
+              {
+                "id": {
+                  "sha256": "d4735e3a265e16ee",
+                  "chars": 1
+                },
+                "text": {
+                  "sha256": "e190b7bccd7df1ed",
+                  "chars": 73
+                },
+                "status": "done",
+                "evidence_id": "post:2"
+              },
+              {
+                "id": {
+                  "sha256": "4e07408562bedb8b",
+                  "chars": 1
+                },
+                "text": {
+                  "sha256": "06e4c950da183848",
+                  "chars": 88
+                },
+                "status": "done",
+                "evidence_id": "note:4"
+              },
+              {
+                "id": {
+                  "sha256": "4b227777d4dd1fc6",
+                  "chars": 1
+                },
+                "text": {
+                  "sha256": "583fd7cbfde8ec2a",
+                  "chars": 104
+                },
+                "status": "open"
+              },
+              {
+                "id": {
+                  "sha256": "ef2d127de37b942b",
+                  "chars": 1
+                },
+                "text": {
+                  "sha256": "8cd6b99a9db113e4",
+                  "chars": 71
+                },
+                "status": "open"
+              }
+            ],
+            "step": 4,
+            "tool": "OpenNote",
+            "reasoning": {
+              "sha256": "dbf85ce072ed4763",
+              "chars": 272
+            },
+            "repair_hint": {
+              "sha256": "14e59abe676e9f94",
+              "chars": 498
+            },
+            "observations": {
+              "sha256": "5d9aa9dd5896674d",
+              "chars": 693
+            }
+          }
+        },
+        {
+          "at_ms": 24933,
+          "event_type": "tool_result",
+          "payload": {
+            "args": {
+              "note_id": "note:5"
+            },
+            "step": 4,
+            "tool": "OpenNote",
+            "error": {
+              "sha256": "e3b0c44298fc1c14",
+              "chars": 0
+            },
+            "summary": {
+              "sha256": "6a2805836fd3841b",
+              "chars": 109
+            },
+            "record_ids": [
+              "note:2",
+              "note:4",
+              "note:6",
+              "post:2"
+            ]
+          }
+        },
+        {
+          "at_ms": 32754,
+          "event_type": "planner_step",
+          "payload": {
+            "gap": {
+              "sha256": "4ba5b190aef57502",
+              "chars": 96
+            },
+            "args": {
+              "status": "ready",
+              "unresolved": [],
+              "evidence_ids": [
+                "note:2",
+                "post:2",
+                "note:4",
+                "note:6"
+              ]
+            },
+            "plan": [
+              {
+                "id": {
+                  "sha256": "6b86b273ff34fce1",
+                  "chars": 1
+                },
+                "text": {
+                  "sha256": "e73d4912b4483b2e",
+                  "chars": 77
+                },
+                "status": "done",
+                "evidence_id": "note:2"
+              },
+              {
+                "id": {
+                  "sha256": "d4735e3a265e16ee",
+                  "chars": 1
+                },
+                "text": {
+                  "sha256": "e190b7bccd7df1ed",
+                  "chars": 73
+                },
+                "status": "done",
+                "evidence_id": "post:2"
+              },
+              {
+                "id": {
+                  "sha256": "4e07408562bedb8b",
+                  "chars": 1
+                },
+                "text": {
+                  "sha256": "06e4c950da183848",
+                  "chars": 88
+                },
+                "status": "done",
+                "evidence_id": "note:4"
+              },
+              {
+                "id": {
+                  "sha256": "4b227777d4dd1fc6",
+                  "chars": 1
+                },
+                "text": {
+                  "sha256": "583fd7cbfde8ec2a",
+                  "chars": 104
+                },
+                "status": "done",
+                "evidence_id": "note:6"
+              },
+              {
+                "id": {
+                  "sha256": "ef2d127de37b942b",
+                  "chars": 1
+                },
+                "text": {
+                  "sha256": "8cd6b99a9db113e4",
+                  "chars": 71
+                },
+                "status": "open"
+              }
+            ],
+            "step": 5,
+            "tool": "FinishRetrieval",
+            "reasoning": {
+              "sha256": "8afd0e242cc89649",
+              "chars": 267
+            },
+            "repair_hint": {
+              "sha256": "0ff7afaa964cbeac",
+              "chars": 414
+            },
+            "observations": {
+              "sha256": "b5d9231bbede4b5c",
+              "chars": 1246
+            }
+          }
+        },
+        {
+          "at_ms": 40198,
+          "event_type": "planner_step",
+          "payload": {
+            "gap": {
+              "sha256": "b33ba28ebed733c4",
+              "chars": 87
+            },
+            "args": {
+              "status": "ready",
+              "evidence_ids": [
+                "note:2",
+                "post:2",
+                "note:4",
+                "note:6"
+              ]
+            },
+            "plan": [
+              {
+                "id": {
+                  "sha256": "6b86b273ff34fce1",
+                  "chars": 1
+                },
+                "text": {
+                  "sha256": "e73d4912b4483b2e",
+                  "chars": 77
+                },
+                "status": "done",
+                "evidence_id": "note:2"
+              },
+              {
+                "id": {
+                  "sha256": "d4735e3a265e16ee",
+                  "chars": 1
+                },
+                "text": {
+                  "sha256": "e190b7bccd7df1ed",
+                  "chars": 73
+                },
+                "status": "done",
+                "evidence_id": "post:2"
+              },
+              {
+                "id": {
+                  "sha256": "4e07408562bedb8b",
+                  "chars": 1
+                },
+                "text": {
+                  "sha256": "06e4c950da183848",
+                  "chars": 88
+                },
+                "status": "done",
+                "evidence_id": "note:4"
+              },
+              {
+                "id": {
+                  "sha256": "4b227777d4dd1fc6",
+                  "chars": 1
+                },
+                "text": {
+                  "sha256": "583fd7cbfde8ec2a",
+                  "chars": 104
+                },
+                "status": "done",
+                "evidence_id": "note:6"
+              },
+              {
+                "id": {
+                  "sha256": "ef2d127de37b942b",
+                  "chars": 1
+                },
+                "text": {
+                  "sha256": "8cd6b99a9db113e4",
+                  "chars": 71
+                },
+                "status": "done",
+                "evidence_id": "note:2"
+              }
+            ],
+            "step": 6,
+            "tool": "FinishRetrieval",
+            "reasoning": {
+              "sha256": "4fbba39fd857b33e",
+              "chars": 348
+            },
+            "repair_hint": {
+              "sha256": "d977097b4a1baa5b",
+              "chars": 582
+            },
+            "observations": {
+              "sha256": "e588ba27c161555d",
+              "chars": 1101
+            }
+          }
+        },
+        {
+          "at_ms": 41355,
+          "event_type": "answer_started",
+          "payload": {}
+        },
+        {
+          "at_ms": 44383,
+          "event_type": "answer",
+          "payload": {
+            "text": "{\"chars\": 534, \"sha256\": \"16cda20c5c4d1d6f\"}",
+            "claims": [
+              {
+                "text": "{\"chars\": 164, \"sha256\": \"73182daf2baffe92\"}",
+                "evidence_ids": [
+                  "note:2"
+                ]
+              },
+              {
+                "text": "{\"chars\": 100, \"sha256\": \"ee08756884e6610a\"}",
+                "evidence_ids": [
+                  "note:2"
+                ]
+              },
+              {
+                "text": "{\"chars\": 59, \"sha256\": \"9eeb656043182c9c\"}",
+                "evidence_ids": [
+                  "note:2"
+                ]
+              },
+              {
+                "text": "{\"chars\": 79, \"sha256\": \"8c55456edf80da7f\"}",
+                "evidence_ids": [
+                  "note:2",
+                  "post:2",
+                  "note:4",
+                  "note:6"
+                ]
+              }
+            ],
+            "evidence_ids": [
+              "note:2",
+              "post:2",
+              "note:4",
+              "note:6"
+            ]
+          }
+        },
+        {
+          "at_ms": 44387,
+          "event_type": "run_completed",
+          "payload": {
+            "status": "completed"
+          }
+        }
+      ],
+      "expected": {
+        "terminal_status": "completed",
+        "target_refs": [],
+        "target_annotation": "not_annotated",
+        "current_grader_results": {
+          "no_duplicate_tool_calls": true,
+          "valid_finish_evidence_ids": true,
+          "no_finish_loops": false,
+          "output_event_schema": true
+        },
+        "regression_expectations": {
+          "no_finish_loops": {
+            "current": true,
+            "desired": false
+          },
+          "token_telemetry_missing": {
+            "current": true,
+            "desired": false
+          }
+        },
+        "quality_floor": {
+          "valid_finish_evidence_ids": true,
+          "output_event_schema": true
+        }
+      },
+      "metrics": {
+        "duration_ms": 44375,
+        "planner_calls": 6,
+        "tool_calls": 4,
+        "llm_calls_inferred": 8,
+        "tokens": {
+          "prompt": null,
+          "completion": null,
+          "total": null,
+          "availability": "not_recorded_by_agent_runtime"
+        },
+        "phase_ms": {
+          "startup": 11,
+          "bootstrap": 1262,
+          "research": 40082,
+          "answer": 3032
+        },
+        "tool_trajectory": [
+          "OpenNote",
+          "OpenPost",
+          "OpenNote",
+          "OpenNote",
+          "FinishRetrieval",
+          "FinishRetrieval"
+        ]
+      }
+    },
+    {
+      "id": "prod-29-ad405e5a9363",
+      "split": "held_out",
+      "provenance": {
+        "kind": "anonymized_production_trace",
+        "source_chat_ref": "chat:2aa000b292fd",
+        "source_run_ref": "run:ad405e5a9363",
+        "sample_reason": "completed_latency_quantile",
+        "turn": null
+      },
+      "temperature": "unknown",
+      "known_failures": [
+        "token_telemetry_missing"
+      ],
+      "trace": [
+        {
+          "at_ms": 40,
+          "event_type": "run_started",
+          "payload": {}
+        },
+        {
+          "at_ms": 168,
+          "event_type": "graph_started",
+          "payload": {
+            "user_text": {
+              "sha256": "0aedb2997a8ba20a",
+              "chars": 22
+            }
+          }
+        },
+        {
+          "at_ms": 1515,
+          "event_type": "workspace_step",
+          "payload": {
+            "tool": "post_proposal"
+          }
+        },
+        {
+          "at_ms": 1546,
+          "event_type": "interrupt",
+          "payload": {
+            "type": "action_proposal",
+            "proposal": {
+              "id": {
+                "sha256": "a497e189ecad3b9e",
+                "chars": 36
+              },
+              "command": {
+                "sha256": "c3c36bf9a8eaadf3",
+                "chars": 11
+              },
+              "payload": {
+                "post_id": "post:1"
+              },
+              "warnings": [],
+              "payload_hash": {
+                "sha256": "9234f2ab3f4f3b77",
+                "chars": 64
+              },
+              "resource_version": null
+            }
+          }
+        },
+        {
+          "at_ms": 1549,
+          "event_type": "run_interrupted",
+          "payload": {
+            "status": "interrupted"
+          }
+        },
+        {
+          "at_ms": 58860,
+          "event_type": "run_completed",
+          "payload": {
+            "status": "completed"
+          }
+        },
+        {
+          "at_ms": 58880,
+          "event_type": "answer",
+          "payload": {
+            "text": "{\"chars\": 95, \"sha256\": \"81d6c9955075575c\"}",
+            "claims": [],
+            "evidence_ids": []
+          }
+        }
+      ],
+      "expected": {
+        "terminal_status": "completed",
+        "target_refs": [],
+        "target_annotation": "not_annotated",
+        "current_grader_results": {
+          "no_duplicate_tool_calls": true,
+          "valid_finish_evidence_ids": true,
+          "no_finish_loops": true,
+          "output_event_schema": true
+        },
+        "regression_expectations": {
+          "token_telemetry_missing": {
+            "current": true,
+            "desired": false
+          }
+        },
+        "quality_floor": {
+          "valid_finish_evidence_ids": true,
+          "output_event_schema": true
+        }
+      },
+      "metrics": {
+        "duration_ms": 58860,
+        "planner_calls": 0,
+        "tool_calls": 0,
+        "llm_calls_inferred": 2,
+        "tokens": {
+          "prompt": null,
+          "completion": null,
+          "total": null,
+          "availability": "not_recorded_by_agent_runtime"
+        },
+        "phase_ms": {
+          "startup": 168,
+          "bootstrap": 1347,
+          "research": 57365,
+          "answer": 0
+        },
+        "tool_trajectory": []
+      }
+    },
+    {
+      "id": "prod-30-e39b0657bc8f",
+      "split": "held_out",
+      "provenance": {
+        "kind": "anonymized_production_trace",
+        "source_chat_ref": "chat:b16b03fb45dc",
+        "source_run_ref": "run:e39b0657bc8f",
+        "sample_reason": "completed_latency_quantile",
+        "turn": null
+      },
+      "temperature": "unknown",
+      "known_failures": [
+        "token_telemetry_missing"
+      ],
+      "trace": [
+        {
+          "at_ms": 19,
+          "event_type": "run_started",
+          "payload": {}
+        },
+        {
+          "at_ms": 4419,
+          "event_type": "graph_started",
+          "payload": {
+            "user_text": {
+              "sha256": "2d7080dd845507db",
+              "chars": 34
+            }
+          }
+        },
+        {
+          "at_ms": 9707,
+          "event_type": "interrupt",
+          "payload": {
+            "type": "action_proposal",
+            "proposal": {
+              "id": {
+                "sha256": "2a9895ad77dca340",
+                "chars": 36
+              },
+              "command": {
+                "sha256": "e9dc21c3ccbd7948",
+                "chars": 9
+              },
+              "payload": {
+                "patch": {
+                  "text": {
+                    "sha256": "70800775fd5d977f",
+                    "chars": 1179
+                  },
+                  "textHtml": {
+                    "sha256": "55d82beeac12c649",
+                    "chars": 1307
+                  }
+                },
+                "post_id": "post:1"
+              },
+              "warnings": [],
+              "payload_hash": {
+                "sha256": "870d76392f5af29f",
+                "chars": 64
+              },
+              "resource_version": null
+            }
+          }
+        },
+        {
+          "at_ms": 9711,
+          "event_type": "run_interrupted",
+          "payload": {
+            "status": "interrupted"
+          }
+        },
+        {
+          "at_ms": 76934,
+          "event_type": "run_completed",
+          "payload": {
+            "status": "completed"
+          }
+        },
+        {
+          "at_ms": 76939,
+          "event_type": "answer",
+          "payload": {
+            "text": "{\"chars\": 32, \"sha256\": \"b9e0c141cba7fa6a\"}",
+            "claims": [],
+            "evidence_ids": []
+          }
+        }
+      ],
+      "expected": {
+        "terminal_status": "completed",
+        "target_refs": [],
+        "target_annotation": "not_annotated",
+        "current_grader_results": {
+          "no_duplicate_tool_calls": true,
+          "valid_finish_evidence_ids": true,
+          "no_finish_loops": true,
+          "output_event_schema": true
+        },
+        "regression_expectations": {
+          "token_telemetry_missing": {
+            "current": true,
+            "desired": false
+          }
+        },
+        "quality_floor": {
+          "valid_finish_evidence_ids": true,
+          "output_event_schema": true
+        }
+      },
+      "metrics": {
+        "duration_ms": 76934,
+        "planner_calls": 0,
+        "tool_calls": 0,
+        "llm_calls_inferred": 1,
+        "tokens": {
+          "prompt": null,
+          "completion": null,
+          "total": null,
+          "availability": "not_recorded_by_agent_runtime"
+        },
+        "phase_ms": {
+          "startup": 4419,
+          "bootstrap": null,
+          "research": null,
+          "answer": 0
+        },
+        "tool_trajectory": []
+      }
+    },
+    {
+      "id": "prod-31-211193dac2fd",
+      "split": "held_out",
+      "provenance": {
+        "kind": "anonymized_production_trace",
+        "source_chat_ref": "chat:05670241a7ba",
+        "source_run_ref": "run:211193dac2fd",
+        "sample_reason": "completed_latency_quantile",
+        "turn": null
+      },
+      "temperature": "unknown",
+      "known_failures": [
+        "no_finish_loops",
+        "token_telemetry_missing",
+        "valid_finish_evidence_ids"
+      ],
+      "trace": [
+        {
+          "at_ms": 38,
+          "event_type": "run_started",
+          "payload": {}
+        },
+        {
+          "at_ms": 2889,
+          "event_type": "graph_started",
+          "payload": {
+            "user_text": {
+              "sha256": "5e13c6ca1b1f1712",
+              "chars": 23
+            }
+          }
+        },
+        {
+          "at_ms": 5635,
+          "event_type": "workspace_step",
+          "payload": {
+            "tool": "read"
+          }
+        },
+        {
+          "at_ms": 42470,
+          "event_type": "planner_step",
+          "payload": {
+            "gap": {
+              "sha256": "4166403c1486628e",
+              "chars": 46
+            },
+            "args": {
+              "status": "ready",
+              "evidence_ids": [
+                "evidence:1"
+              ]
+            },
+            "plan": [
+              {
+                "id": {
+                  "sha256": "6b86b273ff34fce1",
+                  "chars": 1
+                },
+                "text": {
+                  "sha256": "9786e8f72fe4b39f",
+                  "chars": 51
+                },
+                "status": "open"
+              }
+            ],
+            "step": 1,
+            "tool": "FinishRetrieval",
+            "reasoning": {
+              "sha256": "119c86ddac02a659",
+              "chars": 201
+            },
+            "repair_hint": {
+              "sha256": "f7ec702b14899ca2",
+              "chars": 188
+            },
+            "observations": {
+              "sha256": "7429fde51e9993fd",
+              "chars": 172
+            },
+            "answer_requires": {
+              "sha256": "0a7f9dff23ab6323",
+              "chars": 96
+            }
+          }
+        },
+        {
+          "at_ms": 47979,
+          "event_type": "planner_step",
+          "payload": {
+            "gap": {
+              "sha256": "c1d08f6e8c7b05f3",
+              "chars": 130
+            },
+            "args": {
+              "limit": 10
+            },
+            "plan": [
+              {
+                "id": {
+                  "sha256": "6b86b273ff34fce1",
+                  "chars": 1
+                },
+                "text": {
+                  "sha256": "affc0492575da0a5",
+                  "chars": 61
+                },
+                "status": "open"
+              },
+              {
+                "id": {
+                  "sha256": "d4735e3a265e16ee",
+                  "chars": 1
+                },
+                "text": {
+                  "sha256": "12607783ba3f7bcf",
+                  "chars": 94
+                },
+                "status": "open"
+              },
+              {
+                "id": {
+                  "sha256": "4e07408562bedb8b",
+                  "chars": 1
+                },
+                "text": {
+                  "sha256": "e17ca9b9cb79564f",
+                  "chars": 84
+                },
+                "status": "open"
+              }
+            ],
+            "step": 2,
+            "tool": "ListPosts",
+            "reasoning": {
+              "sha256": "19aff3d276ec7c87",
+              "chars": 177
+            },
+            "repair_hint": {
+              "sha256": "08129ee1f4efbd18",
+              "chars": 202
+            },
+            "observations": {
+              "sha256": "283ffb23672f6635",
+              "chars": 186
+            },
+            "answer_requires": {
+              "sha256": "cf3c1bb29ee56f2f",
+              "chars": 127
+            }
+          }
+        },
+        {
+          "at_ms": 48802,
+          "event_type": "tool_result",
+          "payload": {
+            "args": {
+              "limit": 10
+            },
+            "step": 2,
+            "tool": "ListPosts",
+            "error": {
+              "sha256": "e3b0c44298fc1c14",
+              "chars": 0
+            },
+            "summary": {
+              "sha256": "6fbe3ceb665088ee",
+              "chars": 500
+            },
+            "record_ids": [
+              "evidence:2"
+            ]
+          }
+        },
+        {
+          "at_ms": 55755,
+          "event_type": "planner_step",
+          "payload": {
+            "gap": {
+              "sha256": "0b3cf8585fe94618",
+              "chars": 114
+            },
+            "args": {},
+            "plan": [
+              {
+                "id": {
+                  "sha256": "6b86b273ff34fce1",
+                  "chars": 1
+                },
+                "text": {
+                  "sha256": "affc0492575da0a5",
+                  "chars": 61
+                },
+                "status": "done",
+                "evidence_id": "evidence:2"
+              },
+              {
+                "id": {
+                  "sha256": "d4735e3a265e16ee",
+                  "chars": 1
+                },
+                "text": {
+                  "sha256": "12607783ba3f7bcf",
+                  "chars": 94
+                },
+                "status": "open"
+              },
+              {
+                "id": {
+                  "sha256": "4e07408562bedb8b",
+                  "chars": 1
+                },
+                "text": {
+                  "sha256": "e17ca9b9cb79564f",
+                  "chars": 84
+                },
+                "status": "open"
+              }
+            ],
+            "step": 3,
+            "tool": "ListGlobalNotes",
+            "reasoning": {
+              "sha256": "ab4f649db76314dc",
+              "chars": 294
+            },
+            "repair_hint": {
+              "sha256": "07dd80d91fef528a",
+              "chars": 244
+            },
+            "observations": {
+              "sha256": "074ac62f54f22060",
+              "chars": 353
+            },
+            "answer_requires": {
+              "sha256": "e0d2e8db7178db04",
+              "chars": 157
+            }
+          }
+        },
+        {
+          "at_ms": 55913,
+          "event_type": "tool_result",
+          "payload": {
+            "args": {},
+            "step": 3,
+            "tool": "ListGlobalNotes",
+            "error": {
+              "sha256": "e3b0c44298fc1c14",
+              "chars": 0
+            },
+            "summary": {
+              "sha256": "3e10f775eb36f01d",
+              "chars": 347
+            },
+            "record_ids": [
+              "evidence:3",
+              "evidence:2"
+            ]
+          }
+        },
+        {
+          "at_ms": 60477,
+          "event_type": "planner_step",
+          "payload": {
+            "gap": {
+              "sha256": "09488b7bffd1089d",
+              "chars": 115
+            },
+            "args": {
+              "post_id": "post:1"
+            },
+            "plan": [
+              {
+                "id": {
+                  "sha256": "d4735e3a265e16ee",
+                  "chars": 1
+                },
+                "text": {
+                  "sha256": "788f46520648d0c1",
+                  "chars": 133
+                },
+                "status": "open"
+              },
+              {
+                "id": {
+                  "sha256": "4e07408562bedb8b",
+                  "chars": 1
+                },
+                "text": {
+                  "sha256": "b39cc21d52e81cef",
+                  "chars": 79
+                },
+                "status": "done",
+                "evidence_id": "evidence:3"
+              },
+              {
+                "id": {
+                  "sha256": "6b86b273ff34fce1",
+                  "chars": 1
+                },
+                "text": {
+                  "sha256": "affc0492575da0a5",
+                  "chars": 61
+                },
+                "status": "done",
+                "evidence_id": "evidence:2"
+              }
+            ],
+            "step": 4,
+            "tool": "ListPostNotes",
+            "reasoning": {
+              "sha256": "8b5361b4d7b69f3f",
+              "chars": 296
+            },
+            "repair_hint": {
+              "sha256": "d9a8dedff8cf4e7c",
+              "chars": 322
+            },
+            "observations": {
+              "sha256": "b335b6d401a31a60",
+              "chars": 377
+            },
+            "answer_requires": {
+              "sha256": "f92a84120c4b2d08",
+              "chars": 111
+            }
+          }
+        },
+        {
+          "at_ms": 60501,
+          "event_type": "tool_result",
+          "payload": {
+            "args": {
+              "post_id": "post:1"
+            },
+            "step": 3,
+            "tool": "ListPostNotes",
+            "error": {
+              "sha256": "5e64b1ed0b21df0a",
+              "chars": 13
+            },
+            "summary": {
+              "sha256": "59535d51695f68b0",
+              "chars": 78
+            },
+            "record_ids": [
+              "evidence:3",
+              "evidence:2"
+            ]
+          }
+        },
+        {
+          "at_ms": 66808,
+          "event_type": "planner_step",
+          "payload": {
+            "gap": {
+              "sha256": "8d69a56bb4dff456",
+              "chars": 91
+            },
+            "args": {
+              "post_id": "post:1"
+            },
+            "plan": [
+              {
+                "id": {
+                  "sha256": "d4735e3a265e16ee",
+                  "chars": 1
+                },
+                "text": {
+                  "sha256": "17262c0e91dcfcb1",
+                  "chars": 143
+                },
+                "status": "open"
+              },
+              {
+                "id": {
+                  "sha256": "4e07408562bedb8b",
+                  "chars": 1
+                },
+                "text": {
+                  "sha256": "b39cc21d52e81cef",
+                  "chars": 79
+                },
+                "status": "done",
+                "evidence_id": "evidence:3"
+              },
+              {
+                "id": {
+                  "sha256": "6b86b273ff34fce1",
+                  "chars": 1
+                },
+                "text": {
+                  "sha256": "affc0492575da0a5",
+                  "chars": 61
+                },
+                "status": "done",
+                "evidence_id": "evidence:2"
+              }
+            ],
+            "step": 4,
+            "tool": "OpenPost",
+            "reasoning": {
+              "sha256": "a0e38c643ea13106",
+              "chars": 309
+            },
+            "repair_hint": {
+              "sha256": "728ee167383c277e",
+              "chars": 384
+            },
+            "observations": {
+              "sha256": "39773b931f9f0006",
+              "chars": 440
+            },
+            "answer_requires": {
+              "sha256": "8489bcb6149d31c5",
+              "chars": 158
+            }
+          }
+        },
+        {
+          "at_ms": 67014,
+          "event_type": "tool_result",
+          "payload": {
+            "args": {
+              "post_id": "post:1"
+            },
+            "step": 4,
+            "tool": "OpenPost",
+            "error": {
+              "sha256": "e3b0c44298fc1c14",
+              "chars": 0
+            },
+            "summary": {
+              "sha256": "07a6d3dabf423ef5",
+              "chars": 87
+            },
+            "record_ids": [
+              "evidence:3",
+              "post:2",
+              "evidence:2"
+            ]
+          }
+        },
+        {
+          "at_ms": 72427,
+          "event_type": "planner_step",
+          "payload": {
+            "gap": {
+              "sha256": "6e21b282af86f1a4",
+              "chars": 153
+            },
+            "args": {
+              "post_id": "post:3"
+            },
+            "plan": [
+              {
+                "id": {
+                  "sha256": "d4735e3a265e16ee",
+                  "chars": 1
+                },
+                "text": {
+                  "sha256": "17262c0e91dcfcb1",
+                  "chars": 143
+                },
+                "status": "done",
+                "evidence_id": "post:2"
+              },
+              {
+                "id": {
+                  "sha256": "4b227777d4dd1fc6",
+                  "chars": 1
+                },
+                "text": {
+                  "sha256": "a9e7ba9a72734fcd",
+                  "chars": 90
+                },
+                "status": "open"
+              },
+              {
+                "id": {
+                  "sha256": "4e07408562bedb8b",
+                  "chars": 1
+                },
+                "text": {
+                  "sha256": "b39cc21d52e81cef",
+                  "chars": 79
+                },
+                "status": "done",
+                "evidence_id": "evidence:3"
+              },
+              {
+                "id": {
+                  "sha256": "6b86b273ff34fce1",
+                  "chars": 1
+                },
+                "text": {
+                  "sha256": "affc0492575da0a5",
+                  "chars": 61
+                },
+                "status": "done",
+                "evidence_id": "evidence:2"
+              }
+            ],
+            "step": 5,
+            "tool": "ListPostNotes",
+            "reasoning": {
+              "sha256": "f3eedadad54f2d93",
+              "chars": 310
+            },
+            "repair_hint": {
+              "sha256": "fdad8b68033a1824",
+              "chars": 336
+            },
+            "observations": {
+              "sha256": "473c969c6594f0db",
+              "chars": 391
+            },
+            "answer_requires": {
+              "sha256": "88ced4ba732ec145",
+              "chars": 149
+            }
+          }
+        },
+        {
+          "at_ms": 72440,
+          "event_type": "tool_result",
+          "payload": {
+            "args": {
+              "post_id": "post:3"
+            },
+            "step": 4,
+            "tool": "ListPostNotes",
+            "error": {
+              "sha256": "5e64b1ed0b21df0a",
+              "chars": 13
+            },
+            "summary": {
+              "sha256": "7cfd171bf3f3c011",
+              "chars": 78
+            },
+            "record_ids": [
+              "evidence:3",
+              "post:2",
+              "evidence:2"
+            ]
+          }
+        },
+        {
+          "at_ms": 79108,
+          "event_type": "planner_step",
+          "payload": {
+            "gap": {
+              "sha256": "c145f2f5bf2d5eff",
+              "chars": 130
+            },
+            "args": {
+              "status": "ready",
+              "evidence_ids": [
+                "evidence:2",
+                "post:2",
+                "evidence:3"
+              ]
+            },
+            "plan": [
+              {
+                "id": {
+                  "sha256": "4b227777d4dd1fc6",
+                  "chars": 1
+                },
+                "text": {
+                  "sha256": "a9e7ba9a72734fcd",
+                  "chars": 90
+                },
+                "status": "done",
+                "evidence_id": "evidence:2"
+              },
+              {
+                "id": {
+                  "sha256": "6b86b273ff34fce1",
+                  "chars": 1
+                },
+                "text": {
+                  "sha256": "affc0492575da0a5",
+                  "chars": 61
+                },
+                "status": "done",
+                "evidence_id": "evidence:2"
+              },
+              {
+                "id": {
+                  "sha256": "d4735e3a265e16ee",
+                  "chars": 1
+                },
+                "text": {
+                  "sha256": "17262c0e91dcfcb1",
+                  "chars": 143
+                },
+                "status": "done",
+                "evidence_id": "post:2"
+              },
+              {
+                "id": {
+                  "sha256": "4e07408562bedb8b",
+                  "chars": 1
+                },
+                "text": {
+                  "sha256": "b39cc21d52e81cef",
+                  "chars": 79
+                },
+                "status": "done",
+                "evidence_id": "evidence:3"
+              }
+            ],
+            "step": 5,
+            "tool": "FinishRetrieval",
+            "reasoning": {
+              "sha256": "1c7c7d2c75c23356",
+              "chars": 295
+            },
+            "repair_hint": {
+              "sha256": "fdad8b68033a1824",
+              "chars": 336
+            },
+            "observations": {
+              "sha256": "579826be03398af0",
+              "chars": 370
+            },
+            "answer_requires": {
+              "sha256": "d9249a637e1249ac",
+              "chars": 111
+            }
+          }
+        },
+        {
+          "at_ms": 89265,
+          "event_type": "planner_step",
+          "payload": {
+            "gap": {
+              "sha256": "3be1f1689245d9c9",
+              "chars": 143
+            },
+            "args": {
+              "status": "ready",
+              "evidence_ids": [
+                "evidence:2",
+                "post:2",
+                "evidence:3"
+              ]
+            },
+            "plan": [
+              {
+                "id": {
+                  "sha256": "6b86b273ff34fce1",
+                  "chars": 1
+                },
+                "text": {
+                  "sha256": "affc0492575da0a5",
+                  "chars": 61
+                },
+                "status": "done",
+                "evidence_id": "evidence:2"
+              },
+              {
+                "id": {
+                  "sha256": "d4735e3a265e16ee",
+                  "chars": 1
+                },
+                "text": {
+                  "sha256": "17262c0e91dcfcb1",
+                  "chars": 143
+                },
+                "status": "done",
+                "evidence_id": "post:2"
+              },
+              {
+                "id": {
+                  "sha256": "4e07408562bedb8b",
+                  "chars": 1
+                },
+                "text": {
+                  "sha256": "b39cc21d52e81cef",
+                  "chars": 79
+                },
+                "status": "done",
+                "evidence_id": "evidence:3"
+              },
+              {
+                "id": {
+                  "sha256": "4b227777d4dd1fc6",
+                  "chars": 1
+                },
+                "text": {
+                  "sha256": "a9e7ba9a72734fcd",
+                  "chars": 90
+                },
+                "status": "done",
+                "evidence_id": "evidence:2"
+              }
+            ],
+            "step": 6,
+            "tool": "FinishRetrieval",
+            "reasoning": {
+              "sha256": "cc3ba34496a7cf56",
+              "chars": 245
+            },
+            "repair_hint": {
+              "sha256": "fdad8b68033a1824",
+              "chars": 336
+            },
+            "observations": {
+              "sha256": "f33df6051c177143",
+              "chars": 370
+            },
+            "answer_requires": {
+              "sha256": "2f85399d3d9ff29a",
+              "chars": 145
+            }
+          }
+        },
+        {
+          "at_ms": 90369,
+          "event_type": "answer_started",
+          "payload": {}
+        },
+        {
+          "at_ms": 91269,
+          "event_type": "answer",
+          "payload": {
+            "text": "{\"chars\": 27, \"sha256\": \"1c1a57acbebfc402\"}",
+            "claims": [
+              {
+                "text": "{\"chars\": 175, \"sha256\": \"16ee7e02f7296128\"}",
+                "evidence_ids": [
+                  "evidence:3"
+                ]
+              }
+            ],
+            "evidence_ids": [
+              "evidence:2",
+              "post:2",
+              "evidence:3"
+            ]
+          }
+        },
+        {
+          "at_ms": 91272,
+          "event_type": "run_completed",
+          "payload": {
+            "status": "completed"
+          }
+        }
+      ],
+      "expected": {
+        "terminal_status": "completed",
+        "target_refs": [],
+        "target_annotation": "not_annotated",
+        "current_grader_results": {
+          "no_duplicate_tool_calls": true,
+          "valid_finish_evidence_ids": false,
+          "no_finish_loops": false,
+          "output_event_schema": true
+        },
+        "regression_expectations": {
+          "no_finish_loops": {
+            "current": true,
+            "desired": false
+          },
+          "token_telemetry_missing": {
+            "current": true,
+            "desired": false
+          },
+          "valid_finish_evidence_ids": {
+            "current": true,
+            "desired": false
+          }
+        },
+        "quality_floor": {
+          "valid_finish_evidence_ids": true,
+          "output_event_schema": true
+        }
+      },
+      "metrics": {
+        "duration_ms": 91238,
+        "planner_calls": 8,
+        "tool_calls": 5,
+        "llm_calls_inferred": 10,
+        "tokens": {
+          "prompt": null,
+          "completion": null,
+          "total": null,
+          "availability": "not_recorded_by_agent_runtime"
+        },
+        "phase_ms": {
+          "startup": 2889,
+          "bootstrap": 2746,
+          "research": 84734,
+          "answer": 903
+        },
+        "tool_trajectory": [
+          "FinishRetrieval",
+          "ListPosts",
+          "ListGlobalNotes",
+          "ListPostNotes",
+          "OpenPost",
+          "ListPostNotes",
+          "FinishRetrieval",
+          "FinishRetrieval"
+        ]
+      }
+    },
+    {
+      "id": "prod-32-37b554bf1818",
+      "split": "held_out",
+      "provenance": {
+        "kind": "anonymized_production_trace",
+        "source_chat_ref": "chat:bfc776b29a99",
+        "source_run_ref": "run:37b554bf1818",
+        "sample_reason": "completed_latency_quantile",
+        "turn": null
+      },
+      "temperature": "unknown",
+      "known_failures": [
+        "token_telemetry_missing"
+      ],
+      "trace": [
+        {
+          "at_ms": 39,
+          "event_type": "run_started",
+          "payload": {}
+        },
+        {
+          "at_ms": 115,
+          "event_type": "graph_started",
+          "payload": {
+            "user_text": {
+              "sha256": "dc3283c2b004d0d6",
+              "chars": 25
+            }
+          }
+        },
+        {
+          "at_ms": 4658,
+          "event_type": "interrupt",
+          "payload": {
+            "type": "action_proposal",
+            "proposal": {
+              "id": {
+                "sha256": "96345cbca7527236",
+                "chars": 36
+              },
+              "command": {
+                "sha256": "e9dc21c3ccbd7948",
+                "chars": 9
+              },
+              "payload": {
+                "patch": {
+                  "text": {
+                    "sha256": "fde4b127ab5a6ca2",
+                    "chars": 1178
+                  },
+                  "textHtml": {
+                    "sha256": "7ca1cfedebd5836d",
+                    "chars": 1306
+                  }
+                },
+                "post_id": "post:1"
+              },
+              "warnings": [],
+              "payload_hash": {
+                "sha256": "bef1dd00ee67c8b9",
+                "chars": 64
+              },
+              "resource_version": null
+            }
+          }
+        },
+        {
+          "at_ms": 4660,
+          "event_type": "run_interrupted",
+          "payload": {
+            "status": "interrupted"
+          }
+        },
+        {
+          "at_ms": 1879624,
+          "event_type": "run_completed",
+          "payload": {
+            "status": "completed"
+          }
+        },
+        {
+          "at_ms": 1879634,
+          "event_type": "answer",
+          "payload": {
+            "text": "{\"chars\": 32, \"sha256\": \"b9e0c141cba7fa6a\"}",
+            "claims": [],
+            "evidence_ids": []
+          }
+        }
+      ],
+      "expected": {
+        "terminal_status": "completed",
+        "target_refs": [],
+        "target_annotation": "not_annotated",
+        "current_grader_results": {
+          "no_duplicate_tool_calls": true,
+          "valid_finish_evidence_ids": true,
+          "no_finish_loops": true,
+          "output_event_schema": true
+        },
+        "regression_expectations": {
+          "token_telemetry_missing": {
+            "current": true,
+            "desired": false
+          }
+        },
+        "quality_floor": {
+          "valid_finish_evidence_ids": true,
+          "output_event_schema": true
+        }
+      },
+      "metrics": {
+        "duration_ms": 1879624,
+        "planner_calls": 0,
+        "tool_calls": 0,
+        "llm_calls_inferred": 1,
+        "tokens": {
+          "prompt": null,
+          "completion": null,
+          "total": null,
+          "availability": "not_recorded_by_agent_runtime"
+        },
+        "phase_ms": {
+          "startup": 115,
+          "bootstrap": null,
+          "research": null,
+          "answer": 0
+        },
+        "tool_trajectory": []
+      }
+    }
+  ]
+}

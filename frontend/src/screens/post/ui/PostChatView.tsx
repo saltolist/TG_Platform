@@ -10,6 +10,8 @@ import { postSupportsComments } from "@/entities/post/lib/postSupportsComments";
 import { postSupportsPlatformEdit } from "@/entities/post/lib/isStandaloneCompactTelegramPost";
 import { isStreamingChatMessage } from "@/shared/lib/streaming/streamingMessage";
 import { firstUserFlatIndex, userMessageHasBranches } from "@/shared/lib/chatPaths";
+import { AgentRunProvider } from "@/widgets/agent/model/AgentRunContext";
+import { AgentRunInterrupts } from "@/widgets/agent/ui/AgentRunInterrupts";
 import type { Post } from "@/shared/types";
 
 type Props = {
@@ -42,7 +44,7 @@ export default function PostChatView({ post, data, ui, actions }: Props) {
   const firstUserFlat = firstUserFlatIndex(flatMessages);
 
   return (
-    <>
+    <AgentRunProvider scope="post" postId={post.id} chatId={activeChat?.id ?? ""}>
       <div className="composer-scroll-wrap">
         <div className="post-body" id="post-chat-scroll" ref={chatScrollRef}>
           <div className="composer-scroll-body">
@@ -102,11 +104,12 @@ export default function PostChatView({ post, data, ui, actions }: Props) {
                   />
                 );
               })}
+              <AgentRunInterrupts />
             </div>
           </div>
         </div>
       </div>
       <Composer scope="post" onSubmit={sendPost} />
-    </>
+    </AgentRunProvider>
   );
 }

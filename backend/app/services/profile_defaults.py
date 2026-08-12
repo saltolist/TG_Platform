@@ -26,6 +26,7 @@ def empty_ai_profile() -> dict[str, Any]:
         "webSearchModels": [],
         "visionModels": [],
         "imageGenerationModels": [],
+        "videoGenerationModels": [],
         "orchestratorModels": [],
         "webReasonerModels": [],
         "ragReasonerModels": [],

@@ -1,0 +1,115 @@
+{
+  "boundary_256": {
+    "actual_total_tokens_availability": "unavailable",
+    "actual_total_tokens_p95": null,
+    "attempts": [],
+    "availability": "not_measured",
+    "candidate_count": 256,
+    "final_canonical_valid": null,
+    "gate_total_tokens_lte_22000": null,
+    "latency_p95_ms": null,
+    "maximum_dialog_context_chars": 3000,
+    "retry_count": 0
+  },
+  "cohort_role": "qualification",
+  "cohort_version": "2026-07-27-semantic-qualification-v2",
+  "contains_account_identifier": false,
+  "contains_credentials": false,
+  "estimated_cost": {
+    "availability": "unavailable",
+    "value_usd": null
+  },
+  "model": "gpt-4.1-mini",
+  "position_error_count": 0,
+  "price_snapshot": {
+    "availability": "unavailable",
+    "version": null
+  },
+  "provider": "OpenAI",
+  "provider_call_count": 1,
+  "provider_failure_count": 0,
+  "schema": "workspace.selector-provider-replay/v1",
+  "schema_results": {
+    "valid": 1
+  },
+  "semantic_sample_sufficient": false,
+  "semantic_scenario_count": 1,
+  "semantic_variant": "query_goal",
+  "summary_160_non_inferior_recall": null,
+  "transport_tier": "strict_json_schema",
+  "validation_error_counts": {},
+  "variants": {
+    "160": {
+      "critical_required_recall": 1.0,
+      "critical_selected": 1,
+      "critical_total": 1,
+      "final_pack_precision": 1.0,
+      "final_valid": 1,
+      "first_attempt_valid": 1,
+      "irrelevant_selected": 0,
+      "irrelevant_selection_rate": 0.0,
+      "irrelevant_total": 1,
+      "language_cohorts": {
+        "ru": {
+          "critical_required_recall": 1.0,
+          "critical_selected": 1,
+          "critical_total": 1,
+          "final_pack_precision": 1.0,
+          "irrelevant_selected": 0,
+          "irrelevant_selection_rate": 0.0,
+          "irrelevant_total": 1,
+          "relevant_selected": 1,
+          "relevant_total": 1,
+          "required_recall": 1.0,
+          "required_selected": 1,
+          "required_total": 1,
+          "selected_total": 1
+        }
+      },
+      "relevant_selected": 1,
+      "relevant_total": 1,
+      "required_recall": 1.0,
+      "required_selected": 1,
+      "required_total": 1,
+      "retries": 0,
+      "scenario_count": 1,
+      "scenario_rows": [
+        {
+          "attempt_count": 1,
+          "attempts": [
+            {
+              "attempt": 1,
+              "schema_result": "valid",
+              "validation_error_codes": []
+            }
+          ],
+          "attribution_boundary": "none",
+          "candidate_count": 2,
+          "expected": {
+            "critical_positions": [
+              0
+            ],
+            "irrelevant_positions": [
+              1
+            ],
+            "required_positions": [
+              0
+            ]
+          },
+          "missed_critical_refs": [],
+          "reason_codes_by_position": {
+            "0": "exact_fact",
+            "1": "search_more"
+          },
+          "scenario_id": "v2-q09",
+          "selected_irrelevant_refs": [],
+          "selected_positions": [
+            0
+          ],
+          "unassessed_critical_refs": []
+        }
+      ],
+      "selected_total": 1
+    }
+  }
+}

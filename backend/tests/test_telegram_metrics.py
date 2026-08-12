@@ -10,7 +10,12 @@ import pytest
 from httpx import AsyncClient
 
 from app.db.models import Post, Profile
-from app.services.analytics.channel_metrics import build_overview, build_top_posts
+from app.services.analytics.channel_metrics import (
+    aggregate_reactions,
+    build_channel_summary,
+    build_top_posts,
+    published_posts,
+)
 from app.services.telegram.message_mapping import extract_metrics_from_message
 from app.services.telegram.post_sync import update_telegram_post
 from tests.conftest import TestSessionLocal, writer_auth_headers, writer_user
@@ -211,14 +216,20 @@ async def test_channel_analytics_endpoints(
         db_session.add(post)
         await db_session.commit()
 
-    overview = await client.get(
-        "/api/v1/analytics/overview/?period=30d",
+    summary = await client.get(
+        "/api/v1/analytics/summary/?period=30d",
         headers=writer_auth_headers,
     )
-    assert overview.status_code == 200
-    overview_body = overview.json()
-    assert overview_body["endTotals"]["views"] == 1200
-    assert overview_body["reactions"] == [{"emoji": "🔥", "count": 10}]
+    assert summary.status_code == 200
+    summary_body = summary.json()
+    assert summary_body["endTotals"]["views"] == 1200
+
+    reactions = await client.get(
+        "/api/v1/analytics/reactions/",
+        headers=writer_auth_headers,
+    )
+    assert reactions.status_code == 200
+    assert reactions.json()["reactions"] == [{"emoji": "🔥", "count": 10}]
 
     top_posts = await client.get(
         "/api/v1/analytics/top-posts/?period=30d",
@@ -284,6 +295,6 @@ def test_build_overview_aggregates_reactions() -> None:
         )
     ]
 
-    overview = build_overview(posts, "7d")
-    assert overview["endTotals"]["views"] == 200
-    assert overview["reactions"] == [{"emoji": "🔥", "count": 3}]
+    summary = build_channel_summary(posts, [], [], "7d")
+    assert summary["endTotals"]["views"] == 200
+    assert aggregate_reactions(published_posts(posts)) == [{"emoji": "🔥", "count": 3}]

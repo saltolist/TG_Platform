@@ -1,0 +1,36 @@
+{
+  "schema": "workspace.phase6-formal-canary-result/v1",
+  "manifest_version": "2026-08-01-account-live-v38",
+  "report_id": "unified-phase6-live-canary-v38-2026-08-01",
+  "source_head": "0e87f6c45d9ed356dc9fba8f3372754b4db87634",
+  "status": "failed_stop_condition",
+  "stopped_after_sequence": 3,
+  "chat_count": 3,
+  "user_message_count": 3,
+  "semantic_selector_decision_count": 3,
+  "stop_condition": "critical_recall_below_one",
+  "attribution_boundary": "single_candidate_escalation_under_model_ambiguity",
+  "attribution": {
+    "scenario_id": "live-v8-q03",
+    "required_ref": "note:402ac3a4-9f28-4d35-bcf0-ffdd7aceab30",
+    "primary_disposition": "ambiguous",
+    "required_ref_visible_to_reasoner": true,
+    "required_ref_materialized": false,
+    "fallback_opened_ref": "note:9fd458be-d060-4a4b-b055-02d39ff2948e",
+    "fallback_opened_ref_materialized": false,
+    "selected_irrelevant_refs": [],
+    "single_reasoner_model": true,
+    "provenance_verified": true
+  },
+  "passed_sequences": [1, 2],
+  "remaining_scenarios_sent": 0,
+  "can_convert_to_pass": false,
+  "privacy": {
+    "aggregate_and_ref_only": true,
+    "contains_credentials": false,
+    "contains_account_identifier": false,
+    "contains_raw_queries": false,
+    "contains_raw_provider_output": false,
+    "contains_source_or_user_content": false
+  }
+}

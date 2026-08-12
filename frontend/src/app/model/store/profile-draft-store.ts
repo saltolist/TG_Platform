@@ -45,6 +45,13 @@ function buildInitialAiSnapshot(cfg: AiProfileConfig): string {
       active: !!m.active,
       includeInMulti: false,
     })),
+    videoGenerationModels: cfg.videoGenerationModels.map((m) => ({
+      provider: m.provider || "",
+      model: m.model || "",
+      apiKey: m.apiKey || "",
+      active: !!m.active,
+      includeInMulti: false,
+    })),
     orchestratorModels: cfg.orchestratorModels.map((m) => ({
       provider: m.provider || "",
       model: m.model || "",

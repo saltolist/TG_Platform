@@ -1,0 +1,71 @@
+{
+  "schema": "workspace.phase6-formal-canary-result/v1",
+  "manifest_version": "2026-07-30-account-live-v11",
+  "report_id": "unified-phase6-live-canary-v11-2026-07-30",
+  "source_head": "0e87f6c45d9ed356dc9fba8f3372754b4db87634",
+  "status": "failed_stop_condition",
+  "started_at": "2026-07-30T10:40:22.672279Z",
+  "stopped_after_sequence": 2,
+  "chat_count": 2,
+  "user_message_count": 2,
+  "semantic_selector_decision_count": 2,
+  "stop_condition": "critical_recall_below_one",
+  "attribution_boundary": "evidence_depth_policy",
+  "attribution": {
+    "scenario_id": "live-v8-q02",
+    "required_ref": "note:9fd458be-d060-4a4b-b055-02d39ff2948e",
+    "candidate_present": true,
+    "candidate_position": 0,
+    "semantic_rank_score": 0.6886,
+    "matched_evidence_attached": true,
+    "selector_relevance": "irrelevant",
+    "selector_confidence": 0.5,
+    "selector_reason_code": "topic_only",
+    "source_disposition": "no_relevant_candidate",
+    "evidence_escalation_scheduled": false,
+    "full_read_opened": false,
+    "materialization_reached": false
+  },
+  "decision": {
+    "candidate_count": 7,
+    "selected_refs": [],
+    "materialized_candidate_refs": [],
+    "missed_critical_refs": ["note:9fd458be-d060-4a4b-b055-02d39ff2948e"],
+    "selected_irrelevant_refs": [],
+    "unexpected_refs": [],
+    "selector_attempts": 1,
+    "precision_confirmation": {
+      "called": false,
+      "schema_result": "not_called",
+      "confirmed_refs": [],
+      "demoted_refs": []
+    },
+    "schema_result": "valid",
+    "provider_total_tokens": 3451,
+    "provider_duration_ms": 2030.3,
+    "validation_error_codes": [],
+    "checks": {
+      "completed": true,
+      "critical_recall": false,
+      "no_unexpected_selection": true,
+      "no_frozen_irrelevant": true,
+      "critical_materialized": false,
+      "first_attempt_valid": true,
+      "no_validation_errors": true,
+      "no_position_errors": true,
+      "cards_llm_current_fresh": true,
+      "provenance_verified": true
+    }
+  },
+  "passed_sequences": [1],
+  "remaining_scenarios_sent": 0,
+  "can_convert_to_pass": false,
+  "privacy": {
+    "aggregate_and_ref_only": true,
+    "contains_credentials": false,
+    "contains_account_identifier": false,
+    "contains_raw_queries": false,
+    "contains_raw_provider_output": false,
+    "contains_source_or_user_content": false
+  }
+}

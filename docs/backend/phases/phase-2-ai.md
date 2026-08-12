@@ -190,7 +190,12 @@
 - [ ] Web-search модели (Perplexity/Tavily)
 - [ ] Multi-response (несколько вариантов от разных моделей)
 - [ ] Vision / image-generation модели
-- [ ] RAG-orchestrator / ragReasoner (расширенная логика)
+- [ ] **Agentic Graph RAG** — расширение RAG на посты, заметки, их вложения и
+      комментарии по необходимости; каскад flat → agentic по эскалации. Модель
+      зафиксирована в [ADR-008](../../dev/adr/008-agentic-graph-rag.md), приоритеты
+      и порядок реализации (посты/заметки/комментарии → действия над постами →
+      отложенный ответ на комментарии) — в
+      [Роадмап: Agentic Graph RAG](../../dev/roadmap-agentic-rag.md).
 
 ---
 

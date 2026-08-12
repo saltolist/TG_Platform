@@ -1,5 +1,6 @@
 import { z } from "zod";
 import { chatContextMetaSchema } from "./chatContextMeta";
+import { agentProposalSchema, messageArtifactRefSchema, messageContextRefSchema } from "./agentRun";
 
 export const postStatusSchema = z.enum(["published", "scheduled", "draft", "deleted"]);
 
@@ -61,7 +62,13 @@ const webCiteSchema = z.object({
   domain: z.string(),
 });
 
+export const kbCiteSchema = z.object({
+  path: z.string(),
+  title: z.string(),
+});
+
 export type WebCite = z.infer<typeof webCiteSchema>;
+export type KbCite = z.infer<typeof kbCiteSchema>;
 
 export const aiVariantSchema = z.object({
   key: z.string(),
@@ -70,6 +77,7 @@ export const aiVariantSchema = z.object({
   llmCaption: z.string().optional(),
   webCaption: z.string().optional(),
   webCites: z.array(webCiteSchema).optional(),
+  kbCites: z.array(kbCiteSchema).optional(),
 });
 
 /** Legacy compound (incl. nested turns), v2 stamp from JSON, or legacy msg-ver-branch. */
@@ -111,6 +119,8 @@ export const userMessageBranchSchema = z.object({
   bundleContext: messageBundleContextSchema.optional(),
 });
 
+export const chatMessageProposalDecisionSchema = z.enum(["approve", "reject"]);
+
 export const chatMessageSchema: z.ZodType<{
   role: "user" | "ai";
   text?: string;
@@ -127,6 +137,20 @@ export const chatMessageSchema: z.ZodType<{
   contextStamp?: z.infer<typeof contextStampSchema>;
   bundleContext?: z.infer<typeof messageBundleContextSchema>;
   webCites?: WebCite[];
+  kbCites?: KbCite[];
+  // Snapshot of an agent action_proposal card born on this AI turn — kept
+  // here (not in transient run state) so the card survives a reload and
+  // renders inline, in its own turn's slot, instead of always at the bottom
+  // of the thread.
+  proposal?: z.infer<typeof agentProposalSchema>;
+  // Null while the card is still awaiting a decision.
+  proposalDecision?: z.infer<typeof chatMessageProposalDecisionSchema> | null;
+  messageId?: string;
+  contextRefs?: z.infer<typeof messageContextRefSchema>[];
+  citedEvidence?: string[];
+  artifacts?: z.infer<typeof messageArtifactRefSchema>[];
+  staleRefs?: Array<Record<string, unknown>>;
+  contextProvenance?: "exact" | "inferred" | "legacy";
 }> = z.lazy(() =>
   z.object({
     role: z.enum(["user", "ai"]),
@@ -144,6 +168,15 @@ export const chatMessageSchema: z.ZodType<{
     contextStamp: contextStampSchema.optional(),
     bundleContext: messageBundleContextSchema.optional(),
     webCites: z.array(webCiteSchema).optional(),
+    kbCites: z.array(kbCiteSchema).optional(),
+    proposal: agentProposalSchema.optional(),
+    proposalDecision: chatMessageProposalDecisionSchema.nullable().optional(),
+    messageId: z.string().optional(),
+    contextRefs: z.array(messageContextRefSchema).optional(),
+    citedEvidence: z.array(z.string()).optional(),
+    artifacts: z.array(messageArtifactRefSchema).optional(),
+    staleRefs: z.array(z.record(z.string(), z.unknown())).optional(),
+    contextProvenance: z.enum(["exact", "inferred", "legacy"]).optional(),
   }),
 );
 

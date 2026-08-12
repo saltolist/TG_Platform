@@ -1,0 +1,60 @@
+{
+  "boundary_256": {
+    "actual_total_tokens_availability": "measured",
+    "actual_total_tokens_p95": 20194,
+    "attempts": [
+      {
+        "attempt": 1,
+        "estimator_input_tokens": 17712,
+        "latency_ms": 14883.6,
+        "provider_error": null,
+        "provider_token_usage": {
+          "availability": "measured",
+          "cached_input_availability": "measured",
+          "cached_input_tokens": 0,
+          "input_tokens": 19400,
+          "output_tokens": 794,
+          "total_tokens": 20194
+        },
+        "retry": false,
+        "schema_result": "valid",
+        "validation_error_codes": []
+      }
+    ],
+    "availability": "measured",
+    "candidate_count": 256,
+    "final_canonical_valid": true,
+    "gate_total_tokens_lte_22000": true,
+    "latency_p95_ms": 14883.6,
+    "maximum_dialog_context_chars": 3000,
+    "retry_count": 0
+  },
+  "cohort_role": "calibration",
+  "cohort_version": "2026-07-26-remediation-v2",
+  "contains_account_identifier": false,
+  "contains_credentials": false,
+  "estimated_cost": {
+    "availability": "unavailable",
+    "value_usd": null
+  },
+  "model": "gpt-4.1-mini",
+  "position_error_count": 0,
+  "price_snapshot": {
+    "availability": "unavailable",
+    "version": null
+  },
+  "provider": "OpenAI",
+  "provider_call_count": 1,
+  "provider_failure_count": 0,
+  "schema": "workspace.selector-provider-replay/v1",
+  "schema_results": {
+    "valid": 1
+  },
+  "semantic_sample_sufficient": false,
+  "semantic_scenario_count": 0,
+  "semantic_variant": "query_goal",
+  "summary_160_non_inferior_recall": null,
+  "transport_tier": "strict_json_schema",
+  "validation_error_counts": {},
+  "variants": {}
+}

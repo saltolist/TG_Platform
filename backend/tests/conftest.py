@@ -2,6 +2,23 @@ import os
 import uuid
 from urllib.parse import urlparse
 
+# Keep pytest deterministic even when host `.env` contains real provider keys or
+# enables experimental paths. Individual tests still override these explicitly.
+os.environ.update(
+    {
+        "AI_CONTEXT_STAMPS": "0",
+        "OPENAI_API_KEY": "",
+        "DEEPSEEK_API_KEY": "",
+        "TAVILY_API_KEY": "",
+        "PERPLEXITY_API_KEY": "",
+        "RAG_MODE": "off",
+        "RAG_TIER_B_ENABLED": "0",
+        "AGENT_ACTIONS_ENABLED": "0",
+        "AGENT_MEDIA_ENABLED": "0",
+        "AGENT_TURN_CONTRACT_V2_ENABLED": "0",
+    }
+)
+
 import pytest
 from httpx import ASGITransport, AsyncClient
 from sqlalchemy import delete, select
@@ -10,8 +27,25 @@ from sqlalchemy.pool import NullPool
 
 from app.core.constants import PRESENTATION_EMAIL, PRESENTATION_GUEST_TOKEN
 from app.core.security import create_access_token, hash_password
-from app.db.models import EmailCode, GlobalChat, GlobalNote, Post, Profile, User
+from app.db.models import (
+    ActionProposal,
+    AgentAuditEvent,
+    AgentEvent,
+    AgentRun,
+    DialogEvidenceTurn,
+    EmailCode,
+    GlobalChat,
+    GlobalNote,
+    MediaAsset,
+    MediaJob,
+    Post,
+    Profile,
+    User,
+)
 from app.db.session import get_session
+from app.core.config import get_settings
+
+get_settings.cache_clear()
 from app.main import app
 
 DEFAULT_TEST_DATABASE_URL = "postgresql+asyncpg://tg:tg@localhost:5432/tg_test"
@@ -48,16 +82,61 @@ async def _override_db_session() -> None:
 
 
 @pytest.fixture(autouse=True)
+def _shim_answer_stream_to_complete(request):
+    """answer_node streams the reply via stream_chat_completion_tokens now, not
+    the single-shot complete_chat_completion. Agent tests still mock the
+    single-shot call (answer JSON as the last side_effect entry). Rather than
+    rewrite every one, delegate the token stream to whatever
+    complete_chat_completion resolves to at call time and yield its result as a
+    single token — preserving the existing mock lists and call order.
+
+    Real streaming granularity is covered directly by test_answer_stream.py
+    (pure extractor) and a dedicated answer_node streaming test. test_llm.py
+    exercises the real stream_chat_completion_tokens, so it opts out."""
+    if "test_llm" in str(request.node.fspath):
+        yield
+        return
+    from unittest.mock import patch as _patch
+
+    from app.services.ai import llm as _llm
+
+    async def _fake_stream(**kwargs):
+        # temperature/max_tokens/client are stream-only kwargs; the single-shot
+        # signature doesn't take a client, so drop them before delegating.
+        kwargs.pop("temperature", None)
+        kwargs.pop("max_tokens", None)
+        kwargs.pop("client", None)
+        yield await _llm.complete_chat_completion(**kwargs)
+
+    with _patch("app.services.ai.llm.stream_chat_completion_tokens", _fake_stream):
+        yield
+
+
+@pytest.fixture(autouse=True)
 async def _clean_db() -> None:
     yield
     async with TestSessionLocal() as session:
         from sqlalchemy import text
 
-        for table in ("ai_model_usage_events", "embedding_jobs", "note_embeddings", "tenant_overlay_notes"):
+        for table in (
+            "agent_audit_events",
+            "media_assets",
+            "media_jobs",
+            "action_proposals",
+            "agent_batch_items",
+            "agent_batch_jobs",
+            "agent_events",
+            "agent_runs",
+            "ai_model_usage_events",
+            "embedding_jobs",
+            "note_embeddings",
+            "tenant_overlay_notes",
+        ):
             try:
                 await session.execute(text(f"DELETE FROM {table}"))
             except Exception:
                 await session.rollback()
+        await session.execute(delete(DialogEvidenceTurn))
         await session.execute(delete(Post))
         await session.execute(delete(GlobalChat))
         await session.execute(delete(GlobalNote))

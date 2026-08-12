@@ -34,6 +34,7 @@ function emptyAiProfile(): AiProfileConfig {
     webSearchModels: [],
     visionModels: [],
     imageGenerationModels: [],
+    videoGenerationModels: [],
     orchestratorModels: [],
     webReasonerModels: [],
     ragReasonerModels: [],

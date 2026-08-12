@@ -5,6 +5,7 @@ import { shouldPersistLocally } from "@/shared/lib/overlay/isOverlayAccount";
 import {
   formatTrendChartRangeFromStart,
   formatTrendPointPeriod,
+  getFullPeriodPointCount,
   getPeriodChartLabels,
 } from "@/shared/lib/trendChart/periodLabels";
 
@@ -175,6 +176,187 @@ function parseDayDate(value: string | undefined): Date | null {
   return Number.isNaN(parsed.getTime()) ? null : parsed;
 }
 
+/** Date-only API fields are UTC calendar days; timestamps are absolute instants. */
+function parseSnapshotMoment(value: string | undefined): Date | null {
+  if (!value) return null;
+  if (value.includes("T")) {
+    const parsed = new Date(value);
+    return Number.isNaN(parsed.getTime()) ? null : parsed;
+  }
+  const parsed = new Date(`${value}T00:00:00.000Z`);
+  return Number.isNaN(parsed.getTime()) ? null : parsed;
+}
+
+function localDateKey(date: Date): string {
+  const year = date.getFullYear();
+  const month = String(date.getMonth() + 1).padStart(2, "0");
+  const day = String(date.getDate()).padStart(2, "0");
+  return `${year}-${month}-${day}`;
+}
+
+function localHourStarts(pointCount: number): Date[] {
+  const end = new Date();
+  end.setMinutes(0, 0, 0);
+  return Array.from({ length: pointCount }, (_, index) => {
+    const hour = new Date(end);
+    hour.setHours(hour.getHours() - (pointCount - 1 - index));
+    return hour;
+  });
+}
+
+const DAY_MS = 24 * 60 * 60 * 1000;
+
+function addDays(date: Date, days: number) {
+  const next = new Date(date);
+  next.setDate(next.getDate() + days);
+  return next;
+}
+
+function hasTimedSnapshots(): boolean {
+  return db.days.some((entry) => entry.date?.includes("T"));
+}
+
+/**
+ * Ось привязана к НОВЕЙШЕМУ снимку, а не к «сегодня»: крайний правый столбец —
+ * это день последнего снимка (для живого канала он же «сейчас»). Так значения
+ * и подписи не «уезжают» из-за расхождения UTC-календаря бэкенда и локального
+ * времени пользователя, и одно и то же событие стоит на одном столбце во всех
+ * периодах.
+ */
+function newestSnapshotDayStart(): Date {
+  let newest: Date | null = null;
+  for (const entry of db.days) {
+    const moment = parseSnapshotMoment(entry.date);
+    if (!moment) continue;
+    if (!newest || moment.getTime() > newest.getTime()) newest = moment;
+  }
+  return startOfDay(newest ?? new Date());
+}
+
+function dailyAxisConfig(chartPeriod: number, pointCount: number): { step: number; count: number } {
+  if (chartPeriod === 3) {
+    return { step: 3, count: pointCount };
+  }
+  if (chartPeriod === 4) {
+    const daySpan = Math.min(chartPeriodToDaySpan(chartPeriod), db.dayCount);
+    const count = Math.min(daySpan, CHANNEL_ALL_TIME_MAX_LABELS);
+    const step = Math.max(1, Math.ceil(daySpan / Math.max(1, count)));
+    return { step, count };
+  }
+  return { step: 1, count: pointCount };
+}
+
+/**
+ * Правый край ПОДПИСЕЙ — локальное «сегодня» (живой столбец = «сейчас»), но не
+ * раньше новейшего снимка. Данные при этом привязаны к новейшей строке (см.
+ * {@link metricByDayOffset}), поэтому живой снимок всегда попадает в столбец
+ * «сегодня», даже если бэкенд датирует его вчерашним днём по UTC.
+ */
+function dailyLabelAnchor(): Date {
+  const today = startOfDay(new Date());
+  const newest = newestSnapshotDayStart();
+  return today.getTime() >= newest.getTime() ? today : newest;
+}
+
+/** Даты столбцов, справа налево от «сегодня» (крайний правый = сегодня/живой). */
+function dailyAxisStarts(chartPeriod: number, pointCount: number): Date[] {
+  const anchor = dailyLabelAnchor();
+  const { step, count } = dailyAxisConfig(chartPeriod, pointCount);
+  return Array.from({ length: count }, (_, index) => {
+    const columnsFromRight = count - 1 - index;
+    return addDays(anchor, -(columnsFromRight * step));
+  });
+}
+
+/** Прирост каждой метрики по смещению в днях от новейшего снимка (0 = новейший). */
+function metricByDayOffset(metricId: ChannelMetricId): {
+  deltas: Map<number, number>;
+  erLevels: Map<number, number>;
+} {
+  const newest = newestSnapshotDayStart();
+  const deltas = new Map<number, number>();
+  const erLevels = new Map<number, number>();
+  for (const entry of db.days) {
+    const moment = parseSnapshotMoment(entry.date);
+    if (!moment) continue;
+    const offset = Math.round((newest.getTime() - startOfDay(moment).getTime()) / DAY_MS);
+    if (offset < 0) continue;
+    deltas.set(offset, (deltas.get(offset) ?? 0) + (entry[metricId] ?? 0));
+    // db.days идут по возрастанию времени, поэтому перезапись оставляет уровень
+    // самого позднего снимка в этом дне.
+    erLevels.set(offset, Math.round((entry.er ?? 0) * 10));
+  }
+  return { deltas, erLevels };
+}
+
+function aggregate30mToLocalHours(metricId: ChannelMetricId, pointCount: number): number[] {
+  const hourStarts = localHourStarts(pointCount);
+  const windowStart = hourStarts[0] ?? new Date();
+  const buckets = Array.from({ length: pointCount }, () => 0);
+  const erLevels = Array.from({ length: pointCount }, () => 0);
+
+  for (const entry of db.days) {
+    const moment = parseSnapshotMoment(entry.date);
+    if (!moment || moment < windowStart) continue;
+    const hourIndex = hourStarts.findIndex((start) => {
+      const end = new Date(start);
+      end.setHours(end.getHours() + 1);
+      return moment >= start && moment < end;
+    });
+    if (hourIndex < 0) continue;
+    if (isChannelErMetric(metricId)) {
+      erLevels[hourIndex] = Math.round(entry.er * 10);
+    } else {
+      buckets[hourIndex] += entry[metricId] ?? 0;
+    }
+  }
+
+  return isChannelErMetric(metricId) ? erLevels : buckets;
+}
+
+/** 24ч без поминутных снимков: дневные дельты нельзя честно разложить по часам. */
+function aggregateDailyRowsToLocalHours(metricId: ChannelMetricId, pointCount: number): number[] {
+  const result = Array.from({ length: pointCount }, () => 0);
+  // Подписчики меняются только на снимках; без таймстампов нельзя ставить
+  // исторический +N в «текущий час».
+  if (metricId === "subscribers") {
+    return result;
+  }
+  const { deltas, erLevels } = metricByDayOffset(metricId);
+  if (isChannelErMetric(metricId)) {
+    result[pointCount - 1] = erLevels.get(0) ?? 0;
+  } else {
+    result[pointCount - 1] = deltas.get(0) ?? 0;
+  }
+  return result;
+}
+
+function extractDailySeriesAligned(
+  metricId: ChannelMetricId,
+  chartPeriod: number,
+  pointCount: number,
+): number[] {
+  const { deltas, erLevels } = metricByDayOffset(metricId);
+  const { step, count } = dailyAxisConfig(chartPeriod, pointCount);
+
+  return Array.from({ length: count }, (_, index) => {
+    const columnsFromRight = count - 1 - index;
+    const baseOffset = columnsFromRight * step;
+    if (isChannelErMetric(metricId)) {
+      for (let sub = 0; sub < step; sub++) {
+        const level = erLevels.get(baseOffset + sub);
+        if (level != null) return level;
+      }
+      return 0;
+    }
+    let sum = 0;
+    for (let sub = 0; sub < step; sub++) {
+      sum += deltas.get(baseOffset + sub) ?? 0;
+    }
+    return sum;
+  });
+}
+
 function getChannelDayDate(dayIndex: number) {
   // Реальные даты из API имеют приоритет; синтетика «сегодня минус N» — только
   // для seed-данных без dates.
@@ -210,23 +392,45 @@ function formatTrendRangePart(date: Date) {
 }
 
 function formatTimeLabel(date: Date) {
-  const hours = String(date.getUTCHours()).padStart(2, "0");
-  const minutes = String(date.getUTCMinutes()).padStart(2, "0");
+  const hours = String(date.getHours()).padStart(2, "0");
+  const minutes = String(date.getMinutes()).padStart(2, "0");
   return `${hours}:${minutes}`;
 }
 
-const SLOT_30M_MS = 30 * 60 * 1000;
+function zeroDayEntry(): ChannelDayEntry {
+  return {
+    subscribers: 0,
+    reactions: 0,
+    views: 0,
+    comments: 0,
+    reposts: 0,
+    er: 0,
+  };
+}
 
-function use30mSlots(chartPeriod: number) {
-  return chartPeriod === 0 && db.granularity === "30m" && db.days.length > 1;
+function windowDaysForChartPeriod(chartPeriod: number) {
+  const targetDaySpan =
+    chartPeriod === 4 ? Math.min(chartPeriodToDaySpan(chartPeriod), db.dayCount) : chartPeriodToDaySpan(chartPeriod);
+  const sliceStart = Math.max(0, db.days.length - targetDaySpan);
+  const windowDays = db.days.slice(sliceStart);
+  if (chartPeriod === 4 || windowDays.length >= targetDaySpan) {
+    return windowDays;
+  }
+  const padding = targetDaySpan - windowDays.length;
+  return [...Array.from({ length: padding }, () => zeroDayEntry()), ...windowDays];
+}
+
+function useTimed24hSlots(chartPeriod: number) {
+  return chartPeriod === 0 && hasTimedSnapshots();
 }
 
 function get30mSlotBounds(pointIndex: number, pointCount: number) {
-  const total = db.days.length;
-  const { start, end } = displayIndexToSpan(pointIndex, pointCount, total);
-  const from = parseDayDate(db.days[start]?.date) ?? new Date();
-  const endStart = parseDayDate(db.days[end]?.date) ?? from;
-  return { from, to: new Date(endStart.getTime() + SLOT_30M_MS) };
+  const hourStarts = localHourStarts(pointCount);
+  const from = hourStarts[pointIndex] ?? new Date();
+  const to = new Date(from);
+  to.setHours(to.getHours() + 1);
+  to.setMilliseconds(to.getMilliseconds() - 1);
+  return { from, to };
 }
 
 function resolveChannelPointCount(
@@ -240,7 +444,7 @@ function resolveChannelPointCount(
   if (chartPeriod === 4) {
     return Math.min(windowDays, CHANNEL_ALL_TIME_MAX_LABELS);
   }
-  return windowDays;
+  return getFullPeriodPointCount(chartPeriod);
 }
 
 export function buildChannelChartLabels(
@@ -248,32 +452,12 @@ export function buildChannelChartLabels(
   options?: { maxPoints?: number },
 ) {
   if (chartPeriod === 0) {
-    if (use30mSlots(chartPeriod)) {
-      const total = db.days.length;
-      const pointCount = Math.min(options?.maxPoints ?? total, total);
-      return Array.from({ length: pointCount }, (_, index) => {
-        const { start } = displayIndexToSpan(index, pointCount, total);
-        const date = parseDayDate(db.days[start]?.date);
-        return date ? formatTimeLabel(date) : "";
-      });
-    }
     return getPeriodChartLabels(0, options);
   }
 
   const daySpan = Math.min(chartPeriodToDaySpan(chartPeriod), db.dayCount);
-  const sliceStart = db.days.length - daySpan;
   const pointCount = resolveChannelPointCount(chartPeriod, daySpan, options?.maxPoints);
-
-  if (pointCount >= daySpan) {
-    return Array.from({ length: daySpan }, (_, index) =>
-      formatAxisDateLabel(getChannelDayDate(sliceStart + index)),
-    );
-  }
-
-  return Array.from({ length: pointCount }, (_, index) => {
-    const { start } = displayIndexToSpan(index, pointCount, daySpan);
-    return formatAxisDateLabel(getChannelDayDate(sliceStart + start));
-  });
+  return dailyAxisStarts(chartPeriod, pointCount).map((day) => formatAxisDateLabel(day));
 }
 
 export function getChannelTrendPointPeriodBounds(
@@ -281,21 +465,18 @@ export function getChannelTrendPointPeriodBounds(
   pointIndex: number,
   pointCount: number,
 ) {
-  if (use30mSlots(chartPeriod)) {
-    return get30mSlotBounds(pointIndex, pointCount);
+  if (chartPeriod === 0) {
+    const hourStarts = localHourStarts(pointCount);
+    const from = hourStarts[pointIndex] ?? new Date();
+    const to = new Date(from);
+    to.setHours(to.getHours() + 1);
+    to.setMilliseconds(to.getMilliseconds() - 1);
+    return { from, to };
   }
-  const daySpan = Math.min(chartPeriodToDaySpan(chartPeriod), db.dayCount);
-  const sliceStart = db.days.length - daySpan;
-
-  if (pointCount >= daySpan) {
-    const from = startOfDay(getChannelDayDate(sliceStart + pointIndex));
-    return { from, to: endOfDay(from) };
-  }
-
-  const { start, end } = displayIndexToSpan(pointIndex, pointCount, daySpan);
-  const from = startOfDay(getChannelDayDate(sliceStart + start));
-  const to = endOfDay(getChannelDayDate(sliceStart + end));
-  return { from, to };
+  const { step } = dailyAxisConfig(chartPeriod, pointCount);
+  const dayStarts = dailyAxisStarts(chartPeriod, pointCount);
+  const from = dayStarts[pointIndex] ?? startOfDay(new Date());
+  return { from, to: endOfDay(addDays(from, step - 1)) };
 }
 
 export function formatChannelTrendPointPeriod(
@@ -303,9 +484,8 @@ export function formatChannelTrendPointPeriod(
   pointIndex: number,
   pointCount: number,
 ) {
-  if (use30mSlots(chartPeriod)) {
-    const { from, to } = get30mSlotBounds(pointIndex, pointCount);
-    return `${formatTimeLabel(from)} — ${formatTimeLabel(to)}`;
+  if (useTimed24hSlots(chartPeriod)) {
+    return formatTrendPointPeriod(0, pointIndex, pointCount);
   }
   if (chartPeriod === 0) {
     return formatTrendPointPeriod(0, pointIndex, pointCount);
@@ -319,7 +499,7 @@ export function formatChannelTrendChartRangeFromStart(
   pointIndex: number,
   pointCount: number,
 ) {
-  if (use30mSlots(chartPeriod)) {
+  if (useTimed24hSlots(chartPeriod)) {
     const start = get30mSlotBounds(0, pointCount);
     const end = get30mSlotBounds(pointIndex, pointCount);
     return `${formatTimeLabel(start.from)} — ${formatTimeLabel(end.to)}`;
@@ -334,6 +514,10 @@ export function formatChannelTrendChartRangeFromStart(
 
 export function getChannelEndTotals(): ChannelDayRecord {
   return { ...db.endTotals };
+}
+
+export function getChannelStartTotals(): ChannelDayRecord {
+  return { ...db.startTotals };
 }
 
 export function isChannelErMetric(metricId: string) {
@@ -379,23 +563,6 @@ function priorCumulativeForMetric(metricId: ChannelMetricId, dayIndexBeforeWindo
   return cumulativeCountMetric(metricId, dayIndexBeforeWindow);
 }
 
-function hashHour(seed: number) {
-  let t = (seed * 2654435761) >>> 0;
-  t ^= t >>> 16;
-  return (t & 0xffff) / 0xffff;
-}
-
-function splitDayDeltaIntoHours(delta: number, hours: number, seed: number) {
-  if (hours <= 1) return [delta];
-  const weights = Array.from({ length: hours }, (_, hour) => 0.25 + hashHour(seed + hour) * 1.5);
-  const weightSum = weights.reduce((sum, weight) => sum + weight, 0);
-  const scaled = weights.map((weight) => (weight / weightSum) * delta);
-  const rounded = scaled.map((value) => Math.round(value));
-  const drift = delta - rounded.reduce((sum, value) => sum + value, 0);
-  rounded[rounded.length - 1] += drift;
-  return rounded;
-}
-
 function bucketSum(values: number[], bucketCount: number) {
   if (bucketCount <= 0) return [];
   if (bucketCount >= values.length) return [...values];
@@ -427,40 +594,45 @@ export function extractChannelMetricSeriesForChart(
   chartPeriod: number,
   pointCount: number,
 ): { values: number[]; priorCumulative: number } {
-  const daySpan = Math.min(chartPeriodToDaySpan(chartPeriod), db.days.length);
-  const sliceStart = Math.max(0, db.days.length - daySpan);
-  const windowDays = db.days.slice(sliceStart);
+  const sliceStart = Math.max(0, db.days.length - chartPeriodToDaySpan(chartPeriod));
   const priorDayIndex = sliceStart - 1;
   const priorCumulative = priorCumulativeForMetric(metricId, priorDayIndex);
 
   if (chartPeriod === 0 && pointCount > 1) {
-    // Реальные 30-минутные снимки: без синтетического разброса по часам.
-    if (use30mSlots(chartPeriod)) {
-      const raw = db.days.map((day) =>
-        isChannelErMetric(metricId) ? Math.round(day.er * 10) : day[metricId],
-      );
-      const startBaseline = priorCumulativeForMetric(metricId, -1);
-      const values = isChannelErMetric(metricId)
-        ? bucketLast(raw, pointCount)
-        : bucketSum(raw, pointCount);
-      return { values, priorCumulative: startBaseline };
-    }
-    const lastDay = windowDays[windowDays.length - 1] ?? db.days[db.days.length - 1];
+    let values = hasTimedSnapshots()
+      ? aggregate30mToLocalHours(metricId, pointCount)
+      : aggregateDailyRowsToLocalHours(metricId, pointCount);
+
     if (isChannelErMetric(metricId)) {
-      const level = Math.round((lastDay?.er ?? db.endTotals.er) * 10);
-      return { values: Array.from({ length: pointCount }, () => level), priorCumulative };
+      return { values, priorCumulative: priorCumulativeForMetric(metricId, -1) };
     }
-    const seed = sliceStart * 17 + metricId.length;
-    return {
-      values: splitDayDeltaIntoHours(lastDay?.[metricId] ?? 0, pointCount, seed),
-      priorCumulative,
-    };
+
+    if (metricId === "subscribers") {
+      const growthInWindow =
+        (db.endTotals.subscribers ?? 0) - (db.startTotals.subscribers ?? 0);
+      if (growthInWindow <= 0) {
+        values = Array.from({ length: pointCount }, () => 0);
+      }
+    }
+
+    // Итоговая линия должна заканчиваться на текущем итоге канала (endTotals), а
+    // не на сумме суточных дельт (≈0, когда бэкенд не знает базу суточного окна).
+    // Поэтому базовый уровень = endTotals − сумма дельт окна, тогда крайняя правая
+    // точка совпадает с текущим значением метрики.
+    const windowDelta = values.reduce((sum, value) => sum + (value ?? 0), 0);
+    const startBaseline = (db.endTotals[metricId] ?? 0) - windowDelta;
+    return { values, priorCumulative: startBaseline };
   }
 
+  if (chartPeriod >= 1 && chartPeriod <= 4 && pointCount > 1) {
+    const values = extractDailySeriesAligned(metricId, chartPeriod, pointCount);
+    return { values, priorCumulative };
+  }
+
+  const windowDays = windowDaysForChartPeriod(chartPeriod);
   const raw = windowDays.map((day) =>
     isChannelErMetric(metricId) ? Math.round(day.er * 10) : day[metricId],
   );
-
   const values = isChannelErMetric(metricId)
     ? bucketLast(raw, pointCount)
     : bucketSum(raw, pointCount);

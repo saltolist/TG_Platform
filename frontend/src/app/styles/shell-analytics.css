@@ -170,7 +170,7 @@
     .analytics-metrics-card,
     .channel-reactions-card
   ),
-.analytics-page .analytics-card:has(.analytics-top-posts-table, .channel-metrics-table) {
+.analytics-page .analytics-card:has(.analytics-top-posts-table) {
   overflow: visible;
 }
 .analytics-page .analytics-chart-card {
@@ -271,6 +271,223 @@
 }
 .analytics-chart-card .model-trend-plot .trend-chart { height: var(--model-trend-chart-height); }
 
+/* Per-metric trend tile grid */
+.channel-analytics-history-empty,
+.channel-analytics-tracking-since {
+  margin: 0 0 14px;
+  color: var(--text3);
+  font-size: 12px;
+  line-height: 1.4;
+}
+
+.channel-analytics-history-empty {
+  margin-bottom: 0;
+}
+
+.channel-analytics-stale-warning {
+  margin: -6px 0 14px;
+  color: var(--orange);
+  font-size: 12px;
+  line-height: 1.4;
+}
+
+.channel-metric-bar-list {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.channel-metric-bar-card {
+  border: 1px solid var(--profile-field-border);
+  border-radius: calc(var(--block-r) - 4px);
+  background: var(--profile-field-bg);
+  box-shadow: var(--profile-field-shadow);
+  padding: 10px 14px 8px;
+  min-width: 0;
+  overflow: visible;
+}
+
+.channel-metric-bar-card-head {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 8px;
+  margin-bottom: 8px;
+}
+
+.channel-metric-bar-card-title {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+}
+
+.channel-metric-bar-card-dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: var(--metric-color, var(--accent));
+  flex-shrink: 0;
+}
+
+.channel-metric-bar-card-label {
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--text2);
+  line-height: 1.2;
+}
+
+.channel-metric-bar-card-total {
+  font-weight: 600;
+  color: var(--text);
+  font-variant-numeric: tabular-nums;
+}
+
+.channel-metric-bar-card-growth {
+  font-size: 12px;
+  font-weight: 400;
+  color: var(--text3);
+  font-variant-numeric: tabular-nums;
+}
+
+.channel-metric-bar-card-stats {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  flex-shrink: 0;
+}
+
+.channel-metric-bar-card-value {
+  font-size: 16px;
+  font-weight: 400;
+  color: var(--text);
+  line-height: 1.15;
+  font-variant-numeric: tabular-nums;
+}
+
+.channel-metric-line-chart {
+  position: relative;
+  display: flex;
+  align-items: stretch;
+  height: 80px;
+  min-width: 0;
+}
+
+.channel-metric-line-svg {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  overflow: visible;
+  pointer-events: none;
+}
+
+.channel-metric-line-area-stop-top {
+  stop-color: var(--metric-color, var(--accent));
+  stop-opacity: 0.22;
+}
+
+.channel-metric-line-area-stop-bottom {
+  stop-color: var(--metric-color, var(--accent));
+  stop-opacity: 0;
+}
+
+.channel-metric-line-path {
+  fill: none;
+  stroke: var(--metric-color, var(--accent));
+  stroke-width: 1.75;
+  stroke-linejoin: round;
+  stroke-linecap: round;
+}
+
+.channel-metric-line-col {
+  flex: 1 1 0;
+  min-width: 0;
+  height: 100%;
+  cursor: pointer;
+  position: relative;
+  padding: 0;
+  border: none;
+  background: transparent;
+}
+
+.channel-metric-line-dot {
+  position: absolute;
+  left: 50%;
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: var(--profile-field-bg, var(--bg));
+  border: 2px solid var(--metric-color, var(--accent));
+  box-shadow: 0 1px 4px color-mix(in srgb, var(--metric-color, var(--accent)) 28%, transparent);
+  opacity: 0;
+  transform: translate(-50%, 50%) scale(0.5);
+  transition:
+    opacity 0.14s ease,
+    transform 0.14s ease,
+    box-shadow 0.14s ease;
+  pointer-events: none;
+}
+
+.channel-metric-line-col:hover .channel-metric-line-dot,
+.channel-metric-line-col:focus-visible .channel-metric-line-dot,
+.channel-metric-line-col--tooltip-open .channel-metric-line-dot {
+  opacity: 1;
+  transform: translate(-50%, 50%) scale(1);
+  box-shadow: 0 2px 8px color-mix(in srgb, var(--metric-color, var(--accent)) 36%, transparent);
+}
+
+.channel-metric-line-col:focus-visible {
+  outline: none;
+}
+
+.channel-metric-bar-labels {
+  display: flex;
+  gap: 3px;
+  margin-top: 4px;
+}
+
+.channel-metric-bar-label-cell {
+  flex: 1 1 0;
+  min-width: 0;
+  text-align: center;
+  color: var(--text3);
+  font-size: 9px;
+  line-height: 1.2;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  font-variant-numeric: tabular-nums;
+}
+
+@media (max-width: 760px) {
+  .channel-metric-bar-card {
+    padding: 8px 10px 8px;
+  }
+
+  .channel-metric-line-chart {
+    height: 64px;
+  }
+
+  .channel-metric-line-dot {
+    width: 7px;
+    height: 7px;
+    border-width: 1.5px;
+  }
+
+  .channel-metric-bar-labels {
+    gap: 2px;
+  }
+
+  .channel-metric-bar-label-cell {
+    font-size: 8px;
+  }
+
+  .channel-metric-bar-card-value {
+    font-size: 14px;
+  }
+}
+
 /* Аналитика канала + платформа (профиль): выравнивание и ширина, не mobile */
 @media (min-width: 761px) {
   #screen-analytics .analytics-chart-card {
@@ -338,109 +555,6 @@
   flex-direction: column;
   align-items: flex-start;
   min-height: 0;
-}
-/* Прирост по метрикам канала */
-.channel-metrics-table {
-  --channel-metric-growth-col: 80px;
-  --channel-metric-quantity-col: 88px;
-  --channel-metric-col-gap: 10px;
-  --channel-metric-row-gap-min: 10px;
-  width: 100%;
-  flex: 1 1 auto;
-  min-height: 0;
-  border-collapse: separate;
-  border-spacing: 0 var(--channel-metric-row-gap-min);
-  table-layout: auto;
-}
-.channel-metrics-table thead th {
-  padding: 0 0 2px;
-  color: var(--text3);
-  font-size: 10px;
-  font-weight: 500;
-  text-transform: uppercase;
-  letter-spacing: 0.06em;
-  vertical-align: bottom;
-  line-height: 1.2;
-}
-.channel-metrics-table tbody td {
-  padding: 0;
-  vertical-align: middle;
-}
-.channel-metrics-table:not(.channel-metrics-table--mobile) {
-  table-layout: auto;
-}
-/* Узкая колонка по тексту; полоса (.cmt-col-bar) забирает остаток ширины */
-.channel-metrics-table:not(.channel-metrics-table--mobile) .cmt-col-metric {
-  width: 0.1%;
-  white-space: nowrap;
-}
-.channel-metrics-table:not(.channel-metrics-table--mobile) .cmt-col-growth {
-  width: var(--channel-metric-growth-col);
-}
-.channel-metrics-table:not(.channel-metrics-table--mobile) .cmt-col-quantity {
-  width: var(--channel-metric-quantity-col);
-}
-.channel-metrics-table .cmt-metric {
-  text-align: left;
-  padding-right: var(--channel-metric-col-gap);
-  white-space: nowrap;
-}
-.channel-metrics-table:not(.channel-metrics-table--mobile) .cmt-metric .bar-label {
-  max-width: 100%;
-}
-.channel-metrics-table:not(.channel-metrics-table--mobile) .cmt-metric .bar-label-text-clip {
-  display: inline-block;
-  max-width: 100%;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  vertical-align: middle;
-}
-.channel-metrics-table:not(.channel-metrics-table--mobile) .cmt-bar {
-  width: 100%;
-  padding-left: 0;
-  padding-right: var(--channel-metric-col-gap);
-}
-.channel-metrics-table:not(.channel-metrics-table--mobile) .cmt-growth,
-.channel-metrics-table:not(.channel-metrics-table--mobile) .cmt-quantity,
-.channel-metrics-table:not(.channel-metrics-table--mobile) thead th.cmt-growth,
-.channel-metrics-table:not(.channel-metrics-table--mobile) thead th.cmt-quantity {
-  white-space: nowrap;
-  text-align: right;
-  padding-left: var(--channel-metric-col-gap);
-}
-.channel-metrics-table--mobile thead th.cmt-growth,
-.channel-metrics-table--mobile thead th.cmt-quantity,
-.channel-metrics-table--mobile tbody td.cmt-growth,
-.channel-metrics-table--mobile tbody td.cmt-quantity {
-  white-space: nowrap;
-}
-.channel-metrics-table--mobile {
-  --channel-metric-growth-col: 72px;
-  --channel-metric-quantity-col: 88px;
-  table-layout: fixed;
-}
-.channel-metrics-table--mobile .cmt-col-metric {
-  width: auto;
-}
-.channel-metrics-table--mobile .cmt-col-growth {
-  width: var(--channel-metric-growth-col);
-}
-.channel-metrics-table--mobile .cmt-col-quantity {
-  width: var(--channel-metric-quantity-col);
-}
-.channel-metrics-table--mobile .cmt-metric {
-  padding-right: 8px;
-  width: auto;
-}
-.channel-metrics-table--mobile thead th.cmt-growth,
-.channel-metrics-table--mobile thead th.cmt-quantity {
-  padding: 0 0 2px;
-  text-align: right;
-}
-.channel-metrics-table--mobile tbody td.cmt-growth,
-.channel-metrics-table--mobile tbody td.cmt-quantity {
-  padding: 0;
-  text-align: right;
 }
 .channel-reactions-panel {
   flex: 0 1 auto;
@@ -1007,21 +1121,6 @@
 .heatmap-level-4 { background: color-mix(in srgb, var(--heatmap-tint) 68%, var(--bg3)); }
 .heatmap-level-5 { background: color-mix(in srgb, var(--heatmap-tint) 86%, var(--bg3)); border-color: color-mix(in srgb, var(--heatmap-tint) 62%, var(--border)); }
 .bar-row { display: grid; grid-template-columns: 170px minmax(0, 1fr) 52px 64px; align-items: center; gap: 10px; margin-bottom: 10px; }
-.channel-metric-row .bar-label {
-  min-width: 0;
-  white-space: nowrap;
-  display: flex;
-  align-items: center;
-  gap: 8px;
-}
-.channel-metric-row .bar-label::before {
-  content: "";
-  width: 8px;
-  height: 8px;
-  border-radius: 50%;
-  background: var(--bar-row-color, var(--accent));
-  flex-shrink: 0;
-}
 .bar-row.model-usage-bar > .bar-label {
   display: flex;
   align-items: center;
@@ -1034,36 +1133,6 @@
   border-radius: 50%;
   background: var(--bar-row-color, var(--accent));
   flex-shrink: 0;
-}
-.channel-metric-row .channel-metric-track .bar-fill {
-  display: block;
-  box-sizing: border-box;
-}
-.channel-metrics-table:not(.channel-metrics-table--mobile) .channel-metric-bar-zone {
-  min-width: 0;
-  max-width: 100%;
-  width: 100%;
-  padding-left: 0;
-  box-sizing: border-box;
-}
-.channel-metrics-table--mobile .channel-metric-bar-zone {
-  min-width: 0;
-  max-width: 100%;
-}
-.channel-metric-row .channel-metric-track {
-  flex: none;
-  width: 100%;
-  max-width: 100%;
-  display: block;
-  overflow: hidden;
-  position: relative;
-}
-.channel-metrics-table .channel-metric-value {
-  color: var(--text2);
-  font-size: 12px;
-  font-weight: 500;
-  font-variant-numeric: tabular-nums;
-  line-height: 1.2;
 }
 .bar-label { font-size: 12px; color: var(--text2); width: auto; min-width: 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .bar-label em { display: block; margin-top: 2px; color: var(--text3); font-size: 11px; font-style: normal; }
@@ -1241,7 +1310,7 @@
   }
 
   /* Аналитика канала (desktop): селекторы справа в одну строку */
-  #screen-analytics .analytics-chart-card .analytics-card-head {
+  :is(#screen-analytics, .channel-growth-chart-context) .analytics-chart-card .analytics-card-head {
     flex-direction: row;
     flex-wrap: nowrap;
     align-items: center;
@@ -1249,12 +1318,12 @@
     gap: 8px;
   }
 
-  #screen-analytics .analytics-chart-card .analytics-card-head .profile-section-title {
+  :is(#screen-analytics, .channel-growth-chart-context) .analytics-chart-card .analytics-card-head .profile-section-title {
     flex: 1 1 auto;
     min-width: 0;
   }
 
-  #screen-analytics
+  :is(#screen-analytics, .channel-growth-chart-context)
     .analytics-chart-card
     .analytics-card-head
     .analytics-channel-head-filters.model-filter-stack.model-filter-stack--with-series {
@@ -1266,12 +1335,12 @@
     margin-left: auto;
   }
 
-  #screen-analytics
+  :is(#screen-analytics, .channel-growth-chart-context)
     .analytics-chart-card
     .analytics-card-head
     .analytics-channel-head-filters
     .profile-model-picker,
-  #screen-analytics
+  :is(#screen-analytics, .channel-growth-chart-context)
     .analytics-chart-card
     .analytics-card-head
     .analytics-channel-head-filters
@@ -1439,14 +1508,14 @@
     grid-template-columns: repeat(2, minmax(0, 1fr));
   }
 /* Планшет: шапка графика канала в колонку — порог по content-adapt-w, не по 100vw */
-html[data-content-adapt-ge-761] #screen-analytics .analytics-chart-card .analytics-card-head {
+html[data-content-adapt-ge-761] :is(#screen-analytics, .channel-growth-chart-context) .analytics-chart-card .analytics-card-head {
     flex-direction: column;
     flex-wrap: wrap;
     align-items: stretch;
     justify-content: flex-start;
   }
 html[data-content-adapt-ge-761]
-    #screen-analytics
+    :is(#screen-analytics, .channel-growth-chart-context)
     .analytics-chart-card
     .analytics-card-head
     .analytics-channel-head-filters.model-filter-stack.model-filter-stack--with-series {
@@ -1455,13 +1524,13 @@ html[data-content-adapt-ge-761]
     margin-left: 0;
   }
 html[data-content-adapt-ge-761]
-    #screen-analytics
+    :is(#screen-analytics, .channel-growth-chart-context)
     .analytics-chart-card
     .analytics-card-head
     .analytics-channel-head-filters
     .profile-model-picker,
   html[data-content-adapt-ge-761]
-    #screen-analytics
+    :is(#screen-analytics, .channel-growth-chart-context)
     .analytics-chart-card
     .analytics-card-head
     .analytics-channel-head-filters
@@ -1549,8 +1618,8 @@ html[data-page-header-le-1130]
     line-height: 1.2;
     white-space: normal;
   }
-html[data-page-header-le-1130] #screen-analytics .analytics-chart-card .analytics-card-head,
-  html[data-page-header-le-930] #screen-analytics .analytics-chart-card .analytics-card-head {
+html[data-page-header-le-1130] :is(#screen-analytics, .channel-growth-chart-context) .analytics-chart-card .analytics-card-head,
+  html[data-page-header-le-930] :is(#screen-analytics, .channel-growth-chart-context) .analytics-chart-card .analytics-card-head {
     flex-direction: row;
     flex-wrap: nowrap;
     align-items: center;
@@ -1559,7 +1628,7 @@ html[data-page-header-le-1130] #screen-analytics .analytics-chart-card .analytic
     margin-bottom: 12px;
   }
 html[data-page-header-le-1130]
-    #screen-analytics
+    :is(#screen-analytics, .channel-growth-chart-context)
     .analytics-chart-card
     .analytics-card-head
     .profile-section-title {
@@ -1571,7 +1640,7 @@ html[data-page-header-le-1130]
     text-overflow: ellipsis;
   }
 html[data-page-header-le-1130]
-    #screen-analytics
+    :is(#screen-analytics, .channel-growth-chart-context)
     .analytics-chart-card
     .analytics-card-head
     .analytics-channel-head-filters.model-filter-stack.model-filter-stack--with-series {
@@ -1586,13 +1655,13 @@ html[data-page-header-le-1130]
     margin-left: auto;
   }
 html[data-page-header-le-1130]
-    #screen-analytics
+    :is(#screen-analytics, .channel-growth-chart-context)
     .analytics-chart-card
     .analytics-card-head
     .analytics-channel-head-filters
     .profile-model-picker,
   html[data-page-header-le-1130]
-    #screen-analytics
+    :is(#screen-analytics, .channel-growth-chart-context)
     .analytics-chart-card
     .analytics-card-head
     .analytics-channel-head-filters
@@ -1602,13 +1671,13 @@ html[data-page-header-le-1130]
     flex: 0 0 auto;
   }
 html[data-page-header-le-1130]
-    #screen-analytics
+    :is(#screen-analytics, .channel-growth-chart-context)
     .analytics-chart-card
     .analytics-card-head
     .chart-series-selector--profile
     .model-picker-btn,
   html[data-page-header-le-1130]
-    #screen-analytics
+    :is(#screen-analytics, .channel-growth-chart-context)
     .analytics-chart-card
     .analytics-card-head
     .analytics-period-picker
@@ -1647,48 +1716,8 @@ html[data-page-header-le-1130]
   .bar-meta {
     width: auto;
   }
-#screen-analytics .channel-metric-row:focus-visible {
-    outline: none;
-  }
-#screen-analytics .channel-metric-row:focus-visible .bar-label-text-clip {
-    border-radius: 4px;
-    box-shadow: 0 0 0 2px color-mix(in srgb, var(--accent) 45%, transparent);
-  }
 #screen-analytics .analytics-page {
     scrollbar-gutter: stable;
-  }
-#screen-analytics
-    .analytics-metrics-row
-    > .analytics-card.analytics-metrics-card:not(.channel-reactions-card) {
-    overflow: visible;
-  }
-#screen-analytics
-    .analytics-metrics-row
-    > .analytics-card.analytics-metrics-card:not(.channel-reactions-card)
-    .analytics-metrics-card-body {
-    overflow: visible;
-  }
-#screen-analytics .channel-metrics-table {
-    overflow: visible;
-  }
-#screen-analytics .channel-metric-row {
-    position: relative;
-  }
-#screen-analytics .channel-metric-row.channel-metric-row--tooltip-open {
-    z-index: 2;
-  }
-#screen-analytics .channel-metric-row .bar-label {
-    position: relative;
-    overflow: visible;
-  }
-#screen-analytics .channel-metric-row .bar-label-text-clip {
-    display: inline-block;
-    max-width: 100%;
-    min-width: 0;
-    overflow: hidden;
-    text-overflow: ellipsis;
-    white-space: nowrap;
-    vertical-align: middle;
   }
 .model-usage-tooltip.model-usage-tooltip--anchored-row {
     position: absolute;
@@ -1728,7 +1757,7 @@ html[data-page-header-le-1130]
     .analytics-metrics-card,
     .channel-reactions-card
   ),
-  #screen-analytics .analytics-card:has(.analytics-top-posts-table, .channel-metrics-table) {
+  #screen-analytics .analytics-card:has(.analytics-top-posts-table) {
     overflow: visible;
     max-width: 100%;
     min-width: 0;
@@ -1761,7 +1790,7 @@ html[data-page-header-le-1130]
     width: 100%;
   }
 /* Аналитика канала: «Динамика прироста» и «Метрики» в одну строку */
-#screen-analytics .analytics-chart-card .analytics-card-head {
+:is(#screen-analytics, .channel-growth-chart-context) .analytics-chart-card .analytics-card-head {
     flex-direction: row;
     flex-wrap: nowrap;
     align-items: center;
@@ -1769,7 +1798,7 @@ html[data-page-header-le-1130]
     gap: 8px;
     margin-bottom: 10px;
   }
-#screen-analytics .analytics-chart-card .analytics-card-head .profile-section-title {
+:is(#screen-analytics, .channel-growth-chart-context) .analytics-chart-card .analytics-card-head .profile-section-title {
     flex: 1 1 auto;
     min-width: 0;
     margin-bottom: 0;
@@ -1779,7 +1808,7 @@ html[data-page-header-le-1130]
     overflow: hidden;
     text-overflow: ellipsis;
   }
-#screen-analytics
+:is(#screen-analytics, .channel-growth-chart-context)
     .analytics-chart-card
     .analytics-card-head
     .analytics-channel-head-filters.model-filter-stack.model-filter-stack--with-series {
@@ -1792,7 +1821,7 @@ html[data-page-header-le-1130]
     max-width: 48%;
     margin-left: auto;
   }
-#screen-analytics .analytics-chart-card .analytics-card-head .analytics-channel-head-filters {
+:is(#screen-analytics, .channel-growth-chart-context) .analytics-chart-card .analytics-card-head .analytics-channel-head-filters {
     display: flex;
     align-items: center;
     justify-content: flex-end;
@@ -1801,21 +1830,21 @@ html[data-page-header-le-1130]
     width: auto;
     margin-left: auto;
   }
-#screen-analytics .analytics-chart-card .analytics-card-head .analytics-channel-head-filters .profile-model-picker,
-  #screen-analytics .analytics-chart-card .analytics-card-head .analytics-channel-head-filters .chart-series-selector--profile {
+:is(#screen-analytics, .channel-growth-chart-context) .analytics-chart-card .analytics-card-head .analytics-channel-head-filters .profile-model-picker,
+  :is(#screen-analytics, .channel-growth-chart-context) .analytics-chart-card .analytics-card-head .analytics-channel-head-filters .chart-series-selector--profile {
     width: auto;
     max-width: 100%;
     flex: 0 0 auto;
   }
-#screen-analytics .analytics-chart-card .analytics-card-head .chart-series-selector,
-  #screen-analytics .analytics-chart-card .analytics-card-head .chart-series-selector--profile {
+:is(#screen-analytics, .channel-growth-chart-context) .analytics-chart-card .analytics-card-head .chart-series-selector,
+  :is(#screen-analytics, .channel-growth-chart-context) .analytics-chart-card .analytics-card-head .chart-series-selector--profile {
     flex: 0 0 auto;
     width: auto;
     max-width: 100%;
     min-width: 0;
     margin-left: 0;
   }
-#screen-analytics .analytics-chart-card .analytics-card-head .chart-series-selector--profile .model-picker-btn {
+:is(#screen-analytics, .channel-growth-chart-context) .analytics-chart-card .analytics-card-head .chart-series-selector--profile .model-picker-btn {
     width: max-content;
     max-width: 100%;
     font-size: 11px;
@@ -1825,7 +1854,7 @@ html[data-page-header-le-1130]
     justify-content: space-between;
   }
 /* Аналитика канала (desktop): период — тот же ритм текста/шеврона, что у «Метрики» */
-#screen-analytics .analytics-chart-card .analytics-card-head .analytics-period-picker .model-picker-btn {
+:is(#screen-analytics, .channel-growth-chart-context) .analytics-chart-card .analytics-card-head .analytics-period-picker .model-picker-btn {
     width: max-content;
     max-width: 100%;
     font-size: 11px;
@@ -1834,7 +1863,7 @@ html[data-page-header-le-1130]
     padding: 0 14px 0 18px;
     justify-content: space-between;
   }
-#screen-analytics
+:is(#screen-analytics, .channel-growth-chart-context)
     .analytics-chart-card
     .analytics-card-head
     .chart-series-selector--profile
@@ -1844,7 +1873,7 @@ html[data-page-header-le-1130]
     white-space: nowrap;
     text-align: left;
   }
-#screen-analytics
+:is(#screen-analytics, .channel-growth-chart-context)
     .analytics-chart-card
     .analytics-card-head
     .analytics-period-picker
@@ -1853,34 +1882,6 @@ html[data-page-header-le-1130]
     text-overflow: ellipsis;
     white-space: nowrap;
     text-align: left;
-  }
-#screen-analytics .analytics-chart-card .channel-analytics-summary {
-    grid-template-columns: repeat(3, minmax(0, 1fr)) !important;
-    gap: 6px;
-    margin-bottom: 10px;
-  }
-#screen-analytics .analytics-chart-card .channel-analytics-summary .channel-mini-metric {
-    display: flex;
-    flex-direction: column;
-    justify-content: center;
-    gap: 4px;
-    min-height: 0;
-    padding: 8px 6px 8px 10px;
-    border-radius: calc(var(--block-r) - 4px);
-  }
-#screen-analytics .analytics-chart-card .channel-analytics-summary .channel-mini-metric .mini-metric-value {
-    font-size: 14px;
-    font-weight: 400;
-    line-height: 1.15;
-  }
-#screen-analytics .analytics-chart-card .channel-analytics-summary .channel-mini-metric .mini-metric-label {
-    white-space: normal;
-    font-size: 11px;
-    line-height: 1.2;
-  }
-#screen-analytics .channel-metrics-table {
-    max-width: 100%;
-    min-width: 0;
   }
 #screen-analytics .analytics-top-posts-table {
     min-width: 0;
@@ -1908,12 +1909,6 @@ html[data-page-header-le-1130]
   }
 .stat-grid {
     grid-template-columns: 1fr;
-  }
-#screen-analytics .analytics-chart-card .channel-analytics-summary .channel-mini-metric {
-    padding: 7px 5px 7px 9px;
-  }
-#screen-analytics .analytics-chart-card .channel-analytics-summary .channel-mini-metric .mini-metric-value {
-    font-size: 13px;
   }
 .bar-row:not(.model-usage-bar) {
     gap: 8px;

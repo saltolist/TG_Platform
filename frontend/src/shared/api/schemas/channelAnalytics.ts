@@ -22,25 +22,37 @@ const channelDaySchema = z.object({
   er: z.number(),
 });
 
-const channelHeatmapSchema = z.object({
+export const channelHeatmapSchema = z.object({
   hours: z.array(z.string()),
   rows: z.array(z.object({ day: z.string(), values: z.array(z.number()) })),
   hasData: z.boolean().optional(),
 });
 
-export const channelAnalyticsOverviewSchema = z.object({
-  version: z.union([z.literal(1), z.literal(2)]),
-  dayCount: z.number(),
+const historySourceSchema = z.enum(["channel_snapshots", "no_history"]);
+
+export const channelAnalyticsSummarySchema = z.object({
   startTotals: channelTotalsSchema,
   endTotals: channelTotalsSchema,
-  days: z.array(channelDaySchema),
-  reactions: z.array(postReactionSchema),
-  // v2 (real history from snapshots)
-  granularity: z.enum(["day", "30m"]).optional(),
-  anchorDate: z.string().optional(),
   subscribersAvailable: z.boolean().optional(),
-  heatmap: channelHeatmapSchema.optional(),
-  historySource: z.enum(["publish_backfill", "snapshots", "mixed"]).optional(),
+  lastSnapshotAt: z.string().nullable().optional(),
+  dataAgeSeconds: z.number().nullable().optional(),
+  isStale: z.boolean().optional(),
+});
+
+export const channelAnalyticsTrendSchema = z.object({
+  dayCount: z.number(),
+  granularity: z.enum(["day", "30m"]),
+  anchorDate: z.string(),
+  startTotals: channelTotalsSchema,
+  endTotals: channelTotalsSchema,
+  subscribersAvailable: z.boolean().optional(),
+  days: z.array(channelDaySchema),
+  historySource: historySourceSchema.optional(),
+  trackingSince: z.string().nullable().optional(),
+});
+
+export const channelAnalyticsReactionsSchema = z.object({
+  reactions: z.array(postReactionSchema),
 });
 
 export type ChannelAnalyticsHeatmap = z.infer<typeof channelHeatmapSchema>;
@@ -60,5 +72,7 @@ export const channelAnalyticsTopPostsSchema = z.object({
   posts: z.array(analyticsTopPostRowSchema),
 });
 
-export type ChannelAnalyticsOverview = z.infer<typeof channelAnalyticsOverviewSchema>;
+export type ChannelAnalyticsSummary = z.infer<typeof channelAnalyticsSummarySchema>;
+export type ChannelAnalyticsTrend = z.infer<typeof channelAnalyticsTrendSchema>;
+export type ChannelAnalyticsReactions = z.infer<typeof channelAnalyticsReactionsSchema>;
 export type AnalyticsTopPostRow = z.infer<typeof analyticsTopPostRowSchema>;

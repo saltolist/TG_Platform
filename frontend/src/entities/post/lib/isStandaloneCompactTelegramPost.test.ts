@@ -64,4 +64,14 @@ describe("isStandaloneCompactTelegramPost", () => {
     expect(isStandaloneCompactTelegramPost(post)).toBe(false);
     expect(postSupportsPlatformEdit(post)).toBe(true);
   });
+
+  it("allows editing deleted sticker-only telegram post", () => {
+    const post: Post = {
+      ...basePost,
+      status: "deleted",
+      media: [{ name: "s.webp", url: "/media/u/1.webp", type: "image/webp", kind: "sticker" }],
+    };
+    expect(isStandaloneCompactTelegramPost(post)).toBe(true);
+    expect(postSupportsPlatformEdit(post)).toBe(true);
+  });
 });

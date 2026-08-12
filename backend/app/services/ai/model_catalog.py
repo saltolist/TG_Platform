@@ -16,7 +16,7 @@ LLM_PROVIDER_MODELS: dict[str, list[str]] = {
     "Anthropic": ["claude-3-7-sonnet", "claude-3-5-sonnet"],
     "Mistral": ["mistral-large", "mistral-small"],
     "Google": ["gemini-1.5-pro", "gemini-1.5-flash"],
-    "DeepSeek": ["deepseek-chat", "deepseek-reasoner"],
+    "DeepSeek": ["deepseek-reasoner", "deepseek-chat"],
     "OpenRouter": [
         "meta-llama/llama-3.1-70b-instruct",
         "qwen/qwen-2.5-72b-instruct",
@@ -40,7 +40,11 @@ VISION_PROVIDER_MODELS: dict[str, list[str]] = {
 IMAGE_GENERATION_PROVIDER_MODELS: dict[str, list[str]] = {
     "OpenAI": ["dall-e-3", "gpt-image-1"],
     "Stability": ["stable-image-ultra", "stable-image-core"],
-    "Google": ["imagen-3"],
+}
+
+VIDEO_GENERATION_PROVIDER_MODELS: dict[str, list[str]] = {
+    "OpenAI": ["sora"],
+    "Google": ["veo-2"],
 }
 
 # LLM provider → (env var name, settings attribute)
@@ -255,6 +259,13 @@ def build_env_backed_ai_profile(
             llm_providers,
             IMAGE_GENERATION_PROVIDER_MODELS,
             id_prefix=f"{id_prefix}-image",
+            env_map=LLM_PROVIDER_ENV,
+            use_env_ref=use_env_ref,
+        ),
+        "videoGenerationModels": _build_provider_catalog_models(
+            llm_providers,
+            VIDEO_GENERATION_PROVIDER_MODELS,
+            id_prefix=f"{id_prefix}-video",
             env_map=LLM_PROVIDER_ENV,
             use_env_ref=use_env_ref,
         ),

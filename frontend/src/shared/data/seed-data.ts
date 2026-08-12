@@ -408,6 +408,7 @@ export const initialAiProfileConfig: AiProfileConfig = {
       includeInMulti: false,
     },
   ],
+  videoGenerationModels: [],
   orchestratorModels: [
     {
       id: "orchestrator-1",

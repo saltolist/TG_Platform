@@ -6,6 +6,7 @@ While background comment push or discussion delete runs, the post id is stored s
 
 from __future__ import annotations
 
+import asyncio
 import logging
 import time
 from typing import Any
@@ -16,8 +17,8 @@ from app.core.config import get_settings
 logger = logging.getLogger(__name__)
 
 _TTL_SECONDS = 180
-_redis_client: Any | None = None
-_redis_unavailable = False
+_redis_clients: dict[asyncio.AbstractEventLoop, Any] = {}
+_redis_unavailable: set[asyncio.AbstractEventLoop] = set()
 _memory_store: dict[str, dict[str, float]] = {}
 
 
@@ -34,23 +35,27 @@ def _set_key(user_id: UUID) -> str:
 
 
 async def _get_redis() -> Any | None:
-    global _redis_client, _redis_unavailable
-    if _redis_unavailable:
+    loop_key = asyncio.get_running_loop()
+    for stale_loop in [loop for loop in _redis_clients if loop.is_closed()]:
+        _redis_clients.pop(stale_loop, None)
+        _redis_unavailable.discard(stale_loop)
+    if loop_key in _redis_unavailable:
         return None
-    if _redis_client is not None:
-        return _redis_client
+    if loop_key in _redis_clients:
+        return _redis_clients[loop_key]
     try:
         from redis.asyncio import Redis
 
         settings = get_settings()
-        _redis_client = Redis.from_url(settings.redis_url, decode_responses=True)
-        await _redis_client.ping()
-        return _redis_client
+        client = Redis.from_url(settings.redis_url, decode_responses=True)
+        await client.ping()
+        _redis_clients[loop_key] = client
+        return client
     except Exception:  # noqa: BLE001
         logger.warning(
             "Redis unavailable for comment sync-pending — using in-memory fallback"
         )
-        _redis_unavailable = True
+        _redis_unavailable.add(loop_key)
         return None
 
 
@@ -134,15 +139,16 @@ async def enrich_posts_for_user(
 
 async def reset_comment_sync_pending_storage() -> None:
     """Test helper — drop in-memory state and redis connection."""
-    global _redis_client, _redis_unavailable
     _memory_store.clear()
-    if _redis_client is not None:
+    loop = asyncio.get_running_loop()
+    current_client = _redis_clients.pop(loop, None)
+    _redis_clients.clear()
+    _redis_unavailable.clear()
+    if current_client is not None:
         try:
-            await _redis_client.aclose()
+            await current_client.aclose()
         except Exception:  # noqa: BLE001
             pass
-    _redis_client = None
-    _redis_unavailable = False
 
 
 __all__ = [

@@ -1,0 +1,34 @@
+global:
+  scrape_interval: 30s
+  evaluation_interval: 30s
+
+alerting:
+  alertmanagers:
+    - static_configs:
+        - targets:
+            - alertmanager:9093
+
+rule_files:
+  - /etc/prometheus/alerts.yml
+
+scrape_configs:
+  - job_name: pushgateway
+    honor_labels: true
+    static_configs:
+      - targets:
+          - pushgateway:9091
+
+  - job_name: celery-worker
+    static_configs:
+      - targets:
+          - celery-worker:9108
+
+  - job_name: celery-heavy-worker
+    static_configs:
+      - targets:
+          - celery-heavy-worker:9108
+
+  - job_name: celery-batch-worker
+    static_configs:
+      - targets:
+          - celery-batch-worker:9108

@@ -70,7 +70,8 @@ fi
 
 if [ -n "$CHAT_ID" ]; then
   echo "[ai-log-chat] фильтр → $CHAT_ID"
-  echo "[ai-log-chat] отправьте сообщение в этом чате — ниже появятся AI REQUEST / AI RESPONSE"
+  echo "[ai-log-chat] отправьте сообщение — в терминале: AI PIPELINE / REQUEST / RESPONSE"
+  echo "[ai-log-chat] прошлые реплики (включая первую): curl -s \"$API_BASE/api/v1/dev/ai-context-log/traces/?chatId=$CHAT_ID\" | jq"
 else
   echo "[ai-log-chat] фильтр сброшен"
 fi

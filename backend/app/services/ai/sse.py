@@ -20,6 +20,22 @@ def format_sse_meta(meta: dict[str, object]) -> str:
     return f"data: {json.dumps({'meta': meta}, ensure_ascii=False)}\n\n"
 
 
+def format_sse_agent_event(
+    *,
+    sequence: int,
+    event_type: str,
+    payload: dict[str, object],
+) -> str:
+    body = {
+        "agent": {
+            "sequence": sequence,
+            "type": event_type,
+            "payload": payload,
+        }
+    }
+    return f"id: {sequence}\ndata: {json.dumps(body, ensure_ascii=False)}\n\n"
+
+
 def format_sse_comment(comment: str) -> str:
     return f": {comment}\n\n"
 
