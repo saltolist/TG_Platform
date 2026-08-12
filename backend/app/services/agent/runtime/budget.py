@@ -119,6 +119,10 @@ def _record_llm_metric(
         "price_snapshot": {"availability": "unavailable", "version": None},
         "estimated_cost": {"availability": "unavailable", "value_usd": None},
     }
+    if isinstance(provider_usage.get("response_shape"), Mapping):
+        # Shape-only metadata makes empty/refusal/truncated provider responses
+        # diagnosable without retaining prompt or completion content.
+        metric["provider_response_shape"] = dict(provider_usage["response_shape"])
     # Cache metadata is meaningful only when there is a stable system prefix.
     # Omitting it for user-only compatibility calls keeps the legacy metric
     # shape while phase-6 answer/planner calls retain the cache observability.

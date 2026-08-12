@@ -30,6 +30,7 @@ from app.services.agent.research.graph import (
     route_research_verify,
 )
 from app.services.agent.research.material_plan import (
+    compile_material_plan,
     empty_material_plan,
     merge_material_plan,
     next_evidence_escalation_batch,
@@ -303,6 +304,56 @@ def test_five_card_selections_need_no_reads_and_reach_pack() -> None:
     assert all(item.allowed_claim_scope == "topic_only" for item in pack.items)
 
 
+def test_verified_inventory_cards_are_not_escalated_and_keep_boundary_provenance() -> None:
+    candidates = normalize_candidates([_candidate(f"note:n{index}") for index in range(5)])
+    contract = {
+        "task_profile": "workspace_synthesis",
+        "answer_shape": {"kind": "inventory", "expected_member_count": None},
+        "source_requirements": [
+            {
+                "source_id": "workspace-notes",
+                "evidence_obligation": "required",
+                "required_fidelity": "semantic_card",
+                "scope": {"mode": "corpus"},
+                "budget": {"deep_reads": 3},
+            }
+        ],
+    }
+    plan = compile_material_plan(
+        None,
+        candidates=candidates,
+        assessments=[_assessment(item["ref"]) for item in candidates],
+        source_dispositions=[
+            {"source_id": "workspace-notes", "status": "selected"}
+        ],
+        contract=contract,
+    )
+
+    unchanged, refs = schedule_evidence_escalation(
+        plan,
+        contract=contract,
+        deep_reads_remaining=3,
+        planner_calls_remaining=1,
+    )
+    assert refs == []
+    assert unchanged["card_ids"] == [f"note:n{index}" for index in range(5)]
+
+    records = {
+        key: EvidenceRecord.from_dict(value)
+        for key, value in _card_records_from_plan(plan).items()
+    }
+    pack = build_verified_evidence_pack(
+        records=records,
+        evidence_ids=list(records),
+        schema=EVIDENCE_PACK_SCHEMA_V2,
+        material_plan=plan,
+        contract=contract,
+    )
+    assert len(pack.items) == 5
+    assert all((item.provenance or {}).get("owner_verified") for item in pack.items)
+    assert all((item.provenance or {}).get("status_verified") for item in pack.items)
+
+
 def test_complete_source_policy_keeps_every_catalog_candidate() -> None:
     candidates = normalize_candidates(
         [_candidate(f"post:p{index}", source="workspace-posts") for index in range(5)]
@@ -423,6 +474,27 @@ def test_unassessed_required_candidates_route_to_selector_before_empty_pack() ->
     assert route_research_verify(state) == "pack"
 
 
+def test_exhausted_locked_membership_ignores_stale_discovery_flags() -> None:
+    state = {
+        "phase5_enabled": True,
+        "adaptive_evidence_depth_enabled": True,
+        "candidate_envelopes": [{"ref": "note:n1"}],
+        "material_plan": {
+            "membership_locked": True,
+            "context_selection_done": False,
+            "needs_expansion_assessment": True,
+            "discovery_actions": [
+                {"tool": "SearchNodes", "source_id": "workspace-notes"}
+            ],
+            "pending_full_text_ids": [],
+            "evidence_escalation_reassess_refs": [],
+        },
+        "sufficiency": {"status": "exhausted"},
+    }
+
+    assert route_research_verify(state) == "pack"
+
+
 def test_phase5_verify_respects_hard_step_budget_during_selector_repair() -> None:
     state = {
         "phase5_enabled": True,
@@ -441,7 +513,7 @@ def test_phase5_verify_respects_hard_step_budget_during_selector_repair() -> Non
     assert route_research_verify(state) == "pack"
 
 
-def test_verified_partial_finish_overrides_stale_selector_repair_flag() -> None:
+def test_verified_partial_finish_waits_for_required_evidence_reassessment() -> None:
     state = {
         "phase5_enabled": True,
         "adaptive_evidence_depth_enabled": True,
@@ -457,7 +529,7 @@ def test_verified_partial_finish_overrides_stale_selector_repair_flag() -> None:
         "sufficiency": {"status": "ready"},
     }
 
-    assert route_research_verify(state) == "pack"
+    assert route_research_verify(state) == "planner"
 
 
 def test_opened_escalation_routes_to_reassessment_before_pack() -> None:
@@ -467,6 +539,24 @@ def test_opened_escalation_routes_to_reassessment_before_pack() -> None:
         "material_plan": {
             "needs_evidence_reassessment": True,
             "evidence_escalation_reassess_refs": ["note:n1"],
+            "pending_full_text_ids": [],
+        },
+        "sufficiency": {"status": "exhausted"},
+    }
+
+    assert route_research_verify(state) == "planner"
+
+
+def test_partial_finish_cannot_bypass_concrete_opened_reassessment() -> None:
+    state = {
+        "phase5_enabled": True,
+        "adaptive_evidence_depth_enabled": True,
+        "step_count": 2,
+        "max_steps": 10,
+        "tool_action": {"requested_status": "partial"},
+        "material_plan": {
+            "needs_evidence_reassessment": True,
+            "evidence_escalation_reassess_refs": ["note:opened"],
             "pending_full_text_ids": [],
         },
         "sufficiency": {"status": "exhausted"},
@@ -488,7 +578,9 @@ def test_pending_full_read_dispatch_precedes_reassessment_route() -> None:
         "sufficiency": {"status": "ready"},
     }
 
-    assert route_research_verify(state) == "tool"
+    # The planner must build the next queue batch; routing directly to the
+    # stale tool action would repeat the first read set.
+    assert route_research_verify(state) == "planner"
 
 
 def test_optional_note_is_typed_as_support_not_post_target() -> None:
@@ -1183,6 +1275,50 @@ def test_assessments_merge_across_expansion_instead_of_overwrite() -> None:
         assessments=[_assessment("note:n2", relevance="supporting")],
     )
     assert [item["ref"] for item in plan["assessments"]] == ["note:n1", "note:n2"]
+
+
+def test_post_read_membership_lock_rejects_late_additions() -> None:
+    first = normalize_candidates([_candidate("note:n1"), _candidate("note:n2")])
+    plan = merge_material_plan(
+        {
+            **empty_material_plan(),
+            "membership_locked": True,
+            "membership_locked_refs": ["note:n1"],
+        },
+        candidates=first,
+        assessments=[
+            _assessment("note:n1", resolution="full_text"),
+            _assessment("note:n2", resolution="full_text", relevance="supporting"),
+        ],
+    )
+    by_ref = {item["ref"]: item for item in plan["assessments"]}
+    assert by_ref["note:n1"]["relevance"] == "direct"
+    assert by_ref["note:n2"]["relevance"] == "irrelevant"
+    assert by_ref["note:n2"]["reason_code"] == "membership_locked"
+    assert plan["membership_boundary_violations"] == ["note:n2"]
+    assert plan["required_full_text_ids"] == ["note:n1"]
+
+    repeated = merge_material_plan(
+        plan,
+        candidates=[],
+        assessments=[
+            _assessment("note:n1", resolution="full_text", relevance="irrelevant")
+        ],
+    )
+    repeated_by_ref = {item["ref"]: item for item in repeated["assessments"]}
+    assert repeated_by_ref["note:n1"]["relevance"] == "direct"
+    assert repeated_by_ref["note:n1"]["runtime_override"] == (
+        "post_read_membership_boundary"
+    )
+
+    empty_locked = merge_material_plan(
+        {**empty_material_plan(), "membership_locked": True},
+        candidates=first,
+        assessments=[_assessment("note:n1", resolution="full_text")],
+    )
+    assert empty_locked["membership_locked_refs"] == []
+    assert empty_locked["required_full_text_ids"] == []
+    assert empty_locked["membership_boundary_violations"] == ["note:n1"]
 
 
 def test_required_pending_blocks_sufficiency_and_failure_is_explicit_partial() -> None:

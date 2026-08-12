@@ -127,6 +127,9 @@ class AgentGraphState(TypedDict, total=False):
     # Durable typed blockers. Duplicated from sufficiency.gaps for checkpoint
     # inspection and resume without parsing human-readable open requirements.
     evidence_gaps: list[dict[str, Any]]
+    # The soft boundary stops new discovery/materialization work, but it does
+    # not authorize an unclassified recall cohort to become membership.
+    soft_deadline_reached: bool
     deadline_exhausted: bool
     selected_candidate_ids: list[str]
     material_plan: dict[str, Any]

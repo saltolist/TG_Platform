@@ -43,6 +43,11 @@ TARGET_CONTRACT_SCHEMA = "workspace.target/v2"
 REFERENT_RESOLUTION_SCHEMA = "workspace.referent-resolution/v1"
 EVIDENCE_REQUIREMENT_SCHEMA = "workspace.evidence-requirement/v1"
 
+# Discovery and final answer packing have different jobs. The former may read
+# the complete bounded registry before semantic membership is known; the latter
+# stays compact for answer generation.
+DEFAULT_MAX_RECALL_READS = 16
+
 TargetRole = Literal["subject", "source", "comparison", "style_reference", "context"]
 TargetMode = Literal["exact", "set", "corpus", "mixed", "ambiguous"]
 ExecutionMode = Literal["fast", "compact", "deep", "batch"]
@@ -252,11 +257,14 @@ class EvidenceRequirement(_ContractModel):
 class AnswerShape(_ContractModel):
     kind: Literal["freeform", "scalar", "record", "inventory"] = "freeform"
     expected_member_count: int | None = Field(default=None, ge=1, le=100)
+    inventory_unit: Literal["record", "value"] | None = None
 
     @model_validator(mode="after")
     def validate_member_count(self) -> "AnswerShape":
         if self.kind != "inventory" and self.expected_member_count is not None:
             raise ValueError("only inventory answers may declare a member count")
+        if self.kind != "inventory" and self.inventory_unit is not None:
+            raise ValueError("only inventory answers may declare an inventory unit")
         return self
 
 
@@ -1247,11 +1255,21 @@ def _run_budget(*, profile: str, target_contract: TargetContract,
     local_search = sum(source.budget.search_calls for source in sources)
     local_reads = sum(source.budget.deep_reads for source in sources)
     return "compact", RunBudget(
-        soft_deadline_ms=30_000, hard_deadline_ms=60_000,
-        bootstrap_deadline_ms=20_000, planner_calls=2,
+        # The soft boundary stops additional recall expansion. The hard budget
+        # still has to cover mandatory post-read membership plus final answer
+        # generation when a degradable earlier phase was slow.
+        soft_deadline_ms=45_000, hard_deadline_ms=120_000,
+        bootstrap_deadline_ms=35_000, planner_calls=2,
         selector_verification_calls=4,
         search_calls=max(3, local_search), search_rewrites_per_intent=1,
-        deep_reads=max(3, local_reads), tool_calls=max(8, local_search + local_reads + 2),
+        # Full-read admission is a recall budget, not the final evidence-pack
+        # cardinality. Keep enough room for the whole bounded candidate registry
+        # so semantic candidates are not evicted before post-read classification.
+        deep_reads=max(DEFAULT_MAX_RECALL_READS, local_reads),
+        tool_calls=max(
+            DEFAULT_MAX_RECALL_READS + 4,
+            local_search + max(DEFAULT_MAX_RECALL_READS, local_reads) + 2,
+        ),
     )
 
 
@@ -1349,6 +1367,13 @@ def _has_semantic_predicate(user_text: str) -> bool:
             " релевант",
             " related to ",
             " about ",
+            "со знаниями",
+            "по смыслу",
+            "по содержанию",
+            "отдели",
+            "классифиц",
+            "релевант",
+            "подтвержд",
         )
     )
 
@@ -1521,7 +1546,11 @@ def build_turn_contract(
             semantic_referent_enabled=False,
         )
         return (
-            _upgrade_contract_v3(v2_contract, user_text="")
+            # The unified bootstrap does not perform semantic referent
+            # resolution, but structural predicates (inventory, counts,
+            # explicit lifecycle filters) are still deterministic properties of
+            # the frozen user query and must reach the typed compiler.
+            _upgrade_contract_v3(v2_contract, user_text=current)
             if typed_requirements_enabled
             else v2_contract
         )

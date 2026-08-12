@@ -214,6 +214,15 @@ def normalize_candidate(
         )
     except (TypeError, ValueError):
         semantic_score = None
+    raw_semantic_rank_score = candidate.get("semantic_rank_score")
+    try:
+        semantic_rank_score = (
+            float(raw_semantic_rank_score)
+            if raw_semantic_rank_score is not None
+            else semantic_score
+        )
+    except (TypeError, ValueError):
+        semantic_rank_score = semantic_score
     if origin != "semantic_search":
         semantic_score = None
     source_requirement_ids = list(
@@ -269,10 +278,13 @@ def normalize_candidate(
             else _ORIGIN_INCLUSION_PRIORITY.get(origin, 50)
         ),
         "semantic_score": semantic_score,
-        "semantic_rank_score": semantic_score,
+        # Retrieval provenance survives later authoritative-card hydration.
+        # `semantic_score` describes this input row's origin, while the rank
+        # score is an immutable recall feature of the candidate identity.
+        "semantic_rank_score": semantic_rank_score,
         "search_enriched": bool(
             candidate.get("search_enriched")
-            or (origin == "semantic_search" and semantic_score is not None)
+            or semantic_rank_score is not None
         ),
         "score": semantic_score,
         "source_requirement_ids": source_requirement_ids,
@@ -387,8 +399,10 @@ def normalize_candidates(
                     default=None,
                 ),
                 "search_enriched": bool(
-                    previous.get("semantic_score") is not None
-                    or candidate.get("semantic_score") is not None
+                    previous.get("search_enriched")
+                    or candidate.get("search_enriched")
+                    or previous.get("semantic_rank_score") is not None
+                    or candidate.get("semantic_rank_score") is not None
                 ),
                 "matched_evidence_rank": min(
                     (
@@ -463,6 +477,15 @@ def empty_material_plan() -> dict[str, Any]:
         "evidence_escalation_reassess_refs": [],
         "finite_source_recovery_refs": [],
         "semantic_card_recovery_refs": [],
+        "precision_full_text_shortlist_refs": [],
+        "precision_shortlist_verification_refs": [],
+        "precision_shortlist_recovery_refs": [],
+        # Once the post-read owner has produced validated edges and the
+        # deterministic assembler has committed membership, later planner or
+        # materialization passes may not add a new evidence ref implicitly.
+        "membership_locked_refs": [],
+        "membership_locked": False,
+        "membership_boundary_violations": [],
         # A reassessment may establish that an ordinary semantic corpus adds
         # nothing beyond already verified evidence.  This is deliberately
         # separate from discovery: the corpus was still searched and assessed.
@@ -544,10 +567,47 @@ def merge_material_plan(
         for item in prior.get("assessments") or ()
         if isinstance(item, Mapping) and item.get("ref")
     }
+    locked_refs = {
+        canonical_candidate_ref(str(ref))
+        for ref in prior.get("membership_locked_refs") or ()
+        if str(ref)
+    }
+    membership_locked = bool(prior.get("membership_locked"))
+    boundary_violations = list(prior.get("membership_boundary_violations") or ())
     for item in assessments:
         ref = canonical_candidate_ref(str(item.get("ref") or ""))
         if ref and ref in candidate_map:
-            assessment_map[ref] = {**dict(item), "ref": ref}
+            normalized = {**dict(item), "ref": ref}
+            if (
+                membership_locked
+                and ref not in locked_refs
+                and str(normalized.get("relevance") or "irrelevant")
+                != "irrelevant"
+            ):
+                boundary_violations.append(ref)
+                normalized.update(
+                    {
+                        "relevance": "irrelevant",
+                        "role": "none",
+                        "resolution": "none",
+                        "reason_code": "membership_locked",
+                        "runtime_override": "post_read_membership_boundary",
+                    }
+                )
+            elif (
+                membership_locked
+                and ref in locked_refs
+                and str(normalized.get("relevance") or "irrelevant")
+                == "irrelevant"
+                and str((assessment_map.get(ref) or {}).get("relevance") or "")
+                in {"direct", "supporting"}
+            ):
+                boundary_violations.append(ref)
+                normalized = {
+                    **assessment_map[ref],
+                    "runtime_override": "post_read_membership_boundary",
+                }
+            assessment_map[ref] = normalized
 
     ordered_refs = list(candidate_map)
     ordered_assessments = [assessment_map[ref] for ref in ordered_refs if ref in assessment_map]
@@ -619,6 +679,9 @@ def merge_material_plan(
         "has_more_by_source": has_more,
         "coverage": coverage,
         "card_eligibility_failures": failures,
+        "membership_locked_refs": sorted(locked_refs),
+        "membership_locked": membership_locked,
+        "membership_boundary_violations": _unique(boundary_violations),
     }
 
 
@@ -757,6 +820,28 @@ def compile_material_plan(
 
     selector_failed = bool(plan.get("selector_failure"))
     selected: list[tuple[tuple[Any, ...], dict[str, Any]]] = []
+    # `max_objects` is the final pack cardinality. A finite comparison may
+    # request a larger immutable read cohort so post-read can choose the one
+    # self-contained record without making retrieval itself one-shot.
+    contract_selection_mode = str((contract or {}).get("selection_mode") or "")
+    configured_read_max = max(
+        0, int((contract or {}).get("read_cohort_max_objects") or 0)
+    )
+    deep_read_capacity = max(
+        0,
+        int(((contract or {}).get("budgets") or {}).get("deep_reads") or 0),
+    )
+    # Composition answers need a recall cohort larger than their final pack:
+    # lossy cards cannot be allowed to decide which full-text rows are never
+    # opened. The cohort is still bounded by the existing deep-read budget;
+    # membership remains constrained by max_objects below the post-read owner.
+    if contract_selection_mode in {
+        "composition",
+        "cross_record_comparison",
+        "cross_record_inventory",
+    }:
+        configured_read_max = max(configured_read_max, deep_read_capacity)
+    read_max_objects = max(max(0, int(max_objects)), configured_read_max)
     source_order = {
         str(source.get("source_id") or ""): position
         for position, source in enumerate(contract.get("source_requirements") or ())
@@ -767,10 +852,50 @@ def compile_material_plan(
         for source_id, requirement in requirements.items()
         if (requirement.get("budget") or {}).get("deep_reads") is not None
     }
+    # Recall cohorts are admission decisions, not final membership. Once a
+    # candidate is in this immutable full-text cohort, a per-source planner
+    # allowance must not evict it before reading. The shared object/character
+    # budgets remain authoritative and still bound the cohort.
+    recall_full_text_refs = {
+        canonical_candidate_ref(str(ref))
+        for ref in plan.get("precision_full_text_shortlist_refs") or ()
+        if str(ref)
+    }
+    protected_full_text_refs = {
+        canonical_candidate_ref(str(ref))
+        for ref in (
+            *(plan.get("precision_full_text_shortlist_refs") or ()),
+            *(plan.get("required_full_text_ids") or ()),
+        )
+        if str(ref)
+    }
     for ref, candidate in candidate_map.items():
         assessment = assessment_map.get(ref)
         exact_target = str(candidate.get("origin") or "") == "exact_target"
-        if assessment is None:
+        recall_admission = bool(
+            not plan.get("membership_locked")
+            and ref in recall_full_text_refs
+        )
+        if recall_admission and (
+            assessment is None
+            or str(assessment.get("relevance") or "irrelevant")
+            not in {"direct", "supporting"}
+        ):
+            # The card stage owns only bounded recall. Admit its shortlist to
+            # the read queue even when the card classifier was negative; the
+            # post-read owner will decide final membership from opened text.
+            assessment = {
+                "ref": ref,
+                "relevance": "supporting",
+                "resolution": "full_text",
+                "reason_code": "recall_cohort_full_read",
+                "selection_source": "deterministic_recall_cohort",
+                "confidence": 1.0,
+            }
+            trace.append(
+                {"ref": ref, "kind": "recall_cohort_full_read_admission"}
+            )
+        elif assessment is None:
             if not (selector_failed and exact_target):
                 continue
             assessment = {
@@ -897,18 +1022,24 @@ def compile_material_plan(
     full_text_count = sum(
         item["effective_fidelity"] != "semantic_card" for _priority, item in selected
     )
+    # Reserve against the bounded cohort capacity, not only the candidates
+    # currently visible to the compiler. Otherwise an early long row consumes
+    # the budget that a later short recall candidate needs before post-read can
+    # classify it. This remains a reservation cap; actual short rows use their
+    # smaller estimate and the total character budget stays authoritative.
+    reservation_count = max(full_text_count, read_max_objects)
     fair_full_text_reservation = (
         max(
             1,
             min(
                 DEFAULT_FULL_TEXT_RESERVATION_CHARS,
-                max(0, int(max_full_text_chars)) // full_text_count,
+                max(0, int(max_full_text_chars)) // reservation_count,
             ),
         )
-        if full_text_count
+        if reservation_count
         else 0
     )
-    if max(0, int(max_full_text_chars)) >= full_text_count * MIN_FULL_TEXT_RESERVATION_CHARS:
+    if max(0, int(max_full_text_chars)) >= reservation_count * MIN_FULL_TEXT_RESERVATION_CHARS:
         fair_full_text_reservation = max(
             MIN_FULL_TEXT_RESERVATION_CHARS, fair_full_text_reservation
         )
@@ -948,7 +1079,7 @@ def compile_material_plan(
                 for source_id in item.get("source_requirement_ids") or ()
                 if source_id not in source_deep_read_limits
             ]
-            if bounded_source_ids and not unbounded_source_ids:
+            if bounded_source_ids and not unbounded_source_ids and str(item["ref"]) not in protected_full_text_refs:
                 read_budget_source_id = next(
                     (
                         source_id
@@ -962,7 +1093,7 @@ def compile_material_plan(
                     reason = "source_deep_read_budget"
             if read_budget_source_id:
                 item["read_budget_source_id"] = read_budget_source_id
-        if not reason and len(queue) >= max(0, int(max_objects)):
+        if not reason and len(queue) >= read_max_objects:
             reason = "object_budget"
         elif not reason and fidelity == "semantic_card" and used_cards + estimate > max(0, int(max_card_chars)):
             reason = "card_char_budget"
@@ -1033,6 +1164,7 @@ def compile_material_plan(
         "runtime_trace": trace,
         "budget": {
             "max_objects": max(0, int(max_objects)),
+            "read_max_objects": read_max_objects,
             "max_full_text_chars": max(0, int(max_full_text_chars)),
             "max_card_chars": max(0, int(max_card_chars)),
         },
@@ -1073,10 +1205,12 @@ def _is_decision_input_task(contract: Mapping[str, Any]) -> bool:
         for source in contract.get("source_requirements") or ()
     ):
         return True
-    return (
-        profile == "workspace_synthesis"
+    return bool(
+        str(contract.get("selection_mode") or "")
+        in {"composition", "cross_record_comparison"}
         and isinstance(answer_shape, Mapping)
-        and str(answer_shape.get("kind") or "") == "inventory"
+        and str(answer_shape.get("kind") or "") == "freeform"
+        and len(contract.get("answer_obligations") or ()) > 1
     )
 
 
@@ -1104,14 +1238,18 @@ def schedule_matched_evidence_recall_probes(
         if isinstance(item, Mapping)
         and str(item.get("relevance") or "") in {"direct", "supporting"}
     }
-    selected_full_refs = set(
-        _unique(
-            (
-                *result.get("required_full_text_ids", ()),
-                *result.get("optional_full_text_ids", ()),
-            )
+    selected_material_refs = _unique(
+        (
+            *result.get("required_full_text_ids", ()),
+            *result.get("optional_full_text_ids", ()),
+            *(
+                result.get("card_ids", ())
+                if result.get("precision_full_text_shortlist_refs")
+                else ()
+            ),
         )
-    ) & positive_refs
+    )
+    selected_full_refs = set(selected_material_refs) & positive_refs
     answer_shape = contract.get("answer_shape") or {}
     finite_inventory = (
         isinstance(answer_shape, Mapping)
@@ -1198,6 +1336,71 @@ def schedule_matched_evidence_recall_probes(
         )
         and "full_text" in set(candidate.get("available_fidelity") or ())
     ]
+
+    # Card precision may identify several plausible rows for the same atomic
+    # obligation even though the deterministic assembler selects only one card.
+    # Open the bounded runner-up cohort as probes; only the later opened-evidence
+    # reassessment can admit them into the final materialization queue.
+    source_limits = {
+        str(source.get("source_id") or ""): max(
+            0, int((source.get("budget") or {}).get("deep_reads"))
+        )
+        for source in contract.get("source_requirements") or ()
+        if isinstance(source, Mapping)
+        and source.get("source_id")
+        and (source.get("budget") or {}).get("deep_reads") is not None
+    }
+    candidate_by_ref = {
+        canonical_candidate_ref(str(candidate.get("ref") or "")): candidate
+        for candidate in candidates
+    }
+    source_reserved = {source_id: 0 for source_id in source_limits}
+    for ref in unavailable:
+        candidate = candidate_by_ref.get(ref)
+        if candidate is None:
+            continue
+        for source_id in _candidate_source_ids(candidate):
+            if source_id in source_reserved:
+                source_reserved[source_id] += 1
+    precision_verification_refs: list[str] = []
+    precision_recovery_refs: list[str] = []
+    precision_shortlist_refs = _unique(
+        canonical_candidate_ref(str(raw_ref))
+        for raw_ref in result.get("precision_full_text_shortlist_refs") or ()
+        if str(raw_ref)
+    )
+    for ref in precision_shortlist_refs:
+        if len(precision_verification_refs) >= capacity:
+            break
+        candidate = candidate_by_ref.get(ref)
+        if candidate is None or ref in unavailable:
+            continue
+        bounded_sources = [
+            source_id
+            for source_id in _candidate_source_ids(candidate)
+            if source_id in source_limits
+        ]
+        if bounded_sources and all(
+            source_reserved[source_id] >= source_limits[source_id]
+            for source_id in bounded_sources
+        ):
+            continue
+        precision_verification_refs.append(ref)
+        if ref not in positive_refs:
+            precision_recovery_refs.append(ref)
+        unavailable.add(ref)
+        for source_id in bounded_sources:
+            if source_reserved[source_id] < source_limits[source_id]:
+                source_reserved[source_id] += 1
+                break
+    capacity -= len(precision_verification_refs)
+
+    # A valid card-recall adjudication owns the bounded read cohort. Generic
+    # recovery heuristics below must not spend spare budget on rows that this
+    # recall pass explicitly rejected; only the post-read classifier may make
+    # the final membership decision for the shortlisted full texts.
+    if precision_shortlist_refs:
+        capacity = 0
 
     # A finite topical comparison can expose an unranked catalog card whose
     # lossy projection is insufficient but whose query-conditioned chunk is a
@@ -1458,6 +1661,8 @@ def schedule_matched_evidence_recall_probes(
     )
     scheduled_refs = _unique(
         (
+            *precision_verification_refs,
+            *precision_recovery_refs,
             *finite_topical_recovery_refs,
             *finite_recovery_refs,
             *probe_refs,
@@ -1470,6 +1675,8 @@ def schedule_matched_evidence_recall_probes(
     result["finite_topical_recall_refs"] = finite_topical_recovery_refs
     result["matched_evidence_recall_refs"] = probe_refs
     result["semantic_card_recovery_refs"] = semantic_card_recovery_refs
+    result["precision_shortlist_verification_refs"] = precision_verification_refs
+    result["precision_shortlist_recovery_refs"] = precision_recovery_refs
     result["optional_full_text_ids"] = _unique(
         (*result.get("optional_full_text_ids", ()), *scheduled_refs)
     )
@@ -1486,6 +1693,8 @@ def schedule_matched_evidence_recall_probes(
             "finite_source_recovery_refs": finite_recovery_refs,
             "matched_evidence_recall_refs": probe_refs,
             "semantic_card_recovery_refs": semantic_card_recovery_refs,
+            "precision_shortlist_verification_refs": precision_verification_refs,
+            "precision_shortlist_recovery_refs": precision_recovery_refs,
         },
     ]
     return result
@@ -1548,6 +1757,11 @@ def schedule_evidence_escalation(
         for item in result.get("candidates") or ()
         if isinstance(item, Mapping) and item.get("ref")
     }
+    queue_by_ref = {
+        canonical_candidate_ref(str(item.get("ref") or "")): dict(item)
+        for item in result.get("materialization_queue") or ()
+        if isinstance(item, Mapping) and item.get("ref")
+    }
     positive_source_ids = {
         source_id
         for candidate in result.get("candidates") or ()
@@ -1589,8 +1803,21 @@ def schedule_evidence_escalation(
     source_reads_reserved = {source_id: 0 for source_id in source_read_limits}
     selected_input_refs: list[str] = []
     if decision_input_mode:
+        recall_priority_refs = (
+            result.get("precision_full_text_shortlist_refs") or ()
+            if int(
+                result.get("precision_full_text_shortlist_obligation_count") or 0
+            )
+            >= 4
+            else ()
+        )
         ordered_positive_refs = _unique(
             (
+                *(
+                    canonical_candidate_ref(str(ref))
+                    for ref in recall_priority_refs
+                    if str(ref)
+                ),
                 *(
                     canonical_candidate_ref(str(item.get("ref") or ""))
                     for item in result.get("queue") or ()
@@ -1617,6 +1844,8 @@ def schedule_evidence_escalation(
                 len(selected_input_refs) >= deep_reads_remaining
                 or ref in opened_or_failed
                 or not ref.startswith(("note:", "post:"))
+                or str(queue_by_ref.get(ref, {}).get("effective_fidelity") or "")
+                == "semantic_card"
                 or "full_text" not in set(candidate.get("available_fidelity") or ())
                 or str(assessment_by_ref.get(ref, {}).get("relevance") or "")
                 not in {"direct", "supporting"}
@@ -1934,6 +2163,7 @@ def schedule_selected_evidence_reassessment(
                 *result.get("finite_source_recovery_refs", ()),
                 *result.get("matched_evidence_recall_refs", ()),
                 *result.get("semantic_card_recovery_refs", ()),
+                *result.get("precision_shortlist_recovery_refs", ()),
             )
             if str(item)
         )

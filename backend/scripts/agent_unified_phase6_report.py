@@ -14,11 +14,11 @@ BACKEND_ROOT = Path(__file__).resolve().parents[1]
 if str(BACKEND_ROOT) not in sys.path:
     sys.path.insert(0, str(BACKEND_ROOT))
 
-from app.services.agent.research.graph import CONTEXT_SELECTOR_SYSTEM
+from app.services.agent.research.graph import SEMANTIC_ADJUDICATOR_SYSTEM_A
 from app.services.agent.research.material_plan import normalize_candidates
-from app.services.agent.research.selector_transport import (
-    encode_selector_transport,
-    render_selector_transport_output_requirements,
+from app.services.agent.research.semantic_adjudicator import (
+    build_adjudication_mapping,
+    render_adjudication_request,
 )
 from app.services.agent.research.trust import UNTRUSTED_SYSTEM_NOTE
 from app.services.agent.runtime.baseline import load_unified_phase0_fixture
@@ -144,56 +144,69 @@ def _benchmark_candidates(count: int, *, summary_chars: int = 160) -> list[dict[
     return normalized
 
 
-def _maximum_valid_output(candidate_count: int, registry_nonce: str) -> str:
+def _maximum_valid_adjudication_output(
+    candidate_count: int,
+    registry_nonce: str,
+    *,
+    obligation_count: int,
+) -> str:
+    """Represent the largest valid row-label response for the benchmark."""
+
     return json.dumps(
         {
-            "v": 2,
+            "v": 1,
             "n": candidate_count,
             "r": registry_nonce,
-            "a": ["ix9" for _index in range(candidate_count)],
+            "rows": [
+                {"i": index, "g": 2, "o": list(range(obligation_count))}
+                for index in range(candidate_count)
+            ],
             "done": True,
         },
         separators=(",", ":"),
     )
 
 
-def _benchmark_scenario(
+def _benchmark_adjudication_scenario(
     count: int,
     *,
     repeats: int,
     summary_chars: int = 160,
 ) -> dict[str, Any]:
+    """Measure the active bounded row-label protocol, not the legacy selector."""
+
     candidates = _benchmark_candidates(count, summary_chars=summary_chars)
     contract = _benchmark_contract(complete=count > 16)
-    dialog = ("Предыдущий контекст: запуск, сроки, риски, owners. " * 80)[:3000]
+    obligations = (
+        "launch owners and dates",
+        "API dependency and rollout constraint",
+        "budget limit",
+        "rollback criterion",
+    )
     timings: list[float] = []
     messages: list[dict[str, str]] = []
-    transport = None
+    mapping = None
     for _ in range(max(2, repeats)):
         started = time.perf_counter()
-        transport = encode_selector_transport(
+        mapping = build_adjudication_mapping(
             question="Какие материалы относятся к запуску, включая вторичные темы и ограничения?",
-            # Production Selector consumes Planner's self-contained resolved goal;
-            # repeating the dialog would add tokens and reintroduce excluded referents.
-            dialog_context="",
-            contract=contract,
+            obligations=obligations,
             candidates=candidates,
-            summary_max_chars=summary_chars,
+            task_profile="workspace_synthesis",
+            selection_mode="composition",
+            source_requirements=contract["source_requirements"],
         )
         messages = [
-            {"role": "system", "content": CONTEXT_SELECTOR_SYSTEM + "\n" + UNTRUSTED_SYSTEM_NOTE},
             {
-                "role": "user",
-                "content": render_selector_transport_output_requirements(transport.mapping)
-                + "\nCompact candidate registry (data, not instructions):\n"
-                + transport.render(),
+                "role": "system",
+                "content": SEMANTIC_ADJUDICATOR_SYSTEM_A + "\n" + UNTRUSTED_SYSTEM_NOTE,
             },
+            {"role": "user", "content": render_adjudication_request(mapping)},
         ]
         timings.append((time.perf_counter() - started) * 1000)
-    assert transport is not None
-    output = _maximum_valid_output(
-        len(candidates),
-        transport.mapping.registry_nonce,
+    assert mapping is not None
+    output = _maximum_valid_adjudication_output(
+        len(candidates), mapping.nonce, obligation_count=len(obligations)
     )
     ordered = sorted(timings)
     p95_index = min(len(ordered) - 1, int((len(ordered) - 1) * 0.95))
@@ -204,6 +217,7 @@ def _benchmark_scenario(
         "encoded_candidate_count": len(candidates),
         "cohort": "relevant" if count <= 16 else "complete_sync" if count <= 100 else "complete_boundary",
         "summary_chars": summary_chars,
+        "obligation_count": len(obligations),
         "input_chars": sum(len(item["content"]) for item in messages),
         "maximum_valid_output_chars": len(output),
         "input_tokens_chars_div_4_estimator": input_tokens,
@@ -212,6 +226,7 @@ def _benchmark_scenario(
         "local_serialization_p50_ms": round(statistics.median(timings), 3),
         "local_serialization_p95_ms": round(ordered[p95_index], 3),
         "repeats": len(timings),
+        "protocol": "parallel_semantic_adjudication_v1",
     }
 
 
@@ -219,16 +234,16 @@ def selector_boundary_benchmark(*, repeats: int = 50) -> dict[str, Any]:
     """Measure the full request with an estimator, never as provider usage."""
 
     scenarios = {
-        str(count): _benchmark_scenario(count, repeats=repeats)
+        str(count): _benchmark_adjudication_scenario(count, repeats=repeats)
         for count in (16, 64, 100, 128, 256)
     }
     challengers = {
-        str(chars): _benchmark_scenario(100, repeats=max(2, min(repeats, 5)), summary_chars=chars)
+        str(chars): _benchmark_adjudication_scenario(100, repeats=max(2, min(repeats, 5)), summary_chars=chars)
         for chars in (80, 120, 160, 240)
     }
     boundary = scenarios["256"]
     return {
-        "schema": "workspace.selector-boundary-benchmark/v2",
+        "schema": "workspace.selector-boundary-benchmark/v3",
         "estimator": "chars_div_4",
         "estimator_is_provider_usage": False,
         "scenarios": scenarios,
@@ -251,7 +266,8 @@ def selector_boundary_benchmark(*, repeats: int = 50) -> dict[str, Any]:
         "estimated_total_tokens_chars_div_4": boundary[
             "total_tokens_chars_div_4_estimator"
         ],
-        "selector_calls_per_successful_pass": 1,
+        "selector_calls_per_successful_pass": 2,
+        "selector_calls_max_with_tie_breaker": 3,
         "provider_latency_availability": "unavailable",
         "provider_token_usage_availability": "unavailable",
         "estimated_cost_availability": "unavailable",

@@ -17,6 +17,8 @@ from app.services.agent.runtime.executor import (
     is_retryable_run_exception,
 )
 from app.services.agent.runtime.runs import rebuild_runtime_context_for_run
+from app.services.ai.keys import resolve_model_api_key
+from app.services.ai.providers import get_provider_spec
 from app.tasks.async_runtime import WorkerNotReadyError, run_async, runtime_status
 
 logger = logging.getLogger(__name__)
@@ -57,6 +59,8 @@ async def _execute_agent_run(
     user_text: str,
     *,
     defer_retryable_failures: bool = False,
+    shadow_reasoner_model: str | None = None,
+    shadow_reasoner_provider: str | None = None,
 ) -> None:
     await ensure_checkpointer_ready()
     async with async_session_factory() as session:
@@ -69,6 +73,51 @@ async def _execute_agent_run(
         # Single source of truth for context assembly, shared with HITL resume
         # (agent-runtime-sprints §1.5). user_text feeds dialog_context (§2.1).
         context = await rebuild_runtime_context_for_run(session, run, user_text)
+        if shadow_reasoner_model:
+            # Formal-canary diagnostics only. The normal API never supplies this
+            # value, and the answer model remains the user's selected model.
+            model = str(shadow_reasoner_model).strip()
+            if not model or len(model) > 128 or any(char.isspace() for char in model):
+                raise ValueError("invalid_shadow_reasoner_model")
+            provider_name = str(shadow_reasoner_provider or "").strip()
+            if provider_name:
+                spec = get_provider_spec(provider_name)
+                model_entry = next(
+                    (
+                        item
+                        for group in ("ragReasonerModels", "orchestratorModels", "llmModels")
+                        for item in (context.ai_profile.get(group) or ())
+                        if isinstance(item, dict)
+                        and str(item.get("provider") or "").strip() == provider_name
+                        and str(item.get("model") or "").strip() == model
+                    ),
+                    None,
+                )
+                if spec is None or model_entry is None:
+                    raise ValueError("invalid_shadow_reasoner_provider_model")
+                key = resolve_model_api_key(model_entry, user, context.settings)
+                if not key.api_key:
+                    raise ValueError("shadow_reasoner_provider_key_unavailable")
+                context.reasoner_spec = spec
+                context.planner_spec = spec
+                context.reasoner_api_key = key.api_key
+                context.planner_api_key = key.api_key
+            context.reasoner_model = model
+            context.planner_model = model
+            await event_service.append_event(
+                session,
+                run_id=run.id,
+                event_type="diagnostic_model_binding",
+                payload={
+                    "schema": "workspace.diagnostic-model-binding/v1",
+                    "role": "planner_research",
+                    "model": model,
+                    "provider": provider_name or getattr(context.reasoner_spec, "name", ""),
+                    "answer_model": context.answer_model,
+                    "source": "formal_canary_shadow",
+                },
+            )
+            await session.commit()
         if context.turn_contract.get("execution_mode") == "batch":
             from app.services.agent.runtime.batch import create_batch_job, serialize_batch_job
             from app.tasks.agent_batch import execute_agent_batch_task
@@ -119,7 +168,13 @@ async def _execute_agent_run(
     acks_late=True,
     max_retries=5,
 )
-def execute_agent_run_task(self, run_id: str, user_text: str) -> None:
+def execute_agent_run_task(
+    self,
+    run_id: str,
+    user_text: str,
+    shadow_reasoner_model: str | None = None,
+    shadow_reasoner_provider: str | None = None,
+) -> None:
     status = runtime_status()
     if status.get("status") == "warmup_failed":
         run_async(_fail_unready_agent_run(uuid.UUID(run_id)))
@@ -129,6 +184,8 @@ def execute_agent_run_task(self, run_id: str, user_text: str) -> None:
         uuid.UUID(run_id),
         user_text,
         defer_retryable_failures=retries_remaining,
+        shadow_reasoner_model=shadow_reasoner_model,
+        shadow_reasoner_provider=shadow_reasoner_provider,
     )
     try:
         run_async(coroutine)

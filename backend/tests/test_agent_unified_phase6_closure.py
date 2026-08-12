@@ -52,9 +52,14 @@ from app.services.ai.semantic_summary import (
 )
 from scripts.agent_unified_phase6_report import build_report
 from scripts.agent_unified_formal_canary_inspect import (
+    DEFAULT_MANIFEST as INSPECT_DEFAULT_MANIFEST,
     _agent_classifier_execution_is_valid,
+    _materialized_candidate_refs,
     _reasoner_model_usage_is_valid,
     _selector_execution_is_valid,
+)
+from scripts.agent_unified_formal_canary_run import (
+    DEFAULT_MANIFEST as RUN_DEFAULT_MANIFEST,
 )
 from scripts.agent_unified_selector_provider_replay import (
     _bind_candidates_to_planner_contract,
@@ -74,6 +79,35 @@ HISTORICAL_V13_V14_PROMPT_SHA256 = {
 }
 
 
+def test_formal_canary_runner_and_inspector_use_same_immutable_manifest() -> None:
+    assert INSPECT_DEFAULT_MANIFEST == RUN_DEFAULT_MANIFEST
+    manifest = json.loads(INSPECT_DEFAULT_MANIFEST.read_text(encoding="utf-8"))
+    assert len(manifest["scenarios"]) == 21
+
+
+def test_formal_inspector_counts_direct_semantic_card_source_refs() -> None:
+    assert _materialized_candidate_refs(
+        [
+            {
+                "source_ref": "note:n1",
+                "fidelity": "semantic_card",
+                "provenance": {"source_ref": "note:n1"},
+            }
+        ],
+        [{"ref": "note:n1", "citation_path": "/note/global/n1/"}],
+    ) == {"note:n1"}
+
+
+def test_formal_inspector_canonicalizes_materialized_citation_paths() -> None:
+    assert _materialized_candidate_refs(
+        [
+            {"source_ref": "/note/global/n1/", "provenance": {}},
+            {"source_ref": "/post/p1/", "provenance": {}},
+        ],
+        [],
+    ) == {"note:n1", "post:p1"}
+
+
 def test_formal_inspector_accepts_direct_finish_or_clean_empty_selector() -> None:
     assert _agent_classifier_execution_is_valid(
         [{"phase": "bootstrap.classifier", "success": True}]
@@ -81,6 +115,24 @@ def test_formal_inspector_accepts_direct_finish_or_clean_empty_selector() -> Non
     assert not _agent_classifier_execution_is_valid([])
     assert not _agent_classifier_execution_is_valid(
         [{"phase": "bootstrap.classifier", "success": False}]
+    )
+    assert _agent_classifier_execution_is_valid(
+        [
+            {"phase": "bootstrap.classifier", "success": False},
+            {"phase": "bootstrap.classifier", "success": True},
+        ]
+    )
+    assert not _agent_classifier_execution_is_valid(
+        [
+            {"phase": "bootstrap.classifier", "success": True},
+            {"phase": "bootstrap.classifier", "success": True},
+        ]
+    )
+    assert not _agent_classifier_execution_is_valid(
+        [
+            {"phase": "bootstrap.classifier", "success": True},
+            {"phase": "bootstrap.classifier", "success": False},
+        ]
     )
     assert _selector_execution_is_valid(
         expected_retrieval=False,
@@ -105,6 +157,91 @@ def test_formal_inspector_accepts_direct_finish_or_clean_empty_selector() -> Non
     )
     assert _reasoner_model_usage_is_valid(
         expected_retrieval=False, research_models={"user-reasoner"}
+    )
+    assert _selector_execution_is_valid(
+        expected_retrieval=True,
+        selector_attempts=1,
+        primary_provider=[{"schema_result": "valid", "retry": False}],
+        reassessment_required=True,
+        reassessment_provider=[{"schema_result": "valid", "retry": False}],
+        precision={"called": True, "schema_result": "valid"},
+        precision_provider=[
+            {"schema_result": "valid", "retry": False},
+            {"schema_result": "valid", "retry": False},
+        ],
+    )
+    assert _selector_execution_is_valid(
+        expected_retrieval=True,
+        selector_attempts=0,
+        primary_provider=[
+            {
+                "phase": "research.selector.context",
+                "schema_result": "valid",
+                "retry": False,
+            }
+        ],
+        reassessment_required=True,
+        reassessment_provider=[],
+        precision={
+            "called": True,
+            "schema_result": "valid",
+            "precision_protocol": "obligation_classification_v4",
+            "membership_owner": "post_read",
+        },
+        precision_provider=[
+            {
+                "phase": "research.selector.context_precision_confirmation.lane_a",
+                "model_role": "lane_a",
+                "schema_result": "valid",
+                "retry": False,
+            },
+            {
+                "phase": "research.selector.context_precision_confirmation.lane_b",
+                "model_role": "lane_b",
+                "schema_result": "valid",
+                "retry": False,
+            },
+            {
+                "phase": "research.selector.context_precision_confirmation.adversarial",
+                "model_role": "adversarial",
+                "schema_result": "valid",
+                "retry": False,
+            },
+            {
+                "phase": "research.selector.context_precision_confirmation",
+                "model_role": "primary",
+                "schema_result": "valid",
+                "retry": False,
+            },
+        ],
+    )
+    assert _selector_execution_is_valid(
+        expected_retrieval=True,
+        selector_attempts=0,
+        primary_provider=[],
+        reassessment_required=True,
+        reassessment_provider=[],
+        precision={
+            "called": True,
+            "schema_result": "valid",
+            "precision_protocol": "post_read_assessment_v5",
+            "membership_owner": "deterministic_assembler",
+        },
+        precision_provider=[
+            {
+                "phase": "research.selector.context_precision_confirmation",
+                "schema_result": "valid",
+                "retry": False,
+            },
+            {
+                "phase": (
+                    "research.selector.context_precision_confirmation"
+                    ".missing_obligation_audit"
+                ),
+                "schema_result": "valid",
+                "retry": False,
+            },
+        ],
     )
 
 
@@ -689,6 +826,42 @@ async def test_provider_adapter_does_not_invent_missing_cached_usage() -> None:
         "output_tokens": 15,
         "total_tokens": 135,
     }
+
+
+@pytest.mark.asyncio
+async def test_provider_adapter_records_shape_only_for_invalid_transport() -> None:
+    response = SimpleNamespace(
+        raise_for_status=lambda: None,
+        json=lambda: {
+            "choices": [
+                {
+                    "finish_reason": "length",
+                    "message": {"content": None, "refusal": "not available"},
+                }
+            ]
+        },
+    )
+    client = SimpleNamespace(post=AsyncMock(return_value=response))
+    usage: dict = {}
+    result = await complete_chat_completion(
+        spec=ProviderSpec("fixture", "https://fixture.invalid"),
+        model="selector",
+        api_key="secret",
+        messages=[{"role": "user", "content": "private prompt"}],
+        client=client,
+        usage_sink=usage,
+    )
+    assert result == ""
+    assert usage["response_shape"] == {
+        "choice_count": 1,
+        "finish_reason": "length",
+        "message_present": True,
+        "content_type": "missing",
+        "content_chars": None,
+        "refusal_present": True,
+        "tool_call_count": 0,
+    }
+    assert "private prompt" not in json.dumps(usage)
 
 
 @pytest.mark.asyncio

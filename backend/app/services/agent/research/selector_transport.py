@@ -970,6 +970,15 @@ def _normalize_v2_payload(
                 return None, (SelectorValidationErrorCode.WRONG_VERSION,)
             if "CS2|" in text and "|done" not in text:
                 return None, (SelectorValidationErrorCode.MISSING_COMPLETION_MARKER,)
+            # Some OpenAI-compatible adapters advertise plain text but still
+            # return the requested object (often wrapped in provider prose).
+            # Preserve the transport boundary by accepting only the exact v2
+            # object shape; all semantic and registry validation remains below.
+            json_payload = extract_json_object(text)
+            if isinstance(json_payload, Mapping) and set(json_payload) == {
+                "v", "n", "r", "a", "done"
+            }:
+                return json_payload, ()
             return None, (SelectorValidationErrorCode.MISSING_FRAME,)
         match = frames[0]
         codes_text = match.group("codes") or ""

@@ -165,13 +165,61 @@ def test_dispositions_never_manufacture_selection_and_search_is_bounded() -> Non
 
     assert plan["materialization_queue"] == []
     assert plan["discovery_actions"] == [
-        {"kind": "bounded_discovery", "source_id": "workspace-posts", "max_actions": 1}
+        {"kind": "bounded_discovery", "source_id": "workspace-media", "max_actions": 1},
+        {"kind": "bounded_discovery", "source_id": "workspace-posts", "max_actions": 1},
     ]
     assert {gap["kind"] for gap in plan["gaps"]} == {
         "ambiguous",
         "no_relevant_candidate",
         "search_more",
     }
+
+
+def test_recall_shortlist_admits_card_negative_candidate_to_full_read_only() -> None:
+    first = _candidate("note:first")
+    probe = _candidate("note:probe")
+    plan = compile_material_plan(
+        {
+            "precision_full_text_shortlist_refs": ["note:first", "note:probe"],
+        },
+        candidates=[first, probe],
+        assessments=[
+            _assessment("note:first", resolution="full_text"),
+            _assessment("note:probe", relevance="irrelevant"),
+        ],
+        source_dispositions=[{"source_id": "workspace-notes", "status": "selected"}],
+        contract=_contract(),
+    )
+
+    assert plan["pending_full_text_ids"] == ["note:first", "note:probe"]
+    assert any(
+        event.get("kind") == "recall_cohort_full_read_admission"
+        and event.get("ref") == "note:probe"
+        for event in plan["runtime_trace"]
+    )
+    assert next(
+        item for item in plan["assessments"] if item["ref"] == "note:probe"
+    )["relevance"] == "irrelevant"
+
+    locked = compile_material_plan(
+        {
+            **plan,
+            "membership_locked": True,
+            "membership_locked_refs": ["note:first"],
+        },
+        candidates=[first, probe],
+        assessments=[
+            _assessment("note:first", resolution="full_text"),
+            _assessment("note:probe", relevance="irrelevant"),
+        ],
+        source_dispositions=[{"source_id": "workspace-notes", "status": "selected"}],
+        contract=_contract(),
+    )
+
+    assert locked["pending_full_text_ids"] == ["note:first"]
+    assert [item["ref"] for item in locked["materialization_queue"]] == [
+        "note:first"
+    ]
 
 
 def test_selector_failure_preserves_only_exact_target() -> None:

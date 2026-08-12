@@ -204,9 +204,52 @@ async def complete_chat_completion(
                     )
             usage_sink.setdefault("availability", "unavailable")
         choices = data.get("choices")
+        first_choice = choices[0] if isinstance(choices, list) and choices else None
+        message = first_choice.get("message") if isinstance(first_choice, Mapping) else None
+        finish_reason = (
+            first_choice.get("finish_reason")
+            if isinstance(first_choice, Mapping)
+            else None
+        )
+        content = message.get("content") if isinstance(message, Mapping) else None
+        refusal = message.get("refusal") if isinstance(message, Mapping) else None
+        tool_calls = message.get("tool_calls") if isinstance(message, Mapping) else None
+        usable_tool_call = (
+            output_capability == ChatCompletionCapability.TOOL_CALLING
+            and isinstance(tool_calls, list)
+            and len(tool_calls) == 1
+            and isinstance(tool_calls[0], Mapping)
+            and isinstance(tool_calls[0].get("function"), Mapping)
+            and isinstance(tool_calls[0]["function"].get("arguments"), str)
+        )
+        response_shape = {
+            "choice_count": len(choices) if isinstance(choices, list) else 0,
+            "finish_reason": str(finish_reason)[:64] if finish_reason else None,
+            "message_present": isinstance(message, Mapping),
+            "content_type": type(content).__name__ if content is not None else "missing",
+            "content_chars": len(content) if isinstance(content, str) else None,
+            "refusal_present": bool(refusal),
+            "tool_call_count": len(tool_calls) if isinstance(tool_calls, list) else 0,
+        }
+        response_anomalous = bool(
+            not isinstance(choices, list)
+            or not choices
+            or not isinstance(message, Mapping)
+            or bool(refusal)
+            or finish_reason in {"length", "content_filter"}
+            or (
+                output_capability != ChatCompletionCapability.TOOL_CALLING
+                and not isinstance(content, str)
+            )
+            or (
+                output_capability == ChatCompletionCapability.TOOL_CALLING
+                and not usable_tool_call
+            )
+        )
+        if usage_sink is not None and response_anomalous:
+            usage_sink["response_shape"] = response_shape
         if not isinstance(choices, list) or not choices:
             return ""
-        message = choices[0].get("message") if isinstance(choices[0], dict) else None
         if not isinstance(message, dict):
             return ""
         if output_capability == ChatCompletionCapability.TOOL_CALLING:

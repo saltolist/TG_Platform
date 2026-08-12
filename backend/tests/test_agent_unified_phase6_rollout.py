@@ -218,6 +218,9 @@ def test_phase6_quality_report_is_attested_and_keeps_default_off() -> None:
     benchmark = report["selector_boundary_benchmark"]
     assert benchmark["estimated_prompt_tokens_chars_div_4"] <= 30000
     assert benchmark["estimated_total_tokens_chars_div_4"] <= 22000
+    assert {
+        item["name"]: item for item in report["quality"]["gates"]
+    }["selector_p95_prompt_tokens"]["passed"] is True
     assert benchmark["scenarios"]["16"]["total_tokens_chars_div_4_estimator"] <= 2500
     assert benchmark["scenarios"]["100"]["total_tokens_chars_div_4_estimator"] <= 10000
     assert benchmark["estimator_is_provider_usage"] is False
@@ -418,6 +421,22 @@ def test_rollout_trace_contains_policy_additive_search_and_no_source_text() -> N
     assert comparison["user_answer_changed"] is False
     assert comparison["selector"]["shadow"]["schema"] == SELECTOR_SCHEMA_V2
     assert comparison["material_plan"]["shadow"]["schema"] == "workspace.material-plan/v2"
+
+
+def test_shadow_comparison_requires_same_query_ir_and_candidate_registry() -> None:
+    base = {
+        "selector": {
+            "precision_confirmation": {
+                "query_ir": {"digest": "frozen-query"},
+            }
+        },
+        "candidate_registry": [{"ref": "note:one"}],
+        "final_pack": {"evidence_ids": []},
+        "answer_usage": {"answer_model_calls": 0},
+    }
+    comparison = compare_unified_shadow(base, base)
+    assert comparison["query_ir"]["immutable_match"] is True
+    assert comparison["candidate_registry"]["immutable_match"] is True
 
 
 def test_rollout_trace_uses_merged_assessments_across_selector_batches() -> None:

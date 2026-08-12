@@ -15,21 +15,38 @@ from app.services.agent.research.graph import (
     OPENED_EVIDENCE_REASSESSMENT_SYSTEM,
     PRECISION_CONFIRMATION_SYSTEM,
     PRECISION_CONFIRMATION_VERSION,
+    MEMBER_CLASSIFICATION_VERSION,
+    OBLIGATION_CLASSIFICATION_VERSION,
     _attach_matched_selector_evidence,
+    _assemble_obligation_coverage_positions,
     _catalog_member_candidates,
+    _canonicalize_precision_transport_noise,
     _close_opened_catalog_window_prefix,
+    _compile_coverage_slots,
     _compact_planner_node,
+    _contract_discovery_actions,
     _decode_precision_confirmation,
+    _decode_member_classification,
+    _decode_obligation_classification,
     _decision_answer_obligation_registry,
     _decision_obligation_registry,
     _decision_precision_obligations,
     _decision_registry_structurally_incomplete_positions,
+    _frozen_query_ir,
     _is_inventory_answer_shape,
+    _belongs_to_member_classification_sources,
     _materialize_full_read_actions,
     _precision_confirmation_json_schema,
+    _member_classification_json_schema,
+    _obligation_classification_json_schema,
+    _obligation_pair_scores,
+    _precision_error_diagnostic,
     _precision_evidence_units,
+    _prioritize_recall_shortlist_positions,
     _reassessment_selector_candidates,
     _render_precision_confirmation_registry,
+    _render_member_classification_requirements,
+    _run_precision_confirmation,
     _semantic_selector_candidates,
     _unified_selector_decision_is_valid,
     _uses_decision_input_precision,
@@ -58,6 +75,7 @@ from app.services.agent.research.selector_transport import (
     render_selector_transport_cardinality_correction,
     render_selector_transport_output_requirements,
 )
+from app.services.ai.providers import ChatCompletionCapability
 from app.services.agent.research.sufficiency import evaluate_sufficiency
 from app.services.ai.semantic_summary import (
     DISCOVERY_SUMMARY_VERSION,
@@ -85,6 +103,244 @@ def _source(
         "required_fidelity": "semantic_card",
         "evidence_requirements": [],
     }
+
+
+def test_recall_shortlist_reserves_decision_window_and_bounded_context_slots() -> None:
+    contract = {
+        "task_profile": "recommendation",
+        "source_requirements": [
+            {
+                "source_id": "workspace-notes",
+                "kind": "notes",
+                "evidence_obligation": "optional",
+            },
+            {
+                "source_id": "workspace-posts",
+                "kind": "posts",
+                "evidence_obligation": "required",
+            },
+        ],
+    }
+    candidates = [
+        {"ref": "note:plan", "source_requirement_ids": ["workspace-notes"]},
+        {"ref": "post:new", "source_requirement_ids": ["workspace-posts"]},
+        {"ref": "post:old", "source_requirement_ids": ["workspace-posts"]},
+        {"ref": "note:other", "source_requirement_ids": ["workspace-notes"]},
+    ]
+
+    positions = _prioritize_recall_shortlist_positions(
+        candidates=candidates,
+        contract=contract,
+        proposed_positions=(0, 3, 1),
+        max_objects=3,
+    )
+
+    assert positions == (0, 3, 1)
+
+
+def test_recall_shortlist_prioritizes_complete_required_source() -> None:
+    contract = {
+        "source_requirements": [
+            {
+                "source_id": "workspace-notes",
+                "kind": "notes",
+                "coverage": "complete",
+                "evidence_obligation": "required",
+            },
+            {
+                "source_id": "workspace-posts",
+                "kind": "posts",
+                "coverage": "complete",
+                "evidence_obligation": "optional",
+            },
+        ]
+    }
+    candidates = [
+        {"ref": "post:p", "source_requirement_ids": ["workspace-posts"]},
+        {"ref": "note:n1", "source_requirement_ids": ["workspace-notes"]},
+        {"ref": "note:n2", "source_requirement_ids": ["workspace-notes"]},
+    ]
+
+    positions = _prioritize_recall_shortlist_positions(
+        candidates=candidates,
+        contract=contract,
+        proposed_positions=(0, 1),
+        max_objects=2,
+    )
+
+    assert positions == (1, 2)
+
+
+def test_recall_shortlist_never_evicts_positive_from_discovery_source() -> None:
+    contract = {
+        "source_requirements": [
+            {
+                "source_id": "workspace-notes",
+                "kind": "notes",
+                "coverage": "complete",
+                "discovery_obligation": "required",
+                "evidence_obligation": "optional",
+            },
+            {
+                "source_id": "workspace-posts",
+                "kind": "posts",
+                "coverage": "complete",
+                "discovery_obligation": "required",
+                "evidence_obligation": "required",
+            },
+        ]
+    }
+    candidates = [
+        {"ref": "note:positive", "source_requirement_ids": ["workspace-notes"]},
+        {"ref": "post:one", "source_requirement_ids": ["workspace-posts"]},
+        {"ref": "post:two", "source_requirement_ids": ["workspace-posts"]},
+    ]
+
+    positions = _prioritize_recall_shortlist_positions(
+        candidates=candidates,
+        contract=contract,
+        proposed_positions=(0, 1, 2),
+        protected_positions=(0,),
+        max_objects=2,
+    )
+
+    assert positions == (0, 1)
+
+
+def test_recall_shortlist_balances_two_complete_sources_before_full_read() -> None:
+    contract = {
+        "source_requirements": [
+            {
+                "source_id": "workspace-notes",
+                "kind": "notes",
+                "coverage": "complete",
+                "evidence_obligation": "required",
+            },
+            {
+                "source_id": "workspace-posts",
+                "kind": "posts",
+                "coverage": "complete",
+                "evidence_obligation": "required",
+            },
+        ]
+    }
+    candidates = [
+        {"ref": "note:n1", "source_requirement_ids": ["workspace-notes"]},
+        {"ref": "note:n2", "source_requirement_ids": ["workspace-notes"]},
+        {"ref": "post:p1", "source_requirement_ids": ["workspace-posts"]},
+        {"ref": "post:p2", "source_requirement_ids": ["workspace-posts"]},
+    ]
+
+    positions = _prioritize_recall_shortlist_positions(
+        candidates=candidates,
+        contract=contract,
+        proposed_positions=(0, 1, 2),
+        max_objects=4,
+    )
+
+    assert positions == (0, 2, 1, 3)
+
+
+def test_contract_discovery_uses_one_bounded_query_per_atomic_obligation() -> None:
+    contract = {
+        "answer_obligations": [
+            {"description": "inbound Telegram synchronization"},
+            {"description": "outbound Telegram synchronization"},
+        ],
+        "source_requirements": [
+            {
+                "source_id": "workspace-posts",
+                "kind": "posts",
+                "query_goal": "Telegram synchronization",
+                "budget": {"search_calls": 2, "candidate_limit": 3},
+            }
+        ],
+    }
+    actions = _contract_discovery_actions(contract, query="broad synchronization query")
+    assert [action.args["query"] for action in actions] == [
+        "inbound Telegram synchronization",
+        "outbound Telegram synchronization",
+    ]
+    assert [action.args["coverage_slot_id"] for action in actions] == [
+        "obligation:0",
+        "obligation:1",
+    ]
+    assert all(action.args["k"] == 3 for action in actions)
+
+
+def test_coverage_slots_freeze_source_status_and_fidelity_boundary() -> None:
+    contract = {
+        "selection_mode": "composition",
+        "source_requirements": [
+            {
+                "source_id": "workspace-posts",
+                "kind": "posts",
+                "required_fidelity": "full_text",
+                "scope": {"statuses": ["published"]},
+            }
+        ],
+    }
+    candidates = [
+        {
+            "ref": "post:one",
+            "source_requirement_id": "workspace-posts",
+        }
+    ]
+    slots = _compile_coverage_slots(
+        contract=contract,
+        candidates=candidates,
+        decision_obligations=(("answer:0",),),
+    )
+    assert slots == (
+        {
+            "slot_id": "obligation:0",
+            "obligation_index": 0,
+            "description": "answer:0",
+            "eligible_positions": [0],
+            "source_requirement_ids": ["workspace-posts"],
+            "statuses": ["published"],
+            "required_fidelity": ["full_text"],
+            "selection_mode": "composition",
+            "cardinality": {"min": 1, "max": 1},
+        },
+    )
+
+
+def test_query_ir_digest_ignores_mapping_order_but_keeps_policy_fields() -> None:
+    source = {
+        "source_id": "workspace-posts",
+        "kind": "posts",
+        "coverage": "complete",
+        "predicate_kind": "semantic",
+        "discovery_mode": "semantic_relevance",
+        "required_fidelity": "full_text",
+        "scope": {"statuses": ["published"]},
+        "selection_cardinality": {"min": 1, "max": 4},
+    }
+    first = {
+        "version": 3,
+        "task_profile": "workspace_synthesis",
+        "selection_mode": "composition",
+        "answer_shape": {"kind": "freeform"},
+        "answer_obligations": [{"description": "published synchronization proof"}],
+        "source_requirements": [source],
+    }
+    second = {key: first[key] for key in reversed(first)}
+    assert _frozen_query_ir(first)["digest"] == _frozen_query_ir(second)["digest"]
+    changed = {**first, "selection_mode": "record"}
+    assert _frozen_query_ir(first)["digest"] != _frozen_query_ir(changed)["digest"]
+    changed_origin = {
+        **first,
+        "answer_obligations": [
+            {
+                "description": "published synchronization proof",
+                "origin": "candidate_plan",
+            }
+        ],
+    }
+    frozen_with_origin = _frozen_query_ir(changed_origin)
+    assert frozen_with_origin["answer_obligations"][0]["origin"] == "candidate_plan"
+    assert _frozen_query_ir(first)["digest"] != frozen_with_origin["digest"]
 
 
 def _contract(*sources: dict, planner_calls: int = 2) -> dict:
@@ -822,6 +1078,20 @@ def test_workspace_synthesis_freeform_uses_composite_precision() -> None:
     assert _uses_decision_input_precision(contract) is True
 
 
+def test_multi_obligation_topical_freeform_uses_composite_precision() -> None:
+    contract = {
+        **_contract(_source("workspace-notes"), _source("workspace-posts")),
+        "task_profile": "topical_answer",
+        "answer_shape": {"kind": "freeform", "expected_member_count": None},
+        "answer_obligations": [
+            {"description": "compare the first alternative"},
+            {"description": "explain why the second alternative does not fit"},
+        ],
+    }
+
+    assert _uses_decision_input_precision(contract) is True
+
+
 def test_multi_obligation_topical_answer_widens_only_small_note_card_discovery() -> None:
     note_source = _source("workspace-notes", evidence="optional")
     note_source.update(
@@ -887,11 +1157,8 @@ def test_decision_obligations_use_atomic_requirements_and_confirmed_windows_only
         (
             "answer:0",
             "answer:1",
-            "answer:2",
         ),
         (
-            "answer:0",
-            "answer:1",
             "answer:2",
         ),
     )
@@ -926,6 +1193,52 @@ def _ctx() -> SimpleNamespace:
         reasoner_api_key="key",
         planner_llm=None,
     )
+
+
+@pytest.mark.asyncio
+async def test_search_candidates_cannot_finish_before_post_read_pipeline_for_optional_source() -> None:
+    source = _source("workspace-notes", evidence="optional")
+    contract = _contract(source, planner_calls=2)
+    contract["answer_obligations"] = [
+        {"obligation_id": "answer:0", "description": "the requested workspace fact"}
+    ]
+    candidates = normalize_candidates([_candidate("note:n1")])
+    state = {
+        **_state(contract, candidates),
+        "search_ledger": [
+            {
+                "tool": "SearchNodes",
+                "state": "satisfied",
+                "hits": [{"ref": "note:n1"}],
+            }
+        ],
+    }
+    selector_output = _wire_output(
+        candidates,
+        {"note:n1": ("d", "a", "c", 0.9, "e")},
+        contract=contract,
+        source_status="s",
+    )
+    with (
+        patch(
+            "app.services.agent.research.graph._attach_matched_selector_evidence",
+            new_callable=AsyncMock,
+            return_value=(candidates, []),
+        ),
+        patch(
+            "app.services.agent.runtime.budget.call_llm_with_deadline",
+            new_callable=AsyncMock,
+            return_value=selector_output,
+        ),
+    ):
+        result = await _compact_planner_node(
+            state,
+            {"configurable": {"runtime_context": _ctx(), "turn_contract": contract}},
+        )
+
+    assert result["tool_action"]["decision_code"] == "SELECT_CONTEXT"
+    assert result["tool_action"]["actions"]
+    assert result["material_plan"]["pending_full_text_ids"] == ["note:n1"]
 
 
 def _wire_output(
@@ -980,10 +1293,26 @@ def _precision_output(
         else -1
     )
     decision_input_mode = _uses_decision_input_precision(contract)
-    decision_obligations = _decision_precision_obligations(candidates, contract)
+    available_source_ids = {
+        source_id
+        for candidate in candidates
+        for source_id in candidate.get("source_requirement_ids")
+        or (candidate.get("source_requirement_id"),)
+        if source_id
+    }
+    decision_obligations = _decision_precision_obligations(
+        candidates,
+        contract,
+        available_source_ids=available_source_ids,
+    )
     obligation_registry = _decision_obligation_registry(decision_obligations)
     answer_shape = contract.get("answer_shape") or {}
-    answer_obligation_count = len(_decision_answer_obligation_registry(contract))
+    answer_obligation_count = len(
+        _decision_answer_obligation_registry(
+            contract,
+            available_source_ids=available_source_ids,
+        )
+    )
     obligation_assignment_mode = bool(
         decision_input_mode
         or (
@@ -1012,6 +1341,15 @@ def _precision_output(
     obligation_assignments = {
         str(index): {
             "obligation": obligation,
+            **(
+                {
+                    "position": assigned_positions[obligation]
+                    if obligation in assigned_positions
+                    else -1
+                }
+                if answer_obligation_count > 0
+                else {}
+            ),
             "coordinate": (
                 f"{assigned_positions[obligation]}:0"
                 if obligation in assigned_positions
@@ -1077,6 +1415,49 @@ def _precision_output(
             "o": obligation_assignments,
             "b": complete_position,
             "k": positions,
+            "done": True,
+        }
+    )
+
+
+def _obligation_output(
+    candidates: list[dict],
+    keep_refs: list[str],
+    *,
+    contract: dict,
+    question: str = "Что относится к теме?",
+) -> str:
+    transport = encode_selector_transport(
+        question=question,
+        dialog_context="",
+        contract=contract,
+        candidates=candidates,
+    )
+    decision_obligations = _decision_precision_obligations(candidates, contract)
+    obligation_registry = _decision_obligation_registry(decision_obligations)
+    keep_positions = [
+        position
+        for position, candidate in enumerate(candidates)
+        if str(candidate["ref"]) in keep_refs
+    ]
+    assigned_positions = {
+        obligation_index: keep_positions[obligation_index % len(keep_positions)]
+        for obligation_index in range(len(obligation_registry))
+    } if keep_positions else {}
+    return json.dumps(
+        {
+            "v": OBLIGATION_CLASSIFICATION_VERSION,
+            "n": len(candidates),
+            "r": transport.mapping.registry_nonce,
+            "support": {
+                str(position): [
+                    {"obligation_index": obligation_index, "warrant_unit": 0}
+                    for obligation_index, obligation in enumerate(obligation_registry)
+                    if obligation in decision_obligations[position]
+                    and assigned_positions.get(obligation_index) == position
+                ]
+                for position in range(len(candidates))
+            },
             "done": True,
         }
     )
@@ -1152,7 +1533,8 @@ def test_precision_subset_contract_rejects_noncanonical_positions() -> None:
         "member_warrants"
     ]["maxItems"] == 0
     assignment_schema = decision_schema["properties"]["o"]["properties"]["0"]
-    assert assignment_schema["required"] == ["obligation", "coordinate"]
+    assert assignment_schema["required"] == ["obligation", "position", "coordinate"]
+    assert assignment_schema["properties"]["position"]["enum"] == [-1, 0, 1]
     assert assignment_schema["properties"]["coordinate"] == {"type": "string"}
     unequal_decision_schema = _precision_confirmation_json_schema(
         mapping,
@@ -1351,6 +1733,7 @@ def test_factual_precision_binds_every_atomic_obligation_to_complete_row() -> No
     )
 
     payload["o"]["1"]["coordinate"] = "1:0"
+    payload["o"]["1"]["position"] = 1
     assert _decode_precision_confirmation(json.dumps(payload), **decode_kwargs) == (
         (0, 1),
         (),
@@ -2184,6 +2567,23 @@ def test_unique_semantic_candidate_preserves_query_evidence_provenance() -> None
     assert envelope["semantic_rank_score"] == 0.8
 
 
+def test_authoritative_rehydration_preserves_immutable_semantic_rank() -> None:
+    envelope = normalize_candidates([_candidate("note:n1")])[0]
+    authoritative = {
+        **envelope,
+        "origin": "authoritative_catalog",
+        "semantic_score": None,
+        "score": None,
+    }
+
+    rehydrated = normalize_candidates([authoritative])[0]
+
+    assert rehydrated["origin"] == "authoritative_catalog"
+    assert rehydrated["semantic_score"] is None
+    assert rehydrated["semantic_rank_score"] == 0.8
+    assert rehydrated["search_enriched"] is True
+
+
 @pytest.mark.asyncio
 async def test_first_pass_matched_evidence_uses_unique_semantic_candidate() -> None:
     class SessionContext:
@@ -2628,6 +3028,9 @@ async def test_opened_reassessment_runs_independent_precision_for_multiple_selec
         _source("workspace-posts"),
         planner_calls=2,
     )
+    contract["answer_obligations"] = [
+        {"description": "The requested root-object statement"}
+    ]
     plan = merge_material_plan(
         empty_material_plan(), candidates=candidates, assessments=[]
     )
@@ -2667,14 +3070,10 @@ async def test_opened_reassessment_runs_independent_precision_for_multiple_selec
         contract=contract,
         source_status="s",
     )
-    confirmation = _precision_output(
+    confirmation = _obligation_output(
         candidates,
         ["note:n1"],
         contract=contract,
-        source_texts={
-            str(candidate["ref"]): f"Isolated verified evidence for {candidate['ref']}."
-            for candidate in candidates
-        },
     )
     state = {
         **_state(contract, candidates, material_plan=plan),
@@ -2690,7 +3089,7 @@ async def test_opened_reassessment_runs_independent_precision_for_multiple_selec
         patch(
             "app.services.agent.runtime.budget.call_llm_with_deadline",
             new_callable=AsyncMock,
-            side_effect=[reassessment, confirmation],
+            return_value=confirmation,
         ) as selector,
     ):
         result = await _compact_planner_node(
@@ -2700,16 +3099,14 @@ async def test_opened_reassessment_runs_independent_precision_for_multiple_selec
 
     assert selector.await_count == 2
     assert selector.await_args_list[0].kwargs["phase"] == (
-        "research.selector.context_evidence_reassessment"
-    )
-    assert selector.await_args_list[1].kwargs["phase"] == (
         "research.selector.context_precision_confirmation"
     )
     precision = result["planner_steps"][-1]["precision_confirmation"]
     assert precision["called"] is True
     assert precision["confirmed_refs"] == ["note:n1"]
-    assert precision["demoted_refs"] == ["note:n2", "post:p1"]
-    assert result["selector_verification_calls_used"] == 1
+    assert precision["demoted_refs"] == []
+    assert precision["recovered_refs"] == ["note:n1"]
+    assert result["selector_verification_calls_used"] == 0
     assert [
         item["ref"]
         for item in result["material_plan"]["assessments"]
@@ -3035,11 +3432,35 @@ async def test_precision_keeps_indispensable_plan_and_completed_history_premises
         contract=contract,
         source_status="s",
     )
-    confirmation = _precision_output(
-        candidates,
-        sorted(indispensable),
+    precision_transport = encode_selector_transport(
+        question="Что относится к теме?",
+        dialog_context="",
         contract=contract,
-        source_texts=contents,
+        candidates=candidates,
+    )
+    decision_obligations = _decision_precision_obligations(candidates, contract)
+    obligation_registry = _decision_obligation_registry(decision_obligations)
+    indispensable_positions = {
+        position
+        for position, candidate in enumerate(candidates)
+        if candidate["ref"] in indispensable
+    }
+    support = {
+        str(position): {
+            str(index): 0 if position in indispensable_positions else -1
+            for index, obligation in enumerate(obligation_registry)
+            if obligation in decision_obligations[position]
+        }
+        for position in range(len(candidates))
+    }
+    confirmation = json.dumps(
+        {
+            "v": OBLIGATION_CLASSIFICATION_VERSION,
+            "n": len(candidates),
+            "r": precision_transport.mapping.registry_nonce,
+            "support": support,
+            "done": True,
+        }
     )
     state = {
         **_state(contract, candidates, material_plan=plan),
@@ -3076,6 +3497,7 @@ async def test_precision_keeps_indispensable_plan_and_completed_history_premises
     assert selector.await_count == 2
     precision = result["planner_steps"][-1]["precision_confirmation"]
     assert precision["called"] is True
+    assert precision["precision_protocol"] == "obligation_classification_v4"
     assert set(precision["confirmed_refs"]) == {
         "note:planned-sequence",
         "post:completed-alpha",
@@ -3100,6 +3522,10 @@ async def test_decision_precision_keeps_exact_workflow_and_capability_premises_o
     post_source = _source("workspace-posts", minimum=1, evidence="required")
     contract = _contract(note_source, post_source, planner_calls=2)
     contract["task_profile"] = "recommendation"
+    contract["answer_obligations"] = [
+        {"description": "The author can prepare the publication in one workspace"},
+        {"description": "The author can publish from the same workspace"},
+    ]
     contents = {
         "post:workflow": (
             "Author workflow\n\nDraft the publication, preview it, schedule it, and publish it "
@@ -3129,11 +3555,10 @@ async def test_decision_precision_keeps_exact_workflow_and_capability_premises_o
         contract=contract,
         source_status="s",
     )
-    confirmation = _precision_output(
+    confirmation = _obligation_output(
         candidates,
         ["post:workflow", "note:capabilities"],
         contract=contract,
-        source_texts=contents,
     )
     state = {
         **_state(contract, candidates, material_plan=plan),
@@ -3150,7 +3575,7 @@ async def test_decision_precision_keeps_exact_workflow_and_capability_premises_o
         patch(
             "app.services.agent.runtime.budget.call_llm_with_deadline",
             new_callable=AsyncMock,
-            side_effect=[reassessment, confirmation],
+            return_value=confirmation,
         ) as selector,
     ):
         result = await _compact_planner_node(
@@ -3158,14 +3583,11 @@ async def test_decision_precision_keeps_exact_workflow_and_capability_premises_o
             {"configurable": {"runtime_context": _ctx(), "turn_contract": contract}},
         )
 
-    precision_prompt = selector.await_args_list[1].kwargs["messages"][0]["content"]
-    assert selector.await_args_list[1].kwargs["max_tokens"] >= 1_400
-    assert "exact question" in precision_prompt
-    assert "atomic answer obligations" in precision_prompt
-    assert "obligation_assignments" in precision_prompt
-    assert "typed obligation" in precision_prompt
-    assert "Source goals scope discovery" in precision_prompt
-    assert "Optional elaboration" in precision_prompt
+    assert selector.await_count == 2
+    precision_prompt = selector.await_args_list[0].kwargs["messages"][0]["content"]
+    assert selector.await_args_list[0].kwargs["max_tokens"] >= 1_400
+    assert "indivisible as worded" in precision_prompt
+    assert "Do not reuse a warrant across obligations" in precision_prompt
     assert {
         item["ref"]
         for item in result["material_plan"]["assessments"]
@@ -3173,10 +3595,10 @@ async def test_decision_precision_keeps_exact_workflow_and_capability_premises_o
     } == {"post:workflow", "note:capabilities"}
     precision = result["planner_steps"][-1]["precision_confirmation"]
     assert precision["confirmed_refs"] == ["note:capabilities", "post:workflow"]
-    assert precision["demoted_refs"] == [
-        "note:architecture",
-        "note:delivery",
-        "post:historical-example",
+    assert precision["demoted_refs"] == []
+    assert precision["recovered_refs"] == [
+        "note:capabilities",
+        "post:workflow",
     ]
 
 
@@ -3237,6 +3659,9 @@ def test_decision_precision_rejects_redundant_obligation_coverage() -> None:
         for assignment in payload["o"].values()
         if assignment["obligation"] == capability_obligation
     )
+    for assignment in payload["o"].values():
+        coordinate_position = int(str(assignment["coordinate"]).split(":", 1)[0])
+        assignment["position"] = coordinate_position
     decode_kwargs = {
         "mapping": transport.mapping,
         "unit_counts": unit_counts,
@@ -3253,6 +3678,7 @@ def test_decision_precision_rejects_redundant_obligation_coverage() -> None:
     )
 
     capability_assignment["coordinate"] = f"{capability_position}:0"
+    capability_assignment["position"] = capability_position
     payload["k"] = sorted([workflow_position, capability_position])
     assert _decode_precision_confirmation(json.dumps(payload), **decode_kwargs) == (
         tuple(sorted([workflow_position, capability_position])),
@@ -3854,6 +4280,9 @@ async def test_opened_evidence_reassessment_keeps_its_own_decision() -> None:
         _source("workspace-notes", minimum=1, evidence="required"),
         planner_calls=2,
     )
+    contract["answer_obligations"] = [
+        {"description": "Support belonging only to note n1"}
+    ]
     plan = merge_material_plan(empty_material_plan(), candidates=candidates, assessments=[])
     plan.update(
         {
@@ -3881,14 +4310,8 @@ async def test_opened_evidence_reassessment_keeps_its_own_decision() -> None:
                 "status_verified": True,
             },
         ).to_dict()
-    reassessment = _wire_output(
-        candidates,
-        {
-            "note:n1": ("d", "a", "f", 0.9, "e"),
-            "note:n2": ("i", "n", "n", 0.9, "x"),
-        },
-        contract=contract,
-        source_status="s",
+    reassessment = _obligation_output(
+        candidates, ["note:n1"], contract=contract
     )
     state = {
         **_state(contract, candidates, material_plan=plan),
@@ -3912,12 +4335,134 @@ async def test_opened_evidence_reassessment_keeps_its_own_decision() -> None:
             {"configurable": {"runtime_context": _ctx(), "turn_contract": contract}},
         )
 
-    assert selector.await_count == 1
+    assert selector.await_count == 2
     assert [
         item["ref"]
         for item in result["material_plan"]["assessments"]
         if item["relevance"] != "irrelevant"
     ] == ["note:n1"]
+
+
+@pytest.mark.asyncio
+async def test_opened_reassessment_can_recover_ref_rejected_by_card_precision() -> None:
+    candidates = normalize_candidates([_candidate("note:n1"), _candidate("note:n2")])
+    contract = _contract(
+        _source("workspace-notes", minimum=1, maximum=2, evidence="required"),
+        planner_calls=2,
+    )
+    contract["semantic_adjudication"] = "parallel_v1"
+    contract["answer_obligations"] = [
+        {"description": "Verified premise one"},
+        {"description": "Verified independent premise two"},
+    ]
+    contents = {
+        "note:n1": "Verified premise one.",
+        "note:n2": "Verified independent premise two.",
+    }
+    plan, records = _opened_reassessment_fixture(candidates, contents)
+    plan = merge_material_plan(
+        plan,
+        candidates=candidates,
+        assessments=[
+            {
+                "ref": "note:n1",
+                "relevance": "direct",
+                "role": "answer_evidence",
+                "resolution": "full_text",
+                "confidence": 1.0,
+                "reason_code": "exact_fact",
+            },
+            {
+                "ref": "note:n2",
+                "relevance": "irrelevant",
+                "role": "none",
+                "resolution": "none",
+                "confidence": 1.0,
+                "reason_code": "ambiguous",
+            },
+        ],
+    )
+    reassessment = _wire_output(
+        candidates,
+        {
+            "note:n1": ("d", "a", "f", 0.9, "e"),
+            "note:n2": ("d", "a", "f", 0.9, "e"),
+        },
+        contract=contract,
+        source_status="s",
+    )
+    precision_transport = encode_selector_transport(
+        question="Что относится к теме?",
+        dialog_context="",
+        contract=contract,
+        candidates=candidates,
+    )
+    decision_obligations = _decision_precision_obligations(candidates, contract)
+    obligation_registry = _decision_obligation_registry(decision_obligations)
+    confirmation = json.dumps(
+        {
+            "v": OBLIGATION_CLASSIFICATION_VERSION,
+            "n": len(candidates),
+            "r": precision_transport.mapping.registry_nonce,
+            "support": {
+                str(position): {
+                    str(obligation_index): (
+                        0 if obligation_index == position else -1
+                    )
+                    for obligation_index, obligation in enumerate(obligation_registry)
+                    if obligation in decision_obligations[position]
+                }
+                for position in range(len(candidates))
+            },
+            "done": True,
+        }
+    )
+    state = {
+        **_state(contract, candidates, material_plan=plan),
+        "planner_calls_used": 1,
+        "selector_verification_calls_used": 3,
+        "evidence_records": records,
+        "planner_steps": [
+            {
+                "precision_confirmation": {
+                    "called": True,
+                    "schema_result": "valid",
+                    "precision_protocol": "obligation_classification_v4",
+                    "confirmed_refs": ["note:n1"],
+                }
+            }
+        ],
+    }
+
+    with (
+        patch(
+            "app.services.agent.research.graph._attach_matched_selector_evidence",
+            new_callable=AsyncMock,
+            return_value=(candidates, []),
+        ),
+        patch(
+            "app.services.agent.runtime.budget.call_llm_with_deadline",
+            new_callable=AsyncMock,
+            return_value=confirmation,
+        ) as selector,
+    ):
+        result = await _compact_planner_node(
+            state,
+            {"configurable": {"runtime_context": _ctx(), "turn_contract": contract}},
+        )
+
+    assert selector.await_count == 2
+    assert result["planner_steps"][-1]["precision_confirmation"][
+        "precision_protocol"
+    ] == "obligation_classification_v4"
+    assert {
+        item["ref"]
+        for item in result["material_plan"]["assessments"]
+        if item["relevance"] != "irrelevant"
+    } == {"note:n1", "note:n2"}
+    precision = result["planner_steps"][-1]["precision_confirmation"]
+    assert precision.get("reused") is not True
+    assert set(precision["confirmed_refs"]) == {"note:n1", "note:n2"}
 
 
 @pytest.mark.asyncio
@@ -3928,6 +4473,9 @@ async def test_opened_evidence_reassessment_receives_prior_verified_selection_as
         _source("workspace-notes", minimum=1, evidence="required"),
         planner_calls=2,
     )
+    contract["answer_obligations"] = [
+        {"description": "Already selected complete answer"}
+    ]
     plan = merge_material_plan(
         empty_material_plan(),
         candidates=[baseline, *current],
@@ -3970,11 +4518,9 @@ async def test_opened_evidence_reassessment_receives_prior_verified_selection_as
                 "status_verified": True,
             },
         ).to_dict()
-    reassessment = _wire_output(
-        current,
-        {"note:current": ("i", "n", "n", 0.9, "x")},
-        contract=contract,
-        source_status="n",
+    reassessment_candidates = [baseline, *current]
+    reassessment = _obligation_output(
+        reassessment_candidates, ["note:baseline"], contract=contract
     )
     state = {
         **_state(contract, current, material_plan=plan),
@@ -3985,7 +4531,7 @@ async def test_opened_evidence_reassessment_receives_prior_verified_selection_as
         patch(
             "app.services.agent.research.graph._attach_matched_selector_evidence",
             new_callable=AsyncMock,
-            return_value=(current, []),
+            return_value=(reassessment_candidates, []),
         ),
         patch(
             "app.services.agent.runtime.budget.call_llm_with_deadline",
@@ -3998,7 +4544,7 @@ async def test_opened_evidence_reassessment_receives_prior_verified_selection_as
             {"configurable": {"runtime_context": _ctx(), "turn_contract": contract}},
         )
 
-    assert selector.await_count == 1
+    assert selector.await_count == 2
     baseline = result["planner_steps"][-1]["selected_evidence_baseline"]
     assert baseline["selected_refs"] == ["note:baseline"]
     assert baseline["provider_calls"] == 0
@@ -4971,6 +5517,48 @@ async def test_partial_evidence_escalation_batch_continues_before_reassessment()
         for action in result["tool_action"]["actions"]
     ] == ["p1", "p2", "p3"]
     assert result["material_plan"]["needs_evidence_reassessment"] is True
+
+
+@pytest.mark.asyncio
+async def test_precision_full_text_batch_continues_without_an_extra_selector_call() -> None:
+    candidates = normalize_candidates(
+        [_candidate(f"note:n{index}") for index in range(5)]
+    )
+    contract = _contract(_source("workspace-notes", maximum=5), planner_calls=2)
+    plan = {
+        **empty_material_plan(),
+        "candidates": candidates,
+        "context_selection_done": False,
+        "required_full_text_ids": [candidate["ref"] for candidate in candidates],
+        "pending_full_text_ids": [candidate["ref"] for candidate in candidates],
+        # A completed earlier batch may already have scheduled reassessment.
+        # Pending members still own the next turn until the cohort is exhausted.
+        "evidence_escalation_reassess_refs": [candidates[3]["ref"]],
+        "needs_evidence_reassessment": True,
+    }
+    state = {
+        **_state(contract, candidates, material_plan=plan),
+        "planner_calls_used": 1,
+        "deep_reads_used": 3,
+    }
+
+    with patch(
+        "app.services.agent.runtime.budget.call_llm_with_deadline",
+        new_callable=AsyncMock,
+    ) as selector:
+        result = await _compact_planner_node(
+            state,
+            {"configurable": {"runtime_context": _ctx(), "turn_contract": contract}},
+        )
+
+    selector.assert_not_awaited()
+    assert result["planner_steps"][-1]["decision_code"] == (
+        "CONTINUE_FULL_TEXT_VERIFICATION"
+    )
+    assert [
+        action["args"].get("note_id")
+        for action in result["tool_action"]["actions"]
+    ] == ["n0", "n1", "n2"]
 
 
 def test_decision_input_all_negative_cards_probe_each_required_source() -> None:
@@ -6498,6 +7086,205 @@ async def test_multi_selection_requires_independent_precision_agreement() -> Non
 
 
 @pytest.mark.asyncio
+async def test_precision_provider_error_preserves_only_validated_primary_baseline() -> None:
+    candidates = normalize_candidates(
+        [_candidate("note:n1"), _candidate("note:n2"), _candidate("note:n3")]
+    )
+    contract = _contract(_source("workspace-notes", minimum=1), planner_calls=2)
+    primary = _wire_output(
+        candidates,
+        {
+            "note:n1": ("d", "a", "c", 0.9, "e"),
+            "note:n2": ("d", "a", "c", 0.9, "e"),
+            "note:n3": ("d", "a", "c", 0.9, "e"),
+        },
+        contract=contract,
+        source_status="s",
+    )
+
+    class PrecisionProviderError(RuntimeError):
+        pass
+
+    provider_error = PrecisionProviderError(
+        "unsupported json_schema response_format api_key=private sk-live-secret"
+    )
+    provider_error.response = SimpleNamespace(
+        status_code=400,
+        headers={"x-request-id": "req-fallback"},
+        json=lambda: {
+            "error": {
+                "type": "invalid_request_error",
+                "code": "unsupported_json_schema",
+            }
+        },
+    )
+
+    async def selector_call(*_args, **kwargs) -> str:
+        if kwargs["phase"] == "research.selector.context_precision_confirmation":
+            raise provider_error
+        return primary
+
+    ctx = _ctx()
+    ctx.reasoner_spec = SimpleNamespace(
+        name="OpenAI",
+        chat_capabilities=(ChatCompletionCapability.STRICT_JSON_SCHEMA,),
+    )
+    ctx.llm_metrics = []
+    primary_decoded = ContextSelectorDecision.model_validate(
+        {
+            "assessments": [
+                {
+                    "ref": str(candidate["ref"]),
+                    "relevance": "direct",
+                    "role": "answer_evidence",
+                    "resolution": "card",
+                    "confidence": 0.9,
+                    "reason_code": "exact_fact",
+                }
+                for candidate in candidates
+            ],
+            "source_dispositions": [
+                {"source_id": "workspace-notes", "status": "selected"}
+            ],
+        }
+    )
+    with patch(
+        "app.services.agent.runtime.budget.call_llm_with_deadline",
+        new_callable=AsyncMock,
+        side_effect=selector_call,
+    ) as selector:
+        decision, _calls, precision, _deadline = await _run_precision_confirmation(
+            config={"configurable": {"runtime_context": ctx}},
+            contract=contract,
+            candidates=candidates,
+            selector_candidates=candidates,
+            primary=primary_decoded,
+            material_plan=empty_material_plan(),
+            selector_question="Что относится к теме?",
+            transport_tier=ChatCompletionCapability.STRICT_JSON_SCHEMA,
+                verification_calls_used=0,
+                verification_call_limit=2,
+            )
+
+    precision_call = selector.await_args_list[0]
+    assert precision_call.kwargs["output_capability"] == (
+        ChatCompletionCapability.STRICT_JSON_SCHEMA
+    )
+    precision_schema = precision_call.kwargs["output_json_schema"]
+    assert precision_schema["properties"]["o"]["type"] == "object"
+    assert "minItems" not in precision_schema["properties"]["o"]
+    assert "maxItems" not in precision_schema["properties"]["o"]
+    assert precision["schema_result"] == "provider_error"
+    assert precision["degraded"] is True
+    assert precision["fallback"] == "validated_primary_baseline"
+    assert precision["confirmed_refs"] == ["note:n1", "note:n2", "note:n3"]
+    assert precision["demoted_refs"] == []
+    assert precision["precision_error"]["error_class"] == "unsupported_schema"
+    assert "private" not in precision["precision_error"]["message"]
+    assert {
+        item.ref for item in decision.assessments if item.relevance.value != "irrelevant"
+    } == {"note:n1", "note:n2", "note:n3"}
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    "transport_tier",
+    [
+        ChatCompletionCapability.STRICT_JSON_SCHEMA,
+        ChatCompletionCapability.PLAIN,
+    ],
+)
+async def test_typed_answer_obligations_disable_free_form_precision_mode(
+    transport_tier: ChatCompletionCapability,
+) -> None:
+    candidates = normalize_candidates([_candidate("note:n1"), _candidate("note:n2")])
+    source = _source("workspace-notes", minimum=1, maximum=4, evidence="required")
+    source["evidence_requirements"] = [
+        {
+            "requirement_id": "workspace-notes:structure",
+            "property": "content structure",
+            "operator": "exists",
+        },
+        {
+            "requirement_id": "workspace-notes:action",
+            "property": "author action",
+            "operator": "exists",
+        },
+    ]
+    contract = {**_contract(source, planner_calls=2), "task_profile": "recommendation"}
+    primary = ContextSelectorDecision.model_validate(
+        {
+            "assessments": [
+                {
+                    "ref": str(candidate["ref"]),
+                    "relevance": "direct",
+                    "role": "answer_evidence",
+                    "resolution": "card",
+                    "confidence": 0.9,
+                    "reason_code": "exact_fact",
+                }
+                for candidate in candidates
+            ],
+            "source_dispositions": [{"source_id": "workspace-notes", "status": "selected"}],
+        }
+    )
+    transport = encode_selector_transport(
+        question="Как связаны структура и действия автора?",
+        dialog_context="",
+        contract=contract,
+        candidates=candidates,
+    )
+    confirmation = json.dumps(
+        {
+            "v": OBLIGATION_CLASSIFICATION_VERSION,
+            "n": 2,
+            "r": transport.mapping.registry_nonce,
+            "support": {
+                "0": {"0": 0, "1": -1},
+                "1": {"0": -1, "1": 0},
+            },
+            "done": True,
+        }
+    )
+    ctx = _ctx()
+    ctx.reasoner_spec = SimpleNamespace(
+        name="fixture-provider",
+        chat_capabilities=(transport_tier,),
+    )
+    ctx.llm_metrics = []
+    with patch(
+        "app.services.agent.runtime.budget.call_llm_with_deadline",
+        new_callable=AsyncMock,
+        return_value=confirmation,
+    ) as selector:
+        decision, _calls, trace, _deadline = await _run_precision_confirmation(
+            config={"configurable": {"runtime_context": ctx}},
+            contract=contract,
+            candidates=candidates,
+            selector_candidates=candidates,
+            primary=primary,
+            material_plan=empty_material_plan(),
+            selector_question="Как связаны структура и действия автора?",
+            transport_tier=transport_tier,
+            verification_calls_used=0,
+            verification_call_limit=2,
+        )
+
+    schema = selector.await_args.kwargs["output_json_schema"]
+    assert trace["generated_obligation_mode"] is False
+    assert trace["decision_obligations"]
+    if transport_tier == ChatCompletionCapability.STRICT_JSON_SCHEMA:
+        assert set(schema["properties"]) == {"v", "n", "r", "support", "done"}
+    else:
+        assert schema is None
+    assert trace["precision_protocol"] == "obligation_classification_v4"
+    assert decision is not None
+    assert {
+        item.ref for item in decision.assessments if item.relevance.value != "irrelevant"
+    } == {"note:n1", "note:n2"}
+
+
+@pytest.mark.asyncio
 async def test_empty_precision_subset_finishes_without_a_second_precision_call() -> None:
     candidates = normalize_candidates([_candidate("note:n1"), _candidate("note:n2")])
     candidates[0]["opened_evidence"] = {
@@ -6640,7 +7427,7 @@ async def test_inconsistent_value_warrants_fail_closed_without_precision_retry()
 
     assert selector.await_count == 2
     precision = result["planner_steps"][-1]["precision_confirmation"]
-    assert precision["schema_result"] == "invalid_transport"
+    assert precision["schema_result"] == "decoder_error"
     assert precision["validation_error_codes"] == [
         "inconsistent_value_warrants"
     ]
@@ -7237,6 +8024,74 @@ async def test_selector_timeout_retries_once_and_never_selects_all() -> None:
 
 
 @pytest.mark.asyncio
+async def test_stale_cards_route_to_bounded_full_read_without_pre_read_membership() -> None:
+    raw_candidates = [_candidate("note:n1"), _candidate("note:n2")]
+    for candidate in raw_candidates:
+        candidate["selector_summary_version"] = 0
+    candidates = normalize_candidates(raw_candidates)
+    source = _source(
+        "workspace-notes",
+        minimum=1,
+        maximum=2,
+        evidence="required",
+    )
+    source["coverage"] = "complete"
+    contract = {
+        **_contract(source, planner_calls=2),
+        "selection_mode": "record",
+        "answer_obligations": [{"description": "requested workspace fact"}],
+    }
+
+    with patch(
+        "app.services.agent.runtime.budget.call_llm_with_deadline",
+        new_callable=AsyncMock,
+    ) as selector:
+        state = {
+            **_state(contract, candidates),
+            "verified_pack_boundary_enabled": True,
+        }
+        result = await _compact_planner_node(
+            state,
+            {"configurable": {"runtime_context": _ctx(), "turn_contract": contract}},
+        )
+
+    selector.assert_not_awaited()
+    assert result["planner_steps"][-1]["decision_code"] == (
+        "SELECT_CONTEXT_RECALL_FALLBACK"
+    )
+    assert result["planner_steps"][-1]["assessments"] == []
+    assert result["material_plan"]["pending_full_text_ids"] == [
+        "note:n1",
+        "note:n2",
+    ]
+    assert result["material_plan"]["precision_shortlist_recovery_refs"] == [
+        "note:n1",
+        "note:n2",
+    ]
+    assert result["material_plan"]["context_selection_done"] is False
+    assert result["tool_action"]["requested_status"] is None
+    assert [item["tool"] for item in result["tool_action"]["actions"]] == [
+        "OpenNote",
+        "OpenNote",
+    ]
+    opened_plan = record_full_read_results(
+        result["material_plan"],
+        batch=("note:n1", "note:n2"),
+        opened=("note:n1", "note:n2"),
+    )
+    reassessment_plan = schedule_selected_evidence_reassessment(
+        opened_plan,
+        contract=contract,
+        opened=("note:n1", "note:n2"),
+    )
+    assert reassessment_plan["evidence_escalation_reassess_refs"] == [
+        "note:n1",
+        "note:n2",
+    ]
+    assert reassessment_plan["needs_evidence_reassessment"] is True
+
+
+@pytest.mark.asyncio
 async def test_required_discovery_min_zero_accepts_no_relevant_candidate_without_fallback() -> None:
     candidates = normalize_candidates([_candidate("note:weak")])
     contract = _contract(_source("workspace-notes", minimum=0), planner_calls=1)
@@ -7452,6 +8307,164 @@ def test_precision_generated_obligations_can_preserve_distinct_factual_parts() -
     assert errors == ()
 
 
+def test_precision_transport_noise_repair_cannot_change_selected_rows() -> None:
+    payload = {
+        "g": {
+            "0": {
+                "subject": True,
+                "relation": False,
+                "complete": True,
+                "relation_warrant": 0,
+                "value_warrants": [0],
+                "member_warrants": [],
+            },
+            "1": {
+                "subject": True,
+                "relation": True,
+                "complete": False,
+                "relation_warrant": 0,
+                "value_warrants": [],
+                "member_warrants": [],
+            },
+            "2": {
+                "subject": True,
+                "relation": True,
+                "complete": False,
+                "relation_warrant": -1,
+                "value_warrants": [],
+                "member_warrants": [],
+            },
+        },
+        "o": [
+            {"obligation": "workflow premise", "coordinate": "1:1"},
+            {"obligation": "operational premise", "coordinate": "2:0"},
+        ],
+        "k": [1, 2],
+    }
+
+    normalized, repairs = _canonicalize_precision_transport_noise(
+        json.dumps(payload),
+        unit_counts=(1, 1, 1),
+    )
+    result = json.loads(normalized)
+
+    assert result["k"] == [1, 2]
+    assert result["o"][0]["coordinate"] == "1:0"
+    assert result["o"][1] == payload["o"][1]
+    assert result["g"]["0"]["relation"] is False
+    assert result["g"]["0"]["relation_warrant"] == -1
+    assert result["g"]["0"]["complete"] is False
+    assert result["g"]["1"]["relation"] is True
+    assert result["g"]["1"]["relation_warrant"] == 0
+    assert result["g"]["2"]["relation"] is True
+    assert result["g"]["2"]["relation_warrant"] == 0
+    assert {item["repair"] for item in repairs} == {
+        "assigned_gate_warrant",
+        "rejected_gate_proofs",
+        "row_local_assignment_warrant",
+    }
+
+
+def test_precision_generated_schema_matches_large_live_structured_payload() -> None:
+    candidates = normalize_candidates(
+        [_candidate(f"note:n{position}") for position in range(11)]
+    )
+    large_text = "\n\n".join(
+        f"Evidence unit {unit}: architecture premise {unit}." for unit in range(63)
+    )
+    for candidate in candidates:
+        candidate["opened_evidence"] = {
+            "text": large_text,
+            "digest": "1" * 16,
+            "citation_path": candidate["citation_path"],
+            "source_revision": 1,
+            "owner_verified": True,
+            "status_verified": True,
+            "truncated": False,
+        }
+    contract = _contract(_source("workspace-notes", minimum=0, maximum=11))
+    transport = encode_selector_transport(
+        question="Synthesize the architecture from independent premises.",
+        dialog_context="",
+        contract=contract,
+        candidates=candidates,
+    )
+    _, unit_counts, unit_sections, unit_texts = _render_precision_confirmation_registry(
+        transport, candidates
+    )
+    assert unit_counts == (63,) * 11
+    schema = _precision_confirmation_json_schema(
+        transport.mapping,
+        unit_counts,
+        generated_obligation_mode=True,
+    )
+    assignment_schema = schema["properties"]["o"]
+    assert assignment_schema["type"] == "array"
+    assert "minItems" not in assignment_schema
+    assert "maxItems" not in assignment_schema
+
+    gates = {
+        str(position): {
+            "subject": position < 2,
+            "relation": position < 2,
+            "complete": False,
+            "relation_warrant": 0 if position < 2 else -1,
+            "value_warrants": [0] if position < 2 else [],
+            "member_warrants": [],
+        }
+        for position in range(11)
+    }
+    payload = {
+        "v": PRECISION_CONFIRMATION_VERSION,
+        "n": 11,
+        "r": transport.mapping.registry_nonce,
+        "g": gates,
+        "o": [
+            {"obligation": "knowledge hierarchy premise", "coordinate": "0:0"},
+            {"obligation": "agent retrieval premise", "coordinate": "1:0"},
+        ],
+        "b": -1,
+        "k": [0, 1],
+        "done": True,
+    }
+    assert _decode_precision_confirmation(
+        json.dumps(payload),
+        mapping=transport.mapping,
+        unit_counts=unit_counts,
+        unit_sections=unit_sections,
+        unit_texts=unit_texts,
+        generated_obligation_mode=True,
+    ) == ((0, 1), ())
+
+
+def test_precision_provider_diagnostic_is_classified_and_secret_free() -> None:
+    class StructuredOutputError(RuntimeError):
+        pass
+
+    exc = StructuredOutputError(
+        "unsupported json_schema response_format api_key=private sk-live-secret"
+    )
+    exc.response = SimpleNamespace(
+        status_code=400,
+        headers={"x-request-id": "req-precision-21"},
+        json=lambda: {
+            "error": {
+                "type": "invalid_request_error",
+                "code": "unsupported_json_schema",
+            }
+        },
+    )
+    diagnostic = _precision_error_diagnostic(
+        exc,
+        transport_tier=ChatCompletionCapability.STRICT_JSON_SCHEMA,
+    )
+    assert diagnostic["error_class"] == "unsupported_schema"
+    assert diagnostic["status_code"] == 400
+    assert diagnostic["request_id"] == "req-precision-21"
+    assert "private" not in diagnostic["message"]
+    assert "sk-live-secret" not in diagnostic["message"]
+
+
 def test_precision_member_classification_keeps_each_matching_corpus_member() -> None:
     candidates = normalize_candidates(
         [_candidate("note:product-a"), _candidate("note:product-b")]
@@ -7467,7 +8480,7 @@ def test_precision_member_classification_keeps_each_matching_corpus_member() -> 
         }
     )
     contract = _contract(source)
-    contract["answer_shape"] = {"kind": "inventory", "expected_member_count": None}
+    contract["answer_shape"] = {"kind": "inventory", "expected_member_count": 2}
     assert _uses_member_classification_precision(contract)
     transport = encode_selector_transport(
         question="Отдели материалы о продукте от посторонних",
@@ -7509,3 +8522,1225 @@ def test_precision_member_classification_keeps_each_matching_corpus_member() -> 
     )
     assert positions == (0, 1)
     assert errors == ()
+
+
+def test_member_scoped_inventory_uses_member_protocol_with_multiple_predicates() -> None:
+    source = _source("workspace-notes", minimum=1, maximum=6, evidence="required")
+    source.update(
+        {
+            "coverage": "complete",
+            "scope": {"mode": "corpus"},
+            "evidence_requirements": [
+                {"scope": "member", "property": "belongs to requested category"},
+                {"scope": "member", "property": "is not test material"},
+            ],
+        }
+    )
+    contract = _contract(source)
+    contract["answer_shape"] = {"kind": "inventory", "expected_member_count": None}
+    contract["answer_obligations"] = [
+        {"obligation_id": "answer:0", "description": "belongs to category"},
+        {"obligation_id": "answer:1", "description": "is not test material"},
+    ]
+
+    assert _uses_member_classification_precision(contract)
+
+
+def test_member_classification_registry_excludes_optional_source_kinds() -> None:
+    note = _candidate("note:required")
+    post = _candidate("post:optional", source="workspace-posts")
+
+    assert _belongs_to_member_classification_sources(note, {"workspace-notes"})
+    assert not _belongs_to_member_classification_sources(post, {"workspace-notes"})
+
+
+def test_member_classification_protocol_derives_subset_without_llm_owned_k() -> None:
+    candidates = normalize_candidates(
+        [_candidate("note:product"), _candidate("note:test")]
+    )
+    contract = _contract(_source("workspace-notes", evidence="required"))
+    transport = encode_selector_transport(
+        question="Separate product knowledge from test material.",
+        dialog_context="",
+        contract=contract,
+        candidates=candidates,
+    )
+    schema = _member_classification_json_schema(transport.mapping)
+    assert set(schema["properties"]) == {"v", "n", "r", "labels", "done"}
+    assert "k" not in schema["properties"]
+    payload = {
+        "v": MEMBER_CLASSIFICATION_VERSION,
+        "n": 2,
+        "r": transport.mapping.registry_nonce,
+        "labels": {
+            "0": {"match": True, "warrant_unit": 0},
+            "1": {"match": False, "warrant_unit": -1},
+        },
+        "done": True,
+    }
+
+    positions, gates, errors = _decode_member_classification(
+        json.dumps(payload),
+        mapping=transport.mapping,
+        unit_counts=(1, 1),
+    )
+    assert positions == (0,)
+    assert errors == ()
+    assert gates[0]["member_warrants"] == [{"unit": 0}]
+    assert gates[1]["relation"] is False
+
+
+def test_member_classification_does_not_confuse_answer_and_material_cardinality() -> None:
+    candidates = normalize_candidates([_candidate("note:complete-inventory")])
+    contract = _contract(_source("workspace-notes", evidence="required"))
+    contract["answer_shape"] = {"kind": "inventory", "expected_member_count": 6}
+    transport = encode_selector_transport(
+        question="Name all six functional zones.",
+        dialog_context="",
+        contract=contract,
+        candidates=candidates,
+    )
+    payload = {
+        "v": MEMBER_CLASSIFICATION_VERSION,
+        "n": 1,
+        "r": transport.mapping.registry_nonce,
+        "labels": {"0": {"match": True, "warrant_unit": 0}},
+        "done": True,
+    }
+
+    positions, _gates, errors = _decode_member_classification(
+        json.dumps(payload),
+        mapping=transport.mapping,
+        unit_counts=(1,),
+    )
+
+    assert positions == (0,)
+    assert errors == ()
+
+
+def test_answer_obligation_registry_deduplicates_source_scoped_semantic_copies() -> None:
+    note_source = _source("workspace-notes", evidence="required")
+    post_source = _source("workspace-posts", evidence="required")
+    for source, suffix in ((note_source, "notes"), (post_source, "posts")):
+        source["evidence_requirements"] = [
+            {
+                "requirement_id": f"{source['source_id']}:{suffix}:delivery-choice",
+                "source_id": source["source_id"],
+                "operator": "exists",
+                "property": "delivery choice",
+                "claim_modality": "descriptive",
+            }
+        ]
+    contract = _contract(note_source, post_source)
+    contract["evidence_requirements"] = [
+        *note_source["evidence_requirements"],
+        *post_source["evidence_requirements"],
+    ]
+
+    assert _decision_answer_obligation_registry(contract) == (
+        (
+            "answer:0",
+            {
+                "operator": "exists",
+                "property": "delivery choice",
+                "claim_modality": "descriptive",
+            },
+        ),
+    )
+
+
+def test_obligation_classification_protocol_keeps_sparse_grounded_subset() -> None:
+    candidates = normalize_candidates(
+        [_candidate("note:grounded"), _candidate("post:other", source="workspace-posts")]
+    )
+    contract = _contract(
+        _source("workspace-notes", evidence="required"),
+        _source("workspace-posts", evidence="required"),
+    )
+    transport = encode_selector_transport(
+        question="Compare the grounded facts.",
+        dialog_context="",
+        contract=contract,
+        candidates=candidates,
+    )
+    obligations = (("answer:0", "answer:1"), ("answer:0", "answer:1"))
+    schema = _obligation_classification_json_schema(transport.mapping, obligations)
+    assert set(schema["properties"]) == {"v", "n", "r", "support", "done"}
+    assert "k" not in schema["properties"]
+    bounded_schema = _obligation_classification_json_schema(
+        transport.mapping,
+        obligations,
+        unit_counts=(1, 3),
+    )
+    assignment_schema = bounded_schema["properties"]["support"]["properties"]["0"]
+    assert assignment_schema["type"] == "array"
+    edge_schema = assignment_schema["items"]
+    assert edge_schema["properties"]["obligation_index"]["enum"] == [0, 1]
+    assert edge_schema["properties"]["warrant_unit"] == {
+        "type": "integer",
+        "minimum": 0,
+        "maximum": 0,
+    }
+    payload = {
+        "v": OBLIGATION_CLASSIFICATION_VERSION,
+        "n": 2,
+        "r": transport.mapping.registry_nonce,
+        "support": {
+            "0": [{"obligation_index": 0, "warrant_unit": 0}],
+            "1": [],
+        },
+        "done": True,
+    }
+
+    positions, gates, errors = _decode_obligation_classification(
+        json.dumps(payload),
+        mapping=transport.mapping,
+        unit_counts=(1, 1),
+        decision_obligations=obligations,
+    )
+    assert positions == (0,)
+    assert errors == ()
+    assert gates[0]["relation_warrant"] == 0
+    assert gates[1]["relation"] is False
+
+
+def test_obligation_classification_canonicalizes_duplicate_sparse_edges() -> None:
+    candidates = normalize_candidates(
+        [_candidate(f"note:row-{position}") for position in range(6)]
+    )
+    contract = _contract(_source("workspace-notes", evidence="required"))
+    transport = encode_selector_transport(
+        question="Find the one grounded record.",
+        dialog_context="",
+        contract=contract,
+        candidates=candidates,
+    )
+    obligations = tuple(("answer:0",) for _candidate_row in candidates)
+    payload = {
+        "v": OBLIGATION_CLASSIFICATION_VERSION,
+        "n": 6,
+        "r": transport.mapping.registry_nonce,
+        "support": {
+            "0": [],
+            "1": [],
+            "2": [
+                {"obligation_index": 0, "warrant_unit": 5},
+                {"obligation_index": 0, "warrant_unit": 2},
+            ],
+            "3": [],
+            "4": [],
+            "5": [],
+        },
+        "done": True,
+    }
+
+    positions, gates, errors = _decode_obligation_classification(
+        json.dumps(payload),
+        mapping=transport.mapping,
+        unit_counts=(6, 63, 63, 13, 9, 11),
+        decision_obligations=obligations,
+    )
+
+    assert positions == (2,)
+    assert errors == ()
+    assert gates[2]["relation_warrant"] == 2
+    assert gates[2]["complete"] is True
+
+
+def test_deterministic_assembler_reduces_dense_labels_to_specific_coverage() -> None:
+    candidates = normalize_candidates(
+        [
+            _candidate("note:broad"),
+            _candidate("note:specific"),
+            _candidate("post:specific", source="workspace-posts"),
+            _candidate("note:unwanted"),
+        ]
+    )
+    contract = _contract(
+        _source("workspace-notes", maximum=2, evidence="required"),
+        _source("workspace-posts", maximum=1, evidence="required"),
+    )
+    support = {
+        position: {0: 0, 1: 0}
+        for position in range(len(candidates))
+    }
+    position_by_ref = {
+        str(candidate["ref"]): position
+        for position, candidate in enumerate(candidates)
+    }
+    broad = position_by_ref["note:broad"]
+    specific_note = position_by_ref["note:specific"]
+    specific_post = position_by_ref["post:specific"]
+    unwanted = position_by_ref["note:unwanted"]
+    positions, trace = _assemble_obligation_coverage_positions(
+        candidates=candidates,
+        contract=contract,
+        material_plan=empty_material_plan(),
+        obligation_count=2,
+        support=support,
+        pair_scores={
+            (broad, 0): 0.50,
+            (broad, 1): 0.52,
+            (specific_note, 0): 0.94,
+            (specific_note, 1): 0.40,
+            (specific_post, 0): 0.41,
+            (specific_post, 1): 0.96,
+            (unwanted, 0): 0.20,
+            (unwanted, 1): 0.21,
+        },
+    )
+
+    assert positions == tuple(sorted((specific_note, specific_post)))
+    assert trace["covered_obligation_indexes"] == [0, 1]
+    assert trace["uncovered_obligation_indexes"] == []
+    assert trace["assignment_positions"] == {
+        "0": specific_note,
+        "1": specific_post,
+    }
+    assert trace["covered_required_source_ids"] == [
+        "workspace-notes",
+        "workspace-posts",
+    ]
+
+
+def test_deterministic_assembler_keeps_empty_context_for_empty_support() -> None:
+    candidates = normalize_candidates([_candidate("note:related")])
+    positions, trace = _assemble_obligation_coverage_positions(
+        candidates=candidates,
+        contract=_contract(_source("workspace-notes", minimum=1, maximum=1)),
+        material_plan=empty_material_plan(),
+        obligation_count=2,
+        support={0: {0: -1, 1: -1}},
+        pair_scores={},
+    )
+
+    assert positions == ()
+    assert trace["covered_obligation_indexes"] == []
+    assert trace["uncovered_obligation_indexes"] == [0, 1]
+
+
+def test_deterministic_assembler_recovers_support_from_optional_contracted_source() -> None:
+    candidates = normalize_candidates(
+        [
+            _candidate("post:workflow", source="workspace-posts"),
+            _candidate("note:mechanism"),
+        ]
+    )
+    contract = _contract(
+        _source("workspace-notes", maximum=2, evidence="optional"),
+        _source("workspace-posts", maximum=2, evidence="required"),
+    )
+    contract["answer_obligations"] = [
+        {"description": "preparation step"},
+        {"description": "publication step"},
+        {"description": "enabling platform mechanism"},
+    ]
+
+    positions, trace = _assemble_obligation_coverage_positions(
+        candidates=candidates,
+        contract=contract,
+        material_plan=empty_material_plan(),
+        obligation_count=3,
+        support={0: {0: 0, 1: 0}, 1: {2: 0}},
+        pair_scores={(0, 0): 0.9, (0, 1): 0.9, (1, 2): 0.9},
+        primary_selected_refs={"post:workflow"},
+    )
+
+    assert positions == (0, 1)
+    assert trace["covered_obligation_indexes"] == [0, 1, 2]
+    assert trace["uncovered_obligation_indexes"] == []
+
+
+def test_answer_obligations_remain_source_neutral_on_near_ties() -> None:
+    candidates = normalize_candidates(
+        [
+            _candidate("note:first"),
+            _candidate("post:required", source="workspace-posts"),
+        ]
+    )
+    contract = _contract(
+        _source("workspace-notes", maximum=1, evidence="optional"),
+        _source("workspace-posts", minimum=1, maximum=1, evidence="required"),
+    )
+    contract["selection_mode"] = "record"
+    contract["answer_obligations"] = [{"description": "source-neutral fact"}]
+
+    positions, trace = _assemble_obligation_coverage_positions(
+        candidates=candidates,
+        contract=contract,
+        material_plan=empty_material_plan(),
+        obligation_count=1,
+        support={0: {0: 0}, 1: {0: 0}},
+        pair_scores={(0, 0): 0.5265784, (1, 0): 0.5266115},
+        primary_selected_refs={"note:first", "post:required"},
+    )
+
+    assert positions == (0,)
+    assert trace["covered_required_source_ids"] == []
+    assert trace["source_coverage_optimized"] is False
+
+
+def test_precision_shortlist_opens_runner_up_with_one_card_winner() -> None:
+    candidates = normalize_candidates(
+        [
+            _candidate("note:winner"),
+            _candidate("note:runner-up"),
+            _candidate("note:outside"),
+        ]
+    )
+    for candidate in candidates:
+        candidate["available_fidelity"] = ["semantic_card", "full_text"]
+    source = _source("workspace-notes", maximum=3, evidence="required")
+    source["budget"] = {"deep_reads": 3}
+    contract = _contract(source, planner_calls=2)
+    contract["budgets"]["deep_reads"] = 3
+    plan = compile_material_plan(
+        empty_material_plan(),
+        candidates=candidates,
+        assessments=[
+            {
+                "ref": candidate["ref"],
+                "relevance": (
+                    "direct" if candidate["ref"] == "note:winner" else "irrelevant"
+                ),
+                "role": (
+                    "answer_evidence"
+                    if candidate["ref"] == "note:winner"
+                    else "none"
+                ),
+                "resolution": (
+                    "semantic_card" if candidate["ref"] == "note:winner" else "none"
+                ),
+                "confidence": 1.0,
+                "reason_code": (
+                    "exact_fact" if candidate["ref"] == "note:winner" else "ambiguous"
+                ),
+            }
+            for candidate in candidates
+        ],
+        source_dispositions=[
+            {"source_id": "workspace-notes", "status": "selected"}
+        ],
+        contract=contract,
+    )
+    plan["precision_full_text_shortlist_refs"] = [
+        "note:winner",
+        "note:runner-up",
+    ]
+
+    result = schedule_matched_evidence_recall_probes(
+        plan,
+        contract=contract,
+        deep_reads_remaining=3,
+    )
+
+    assert result["precision_shortlist_recovery_refs"] == ["note:runner-up"]
+    assert result["precision_shortlist_verification_refs"] == [
+        "note:winner",
+        "note:runner-up",
+    ]
+    assert result["pending_full_text_ids"] == ["note:winner", "note:runner-up"]
+    assert "note:outside" not in result["pending_full_text_ids"]
+
+    opened = record_full_read_results(
+        result,
+        opened=["note:winner", "note:runner-up"],
+        batch=["note:winner", "note:runner-up"],
+    )
+    reassessment = schedule_selected_evidence_reassessment(
+        opened,
+        contract=contract,
+        opened=["note:winner", "note:runner-up"],
+    )
+
+    assert reassessment["evidence_escalation_reassess_refs"] == [
+        "note:winner",
+        "note:runner-up",
+    ]
+    assert reassessment["needs_evidence_reassessment"] is True
+
+
+@pytest.mark.asyncio
+async def test_post_read_edges_are_reduced_by_deterministic_minimal_cover() -> None:
+    candidates = normalize_candidates(
+        [
+            _candidate("note:first"),
+            _candidate("note:broad"),
+            _candidate("post:second", source="workspace-posts"),
+        ]
+    )
+    for candidate in candidates:
+        candidate["opened_evidence"] = {
+            "text": f"Verified full text for {candidate['ref']}.",
+            "digest": "1111111111111111",
+            "citation_path": f"/{candidate['ref'].replace(':', '/')}/",
+            "source_revision": 1,
+            "owner_verified": True,
+            "status_verified": True,
+            "truncated": False,
+        }
+    contract = _contract(
+        _source("workspace-notes", maximum=1, evidence="required"),
+        _source("workspace-posts", maximum=1, evidence="required"),
+        planner_calls=2,
+    )
+    contract["answer_obligations"] = [
+        {"obligation_id": "answer:0", "description": "first mechanism"},
+        {"obligation_id": "answer:1", "description": "second mechanism"},
+    ]
+    primary = ContextSelectorDecision.model_validate(
+        {
+            "assessments": [
+                {
+                    "ref": str(candidate["ref"]),
+                    "relevance": "direct" if position < 2 else "irrelevant",
+                    "role": "answer_evidence" if position < 2 else "none",
+                    "resolution": "card" if position < 2 else "none",
+                    "confidence": 0.9,
+                    "reason_code": "exact_fact" if position < 2 else "topic_only",
+                }
+                for position, candidate in enumerate(candidates)
+            ],
+            "source_dispositions": [
+                {"source_id": "workspace-notes", "status": "selected"},
+                {"source_id": "workspace-posts", "status": "no_relevant_candidate"},
+            ],
+        }
+    )
+    transport = encode_selector_transport(
+        question="Explain both mechanisms.",
+        dialog_context="",
+        contract=contract,
+        candidates=candidates,
+    )
+    position_by_ref = {
+        str(candidate["ref"]): position
+        for position, candidate in enumerate(candidates)
+    }
+    first_position = position_by_ref["note:first"]
+    broad_position = position_by_ref["note:broad"]
+    second_position = position_by_ref["post:second"]
+    provider_payload = json.dumps(
+        {
+            "v": OBLIGATION_CLASSIFICATION_VERSION,
+            "n": 3,
+            "r": transport.mapping.registry_nonce,
+            "support": {
+                "0": {"0": 0, "1": 0},
+                "1": {"0": 0, "1": 0},
+                "2": {"0": 0, "1": 0},
+            },
+            "done": True,
+        }
+    )
+    ctx = _ctx()
+    ctx.reasoner_spec = SimpleNamespace(
+        name="OpenAI",
+        chat_capabilities=(ChatCompletionCapability.STRICT_JSON_SCHEMA,),
+    )
+    ctx.llm_metrics = []
+    with (
+        patch(
+            "app.services.agent.runtime.budget.call_llm_with_deadline",
+            new_callable=AsyncMock,
+            return_value=provider_payload,
+        ),
+        patch(
+            "app.services.agent.research.graph._obligation_pair_scores",
+            new_callable=AsyncMock,
+            return_value=(
+                {
+                    (first_position, 0): 0.95,
+                    (first_position, 1): 0.30,
+                    (broad_position, 0): 0.40,
+                    (broad_position, 1): 0.45,
+                    (second_position, 0): 0.20,
+                    (second_position, 1): 0.96,
+                },
+                {"scoring": "test"},
+            ),
+        ),
+    ):
+        decision, _calls, trace, _deadline = await _run_precision_confirmation(
+            config={"configurable": {"runtime_context": ctx}},
+            contract=contract,
+            candidates=candidates,
+            selector_candidates=candidates,
+            primary=primary,
+            material_plan={
+                **empty_material_plan(),
+                "required_full_text_ids": [
+                    str(candidate["ref"]) for candidate in candidates
+                ],
+            },
+            selector_question="Explain both mechanisms.",
+            transport_tier=ChatCompletionCapability.STRICT_JSON_SCHEMA,
+            verification_calls_used=0,
+            verification_call_limit=2,
+            include_opened_recovery_pool=True,
+        )
+
+    assert trace["schema_result"] == "valid"
+    assert trace["deterministic_assembler"]["classifier_positive_positions"] == [
+        0,
+        1,
+        2,
+    ]
+    assert trace["deterministic_assembler"]["selected_positions"] == [
+        broad_position
+    ]
+    assert (
+        trace["deterministic_assembler"]["scoring_mode"]
+        == "stable_registry_order"
+    )
+    assert trace["deterministic_assembler"]["prior_read_shortlist_excluded"] is True
+    assert {
+        item.ref for item in decision.assessments if item.relevance.value != "irrelevant"
+    } == {"note:broad"}
+
+
+@pytest.mark.asyncio
+async def test_post_read_composition_has_one_owner_but_keeps_distinct_members() -> None:
+    candidates = normalize_candidates(
+        [
+            _candidate("note:overview"),
+            _candidate("note:operation"),
+            _candidate("note:topic-duplicate"),
+        ]
+    )
+    for candidate in candidates:
+        candidate["opened_evidence"] = {
+            "text": f"Verified full text for {candidate['ref']}.",
+            "digest": "1111111111111111",
+            "citation_path": f"/{candidate['ref'].replace(':', '/')}/",
+            "source_revision": 1,
+            "owner_verified": True,
+            "status_verified": True,
+            "truncated": False,
+        }
+    contract = _contract(
+        _source("workspace-notes", maximum=3, evidence="required"),
+        planner_calls=2,
+    )
+    contract.update(
+        {
+            "task_profile": "workspace_synthesis",
+            "selection_mode": "composition",
+            "answer_shape": {"kind": "freeform"},
+            "answer_obligations": [
+                {"obligation_id": "answer:0", "description": "workflow boundary"},
+                {"obligation_id": "answer:1", "description": "operation"},
+            ],
+        }
+    )
+    primary = ContextSelectorDecision.model_validate(
+        {
+            "assessments": [
+                {
+                    "ref": str(candidate["ref"]),
+                    "relevance": "irrelevant" if position == 1 else "direct",
+                    "role": "none" if position == 1 else "answer_evidence",
+                    "resolution": "none" if position == 1 else "card",
+                    "confidence": 0.9,
+                    "reason_code": "topic_only" if position == 1 else "exact_fact",
+                }
+                for position, candidate in enumerate(candidates)
+            ],
+            "source_dispositions": [
+                {"source_id": "workspace-notes", "status": "selected"}
+            ],
+        }
+    )
+    transport = encode_selector_transport(
+        question="Explain the workflow boundary and operation.",
+        dialog_context="",
+        contract=contract,
+        candidates=candidates,
+    )
+    provider_payload = json.dumps(
+        {
+            "v": OBLIGATION_CLASSIFICATION_VERSION,
+            "n": 3,
+            "r": transport.mapping.registry_nonce,
+            "support": {
+                "0": [{"obligation_index": 1, "warrant_unit": 0}],
+                "1": [{"obligation_index": 0, "warrant_unit": 0}],
+                "2": [],
+            },
+            "done": True,
+        }
+    )
+    ctx = _ctx()
+    ctx.reasoner_spec = SimpleNamespace(
+        name="OpenAI",
+        chat_capabilities=(ChatCompletionCapability.STRICT_JSON_SCHEMA,),
+    )
+    ctx.llm_metrics = []
+    with patch(
+        "app.services.agent.runtime.budget.call_llm_with_deadline",
+        new_callable=AsyncMock,
+        return_value=provider_payload,
+    ) as selector:
+        decision, _calls, trace, _deadline = await _run_precision_confirmation(
+            config={"configurable": {"runtime_context": ctx}},
+            contract=contract,
+            candidates=candidates,
+            selector_candidates=candidates,
+            primary=primary,
+            material_plan=empty_material_plan(),
+            selector_question="Explain the workflow boundary and operation.",
+            transport_tier=ChatCompletionCapability.STRICT_JSON_SCHEMA,
+            verification_calls_used=0,
+            verification_call_limit=2,
+            include_opened_recovery_pool=True,
+        )
+
+    schema = selector.await_args.kwargs["output_json_schema"]
+    assert set(schema["properties"]) == {"v", "n", "r", "support", "done"}
+    assert trace["schema_result"] == "valid"
+    assert trace["precision_protocol"] == "obligation_classification_v4"
+    assert trace["membership_owner"] == "post_read"
+    assert trace["confirmed_refs"] == ["note:operation", "note:overview"]
+    assert {
+        item.ref for item in decision.assessments if item.relevance.value != "irrelevant"
+    } == {"note:overview", "note:operation"}
+    recovered = next(item for item in decision.assessments if item.ref == "note:overview")
+    assert recovered.resolution.value == "full_text"
+
+
+@pytest.mark.asyncio
+async def test_card_recall_shortlist_schedules_bounded_full_text_cohort() -> None:
+    candidates = normalize_candidates(
+        [
+            _candidate("note:winner"),
+            _candidate("note:runner-up"),
+            _candidate("note:outside"),
+        ]
+    )
+    for candidate in candidates:
+        candidate["available_fidelity"] = ["semantic_card", "full_text"]
+    source = _source("workspace-notes", maximum=3, evidence="required")
+    source["budget"] = {"deep_reads": 3}
+    contract = _contract(source, planner_calls=2)
+    contract.update(
+        {
+            "task_profile": "topical_answer",
+            "selection_mode": "composition",
+            "answer_shape": {"kind": "freeform"},
+            "answer_obligations": [
+                {"description": "first premise"},
+                {"description": "second premise"},
+            ],
+        }
+    )
+    contract["budgets"]["deep_reads"] = 3
+    primary_output = _wire_output(
+        candidates,
+        {
+            str(candidate["ref"]): ("d", "a", "c", 0.9, "e")
+            for candidate in candidates
+        },
+        contract=contract,
+        source_status="s",
+    )
+
+    async def recall_only(primary, **_kwargs):
+        position_by_ref = {
+            str(item["ref"]): position for position, item in enumerate(candidates)
+        }
+        recall_assessments = []
+        for item in primary.assessments:
+            payload = item.model_dump(mode="json")
+            if item.ref == "note:outside":
+                payload.update(
+                    {
+                        "relevance": "irrelevant",
+                        "role": "none",
+                        "resolution": "none",
+                        "reason_code": "ambiguous",
+                    }
+                )
+            recall_assessments.append(payload)
+        recall_decision = ContextSelectorDecision.model_validate(
+            {
+                "assessments": recall_assessments,
+                "source_dispositions": [
+                    item.model_dump(mode="json")
+                    for item in primary.source_dispositions
+                ],
+            }
+        )
+        return (
+            recall_decision,
+            2,
+            {
+                "schema": "workspace.semantic-adjudication/v1",
+                "called": True,
+                "schema_result": "valid",
+                "precision_protocol": "parallel_semantic_adjudication_v1",
+                "membership_owner": "post_read",
+                    "registry_refs": [item["ref"] for item in candidates],
+                    "confirmed_refs": ["note:winner", "note:runner-up"],
+                    "demoted_refs": [],
+                    "recall_protected_refs": ["note:winner", "note:runner-up"],
+                    "deterministic_assembler": {
+                        "selected_positions": [position_by_ref["note:winner"]],
+                        "read_shortlist_positions": [
+                            position_by_ref["note:winner"],
+                        ],
+                    },
+            },
+            False,
+        )
+
+    with (
+        patch(
+            "app.services.agent.research.graph._attach_matched_selector_evidence",
+            new_callable=AsyncMock,
+            return_value=(candidates, []),
+        ),
+        patch(
+            "app.services.agent.runtime.budget.call_llm_with_deadline",
+            new_callable=AsyncMock,
+            return_value=primary_output,
+        ) as selector,
+        patch(
+            "app.services.agent.research.graph._run_parallel_semantic_adjudication",
+            new_callable=AsyncMock,
+            side_effect=recall_only,
+        ),
+    ):
+        result = await _compact_planner_node(
+            _state(contract, candidates),
+            {"configurable": {"runtime_context": _ctx(), "turn_contract": contract}},
+        )
+
+    plan = result["material_plan"]
+    assert selector.await_count == 1
+    assert set(plan["precision_full_text_shortlist_refs"]) == {
+        "note:winner",
+        "note:runner-up",
+        "note:outside",
+    }
+    assert set(plan["pending_full_text_ids"]) == {
+        "note:winner",
+        "note:runner-up",
+        "note:outside",
+    }, {
+        key: plan.get(key)
+        for key in (
+            "required_full_text_ids",
+            "optional_full_text_ids",
+            "precision_full_text_shortlist_refs",
+            "precision_shortlist_verification_refs",
+            "precision_shortlist_recovery_refs",
+            "materialization_queue",
+        )
+    }
+    assert [action["tool"] for action in result["tool_action"]["actions"]] == [
+        "OpenNote",
+        "OpenNote",
+        "OpenNote",
+    ]
+    precision = result["planner_steps"][-1]["precision_confirmation"]
+    assert precision["called"] is True
+    assert precision["membership_owner"] == "post_read"
+
+
+@pytest.mark.asyncio
+async def test_precision_uses_bounded_member_classifier_and_recovers_match() -> None:
+    candidates = normalize_candidates(
+        [_candidate("note:product"), _candidate("note:test")]
+    )
+    source = _source("workspace-notes", minimum=1, maximum=6, evidence="required")
+    source.update({"coverage": "complete", "scope": {"mode": "corpus"}})
+    contract = _contract(source, planner_calls=2)
+    contract["answer_shape"] = {"kind": "inventory", "expected_member_count": None}
+    primary = ContextSelectorDecision.model_validate(
+        {
+            "assessments": [
+                {
+                    "ref": str(candidate["ref"]),
+                    "relevance": "direct",
+                    "role": "answer_evidence",
+                    "resolution": "card",
+                    "confidence": 0.9,
+                    "reason_code": "exact_fact",
+                }
+                for candidate in candidates
+            ],
+            "source_dispositions": [
+                {"source_id": "workspace-notes", "status": "selected"}
+            ],
+        }
+    )
+    transport = encode_selector_transport(
+        question="Separate product knowledge from test material.",
+        dialog_context="",
+        contract=contract,
+        candidates=candidates,
+    )
+    provider_payload = json.dumps(
+        {
+            "v": MEMBER_CLASSIFICATION_VERSION,
+            "n": 2,
+            "r": transport.mapping.registry_nonce,
+            "labels": {
+                "0": {"match": True, "warrant_unit": 0},
+                "1": {"match": False, "warrant_unit": -1},
+            },
+            "done": True,
+        }
+    )
+    ctx = _ctx()
+    ctx.reasoner_spec = SimpleNamespace(
+        name="OpenAI",
+        chat_capabilities=(ChatCompletionCapability.STRICT_JSON_SCHEMA,),
+    )
+    ctx.llm_metrics = []
+    with patch(
+        "app.services.agent.runtime.budget.call_llm_with_deadline",
+        new_callable=AsyncMock,
+        return_value=provider_payload,
+    ) as selector:
+        decision, _calls, trace, _deadline = await _run_precision_confirmation(
+            config={"configurable": {"runtime_context": ctx}},
+            contract=contract,
+            candidates=candidates,
+            selector_candidates=candidates,
+            primary=primary,
+            material_plan=empty_material_plan(),
+            selector_question="Separate product knowledge from test material.",
+            transport_tier=ChatCompletionCapability.STRICT_JSON_SCHEMA,
+            verification_calls_used=0,
+            verification_call_limit=2,
+            include_opened_recovery_pool=True,
+        )
+
+    schema = selector.await_args.kwargs["output_json_schema"]
+    assert set(schema["properties"]) == {"v", "n", "r", "labels", "done"}
+    assert trace["schema_result"] == "valid"
+    assert trace["precision_protocol"] == "member_classification_v1"
+    assert trace["confirmed_refs"] == ["note:product"]
+    assert {
+        item.ref for item in decision.assessments if item.relevance.value != "irrelevant"
+    } == {"note:product"}
+    selected = next(item for item in decision.assessments if item.ref == "note:product")
+    assert selected.resolution.value == "card"
+    assert selected.reason_code.value == "topic_only"
+
+
+@pytest.mark.asyncio
+async def test_member_inventory_card_stage_preserves_full_bounded_read_cohort() -> None:
+    candidates = normalize_candidates(
+        [
+            _candidate("note:plan", source="workspace-notes"),
+            _candidate("post:matched", source="workspace-posts"),
+            _candidate("post:unrelated", source="workspace-posts"),
+        ]
+    )
+    notes = _source("workspace-notes", minimum=1, maximum=6, evidence="required")
+    posts = _source("workspace-posts", minimum=0, maximum=6, evidence="required")
+    posts.update({"coverage": "complete", "scope": {"mode": "corpus"}})
+    notes.update({"coverage": "relevant", "scope": {"mode": "corpus"}})
+    contract = _contract(notes, posts, planner_calls=2)
+    contract["answer_shape"] = {"kind": "inventory", "expected_member_count": None}
+    primary = ContextSelectorDecision.model_validate(
+        {
+            "assessments": [
+                {
+                    "ref": str(candidate["ref"]),
+                    "relevance": "direct",
+                    "role": "answer_evidence",
+                    "resolution": "card",
+                    "confidence": 0.9,
+                    "reason_code": "exact_fact",
+                }
+                for candidate in candidates
+            ],
+            "source_dispositions": [
+                {"source_id": "workspace-notes", "status": "selected"},
+                {"source_id": "workspace-posts", "status": "selected"},
+            ],
+        }
+    )
+    member_candidates = candidates[1:]
+    transport = encode_selector_transport(
+        question="Match the plan against every published member.",
+        dialog_context="",
+        contract=contract,
+        candidates=member_candidates,
+    )
+    provider_payload = json.dumps(
+        {
+            "v": MEMBER_CLASSIFICATION_VERSION,
+            "n": 2,
+            "r": transport.mapping.registry_nonce,
+            "labels": {
+                "0": {"match": True, "warrant_unit": 0},
+                "1": {"match": False, "warrant_unit": -1},
+            },
+            "done": True,
+        }
+    )
+    ctx = _ctx()
+    ctx.reasoner_spec = SimpleNamespace(
+        name="OpenAI",
+        chat_capabilities=(ChatCompletionCapability.STRICT_JSON_SCHEMA,),
+    )
+    ctx.llm_metrics = []
+    with patch(
+        "app.services.agent.runtime.budget.call_llm_with_deadline",
+        new_callable=AsyncMock,
+        return_value=provider_payload,
+    ):
+        decision, _calls, trace, _deadline = await _run_precision_confirmation(
+            config={"configurable": {"runtime_context": ctx}},
+            contract=contract,
+            candidates=candidates,
+            selector_candidates=candidates,
+            primary=primary,
+            material_plan=empty_material_plan(),
+            selector_question="Match the plan against every published member.",
+            transport_tier=ChatCompletionCapability.STRICT_JSON_SCHEMA,
+            verification_calls_used=0,
+            verification_call_limit=2,
+            include_opened_recovery_pool=True,
+        )
+
+    assert trace["member_classification_mode"] is True
+    assert trace["preserved_nonmember_refs"] == ["note:plan"]
+    assert trace["membership_owner"] == "post_read"
+    assert {
+        item.ref for item in decision.assessments if item.relevance.value != "irrelevant"
+    } == {"note:plan", "post:matched", "post:unrelated"}
+
+
+def test_mixed_complete_inventory_uses_member_classification_despite_aggregate_fact() -> None:
+    source = _source(
+        "workspace-notes",
+        predicate_kind="mixed",
+        evidence="required",
+    )
+    source.update(
+        {
+            "coverage": "complete",
+            "scope": {"mode": "corpus"},
+            "evidence_requirements": [
+                {"scope": "aggregate", "operator": "count", "property": "total_notes"}
+            ],
+        }
+    )
+    contract = _contract(source)
+    contract["answer_shape"] = {"kind": "inventory", "expected_member_count": None}
+
+    assert _uses_member_classification_precision(contract)
+
+
+def test_cross_record_inventory_uses_row_local_member_classification() -> None:
+    source = _source("workspace-posts", minimum=0, maximum=6, evidence="required")
+    source.update({"coverage": "complete", "scope": {"mode": "corpus"}})
+    contract = _contract(source)
+    contract["selection_mode"] = "cross_record_inventory"
+    contract["answer_shape"] = {"kind": "freeform", "expected_member_count": None}
+
+    assert _uses_member_classification_precision(contract)
+
+
+def test_value_inventory_does_not_use_record_member_classification() -> None:
+    source = _source("workspace-notes", minimum=0, maximum=6, evidence="required")
+    source.update({"coverage": "complete", "scope": {"mode": "corpus"}})
+    contract = _contract(source)
+    contract["selection_mode"] = "member_inventory"
+    contract["answer_shape"] = {
+        "kind": "inventory",
+        "expected_member_count": 5,
+        "inventory_unit": "value",
+    }
+
+    assert not _uses_member_classification_precision(contract)
+
+
+def test_member_classification_prompt_exposes_source_goals() -> None:
+    source = _source("workspace-posts", minimum=0, maximum=6, evidence="required")
+    source.update(
+        {
+            "coverage": "complete",
+            "scope": {"mode": "corpus"},
+            "query_goal": "mechanisms that solve workflow problems",
+            "evidence_requirements": [{"property": "requested mechanism"}],
+        }
+    )
+    contract = _contract(source)
+    contract["selection_mode"] = "cross_record_inventory"
+    prompt = _render_member_classification_requirements(
+        SimpleNamespace(candidate_refs=("post:one",), registry_nonce="nonce"),
+        selection_mode="cross_record_inventory",
+        contract=contract,
+    )
+
+    assert "mechanisms that solve workflow problems" in prompt
+    assert "multiple rows" in prompt
+
+
+def test_member_classification_prompt_preserves_grouped_answer_cardinality() -> None:
+    source = _source("workspace-notes", evidence="required")
+    contract = _contract(source)
+    contract["answer_shape"] = {"kind": "inventory", "expected_member_count": 5}
+    contract["answer_obligations"] = [
+        {"description": "five functions planned for the series"}
+    ]
+
+    prompt = _render_member_classification_requirements(
+        SimpleNamespace(candidate_refs=("note:one",), registry_nonce="nonce"),
+        selection_mode="member_inventory",
+        contract=contract,
+    )
+
+    assert "5 answer values, not that many source rows" in prompt
+    assert "complete grouped inventory" in prompt
+    assert "when the request asks for a plan" in prompt
+
+
+@pytest.mark.asyncio
+async def test_multi_obligation_complete_inventory_keeps_member_classification() -> None:
+    candidates = normalize_candidates([_candidate("note:first"), _candidate("note:second")])
+    source = _source("workspace-notes", minimum=1, maximum=6, evidence="required")
+    source.update({"coverage": "complete", "scope": {"mode": "corpus"}})
+    contract = _contract(source, planner_calls=2)
+    contract["answer_shape"] = {"kind": "inventory", "expected_member_count": None}
+    contract["answer_obligations"] = [
+        {"obligation_id": "answer:0", "description": "first requested property"},
+        {"obligation_id": "answer:1", "description": "second requested property"},
+    ]
+    assert _uses_member_classification_precision(contract)
+    primary = ContextSelectorDecision.model_validate(
+        {
+            "assessments": [
+                {
+                    "ref": str(candidate["ref"]),
+                    "relevance": "direct",
+                    "role": "answer_evidence",
+                    "resolution": "full_text",
+                    "confidence": 0.9,
+                    "reason_code": "exact_fact",
+                }
+                for candidate in candidates
+            ],
+            "source_dispositions": [
+                {"source_id": "workspace-notes", "status": "selected"}
+            ],
+        }
+    )
+    transport = encode_selector_transport(
+        question="List members supporting both requested properties.",
+        dialog_context="",
+        contract=contract,
+        candidates=candidates,
+    )
+    provider_payload = json.dumps(
+        {
+            "v": MEMBER_CLASSIFICATION_VERSION,
+            "n": 2,
+            "r": transport.mapping.registry_nonce,
+            "labels": {
+                "0": {"match": True, "warrant_unit": 0},
+                "1": {"match": True, "warrant_unit": 0},
+            },
+            "done": True,
+        }
+    )
+    ctx = _ctx()
+    ctx.reasoner_spec = SimpleNamespace(
+        name="OpenAI",
+        chat_capabilities=(ChatCompletionCapability.STRICT_JSON_SCHEMA,),
+    )
+    ctx.llm_metrics = []
+    with patch(
+        "app.services.agent.runtime.budget.call_llm_with_deadline",
+        new_callable=AsyncMock,
+        return_value=provider_payload,
+    ) as selector:
+        decision, _calls, trace, _deadline = await _run_precision_confirmation(
+            config={"configurable": {"runtime_context": ctx}},
+            contract=contract,
+            candidates=candidates,
+            selector_candidates=candidates,
+            primary=primary,
+            material_plan=empty_material_plan(),
+            selector_question="List members supporting both requested properties.",
+            transport_tier=ChatCompletionCapability.STRICT_JSON_SCHEMA,
+            verification_calls_used=0,
+            verification_call_limit=2,
+            include_opened_recovery_pool=True,
+        )
+
+    assert trace["member_classification_mode"] is True
+    assert trace["precision_protocol"] == "member_classification_v1"
+    assert set(selector.await_args.kwargs["output_json_schema"]["properties"]) == {
+        "v",
+        "n",
+        "r",
+        "labels",
+        "done",
+    }
+    assert {
+        item.ref for item in decision.assessments if item.relevance.value != "irrelevant"
+    } == {"note:first", "note:second"}
+
+
+def test_precision_typed_unassigned_obligations_preserve_grounded_subset() -> None:
+    candidates = normalize_candidates(
+        [_candidate("note:grounded"), _candidate("post:unrelated", source="workspace-posts")]
+    )
+    contract = _contract(
+        _source("workspace-notes", evidence="required"),
+        _source("workspace-posts", evidence="required"),
+    )
+    transport = encode_selector_transport(
+        question="Compare the grounded facts and report what is unavailable.",
+        dialog_context="",
+        contract=contract,
+        candidates=candidates,
+    )
+    decision_obligations = (("answer:0", "answer:1"), ("answer:0", "answer:1"))
+    payload = {
+        "v": PRECISION_CONFIRMATION_VERSION,
+        "n": 2,
+        "r": transport.mapping.registry_nonce,
+        "g": {
+            "0": {
+                "subject": True,
+                "relation": True,
+                "complete": False,
+                "relation_warrant": 0,
+                "value_warrants": [0],
+                "member_warrants": [],
+            },
+            "1": {
+                "subject": False,
+                "relation": False,
+                "complete": False,
+                "relation_warrant": -1,
+                "value_warrants": [],
+                "member_warrants": [],
+            },
+        },
+        "o": {
+            "0": {"obligation": "answer:0", "position": 0, "coordinate": "0:0"},
+            "1": {"obligation": "answer:1", "position": -1, "coordinate": "-1:-1"},
+        },
+        "b": -1,
+        "k": [0],
+        "done": True,
+    }
+
+    assert _decode_precision_confirmation(
+        json.dumps(payload),
+        mapping=transport.mapping,
+        unit_counts=(1, 1),
+        unit_sections=(("root",), ("root",)),
+        unit_texts=(("Grounded fact.",), ("Unrelated.",)),
+        decision_input_mode=True,
+        decision_obligations=decision_obligations,
+    ) == ((0,), ())

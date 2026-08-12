@@ -703,7 +703,7 @@ async def test_structural_catalog_fact_does_not_trigger_contract_repair() -> Non
 
 
 @pytest.mark.asyncio
-async def test_general_advice_invokes_classifier_then_skips_workspace_retrieval() -> None:
+async def test_general_advice_invokes_classifier_then_still_searches_workspace() -> None:
     question = "Какой формат изображений использовать для постов?"
     contract = build_turn_contract(user_text=question, history=[], scope="global")
     ctx = SimpleNamespace(
@@ -728,13 +728,14 @@ async def test_general_advice_invokes_classifier_then_skips_workspace_retrieval(
             {"configurable": {"runtime_context": ctx, "turn_contract": contract}},
         )
 
-    assert result["tool_call"]["type"] == "finish"
+    assert result["tool_call"]["type"] == "read"
     assert (
         result["tool_call"]["workspace_dependency_gate"]
         == "finish_empty_workspace_unchanged"
     )
-    assert result["direct_finish"] is True
-    assert route_workspace_call(result) == "answer"
+    assert result["tool_call"]["workspace_search_forced"] is True
+    assert result["direct_finish"] is False
+    assert route_workspace_call(result) == "seed"
     assert result["turn_contract"]["answerability_without_evidence"] is True
     assert {
         item["kind"] for item in result["turn_contract"]["source_requirements"]

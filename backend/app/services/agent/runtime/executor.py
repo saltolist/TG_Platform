@@ -12,8 +12,9 @@ from typing import Any
 
 import httpx
 from langgraph.types import Command
+from sqlalchemy import select
 
-from app.db.models import AgentRun, User
+from app.db.models import AgentEvent, AgentRun, User
 from app.services.agent.runtime import events as event_service
 from app.services.agent.runtime.budget import RunDeadlineExceeded
 from app.services.agent.runtime.checkpoint import ensure_checkpointer_ready
@@ -445,6 +446,62 @@ def _runtime_rollout_state(runtime_context: RuntimeContext) -> dict[str, bool]:
     }
 
 
+def _merge_llm_metrics_payloads(
+    payloads: list[dict[str, Any]],
+) -> dict[str, Any]:
+    """Merge durable retry attempts with the terminal in-memory ledger."""
+
+    if not payloads:
+        return {}
+    merged = dict(payloads[-1])
+    calls = [
+        dict(call)
+        for payload in payloads
+        for call in payload.get("calls") or ()
+        if isinstance(call, dict)
+    ]
+    phase_timings: dict[str, float] = {}
+    for payload in payloads:
+        for phase, value in (payload.get("phase_timings_ms") or {}).items():
+            try:
+                phase_timings[str(phase)] = phase_timings.get(str(phase), 0.0) + float(
+                    value
+                )
+            except (TypeError, ValueError):
+                continue
+    merged.update(
+        {
+            "duration_ms": round(
+                sum(float(payload.get("duration_ms") or 0.0) for payload in payloads),
+                1,
+            ),
+            "time_to_final_ms": round(
+                sum(
+                    float(
+                        payload.get("time_to_final_ms")
+                        or payload.get("duration_ms")
+                        or 0.0
+                    )
+                    for payload in payloads
+                ),
+                1,
+            ),
+            "llm_calls": len(calls),
+            "prompt_tokens": sum(int(call.get("prompt_tokens") or 0) for call in calls),
+            "completion_tokens": sum(
+                int(call.get("completion_tokens") or 0) for call in calls
+            ),
+            "total_tokens": sum(int(call.get("total_tokens") or 0) for call in calls),
+            "calls": calls,
+            "phase_timings_ms": {
+                phase: round(value, 1) for phase, value in phase_timings.items()
+            },
+            "attempt_count": len(payloads),
+        }
+    )
+    return merged
+
+
 async def _emit_llm_metrics(
     session,
     *,
@@ -453,9 +510,29 @@ async def _emit_llm_metrics(
     started_at: float,
     final_state: dict[str, Any] | None = None,
 ) -> None:
-    payload = _llm_metrics_payload(
+    terminal_payload = _llm_metrics_payload(
         runtime_context,
         duration_ms=(time.perf_counter() - started_at) * 1000,
+    )
+    attempt_payloads = list(
+        await session.scalars(
+            select(AgentEvent.payload)
+            .where(
+                AgentEvent.run_id == run_id,
+                AgentEvent.event_type == "run_attempt_metrics",
+            )
+            .order_by(AgentEvent.sequence)
+        )
+    )
+    payload = _merge_llm_metrics_payloads(
+        [
+            *(
+                dict(item)
+                for item in attempt_payloads
+                if isinstance(item, dict)
+            ),
+            terminal_payload,
+        ]
     )
     await emit_run_event(
         session,
@@ -743,6 +820,7 @@ async def execute_agent_run(
         "planner_invalid_count": 0,
         "sufficiency": {},
         "evidence_gaps": [],
+        "soft_deadline_reached": False,
         "deadline_exhausted": False,
     }
     await emit_run_event(
@@ -997,7 +1075,20 @@ async def execute_agent_run(
                     "Agent run %s hit a retryable transport failure; terminal status deferred",
                     run.id,
                 )
+                retry_run_id = run.id
+                attempt_payload = _llm_metrics_payload(
+                    runtime_context,
+                    duration_ms=(time.perf_counter() - started_at) * 1000,
+                )
+                attempt_payload["terminal_reason"] = "retryable_transport_failure"
                 await session.rollback()
+                await emit_run_event(
+                    session,
+                    run_id=retry_run_id,
+                    event_type="run_attempt_metrics",
+                    payload=attempt_payload,
+                )
+                await session.commit()
                 raise
             logger.exception("Agent run %s failed", run.id)
             await event_service.update_run_status(

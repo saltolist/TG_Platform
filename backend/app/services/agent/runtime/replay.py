@@ -428,6 +428,10 @@ def compare_unified_shadow(
         for item in shadow.get("candidate_registry") or ()
         if isinstance(item, Mapping) and item.get("ref")
     }
+    active_precision = (active.get("selector") or {}).get("precision_confirmation") or {}
+    shadow_precision = (shadow.get("selector") or {}).get("precision_confirmation") or {}
+    active_query_ir = active_precision.get("query_ir") or {}
+    shadow_query_ir = shadow_precision.get("query_ir") or {}
     shadow_answer_calls = int((shadow.get("answer_usage") or {}).get("answer_model_calls") or 0)
     return {
         "schema": "workspace.unified-shadow-comparison/v1",
@@ -442,6 +446,13 @@ def compare_unified_shadow(
             "added": sorted(shadow_refs - active_refs),
             "removed": sorted(active_refs - shadow_refs),
             "preserved": sorted(active_refs & shadow_refs),
+            "immutable_match": active_refs == shadow_refs,
+        },
+        "query_ir": {
+            "active_digest": str(active_query_ir.get("digest") or ""),
+            "shadow_digest": str(shadow_query_ir.get("digest") or ""),
+            "immutable_match": bool(active_query_ir)
+            and active_query_ir.get("digest") == shadow_query_ir.get("digest"),
         },
         "selector": {
             "active": dict(active.get("selector") or {}),

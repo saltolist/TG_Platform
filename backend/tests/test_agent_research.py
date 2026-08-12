@@ -1279,7 +1279,7 @@ def test_all_workspace_outcomes_research_before_terminal_dispatch() -> None:
 
     for call_type in ("read", "finish", "post_proposal", "media_proposal"):
         assert route_workspace_call({"tool_call": {"type": call_type}}) == "seed"
-    assert route_workspace_call({"current_tool": "finish", "direct_finish": True}) == "answer"
+    assert route_workspace_call({"current_tool": "finish", "direct_finish": True}) == "seed"
     assert route_workspace_call({"current_tool": "read", "direct_finish": True}) == "seed"
 
     assert route_after_research({"tool_call": {"type": "finish"}}) == "answer"

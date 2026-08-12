@@ -12,6 +12,7 @@ from app.db.models import GlobalChat, GlobalNote, Post
 from app.db.resolve import get_owned_post
 from app.main import app
 from app.services.agent.runtime.executor import (
+    _merge_llm_metrics_payloads,
     _persist_turn_memory,
     execute_agent_run,
     resume_agent_graph,
@@ -924,6 +925,73 @@ async def test_execute_agent_run_defers_retryable_transport_terminal_event(
     assert persisted.status == "running"
     assert persisted.error is None
     assert not [event for event in events if event.event_type == "run_failed"]
+    attempts = [
+        event for event in events if event.event_type == "run_attempt_metrics"
+    ]
+    assert len(attempts) == 1
+    assert attempts[0].payload["terminal_reason"] == (
+        "retryable_transport_failure"
+    )
+
+
+def test_retry_attempt_metrics_merge_with_terminal_call_ledger() -> None:
+    merged = _merge_llm_metrics_payloads(
+        [
+            {
+                "schema": "workspace.run-metrics/v1",
+                "duration_ms": 1200.0,
+                "time_to_final_ms": 1300.0,
+                "phase_timings_ms": {"bootstrap": 400.0, "answer": 300.0},
+                "calls": [
+                    {
+                        "phase": "bootstrap.classifier",
+                        "prompt_tokens": 100,
+                        "completion_tokens": 20,
+                        "total_tokens": 120,
+                    },
+                    {
+                        "phase": "answer.generate",
+                        "prompt_tokens": 200,
+                        "completion_tokens": 0,
+                        "total_tokens": 200,
+                        "success": False,
+                    },
+                ],
+            },
+            {
+                "schema": "workspace.run-metrics/v1",
+                "duration_ms": 800.0,
+                "time_to_final_ms": 900.0,
+                "phase_timings_ms": {"answer": 700.0},
+                "calls": [
+                    {
+                        "phase": "answer.generate",
+                        "prompt_tokens": 200,
+                        "completion_tokens": 50,
+                        "total_tokens": 250,
+                        "success": True,
+                    }
+                ],
+            },
+        ]
+    )
+
+    assert merged["attempt_count"] == 2
+    assert [call["phase"] for call in merged["calls"]] == [
+        "bootstrap.classifier",
+        "answer.generate",
+        "answer.generate",
+    ]
+    assert merged["llm_calls"] == 3
+    assert merged["prompt_tokens"] == 500
+    assert merged["completion_tokens"] == 70
+    assert merged["total_tokens"] == 570
+    assert merged["duration_ms"] == 2000.0
+    assert merged["time_to_final_ms"] == 2200.0
+    assert merged["phase_timings_ms"] == {
+        "bootstrap": 400.0,
+        "answer": 1000.0,
+    }
 
 
 def test_record_run_metrics_counts_empty_pack_and_reason() -> None:

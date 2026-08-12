@@ -305,6 +305,14 @@ def build_verified_evidence_pack(
                 "source_revision": int(metadata.get("source_revision") or 0),
                 "summary_version": int(metadata.get("summary_version") or 0),
                 "summary_model": str(metadata.get("summary_model") or ""),
+                # A card can enter a boundary-enabled pack only through the
+                # tenant-scoped immutable candidate registry and a matching
+                # materialization queue item. Card eligibility also rejects a
+                # stale revision or non-visible status.
+                "owner_verified": bool(boundary_enabled and queue_item is not None),
+                "status_verified": str(metadata.get("status") or "active").lower()
+                not in {"deleted", "hidden", "inaccessible"},
+                "status": str(metadata.get("status") or "active"),
             }
             if fidelity == "semantic_card"
             else {
