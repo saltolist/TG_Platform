@@ -54,12 +54,14 @@ from scripts.agent_unified_phase6_report import build_report
 from scripts.agent_unified_formal_canary_inspect import (
     DEFAULT_MANIFEST as INSPECT_DEFAULT_MANIFEST,
     _agent_classifier_execution_is_valid,
+    _answer_numbers,
     _materialized_candidate_refs,
     _reasoner_model_usage_is_valid,
     _selector_execution_is_valid,
 )
 from scripts.agent_unified_formal_canary_run import (
     DEFAULT_MANIFEST as RUN_DEFAULT_MANIFEST,
+    _digest as canary_query_digest,
 )
 from scripts.agent_unified_selector_provider_replay import (
     _bind_candidates_to_planner_contract,
@@ -83,6 +85,33 @@ def test_formal_canary_runner_and_inspector_use_same_immutable_manifest() -> Non
     assert INSPECT_DEFAULT_MANIFEST == RUN_DEFAULT_MANIFEST
     manifest = json.loads(INSPECT_DEFAULT_MANIFEST.read_text(encoding="utf-8"))
     assert len(manifest["scenarios"]) == 21
+
+
+def test_extension_canary_queries_are_frozen_before_live_execution() -> None:
+    manifest_path = (
+        RUN_DEFAULT_MANIFEST.parents[1]
+        / "v175/extension_canary_manifest.json"
+    )
+    manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+    assert len(manifest["scenarios"]) == 9
+    assert all(
+        canary_query_digest(scenario["query_text"])
+        == scenario["query_digest"]
+        for scenario in manifest["scenarios"]
+    )
+    assert sum(scenario["cohort"] == "post_only" for scenario in manifest["scenarios"]) == 4
+    assert sum(scenario["cohort"] == "no_material" for scenario in manifest["scenarios"]) == 2
+    assert sum("count" in scenario["cohort"] for scenario in manifest["scenarios"]) == 3
+
+
+def test_formal_inspector_extracts_standalone_answer_numbers() -> None:
+    assert _answer_numbers("Всего 9: пять черновиков, ноль запланированных и 4 опубликованных.") == {
+        0,
+        4,
+        5,
+        9,
+    }
+    assert _answer_numbers("Площадь равна 78,5 см2") == set()
 
 
 def test_formal_inspector_counts_direct_semantic_card_source_refs() -> None:

@@ -216,6 +216,9 @@ def test_post_aggregates_keep_direct_and_note_media_separate_and_union_once() ->
 
     assert snapshot["aggregates"] == {
         "total_posts": 2,
+        "draft_posts": 1,
+        "scheduled_posts": 0,
+        "published_posts": 1,
         "direct_media_count": 1,
         "direct_image_count": 1,
         "note_files_total": 3,

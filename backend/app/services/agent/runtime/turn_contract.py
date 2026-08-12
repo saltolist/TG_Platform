@@ -1343,6 +1343,15 @@ def _typed_structural_properties(user_text: str, kind: str) -> tuple[tuple[str, 
     result: list[tuple[str, str, str]] = [
         ("total_notes" if kind == "notes" else "total_posts", "count", "aggregate")
     ]
+    if kind == "posts":
+        status_properties = (
+            ("draft_posts", "draft", "черновик"),
+            ("scheduled_posts", "scheduled", "запланирован"),
+            ("published_posts", "published", "опубликован"),
+        )
+        for property_name, english_marker, russian_marker in status_properties:
+            if english_marker in lowered or russian_marker in lowered:
+                result.append((property_name, "count", "aggregate"))
     if any(marker in lowered for marker in ("изображ", "картин", "фото", "image")):
         result.extend(
             (
@@ -1362,11 +1371,18 @@ def _has_semantic_predicate(user_text: str) -> bool:
         for marker in (
             " про ",
             " о теме",
+            "основная тема",
+            "основной тем",
+            "посвящен",
+            "посвящён",
             " которые ",
             " содержащ",
             " релевант",
             " related to ",
             " about ",
+            "primarily about",
+            "main topic",
+            "mainly about",
             "со знаниями",
             "по смыслу",
             "по содержанию",

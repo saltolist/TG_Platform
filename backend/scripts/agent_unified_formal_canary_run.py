@@ -75,6 +75,15 @@ async def launch(
                 queries.setdefault(query_digest, query)
             if wanted.keys() <= queries.keys():
                 break
+        for scenario in scenarios:
+            query = str(scenario.get("query_text") or "").strip()
+            query_digest = str(scenario.get("query_digest") or "")
+            if query and query_digest in wanted:
+                if _digest(query) != query_digest:
+                    raise RuntimeError(
+                        f"manifest_query_digest_mismatch:{wanted[query_digest]}"
+                    )
+                queries.setdefault(query_digest, query)
         missing = sorted(set(wanted) - set(queries))
         if missing:
             raise RuntimeError("missing_historical_query_digests:" + ",".join(missing))

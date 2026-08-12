@@ -394,8 +394,15 @@ def _notes_aggregates(members: list[CatalogMember]) -> dict[str, int | None]:
 
 
 def _posts_aggregates(members: list[CatalogMember]) -> dict[str, int | None]:
+    status_counts = {
+        status: sum(str(item.get("status") or "") == status for item in members)
+        for status in ("draft", "scheduled", "published")
+    }
     return {
         "total_posts": len(members),
+        "draft_posts": status_counts["draft"],
+        "scheduled_posts": status_counts["scheduled"],
+        "published_posts": status_counts["published"],
         "direct_media_count": _known_sum(item.get("direct_media_count") for item in members),
         "direct_image_count": _known_sum(item.get("direct_image_count") for item in members),
         "note_files_total": _known_sum(item.get("note_files_total") for item in members),

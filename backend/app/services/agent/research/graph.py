@@ -3232,10 +3232,16 @@ def _assemble_obligation_coverage_positions(
     source_neutral_membership = (
         str(contract.get("membership_source_scope") or "") == "source_neutral"
     )
-    # Answer obligations stay source-neutral. Source requirements constrain the
-    # allowed provenance and per-source maximum, but do not create a second
-    # material for an obligation already closed by a stronger row.
-    optimize_source_coverage = not bool(contract.get("answer_obligations"))
+    optional_support_source_ids = {
+        str(source_id)
+        for source_id in contract.get("membership_optional_support_source_ids") or ()
+        if str(source_id) in requirements
+    }
+    # Answer obligations stay source-neutral, so an optional row may still be
+    # a useful proof. For explicitly scoped queries, represent every required
+    # source that has a post-read edge before proof strength or compactness can
+    # prefer optional context.
+    optimize_source_coverage = bool(optional_support_source_ids)
 
     def semantic_score(position: int, obligation_index: int) -> float:
         # Local embedding backends can differ by a few ulps across builds. A
@@ -3244,16 +3250,23 @@ def _assemble_obligation_coverage_positions(
         return round(float(pair_scores.get((position, obligation_index), 0.0)), 3)
 
     def recovery_allowed(position: int) -> bool:
-        # Discovery may inspect optional corpora for recall, but final membership
-        # stays inside explicit source scope only when the user/query names one.
-        # A planner preference on a source-neutral workspace question is recall
-        # guidance, not permission to exclude a proof found in another corpus.
+        # A zero source cardinality is a hard membership boundary, not a
+        # discovery boundary. Other optional corpora remain eligible for the
+        # later bounded support reserve, after primary obligations are closed.
         allowed_source_ids = (
-            set(requirements)
-            if source_neutral_membership
-            else required_source_ids or set(requirements)
+            required_source_ids | optional_support_source_ids
+            if optional_support_source_ids
+            else set(requirements)
+            if source_neutral_membership or not required_source_ids
+            else required_source_ids
         )
+        allowed_source_ids = {
+            source_id
+            for source_id in allowed_source_ids
+            if source_selection_cardinality(requirements[source_id])[1] > 0
+        }
         return bool(candidate_sources[position] & allowed_source_ids)
+
     prior_selected = (
         {
             *[str(item) for item in material_plan.get("card_ids") or ()],
@@ -4880,10 +4893,7 @@ def _member_classification_source_ids(contract: Mapping[str, Any]) -> set[str]:
             str(source.get("source_id") or "")
             for source in contract.get("source_requirements") or ()
             if isinstance(source, Mapping)
-            and (
-                source_evidence_required(source)
-                or source_discovery_required(source)
-            )
+            and source_evidence_required(source)
             and str(source.get("source_id") or "")
         }
 
@@ -10487,6 +10497,100 @@ async def _run_precision_confirmation(
         for item in primary.assessments
         if item.relevance != CandidateRelevance.IRRELEVANT
     }
+    required_sources = [
+        source
+        for source in contract.get("source_requirements") or ()
+        if isinstance(source, Mapping) and source_evidence_required(source)
+    ]
+    structural_only_required_proof = bool(required_sources) and all(
+        str(source.get("predicate_kind") or "") == "structural"
+        for source in required_sources
+    )
+    if (
+        str(contract.get("query_ir_owner") or "") == "bootstrap_planner"
+        and structural_only_required_proof
+        and not contract.get("answer_obligations")
+    ):
+        assessments = []
+        demoted_refs: list[str] = []
+        for item in primary.assessments:
+            payload = item.model_dump(mode="json")
+            if item.relevance != CandidateRelevance.IRRELEVANT:
+                demoted_refs.append(canonical_candidate_ref(item.ref))
+                payload.update(
+                    {
+                        "relevance": CandidateRelevance.IRRELEVANT.value,
+                        "role": "none",
+                        "resolution": "none",
+                        "confidence": 1.0,
+                        "reason_code": "unrelated_topic",
+                    }
+                )
+            assessments.append(payload)
+        decision = ContextSelectorDecision.model_validate(
+            {
+                "assessments": assessments,
+                "source_dispositions": [
+                    {
+                        **item.model_dump(mode="json"),
+                        "status": "no_relevant_candidate",
+                    }
+                    for item in primary.source_dispositions
+                ],
+            }
+        )
+        return decision, 0, {
+            "schema": PRECISION_CONFIRMATION_SCHEMA,
+            "eligible": True,
+            "called": False,
+            "schema_result": "deterministic_structural_membership",
+            "reason": "required_proof_is_catalog_only",
+            "primary_selected_refs": sorted(selected_refs),
+            "confirmed_refs": [],
+            "demoted_refs": sorted(demoted_refs),
+            "post_read_membership_positions": [],
+            "post_read_membership_finalized": True,
+            "membership_owner": "deterministic_contract",
+        }, False
+    if bool(contract.get("workspace_evidence_forbidden")):
+        assessments = []
+        for item in primary.assessments:
+            payload = item.model_dump(mode="json")
+            payload.update(
+                {
+                    "relevance": CandidateRelevance.IRRELEVANT.value,
+                    "role": "none",
+                    "resolution": "none",
+                    "confidence": 1.0,
+                    "reason_code": "unrelated_topic",
+                }
+            )
+            assessments.append(payload)
+        decision = ContextSelectorDecision.model_validate(
+            {
+                "assessments": assessments,
+                "source_dispositions": [
+                    {
+                        **item.model_dump(mode="json"),
+                        "status": "no_relevant_candidate",
+                    }
+                    for item in primary.source_dispositions
+                ],
+            }
+        )
+        return decision, 0, {
+            "schema": PRECISION_CONFIRMATION_SCHEMA,
+            "eligible": True,
+            "called": False,
+            "schema_result": "deterministic_zero_membership",
+            "reason": "workspace_evidence_forbidden",
+            "primary_selected_refs": sorted(selected_refs),
+            "confirmed_refs": [],
+            "demoted_refs": sorted(selected_refs),
+            "post_read_membership_positions": [],
+            "post_read_membership_finalized": True,
+            "membership_owner": "deterministic_contract",
+        }, False
     inventory_shape = _is_inventory_answer_shape(contract)
     inventory_member_classification_mode = _uses_member_classification_precision(
         contract
@@ -15958,6 +16062,10 @@ async def research_pack_node(state: AgentGraphState, config: RunnableConfig) -> 
     # into an honest refusal rather than ungrounded text (agent-runtime-sprints §1.3).
     finish = dict(state.get("finish_retrieval") or {})
     evidence_ids = [str(item) for item in (finish.get("evidence_ids") or [])]
+    if bool(contract.get("workspace_evidence_forbidden")):
+        # Discovery records remain in the run trace, but the frozen zero-
+        # membership contract is authoritative at the final pack boundary.
+        evidence_ids = []
     if contract.get("target_contract") or contract.get("corpus") in {"feed_posts", "exact_note"}:
         allowed_ids = set(_contract_evidence_ids(contract, records))
         evidence_ids = [eid for eid in evidence_ids if eid in allowed_ids]

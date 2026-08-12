@@ -3147,3 +3147,414 @@ def test_v2_checkpoint_adapter_preserves_strategy_and_serializes_typed_gaps() ->
     checkpoint = json.loads(json.dumps({"turn_contract": normalized, "sufficiency": result.to_dict()}))
     assert checkpoint["sufficiency"]["gaps"]
     assert all(gap["schema"] == "workspace.evidence-gap/v1" for gap in checkpoint["sufficiency"]["gaps"])
+
+
+@pytest.mark.parametrize(
+    "question",
+    (
+        "Сравни релевантные посты о запуске, без заметок.",
+        "Compare the relevant launch posts without notes.",
+    ),
+)
+def test_explicit_source_exclusion_keeps_recall_but_makes_source_optional(
+    question: str,
+) -> None:
+    base = _typed_contract(question)
+    delta = _semantic_classifier_delta(
+        base,
+        {
+            "type": "read",
+            "task_profile": "comparison",
+            "selection_mode": "composition",
+            "answer_shape": {"kind": "freeform"},
+            "required_sources": ["notes", "posts"],
+            "source_requirements": [
+                {"kind": "notes", "coverage": "relevant"},
+                {"kind": "posts", "coverage": "relevant"},
+            ],
+        },
+        user_text=question,
+    )
+    contract = _materialize_classifier_turn_contract(
+        base, delta, classified_type="read", user_text=question
+    )
+    sources = {item["kind"]: item for item in contract["source_requirements"]}
+
+    assert sources["posts"]["discovery_obligation"] == "required"
+    assert sources["posts"]["evidence_obligation"] == "required"
+    assert sources["notes"]["discovery_obligation"] == "required"
+    assert sources["notes"]["evidence_obligation"] == "optional"
+    assert sources["notes"]["selection_cardinality"] == {"min": 0, "max": 2}
+    assert contract["membership_source_scope"] == "explicit_sources"
+
+
+@pytest.mark.parametrize(
+    "question",
+    (
+        "Ответь без опоры на мои материалы: почему небо голубое?",
+        "Answer without using my workspace materials: why is the sky blue?",
+    ),
+)
+def test_explicit_no_workspace_evidence_preserves_discovery_with_zero_membership(
+    question: str,
+) -> None:
+    base = _typed_contract(question)
+    delta = _semantic_classifier_delta(
+        base,
+        {
+            "type": "read",
+            "task_profile": "topical_answer",
+            "selection_mode": "composition",
+            "answer_shape": {"kind": "freeform"},
+            "required_sources": ["notes", "posts"],
+        },
+        user_text=question,
+    )
+    contract = _materialize_classifier_turn_contract(
+        base, delta, classified_type="read", user_text=question
+    )
+    workspace_sources = [
+        item
+        for item in contract["source_requirements"]
+        if item["kind"] in {"notes", "posts"}
+    ]
+
+    assert contract["workspace_evidence_forbidden"] is True
+    assert contract["answerability_without_evidence"] is True
+    assert workspace_sources
+    assert all(item["discovery_obligation"] == "required" for item in workspace_sources)
+    assert all(item["evidence_obligation"] == "optional" for item in workspace_sources)
+    assert all(item["selection_cardinality"] == {"min": 0, "max": 0} for item in workspace_sources)
+
+
+@pytest.mark.parametrize(
+    "question",
+    (
+        "Сколько у меня глобальных заметок, основная тема которых - распределенные системы?",
+        "How many global notes are primarily about distributed systems?",
+    ),
+)
+def test_semantic_record_count_uses_complete_member_classification(
+    question: str,
+) -> None:
+    base = _typed_contract(question)
+    delta = _semantic_classifier_delta(
+        base,
+        {
+            "type": "read",
+            "task_profile": "topical_answer",
+            "selection_mode": "record",
+            "answer_shape": {"kind": "scalar"},
+            "required_sources": ["notes"],
+            "source_requirements": [{"kind": "notes", "coverage": "complete"}],
+        },
+        user_text=question,
+    )
+    contract = _materialize_classifier_turn_contract(
+        base, delta, classified_type="read", user_text=question
+    )
+    sources = {item["kind"]: item for item in contract["source_requirements"]}
+
+    assert contract["answer_shape"]["kind"] == "scalar"
+    assert contract["selection_mode"] == "member_inventory"
+    assert sources["notes"]["coverage"] == "complete"
+    assert sources["notes"]["predicate_kind"] == "mixed"
+    assert sources["notes"]["evidence_obligation"] == "required"
+    assert sources["posts"]["evidence_obligation"] == "optional"
+
+
+def test_post_status_count_compiles_named_catalog_aggregates() -> None:
+    question = "Сколько у меня черновиков, запланированных и опубликованных постов?"
+    base = _typed_contract(question)
+    delta = _semantic_classifier_delta(
+        base,
+        {
+            "type": "read",
+            "task_profile": "topical_answer",
+            "selection_mode": "record",
+            "answer_shape": {"kind": "scalar"},
+            "required_sources": ["posts"],
+            "source_requirements": [{"kind": "posts", "coverage": "complete"}],
+        },
+        user_text=question,
+    )
+    contract = _materialize_classifier_turn_contract(
+        base, delta, classified_type="read", user_text=question
+    )
+    posts = next(item for item in contract["source_requirements"] if item["kind"] == "posts")
+
+    assert posts["predicate_kind"] == "structural"
+    assert posts["selection_cardinality"] == {"min": 0, "max": 0}
+    assert {
+        item["property"] for item in posts["evidence_requirements"]
+    } == {"total_posts", "draft_posts", "scheduled_posts", "published_posts"}
+
+
+def test_planner_owned_query_ir_never_calls_semantic_lexical_fallback(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    def forbidden_fallback(*_args, **_kwargs):
+        raise AssertionError("semantic lexical fallback was called")
+
+    for helper_name in (
+        "_classifier_query_source_scope",
+        "_classifier_query_source_kinds",
+        "_semantic_record_count_query",
+        "_finite_comparison_query",
+        "_has_explicit_post_status_filter",
+    ):
+        monkeypatch.setattr(
+            f"app.services.agent.runtime.workspace_graph.{helper_name}",
+            forbidden_fallback,
+        )
+
+    cases = (
+        {
+            "question": "Сопоставь публикации о запуске, а записи другого типа используй только как фон.",
+            "selection_mode": "member_inventory",
+            "answer_shape": {
+                "kind": "inventory",
+                "expected_member_count": None,
+                "inventory_unit": "record",
+            },
+            "answer_aggregation": {
+                "mode": "none",
+                "member_predicate": None,
+                "catalog_properties": [],
+            },
+            "answer_obligations": [
+                {
+                    "description": "публикация объясняет запрошенную проблему запуска",
+                    "origin": "member_predicate",
+                }
+            ],
+            "source_roles": [
+                {
+                    "kind": "posts",
+                    "membership_role": "required_evidence",
+                    "predicate_kind": "semantic",
+                    "coverage": "complete",
+                    "evidence_granularity": "semantic_card",
+                    "query_goal": "публикации, объясняющие проблему запуска",
+                    "statuses": [],
+                    "evidence_requirements": [
+                        {
+                            "property": "объясняет проблему запуска",
+                            "operator": "exists",
+                            "scope": "member",
+                        }
+                    ],
+                },
+                {
+                    "kind": "notes",
+                    "membership_role": "optional_support",
+                    "predicate_kind": "semantic",
+                    "coverage": "relevant",
+                    "evidence_granularity": "semantic_card",
+                    "query_goal": "вспомогательный контекст запуска",
+                    "statuses": [],
+                    "evidence_requirements": [],
+                },
+            ],
+        },
+        {
+            "question": "Определи число моих материалов, чья главная тема - распределённые системы.",
+            "selection_mode": "record",
+            "answer_shape": {
+                "kind": "scalar",
+                "expected_member_count": None,
+                "inventory_unit": None,
+            },
+            "answer_aggregation": {
+                "mode": "count_members",
+                "member_predicate": "главная тема записи - распределённые системы",
+                "catalog_properties": [],
+            },
+            "answer_obligations": [
+                {
+                    "description": "главная тема записи - распределённые системы",
+                    "origin": "member_predicate",
+                }
+            ],
+            "source_roles": [
+                {
+                    "kind": "notes",
+                    "membership_role": "required_evidence",
+                    "predicate_kind": "mixed",
+                    "coverage": "complete",
+                    "evidence_granularity": "semantic_card",
+                    "query_goal": "классифицировать тему каждой записи",
+                    "statuses": [],
+                    "evidence_requirements": [
+                        {
+                            "property": "главная тема записи",
+                            "operator": "equals",
+                            "scope": "member",
+                        }
+                    ],
+                }
+            ],
+        },
+        {
+            "question": "Дай разбивку публикаций по состоянию.",
+            "selection_mode": "record",
+            "answer_shape": {
+                "kind": "record",
+                "expected_member_count": None,
+                "inventory_unit": None,
+            },
+            "answer_aggregation": {
+                "mode": "catalog_aggregate",
+                "member_predicate": None,
+                "catalog_properties": [
+                    "total_posts",
+                    "draft_posts",
+                    "scheduled_posts",
+                    "published_posts",
+                ],
+            },
+            "answer_obligations": [
+                {"description": "разбивка по состоянию", "origin": "fact"}
+            ],
+            "source_roles": [
+                {
+                    "kind": "posts",
+                    "membership_role": "required_evidence",
+                    "predicate_kind": "structural",
+                    "coverage": "complete",
+                    "evidence_granularity": "catalog",
+                    "query_goal": "агрегаты публикаций по состоянию",
+                    "statuses": [],
+                    "evidence_requirements": [],
+                }
+            ],
+        },
+    )
+
+    for case in cases:
+        base = _typed_contract(case["question"])
+        call = {
+            "query_ir_version": 2,
+            "type": "read",
+            "task_profile": "topical_answer",
+            "selection_mode": case["selection_mode"],
+            "requires_evidence": True,
+            "answer_shape": case["answer_shape"],
+            "answer_aggregation": case["answer_aggregation"],
+            "answer_obligations": case["answer_obligations"],
+            "source_roles": case["source_roles"],
+            "workspace_evidence_policy": "eligible",
+            "workspace_dependency": {
+                "basis": "workspace_state",
+                "empty_workspace": "answer_changes",
+                "anchor": "explicit_workspace_reference",
+            },
+            "search_query": case["question"],
+        }
+        contract = _materialize_classifier_turn_contract(
+            base,
+            call,
+            classified_type="read",
+            semantic_only=True,
+            user_text=case["question"],
+        )
+
+        assert contract["query_ir_owner"] == "bootstrap_planner"
+        assert contract["semantic_fallbacks"] == []
+        if case["answer_aggregation"]["mode"] == "catalog_aggregate":
+            assert contract.get("answer_obligations") in (None, [])
+            required_sources = [
+                source
+                for source in contract["source_requirements"]
+                if source["evidence_obligation"] == "required"
+            ]
+            assert required_sources
+            assert all(
+                source["predicate_kind"] == "structural"
+                and source["required_fidelity"] == "catalog"
+                and source["selection_cardinality"] == {"min": 0, "max": 0}
+                for source in required_sources
+            )
+
+    post_only = _materialize_classifier_turn_contract(
+        _typed_contract(cases[0]["question"]),
+        {
+            "query_ir_version": 2,
+            "type": "read",
+            "task_profile": "topical_answer",
+            "selection_mode": cases[0]["selection_mode"],
+            "requires_evidence": True,
+            "answer_shape": cases[0]["answer_shape"],
+            "answer_aggregation": cases[0]["answer_aggregation"],
+            "answer_obligations": cases[0]["answer_obligations"],
+            "source_roles": cases[0]["source_roles"],
+            "workspace_evidence_policy": "eligible",
+            "workspace_dependency": {
+                "basis": "workspace_state",
+                "empty_workspace": "answer_changes",
+                "anchor": "explicit_workspace_reference",
+            },
+            "search_query": cases[0]["question"],
+        },
+        classified_type="read",
+        semantic_only=True,
+        user_text=cases[0]["question"],
+    )
+    sources = {item["kind"]: item for item in post_only["source_requirements"]}
+    assert sources["posts"]["evidence_obligation"] == "required"
+    assert sources["notes"]["evidence_obligation"] == "optional"
+    assert sources["notes"]["selection_cardinality"] == {"min": 0, "max": 2}
+
+
+def test_planner_owned_forbidden_evidence_still_compiles_discovery_probes() -> None:
+    question = "Объясни явление, не используя сохранённые материалы."
+    base = _typed_contract(question)
+    contract = _materialize_classifier_turn_contract(
+        base,
+        {
+            "query_ir_version": 2,
+            "type": "read",
+            "task_profile": "topical_answer",
+            "selection_mode": "record",
+            "requires_evidence": True,
+            "answer_shape": {
+                "kind": "freeform",
+                "expected_member_count": None,
+                "inventory_unit": None,
+            },
+            "answer_aggregation": {
+                "mode": "none",
+                "member_predicate": None,
+                "catalog_properties": [],
+            },
+            "answer_obligations": [
+                {"description": "объяснить явление", "origin": "fact"}
+            ],
+            "source_roles": [],
+            "workspace_evidence_policy": "forbidden",
+            "workspace_dependency": {
+                "basis": "workspace_state",
+                "empty_workspace": "answer_changes",
+                "anchor": "explicit_workspace_reference",
+            },
+            "search_query": question,
+        },
+        classified_type="read",
+        semantic_only=True,
+        user_text=question,
+    )
+    workspace_sources = [
+        source
+        for source in contract["source_requirements"]
+        if source["kind"] in {"notes", "posts"}
+    ]
+
+    assert contract["query_ir_owner"] == "bootstrap_planner"
+    assert contract["workspace_evidence_forbidden"] is True
+    assert workspace_sources
+    assert all(source["discovery_obligation"] == "required" for source in workspace_sources)
+    assert all(source["evidence_obligation"] == "optional" for source in workspace_sources)
+    assert all(
+        source["selection_cardinality"] == {"min": 0, "max": 0}
+        for source in workspace_sources
+    )

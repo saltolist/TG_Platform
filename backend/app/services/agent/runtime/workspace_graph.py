@@ -78,17 +78,21 @@ _READ_QUERY_IR_SCHEMA = {
     "type": "object",
     "additionalProperties": False,
     "required": [
+        "query_ir_version",
         "type",
         "task_profile",
         "selection_mode",
         "requires_evidence",
         "answer_shape",
+        "answer_aggregation",
         "answer_obligations",
-        "required_sources",
+        "source_roles",
+        "workspace_evidence_policy",
         "workspace_dependency",
         "search_query",
     ],
     "properties": {
+        "query_ir_version": {"type": "integer", "const": 2},
         "type": {"type": "string", "const": "read"},
         "task_profile": {
             "type": "string",
@@ -134,6 +138,44 @@ _READ_QUERY_IR_SCHEMA = {
                 },
             },
         },
+        "answer_aggregation": {
+            "type": "object",
+            "additionalProperties": False,
+            "description": (
+                "Logical operation that produces the answer. Use catalog_aggregate "
+                "when catalog metadata alone can produce the exact result; use "
+                "count_members when every corpus row needs semantic inclusion "
+                "classification before deterministic counting; otherwise use none."
+            ),
+            "required": ["mode", "member_predicate", "catalog_properties"],
+            "properties": {
+                "mode": {
+                    "type": "string",
+                    "enum": ["none", "count_members", "catalog_aggregate"],
+                },
+                "member_predicate": {
+                    "anyOf": [
+                        {"type": "string", "minLength": 1, "maxLength": 400},
+                        {"type": "null"},
+                    ],
+                },
+                "catalog_properties": {
+                    "type": "array",
+                    "items": {
+                        "type": "string",
+                        "enum": [
+                            "total_notes",
+                            "total_posts",
+                            "draft_posts",
+                            "scheduled_posts",
+                            "published_posts",
+                            "image_count",
+                            "file_count",
+                        ],
+                    },
+                },
+            },
+        },
         "answer_obligations": {
             "type": "array",
             "items": {
@@ -161,20 +203,83 @@ _READ_QUERY_IR_SCHEMA = {
                 },
             },
         },
-        "required_sources": {
+        "source_roles": {
             "type": "array",
             "items": {
-                "type": "string",
-                "enum": [
-                    "notes",
-                    "posts",
-                    "analytics",
-                    "comments",
-                    "attachments",
-                    "images",
-                    "channel",
+                "type": "object",
+                "additionalProperties": False,
+                "required": [
+                    "kind",
+                    "membership_role",
+                    "predicate_kind",
+                    "coverage",
+                    "evidence_granularity",
+                    "query_goal",
+                    "statuses",
+                    "evidence_requirements",
                 ],
+                "properties": {
+                    "kind": {
+                        "type": "string",
+                        "enum": [
+                            "notes",
+                            "posts",
+                            "analytics",
+                            "comments",
+                            "attachments",
+                            "images",
+                            "channel",
+                        ],
+                    },
+                    "membership_role": {
+                        "type": "string",
+                        "enum": ["required_evidence", "optional_support"],
+                    },
+                    "predicate_kind": {
+                        "type": "string",
+                        "enum": ["structural", "semantic", "mixed"],
+                    },
+                    "coverage": {
+                        "type": "string",
+                        "enum": ["relevant", "complete"],
+                    },
+                    "evidence_granularity": {
+                        "type": "string",
+                        "enum": ["catalog", "semantic_card", "full_text"],
+                    },
+                    "query_goal": {"type": "string", "minLength": 1, "maxLength": 1000},
+                    "statuses": {
+                        "type": "array",
+                        "items": {
+                            "type": "string",
+                            "enum": ["draft", "scheduled", "published"],
+                        },
+                    },
+                    "evidence_requirements": {
+                        "type": "array",
+                        "items": {
+                            "type": "object",
+                            "additionalProperties": False,
+                            "required": ["property", "operator", "scope"],
+                            "properties": {
+                                "property": {"type": "string", "minLength": 1, "maxLength": 400},
+                                "operator": {
+                                    "type": "string",
+                                    "enum": ["exists", "count", "filter", "equals", "contains"],
+                                },
+                                "scope": {
+                                    "type": "string",
+                                    "enum": ["source", "target", "member", "corpus", "aggregate"],
+                                },
+                            },
+                        },
+                    },
+                },
             },
+        },
+        "workspace_evidence_policy": {
+            "type": "string",
+            "enum": ["eligible", "forbidden"],
         },
         "workspace_dependency": {
             "type": "object",
@@ -352,6 +457,41 @@ anchor="decision_prerequisite" используй для recommendation/synthesi
 Для "read" добавь поле "search_query" — самодостаточный resolved goal для поиска и последующего Context Selector. Это должен быть один грамматический вопрос, который сохраняет точный предмет, запрошенный predicate, отрицание, условность и причинность исходного запроса; разреши в нем анафоры из диалога, но не превращай вопрос в список ключевых слов и не расширяй его соседними темами. В search_query назови только активный референт: имена объектов, явно исключенных или противопоставленных в диалоге, не упоминай даже с отрицанием. Не отвечай на вопрос внутри search_query, не добавляй гипотезы, предполагаемые факты или альтернативные predicates. Для cross-record сравнения вырази обе уже запрошенные стороны как явные retrieval predicates и затем само сравнение: что указал draft/proposed record, что указал final/signed record и совпадают ли значения; не добавляй сами значения. Если анафор нет и это не сравнение, сохрани исходный вопрос, ограничившись грамматической нормализацией и явным названием уже указанного предмета. Для "finish" поле не требуется и может быть пустым. Не пытайся превратить материалы прошлого ответа в один целевой DB-объект."""
 
 
+WORKSPACE_QUERY_IR_V2_SYSTEM = """Ты единственный semantic Query IR planner.
+Верни один JSON-объект строго по переданной schema. Не выбирай конкретные материалы и
+не возвращай их ID. Определи логическую операцию ответа, источники-корпуса и проверяемые
+условия до discovery.
+
+source_roles задаёт только смысловые роли корпусов. required_evidence означает, что без
+этого корпуса точный ответ невозможен. optional_support означает, что корпус всё равно
+надо искать для recall, но его материалы не могут вытеснять required evidence и в финальном
+pack допустимо не более двух таких материалов. Не добавляй корпус по привычке или только
+потому, что он существует.
+
+Выбери answer_aggregation контрфактуально:
+- catalog_aggregate: точный ответ полностью получается из catalog metadata; два workspace
+  с одинаковыми metadata и любым разным текстом объектов неизбежно дают один ответ;
+- count_members: текст или смысл каждой записи способен изменить её принадлежность к
+  подсчитываемой категории; верни positive unary member_predicate для одной записи;
+- none: ответ не является агрегированием членов корпуса.
+Не представляй агрегирование как обычные fact obligations.
+
+Доступные catalog properties:
+- notes: total_notes, file_count, image_count;
+- posts: total_posts, draft_posts, scheduled_posts, published_posts, file_count,
+  image_count.
+Для catalog_aggregate укажи точные catalog_properties, required source сделай structural,
+coverage=complete, evidence_granularity=catalog. Для count_members required source сделай
+semantic или mixed, coverage=complete, evidence_granularity=semantic_card и верни ровно
+одну obligation с origin=member_predicate. Для обычного semantic ответа атомизируй только
+независимо фальсифицируемые evidence premises; чистый итог синтеза материалом не является.
+
+workspace_evidence_policy=forbidden означает: workspace всё равно надо искать, но найденные
+материалы нельзя передавать в финальный pack. Во всех остальных случаях eligible.
+search_query должен сохранять смысл, условия и отрицания запроса, а не быть набором keywords.
+Классифицируй смысл и логику, не отдельные слова или язык формулировки."""
+
+
 def _apply_classifier_dependency_gate(call: Mapping[str, Any]) -> dict[str, Any]:
     """Honor the reasoner's explicit empty-workspace counterfactual."""
 
@@ -458,6 +598,9 @@ _CATALOG_STRUCTURAL_PROPERTIES_BY_KIND = {
             "created_at",
             "total_members",
             "total_posts",
+            "draft_posts",
+            "scheduled_posts",
+            "published_posts",
             *(value.partition(".")[2] for value in POST_PROPERTIES),
         }
     ),
@@ -560,6 +703,10 @@ _RECORD_MEMBER_WORD_RE = re.compile(
     r"note\w*|post\w*|material\w*|file\w*|image\w*)\b",
     re.IGNORECASE,
 )
+_RECORD_COUNT_RE = re.compile(
+    r"\b(?:сколько|how\s+many|count\s+(?:my\s+|the\s+)?)\b",
+    re.IGNORECASE,
+)
 
 
 def _explicit_inventory_cardinality(query: str) -> tuple[int, str] | None:
@@ -578,6 +725,27 @@ def _explicit_inventory_cardinality(query: str) -> tuple[int, str] | None:
     tail = " ".join(tail_words)
     unit = "record" if _RECORD_MEMBER_WORD_RE.search(tail) else "value"
     return count, unit
+
+
+def _semantic_record_count_query(
+    query: str,
+    *,
+    explicit_source_kinds: set[str],
+    baseline_by_kind: Mapping[str, Mapping[str, Any]],
+) -> bool:
+    """Return whether a scalar count needs complete semantic member labels."""
+
+    return bool(
+        _RECORD_COUNT_RE.search(str(query or ""))
+        and explicit_source_kinds.intersection({"notes", "posts"})
+        and any(
+            str((baseline_by_kind.get(kind) or {}).get("predicate_kind") or "")
+            in {"semantic", "mixed"}
+            for kind in explicit_source_kinds
+        )
+    )
+
+
 _COMPOSITION_RE = re.compile(
     r"(?:\b(?:сравн\w*|сопостав\w*|свяж\w*|связ\w*|объедин\w*|соответств\w*|между|сквозн\w*|складыва\w*|план\w*.*пост\w*|post\w*.*note\w*|note\w*.*post\w*)\b)",
     re.IGNORECASE,
@@ -594,24 +762,64 @@ _CROSS_RECORD_COMPARISON_RE = re.compile(
 )
 
 
-def _classifier_query_source_kinds(query: str) -> tuple[str, ...]:
-    """Return only source kinds explicitly named by the frozen user query."""
+def _classifier_query_source_scope(query: str) -> tuple[tuple[str, ...], tuple[str, ...]]:
+    """Compile positive and negative source mentions from the frozen query."""
 
     lowered = str(query or "").casefold()
     kinds: list[str] = []
-    if re.search(r"(?:\b(?:замет(?:ка|ки|ок|ке|ку|кой|ками|ках)|notes?)\b)", lowered):
+    excluded: list[str] = []
+    note_pattern = r"(?:замет\w*|notes?)"
+    post_pattern = r"(?:пост(?:ы|ов|ам|ами|ах|а|у|ом|е)?|posts?)"
+    note_excluded = bool(
+        re.search(
+            rf"(?:\bбез\b|\bне\s+(?:использ\w*|опира\w*)|\bwithout\b|"
+            rf"\bdo\s+not\s+(?:use|rely\s+on))[^.!?\n]{{0,36}}\b{note_pattern}\b",
+            lowered,
+        )
+    )
+    post_excluded = bool(
+        re.search(
+            rf"(?:\bбез\b|\bне\s+(?:использ\w*|опира\w*)|\bwithout\b|"
+            rf"\bdo\s+not\s+(?:use|rely\s+on))[^.!?\n]{{0,36}}\b{post_pattern}\b",
+            lowered,
+        )
+    )
+    if re.search(rf"\b{note_pattern}\b", lowered) and not note_excluded:
         kinds.append("notes")
-    if re.search(
-        r"(?:\b(?:пост(?:ы|ов|ам|ами|ах|а|у|ом|е)?|posts?)\b)", lowered
-    ):
+    elif note_excluded:
+        excluded.append("notes")
+    if re.search(rf"\b{post_pattern}\b", lowered) and not post_excluded:
         kinds.append("posts")
+    elif post_excluded:
+        excluded.append("posts")
     if _EXPLICIT_ATTACHMENT_PREDICATE_RE.search(lowered):
         # Attachments are still not admitted as an independent source here. They
         # must enter through a verified parent relation in the catalog assembler.
         # The marker is used only to prevent a model hallucination from creating
         # an attachment obligation for an unrelated query.
         kinds.append("attachments")
-    return tuple(dict.fromkeys(kinds))
+    return tuple(dict.fromkeys(kinds)), tuple(dict.fromkeys(excluded))
+
+
+def _classifier_query_source_kinds(query: str) -> tuple[str, ...]:
+    """Return only positively named source kinds from the frozen user query."""
+
+    return _classifier_query_source_scope(query)[0]
+
+
+_WORKSPACE_EVIDENCE_EXCLUSION_RE = re.compile(
+    r"(?:\bбез\s+опоры\s+на\s+(?:мои\s+)?материал\w*|"
+    r"\bне\s+(?:использ\w*|опира\w*)[^.!?\n]{0,24}\b(?:мои\s+)?материал\w*|"
+    r"\bwithout\s+(?:relying\s+on|using)\s+(?:my\s+)?(?:workspace\s+)?materials?\b|"
+    r"\bdo\s+not\s+(?:use|rely\s+on)\s+(?:my\s+)?(?:workspace\s+)?materials?\b)",
+    re.IGNORECASE,
+)
+
+
+def _explicit_workspace_evidence_exclusion(query: str) -> bool:
+    """Keep discovery active while forbidding workspace evidence membership."""
+
+    return bool(_WORKSPACE_EVIDENCE_EXCLUSION_RE.search(str(query or "")))
 
 
 def _canonical_post_statuses(query: str) -> tuple[str, ...]:
@@ -843,6 +1051,218 @@ def _finite_comparison_query(query: str) -> bool:
     )
 
 
+def _planner_owned_query_ir_delta(
+    contract: Mapping[str, Any],
+    call: Mapping[str, Any],
+    *,
+    query: str,
+) -> dict[str, Any]:
+    """Compile validated planner Query IR without inspecting query wording."""
+
+    baseline_by_kind = {
+        str(source.get("kind") or ""): dict(source)
+        for source in contract.get("source_requirements") or ()
+        if isinstance(source, Mapping) and str(source.get("kind") or "")
+    }
+    roles: list[dict[str, Any]] = []
+    seen_kinds: set[str] = set()
+    for raw_role in call.get("source_roles") or ():
+        if not isinstance(raw_role, Mapping):
+            continue
+        kind = str(raw_role.get("kind") or "").strip().lower()
+        membership_role = str(raw_role.get("membership_role") or "")
+        predicate_kind = str(raw_role.get("predicate_kind") or "")
+        coverage = str(raw_role.get("coverage") or "")
+        granularity = str(raw_role.get("evidence_granularity") or "")
+        query_goal = " ".join(str(raw_role.get("query_goal") or "").split())[:1000]
+        if (
+            kind not in baseline_by_kind
+            or kind in seen_kinds
+            or membership_role not in {"required_evidence", "optional_support"}
+            or predicate_kind not in {"structural", "semantic", "mixed"}
+            or coverage not in {"relevant", "complete"}
+            or granularity not in {"catalog", "semantic_card", "full_text"}
+            or not query_goal
+        ):
+            continue
+        requirements = [
+            {
+                "property": " ".join(str(item.get("property") or "").split())[:400],
+                "operator": str(item.get("operator") or ""),
+                "scope": str(item.get("scope") or ""),
+            }
+            for item in raw_role.get("evidence_requirements") or ()
+            if isinstance(item, Mapping)
+            and str(item.get("property") or "").strip()
+            and str(item.get("operator") or "")
+            in {"exists", "count", "filter", "equals", "contains"}
+            and str(item.get("scope") or "")
+            in {"source", "target", "member", "corpus", "aggregate"}
+        ][:12]
+        roles.append(
+            {
+                "kind": kind,
+                "membership_role": membership_role,
+                "predicate_kind": predicate_kind,
+                "coverage": coverage,
+                "evidence_granularity": granularity,
+                "query_goal": query_goal,
+                "statuses": [
+                    str(status)
+                    for status in raw_role.get("statuses") or ()
+                    if str(status) in {"draft", "scheduled", "published"}
+                ],
+                "evidence_requirements": requirements,
+                "_runtime_planner_owned_scope": True,
+            }
+        )
+        seen_kinds.add(kind)
+
+    aggregation = dict(call.get("answer_aggregation") or {})
+    aggregation_mode = str(aggregation.get("mode") or "none")
+    member_predicate = " ".join(
+        str(aggregation.get("member_predicate") or "").split()
+    )[:400]
+    required_kinds = {
+        role["kind"]
+        for role in roles
+        if role["membership_role"] == "required_evidence"
+    }
+    optional_kinds = {
+        role["kind"]
+        for role in roles
+        if role["membership_role"] == "optional_support"
+    }
+    raw_shape = dict(call.get("answer_shape") or {})
+    answer_shape = {
+        "kind": str(raw_shape.get("kind") or "freeform"),
+        "expected_member_count": raw_shape.get("expected_member_count"),
+        "inventory_unit": raw_shape.get("inventory_unit"),
+    }
+    selection_mode = str(call.get("selection_mode") or "record")
+    obligation_specs = list(_planner_query_obligation_specs(call.get("answer_obligations")))
+    if aggregation_mode == "count_members" and member_predicate:
+        selection_mode = "member_inventory"
+        answer_shape = {
+            "kind": "scalar",
+            "expected_member_count": None,
+            "inventory_unit": None,
+        }
+        obligation_specs = [(member_predicate, "member_predicate")]
+        for role in roles:
+            if role["kind"] in required_kinds:
+                role["coverage"] = "complete"
+                if role["predicate_kind"] == "structural":
+                    role["predicate_kind"] = "mixed"
+                role["evidence_granularity"] = "semantic_card"
+    elif aggregation_mode == "catalog_aggregate":
+        catalog_properties = {
+            str(value) for value in aggregation.get("catalog_properties") or ()
+        }
+        for role in roles:
+            supported = _CATALOG_STRUCTURAL_PROPERTIES_BY_KIND.get(role["kind"], set())
+            role_properties = catalog_properties & supported
+            if not role_properties:
+                continue
+            role["predicate_kind"] = "structural"
+            role["coverage"] = "complete"
+            role["evidence_granularity"] = "catalog"
+            role["evidence_requirements"] = [
+                {
+                    "property": property_name,
+                    "operator": "count",
+                    "scope": "aggregate",
+                }
+                for property_name in sorted(role_properties)
+            ]
+        # Catalog requirements are the complete proof. Keeping the planner's
+        # answer-shaped fact as a semantic obligation would incorrectly demand
+        # full-text evidence for an operation already discharged by metadata.
+        obligation_specs = []
+
+    descriptors = [
+        {
+            "kind": role["kind"],
+            "query_goal": role["query_goal"],
+            "coverage": role["coverage"],
+            "predicate_kind": role["predicate_kind"],
+            "evidence_granularity": role["evidence_granularity"],
+            "claim_modality": "descriptive",
+            "statuses": role["statuses"],
+            "evidence_requirements": role["evidence_requirements"],
+            "_runtime_planner_owned_scope": True,
+        }
+        for role in roles
+    ]
+    workspace_evidence_forbidden = (
+        str(call.get("workspace_evidence_policy") or "eligible") == "forbidden"
+    )
+    if workspace_evidence_forbidden:
+        for kind in ("notes", "posts"):
+            if kind not in baseline_by_kind or kind in seen_kinds:
+                continue
+            roles.append(
+                {
+                    "kind": kind,
+                    "membership_role": "optional_support",
+                    "predicate_kind": "semantic",
+                    "coverage": "relevant",
+                    "evidence_granularity": "semantic_card",
+                    "query_goal": str(call.get("search_query") or query)[:1000],
+                    "statuses": [],
+                    "evidence_requirements": [],
+                    "_runtime_planner_owned_scope": True,
+                }
+            )
+            optional_kinds.add(kind)
+            seen_kinds.add(kind)
+        descriptors = [
+            {
+                "kind": role["kind"],
+                "query_goal": role["query_goal"],
+                "coverage": role["coverage"],
+                "predicate_kind": role["predicate_kind"],
+                "evidence_granularity": role["evidence_granularity"],
+                "claim_modality": "descriptive",
+                "statuses": role["statuses"],
+                "evidence_requirements": role["evidence_requirements"],
+                "_runtime_planner_owned_scope": True,
+            }
+            for role in roles
+        ]
+    return {
+        **dict(call),
+        "type": "read",
+        "search_query": str(call.get("search_query") or query),
+        "required_sources": sorted(required_kinds),
+        "source_requirements": descriptors,
+        "_runtime_source_neutral_discovery": False,
+        "_runtime_source_neutral_membership": False,
+        "_runtime_optional_source_kinds": sorted(optional_kinds),
+        "_runtime_forbid_workspace_evidence": workspace_evidence_forbidden,
+        "_runtime_query_ir_owner": "bootstrap_planner",
+        "_runtime_semantic_fallbacks": [],
+        "answer_shape": answer_shape,
+        "answer_obligations": [
+            {"description": description, "origin": origin or "fact"}
+            for description, origin in obligation_specs[:12]
+        ],
+        "answer_operations": (
+            [
+                {
+                    "description": "derive the requested aggregate from verified catalog properties",
+                    "kind": "synthesis",
+                    "input_obligation_ids": [],
+                }
+            ]
+            if aggregation_mode == "catalog_aggregate"
+            else []
+        ),
+        "selection_mode": selection_mode,
+        "semantic_contract_source": "bootstrap_planner_query_ir_v2",
+    }
+
+
 def _semantic_classifier_delta(
     contract: Mapping[str, Any],
     call: Mapping[str, Any],
@@ -860,7 +1280,11 @@ def _semantic_classifier_delta(
 
     result = dict(call or {})
     query = str(user_text or "").strip()
-    explicit_kinds = set(_classifier_query_source_kinds(query))
+    if result.get("query_ir_version") == 2:
+        return _planner_owned_query_ir_delta(contract, result, query=query)
+    explicit_source_kinds, excluded_source_kinds = _classifier_query_source_scope(query)
+    explicit_kinds = set(explicit_source_kinds)
+    excluded_kinds = set(excluded_source_kinds)
     baseline_kinds = {
         str(source.get("kind") or "")
         for source in contract.get("source_requirements") or ()
@@ -961,6 +1385,16 @@ def _semantic_classifier_delta(
         classified_shape = (
             "inventory" if fallback_complete or fallback_cross_record else "freeform"
         )
+    semantic_record_count = _semantic_record_count_query(
+        query,
+        explicit_source_kinds=explicit_primary,
+        baseline_by_kind=baseline_by_kind,
+    )
+    if semantic_record_count:
+        # The answer is one scalar, while its proof is the complete set of
+        # row-local member decisions. Keeping those two cardinalities separate
+        # prevents a count question from collapsing to one representative row.
+        classified_shape = "scalar"
     expected_member_count = (
         raw_shape.get("expected_member_count")
         if isinstance(raw_shape, Mapping)
@@ -995,7 +1429,9 @@ def _semantic_classifier_delta(
     # bounded decision is frozen here; later retrieval calls only label evidence
     # against these obligations and cannot reinterpret record vs composition.
     # Structural query predicates remain deterministic boundary overrides.
-    if _finite_comparison_query(query) and classified_shape != "inventory":
+    if semantic_record_count:
+        classified_mode = "member_inventory"
+    elif _finite_comparison_query(query) and classified_shape != "inventory":
         # A bounded choice between named/ordinal alternatives asks for one
         # coherent comparison record. This is an answer-cardinality boundary,
         # not a semantic verdict about which candidate wins.
@@ -1057,7 +1493,6 @@ def _semantic_classifier_delta(
         classified_mode == "record"
         and len(declared_source_kinds) > 1
         and len(query_obligations) > 1
-        and not _finite_comparison_query(query)
     ):
         # A one-record pack cannot satisfy disjoint corpora which the same
         # frozen planner output declared independently necessary. Resolve this
@@ -1215,6 +1650,16 @@ def _semantic_classifier_delta(
         for origin in [resolved_obligation_origins.get(description, "")]
         if origin
     }
+    if semantic_record_count and semantic_obligations:
+        # A scalar semantic count is executed as complete row classification
+        # followed by deterministic counting. The labeler must therefore test
+        # the inclusion predicate of one row, never whether that row proves the
+        # aggregate number requested by the user.
+        row_local_predicate = semantic_obligations[0]
+        semantic_obligations = [row_local_predicate]
+        semantic_obligation_origins = {
+            row_local_predicate: "member_predicate"
+        }
     if classified_mode == "cross_record_inventory":
         # Cross-record membership must be decidable for one opened row at a
         # time. Planner outputs such as "members exist" or "every member is
@@ -1345,6 +1790,13 @@ def _semantic_classifier_delta(
             "source_requirements": descriptors,
             "_runtime_source_neutral_discovery": bool(
                 source_neutral_workspace or relation_needs_both_corpora
+            ),
+            "_runtime_source_neutral_membership": bool(source_neutral_workspace),
+            "_runtime_optional_source_kinds": sorted(
+                excluded_kinds & selected_kinds
+            ),
+            "_runtime_forbid_workspace_evidence": (
+                _explicit_workspace_evidence_exclusion(query)
             ),
             "answer_shape": {
                 "kind": classified_shape,
@@ -1489,6 +1941,8 @@ def _apply_classifier_source_policy(
     query_goal: str = "",
     forced_required_sources: set[str] | None = None,
     source_neutral_discovery: bool = False,
+    optional_source_kinds: set[str] | None = None,
+    planner_owned_query_ir: bool = False,
 ) -> dict[str, Any]:
     """Make semantic classifier output authoritative for factual grounding.
 
@@ -1509,6 +1963,7 @@ def _apply_classifier_source_policy(
         if isinstance(item, dict)
         and str(item.get("kind") or "").strip().lower() in _CLASSIFIER_SOURCE_KINDS
     }
+    optional_kinds = set(optional_source_kinds or ())
     typed = int(contract.get("version") or 0) >= 3
     # For typed calls, the detailed descriptors are authoritative. A bare
     # required_sources entry cannot create a semantic evidence obligation with
@@ -1526,6 +1981,7 @@ def _apply_classifier_source_policy(
             | set(classified_by_kind)
             | set(forced_required_sources or ())
         )
+    required.difference_update(optional_kinds)
     sources = [dict(item) for item in contract.get("source_requirements") or ()]
     preserve_post_target_fidelity = (
         str(contract.get("scope") or "") == "post"
@@ -1563,6 +2019,8 @@ def _apply_classifier_source_policy(
             source["evidence_obligation"] = "required" if kind in required else "optional"
             if kind in required:
                 source["discovery_obligation"] = "required"
+            elif planner_owned_query_ir and kind in classified_by_kind:
+                source["discovery_obligation"] = "required"
             elif (
                 source_neutral_discovery
                 and kind in {"notes", "posts"}
@@ -1589,6 +2047,14 @@ def _apply_classifier_source_policy(
         predicate_kind = str(classified.get("predicate_kind") or "")
         if predicate_kind not in {"structural", "semantic", "mixed"}:
             predicate_kind = str(source.get("predicate_kind") or "semantic")
+        elif (
+            not planner_owned_query_ir
+            and
+            str(source.get("predicate_kind") or "") == "mixed"
+            and predicate_kind == "structural"
+        ):
+            # A deterministic semantic filter cannot be erased by the model.
+            predicate_kind = "mixed"
         classified_requirements = [
             dict(item)
             for item in classified.get("evidence_requirements") or ()
@@ -1617,6 +2083,7 @@ def _apply_classifier_source_policy(
         )
         if (
             kind == "posts"
+            and not planner_owned_query_ir
             and discovery_mode == "semantic_relevance"
             and str(classified.get("discovery_mode") or "") != "catalog_window"
             and str(classified.get("_runtime_lifecycle_scope") or "")
@@ -1690,6 +2157,11 @@ def _apply_classifier_source_policy(
                     ),
                 )
             )
+            if kind in optional_kinds and cardinality["max"] > 0:
+                # A negatively scoped corpus stays searchable and may provide
+                # bounded supporting context, but cannot consume the primary
+                # source's proof budget or expand into an unbounded side pack.
+                cardinality["max"] = min(2, int(cardinality["max"]))
             source["selection_cardinality"] = cardinality
             if predicate_kind in {"structural", "mixed"}:
                 source["coverage"] = "complete"
@@ -2439,8 +2911,13 @@ def _materialize_classifier_turn_contract(
         if isinstance(call.get("answer_shape"), Mapping)
         else {}
     )
+    planner_owned_query_ir = (
+        str(call.get("_runtime_query_ir_owner") or "") == "bootstrap_planner"
+    )
     forced_required_sources: set[str] = set()
     if (
+        not planner_owned_query_ir
+        and
         str(classified_answer_shape.get("kind") or "") == "inventory"
         and _has_explicit_post_status_filter(
             f"{contract.get('goal') or contract.get('search_query') or ''} "
@@ -2467,9 +2944,16 @@ def _materialize_classifier_turn_contract(
         for item in (call.get("source_requirements") or ())
         if isinstance(item, dict)
     ]
+    optional_source_kinds = {
+        str(item).strip().lower()
+        for item in call.get("_runtime_optional_source_kinds") or ()
+        if str(item).strip().lower() in _CLASSIFIER_SOURCE_KINDS
+    }
     source_neutral_discovery = bool(
         call.get("_runtime_source_neutral_discovery")
         or (
+            not planner_owned_query_ir
+            and
             user_text
             and not _classifier_query_source_kinds(user_text)
             and {"notes", "posts"}.issubset(
@@ -2482,6 +2966,14 @@ def _materialize_classifier_turn_contract(
             and classified_type == "read"
         )
     )
+    source_neutral_membership = bool(
+        call.get("_runtime_source_neutral_membership")
+        or (
+            source_neutral_discovery
+            and not optional_source_kinds
+            and not _classifier_query_source_kinds(user_text)
+        )
+    )
     result = _apply_classifier_source_policy(
         contract,
         required_sources=required_sources,
@@ -2490,15 +2982,42 @@ def _materialize_classifier_turn_contract(
         query_goal=str(call.get("search_query") or ""),
         forced_required_sources=forced_required_sources,
         source_neutral_discovery=source_neutral_discovery,
+        optional_source_kinds=optional_source_kinds,
+        planner_owned_query_ir=planner_owned_query_ir,
     )
+    result["membership_optional_support_source_ids"] = sorted(
+        str(source.get("source_id") or "")
+        for source in result.get("source_requirements") or ()
+        if isinstance(source, Mapping)
+        and str(source.get("kind") or "") in optional_source_kinds
+        and str(source.get("source_id") or "")
+    )
+    if bool(call.get("_runtime_forbid_workspace_evidence")):
+        rewritten_sources: list[dict[str, Any]] = []
+        for raw_source in result.get("source_requirements") or ():
+            source = dict(raw_source)
+            if str((source.get("scope") or {}).get("mode") or "") == "corpus":
+                source["evidence_obligation"] = "optional"
+                source["selection_cardinality"] = {"min": 0, "max": 0}
+                source["evidence_requirements"] = []
+            rewritten_sources.append(source)
+        result["source_requirements"] = rewritten_sources
+        result["answerability_without_evidence"] = True
+        result["workspace_evidence_forbidden"] = True
     value_inventory = (
         str(classified_answer_shape.get("kind") or "") == "inventory"
         and str(classified_answer_shape.get("inventory_unit") or "") == "value"
     )
     result["membership_source_scope"] = (
         "source_neutral"
-        if source_neutral_discovery or value_inventory
+        if source_neutral_membership or value_inventory
         else "explicit_sources"
+    )
+    result["query_ir_owner"] = (
+        "bootstrap_planner" if planner_owned_query_ir else "legacy_semantic_fallback"
+    )
+    result["semantic_fallbacks"] = list(
+        call.get("_runtime_semantic_fallbacks") or ()
     )
     result = _apply_classifier_answer_shape(
         result,
@@ -2534,6 +3053,8 @@ def _materialize_classifier_turn_contract(
         if part
     )
     if (
+        not planner_owned_query_ir
+        and
         str(result.get("selection_mode") or "") == "record"
         and _finite_comparison_query(comparison_query)
     ):
@@ -2905,13 +3426,7 @@ async def workspace_agent_node(
                 typed_read=typed_read,
             )
             if bootstrap_transport == ChatCompletionCapability.STRICT_JSON_SCHEMA:
-                bootstrap_system += (
-                    "\n\nДля уже установленного typed read верни только поля строгой "
-                    "Query IR schema. Не возвращай source_requirements или executable "
-                    "retrieval policy: source scope, coverage, fidelity, statuses and "
-                    "budgets компилирует deterministic runtime. Сохрани все правила "
-                    "атомизации answer_obligations выше."
-                )
+                bootstrap_system = WORKSPACE_QUERY_IR_V2_SYSTEM
             raw = await call_llm_with_deadline(
                 ctx,
                 phase="bootstrap.classifier",
@@ -2934,7 +3449,7 @@ async def workspace_agent_node(
                 max_tokens=1200,
                 output_capability=bootstrap_transport,
                 output_schema_name=(
-                    "workspace_read_query_ir_v1"
+                    "workspace_read_query_ir_v2"
                     if bootstrap_transport
                     == ChatCompletionCapability.STRICT_JSON_SCHEMA
                     else None

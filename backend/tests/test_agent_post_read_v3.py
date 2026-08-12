@@ -2827,7 +2827,7 @@ def test_member_registry_prefers_evidence_corpus_over_optional_discovery_corpus(
     }
 
 
-def test_relational_member_registry_includes_both_mapping_sides() -> None:
+def test_relational_member_registry_excludes_optional_recall_source() -> None:
     notes = _source("workspace-notes")
     posts = _source("workspace-posts", required=False)
     contract = _contract(
@@ -2837,10 +2837,114 @@ def test_relational_member_registry_includes_both_mapping_sides() -> None:
         selection_mode="cross_record_inventory",
     )
 
-    assert _member_classification_source_ids(contract) == {
-        "workspace-notes",
-        "workspace-posts",
-    }
+    assert _member_classification_source_ids(contract) == {"workspace-notes"}
+
+
+def test_optional_source_cannot_displace_required_proofs() -> None:
+    candidates = _opened_candidates(
+        ("note:broad", "workspace-notes"),
+        ("note:support", "workspace-notes"),
+        ("post:first-critical", "workspace-posts"),
+        ("post:second-critical", "workspace-posts"),
+    )
+    notes = _source("workspace-notes", required=False, maximum=2)
+    posts = _source("workspace-posts", maximum=4)
+    contract = _contract(
+        notes,
+        posts,
+        obligations=("first post premise", "second post premise"),
+        selection_mode="cross_record_comparison",
+    )
+    contract["membership_optional_support_source_ids"] = ["workspace-notes"]
+    plan = empty_material_plan()
+    plan["budget"] = {"max_objects": 4}
+    positions, _trace = _assemble_obligation_coverage_positions(
+        candidates=candidates,
+        contract=contract,
+        material_plan=plan,
+        obligation_count=2,
+        support={
+            0: {0: 0, 1: 0},
+            1: {0: 0},
+            2: {0: 0},
+            3: {1: 0},
+        },
+        pair_scores={
+            (0, 0): 4.0,
+            (0, 1): 4.0,
+            (1, 0): 3.8,
+            (2, 0): 3.3,
+            (3, 1): 3.3,
+        },
+        include_prior_selected=False,
+        preserve_confirmed=True,
+    )
+
+    assert {2, 3}.issubset(positions)
+    assert len({position for position in positions if position in {0, 1}}) <= 2
+
+
+@pytest.mark.asyncio
+async def test_zero_membership_contract_demotes_all_selector_positives() -> None:
+    candidates = _opened_candidates(
+        ("note:semantic-hit", "workspace-notes"),
+        ("post:semantic-hit", "workspace-posts"),
+    )
+    notes = _source("workspace-notes", required=False, maximum=0)
+    posts = _source("workspace-posts", required=False, maximum=0)
+    contract = _contract(notes, posts)
+    contract["workspace_evidence_forbidden"] = True
+
+    decision, calls, trace, deadline = await _run_precision_confirmation(
+        config={"configurable": {"runtime_context": _ctx()}},
+        contract=contract,
+        candidates=candidates,
+        selector_candidates=candidates,
+        primary=_primary(candidates),
+        material_plan=empty_material_plan(),
+        selector_question="Search, but do not use workspace evidence.",
+        transport_tier=ChatCompletionCapability.STRICT_JSON_SCHEMA,
+        verification_calls_used=0,
+        verification_call_limit=2,
+        include_opened_recovery_pool=True,
+    )
+
+    assert calls == 0
+    assert deadline is False
+    assert trace["schema_result"] == "deterministic_zero_membership"
+    assert trace["confirmed_refs"] == []
+    assert all(item.relevance.value == "irrelevant" for item in decision.assessments)
+
+
+@pytest.mark.asyncio
+async def test_structural_only_planner_proof_demotes_optional_semantic_members() -> None:
+    candidates = _opened_candidates(("note:ambient", "workspace-notes"))
+    notes = _source("workspace-notes", required=False)
+    posts = _source("workspace-posts")
+    posts["predicate_kind"] = "structural"
+    posts["required_fidelity"] = "catalog"
+    posts["selection_cardinality"] = {"min": 0, "max": 0}
+    contract = _contract(notes, posts, obligations=())
+    contract["query_ir_owner"] = "bootstrap_planner"
+
+    decision, calls, trace, deadline = await _run_precision_confirmation(
+        config={"configurable": {"runtime_context": _ctx()}},
+        contract=contract,
+        candidates=candidates,
+        selector_candidates=candidates,
+        primary=_primary(candidates),
+        material_plan=empty_material_plan(),
+        selector_question="Return the verified catalog aggregate.",
+        transport_tier=ChatCompletionCapability.STRICT_JSON_SCHEMA,
+        verification_calls_used=0,
+        verification_call_limit=2,
+    )
+
+    assert calls == 0
+    assert deadline is False
+    assert trace["schema_result"] == "deterministic_structural_membership"
+    assert trace["confirmed_refs"] == []
+    assert all(item.relevance.value == "irrelevant" for item in decision.assessments)
 
 
 @pytest.mark.asyncio

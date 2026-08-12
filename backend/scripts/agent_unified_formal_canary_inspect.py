@@ -6,6 +6,7 @@ import argparse
 import asyncio
 import hashlib
 import json
+import re
 import sys
 import uuid
 from pathlib import Path
@@ -36,6 +37,39 @@ POSITION_ERRORS = {
     "out_of_range_position",
 }
 MAX_UNEXPECTED_REFS = 2
+
+_NUMBER_WORDS = {
+    "ноль": 0,
+    "один": 1,
+    "одна": 1,
+    "одно": 1,
+    "два": 2,
+    "две": 2,
+    "три": 3,
+    "четыре": 4,
+    "пять": 5,
+    "шесть": 6,
+    "семь": 7,
+    "восемь": 8,
+    "девять": 9,
+    "десять": 10,
+    "одиннадцать": 11,
+    "двенадцать": 12,
+}
+
+
+def _answer_numbers(value: Any) -> set[int]:
+    text = str(value or "").lower()
+    result = {
+        int(match)
+        for match in re.findall(r"(?<![\w.,])\d+(?![\w.,])", text)
+    }
+    result.update(
+        number
+        for word, number in _NUMBER_WORDS.items()
+        if re.search(rf"(?<!\w){re.escape(word)}(?!\w)", text)
+    )
+    return result
 
 
 def _sparse_nonsemantic_candidate(candidate: Mapping[str, Any]) -> bool:
@@ -391,6 +425,15 @@ async def inspect(
     trace = next(
         item.payload for item in reversed(events) if item.event_type == "unified_rollout_trace"
     )
+    answer_payload = next(
+        (
+            event.payload
+            for event in reversed(events)
+            if event.event_type == "answer"
+            and not bool((event.payload or {}).get("partial"))
+        ),
+        {},
+    )
     selector = trace.get("selector") or {}
     assessments = selector.get("assessments") or []
     selected = {
@@ -462,6 +505,11 @@ async def inspect(
         )
     )
     material_plan = trace.get("material_plan") or {}
+    turn_contract = trace.get("turn_contract") or {}
+    query_ir_owner = str(turn_contract.get("query_ir_owner") or "")
+    semantic_fallbacks = [
+        str(item) for item in turn_contract.get("semantic_fallbacks") or ()
+    ]
     source_requirements = {
         str(item.get("source_id") or "")
         for item in (trace.get("turn_contract") or {}).get("source_requirements") or []
@@ -502,10 +550,26 @@ async def inspect(
         for code in event.payload.get("validation_error_codes") or []
     ]
     owner_verified = all(
-        (item.get("provenance") or {}).get("owner_verified") is True for item in final_items
+        (
+            (item.get("provenance") or {}).get("owner_verified") is True
+            or (
+                item.get("fidelity") == "catalog"
+                and (item.get("provenance") or {}).get("producer") == "rag_tools"
+                and str(item.get("source_ref") or "") in {"/notes/", "/posts/"}
+            )
+        )
+        for item in final_items
     )
     status_verified = all(
-        (item.get("provenance") or {}).get("status_verified") is True for item in final_items
+        (
+            (item.get("provenance") or {}).get("status_verified") is True
+            or (
+                item.get("fidelity") == "catalog"
+                and (item.get("provenance") or {}).get("producer") == "rag_tools"
+                and str(item.get("source_ref") or "") in {"/notes/", "/posts/"}
+            )
+        )
+        for item in final_items
     )
     cards_current_fresh = all(
         _sparse_nonsemantic_candidate(item)
@@ -539,6 +603,31 @@ async def inspect(
     )
     unexpected_refs = selected - expected - supporting
     selected_irrelevant_refs = selected & frozen_irrelevant
+    allowed_material_kinds = {
+        str(item).strip().lower()
+        for item in scenario.get("allowed_material_kinds") or ()
+        if str(item).strip()
+    }
+    selected_material_kinds = {
+        ref.split(":", 1)[0]
+        for ref in selected | materialized
+        if ":" in ref
+    }
+    expected_answer_numbers = {
+        int(item) for item in scenario.get("expected_answer_numbers") or ()
+    }
+    actual_answer_numbers = _answer_numbers(answer_payload.get("text"))
+    require_workspace_search = bool(scenario.get("require_workspace_search"))
+    workspace_search_observed = bool(
+        candidates
+        or trace.get("additive_search")
+        or precision.get("called")
+        or primary_provider
+        or reassessment_provider
+    )
+    deterministic_catalog_route = bool(final_items) and all(
+        item.get("fidelity") == "catalog" for item in final_items
+    )
     checks = {
         "completed": (
             run.status == "completed"
@@ -553,7 +642,8 @@ async def inspect(
         ),
         "no_unwanted_materialization": expected_retrieval or not materialized,
         "critical_materialized": critical <= materialized,
-        "first_attempt_valid": _selector_execution_is_valid(
+        "first_attempt_valid": deterministic_catalog_route
+        or _selector_execution_is_valid(
             expected_retrieval=expected_retrieval,
             selector_attempts=selector.get("attempts"),
             primary_provider=primary_provider,
@@ -575,10 +665,21 @@ async def inspect(
             == "research.selector.context_opened_recall_confirmation"
             for item in provider
         ),
-        "single_reasoner_model": _reasoner_model_usage_is_valid(
+        "single_reasoner_model": deterministic_catalog_route
+        or _reasoner_model_usage_is_valid(
             expected_retrieval=expected_retrieval,
             research_models=research_models,
             precision_protocol=str(precision.get("precision_protocol") or ""),
+        ),
+        "expected_answer_numbers_present": (
+            not expected_answer_numbers
+            or expected_answer_numbers <= actual_answer_numbers
+        ),
+        "workspace_search_observed": (
+            not require_workspace_search or workspace_search_observed
+        ),
+        "planner_owned_query_ir": (
+            query_ir_owner == "bootstrap_planner" and not semantic_fallbacks
         ),
     }
     retrieval_outcome = (
@@ -600,6 +701,12 @@ async def inspect(
         "selected_refs": sorted(selected),
         "materialized_candidate_refs": sorted(materialized),
         "unexpected_refs": sorted(unexpected_refs),
+        "selected_material_kinds": sorted(selected_material_kinds),
+        "expected_answer_numbers": sorted(expected_answer_numbers),
+        "actual_answer_numbers": sorted(actual_answer_numbers),
+        "workspace_search_observed": workspace_search_observed,
+        "query_ir_owner": query_ir_owner,
+        "semantic_fallbacks": semantic_fallbacks,
         "unexpected_count": len(unexpected_refs),
         "unexpected_budget": MAX_UNEXPECTED_REFS,
         "missed_critical_refs": sorted(critical - selected),
